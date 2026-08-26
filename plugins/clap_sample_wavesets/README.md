@@ -129,9 +129,8 @@ timer is reserved for static GUI feedback.
 
 ## Process model
 
-The Process menu adapts the most useful single-source operations from the
-[CDP DISTORT function set](https://www.composersdesktop.com/docs/html/cdistort.htm)
-to real-time, polyphonic playback. Average aligns and averages the cycles in the
+The Process menu provides a focused set of single-source operations for
+real-time, polyphonic playback. Average aligns and averages the cycles in the
 current group. Interpolate morphs the current cycle toward its adjacent source
 cycle over Repeat. Fractal adds recursively smaller power-of-two copies.
 Harmonic adds integer-ratio copies and is distinct from Multiply's single
@@ -140,12 +139,11 @@ samples inside the selected group, while Cycle Reverse only reverses samples
 inside each cycle. Telescope superimposes the group against a shared cycle and
 progressively contracts it as Depth rises.
 
-Delete, Filter, Divide, Replim, and Pulsed remain better treated as explicit
-selection, frequency, or amplitude modes alongside Process. Interact requires a
-second source, while the broader Distmark, Distmore, Splinter, Overload, and
-Quirk families either construct larger-scale form or duplicate general-purpose
-distortion, so they are outside this instrument's present one-source playback
-scope.
+Selection, frequency, and amplitude changes remain explicit modes alongside
+Process. Operations that require a second source, construct larger-scale form,
+or duplicate general-purpose distortion remain outside this instrument's
+present one-source playback scope. Relevant source material and inspiration are
+listed in the central [References](../../docs/references.html#wavesets).
 
 Build the bundle with:
 

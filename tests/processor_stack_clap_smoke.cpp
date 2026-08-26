@@ -1591,7 +1591,7 @@ int main(int argc, char** argv)
     }
     const auto* descriptor = factory->get_plugin_descriptor(factory, 0u);
     if (!descriptor || std::strcmp(descriptor->id, kPluginId) != 0
-        || std::strcmp(descriptor->name, "s3g Processor Stack") != 0) {
+        || std::strcmp(descriptor->name, "s3g Processor Stack 2") != 0) {
         std::cerr << "Processor Stack descriptor mismatch\n";
         entry->deinit();
         dlclose(library);

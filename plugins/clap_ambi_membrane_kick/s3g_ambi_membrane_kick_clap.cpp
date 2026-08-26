@@ -1228,9 +1228,9 @@ s3g::AmbiMembraneKickParams publishedParamsSnapshot(const Plugin& p)
     drawPanel(directPickups ? @"DIRECT PICKUPS / SPACE OFF"
             : (stereoDownmix ? @"STEREO DOWNMIX / SPACE OFF"
                              : @"AMBISONIC SPACE"), spacePanel);
-    s3g::clap_gui::drawHeaderButton(membranePageButtonRect(0u),
+    s3g::clap_gui::drawToolboxHeaderButton(membranePageButtonRect(0u),
         membranePanel, @"BODY", _membranePage == 0, valueAttrs, style);
-    s3g::clap_gui::drawHeaderButton(membranePageButtonRect(1u),
+    s3g::clap_gui::drawToolboxHeaderButton(membranePageButtonRect(1u),
         membranePanel, @"STRIKE", _membranePage == 1, valueAttrs, style);
 
     auto paramsSnapshot = publishedParamsSnapshot(*p);

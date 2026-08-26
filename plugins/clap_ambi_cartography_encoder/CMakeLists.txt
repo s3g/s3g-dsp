@@ -24,7 +24,7 @@ if(APPLE)
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER
       "org.s3g.s3g-dsp.ambi-cartography-encoder-64"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Cartography"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Cartography 64"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   )

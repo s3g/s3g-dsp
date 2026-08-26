@@ -166,7 +166,7 @@
 
         <ol>
           <li>In REAPER's MIDI-device preferences, enable the OXI E16 USB3 port and Intech Grid connection as inputs. Enable their outputs when E16 ring and BU16 LED feedback are wanted.</li>
-          <li>Create one eight-channel track. When using NIM Gesture, place <code>s3g Utility NIM Gesture</code> first and <code>s3g Processor No Input Mixer 8ch</code> second. Otherwise insert No Input Mixer by itself.</li>
+          <li>Create one eight-channel track. When using NIM Gesture, place <code>s3g Utility NIM Gesture</code> first and <code>s3g Processor No Input Mixer 8</code> second. Otherwise insert No Input Mixer by itself.</li>
           <li>Select the E16 and Grid inputs—or <code>All MIDI Inputs / All Channels</code> on a dedicated controller track—arm the track, and turn input monitoring on. Choose <code>Record: disable (input monitoring only)</code> unless the raw MIDI performance should also be written to a REAPER item.</li>
           <li>Return the track's plugin MIDI output to E16 USB3 for encoder-ring feedback and to Grid for BU16 LED feedback. If the instrument track can address only one MIDI hardware output, create two MIDI-only receive tracks. Receive all MIDI from the No Input Mixer track, disable audio on both receives, and assign one hardware output to E16 USB3 and the other to Grid.</li>
           <li>Turn <strong>USB Thru off on the E16</strong>. Returned NRPN ring data must not loop back into the instrument track.</li>

@@ -88,6 +88,32 @@ while IFS= read -r hit; do
 done < <(rg -n 'drawDisclosurePanelHeader\([^;\n]*(@"(OUTPUT|ENGINE|SPECTRAL ENGINE|WAVE ENGINE|TOPOLOGY|PATCH MATRIX|RELATIONSHIPS|BINAURAL|TRANSAURAL)"|title,)' \
   plugins --glob '*.cpp')
 
+section "Toolbox Header Buttons"
+while IFS= read -r hit; do
+  warn "header-button" "$hit" \
+    "The lighter title-strip button is suite-wide. Use drawToolboxHeaderButton(), not the retired Sample-specific name."
+done < <(rg -n 'drawSampleHeaderButton' plugins --glob '*.cpp' --glob '*.inc' --glob '*.h')
+
+if ! rg -q 'active \? 0x505050 : 0x383838' plugins/common/s3g_cocoa_gui.h \
+    || ! rg -q 'active \? style\.accent : color\(0x777777\)' plugins/common/s3g_cocoa_gui.h; then
+  warn "header-button" "plugins/common/s3g_cocoa_gui.h" \
+    "Toolbox-title buttons must retain the established lighter inactive/active fills and readable outline."
+fi
+
+while IFS= read -r file; do
+  warn "header-button" "$file" \
+    "A page, view, zoom, or toolbox-mode control still uses the body-button renderer. Use drawToolboxHeaderButton()."
+done < <(rg -l -U --pcre2 \
+  'drawHeaderButton\((?:(?!;).|\n){0,240}(pageButtonRect|viewButtonRect|zoomButtonRect|fieldTabRect|terrainTabRect|pathTabRect|scorePageButtonRect|scoreModeButtonRect|circuitLawButtonRect|membranePageButtonRect)' \
+  plugins --glob '*.cpp' --glob '*.inc')
+
+while IFS= read -r file; do
+  warn "header-button" "$file" \
+    "An action embedded in a toolbox title strip still uses the global/body action renderer. Use drawToolboxHeaderActionButton()."
+done < <(rg -l -U --pcre2 \
+  'drawHeaderActionButton\((?:(?!;).|\n){0,240}(scoreHeader|synthHeader|imprintHeader|engineHeader|spatialPanel|fieldPanel|positionHeader|phraseHeader|captureHeaderRect)' \
+  plugins --glob '*.cpp' --glob '*.inc')
+
 section "Control Types"
 while IFS= read -r hit; do
   warn "control" "$hit" "Binary BYPASS controls should be buttons/toggles unless a slider is deliberately justified."
@@ -202,24 +228,24 @@ for file in "${large_encoder_order_family[@]}"; do
 done
 
 encoder_family_members=(
-  "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp|s3g Ambi Encoder Point"
-  "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|s3g Ambi Encoder Cloud"
-  "plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|s3g Ambi Encoder Path"
-  "plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|s3g Ambi Encoder Surface Terrain"
-  "plugins/clap_ambi_ray_encoder/s3g_ambi_ray_encoder_clap.cpp|s3g Ambi Encoder Ray"
-  "plugins/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder_clap.cpp|s3g Ambi Encoder Ray Bilocation"
-  "plugins/clap_ambi_insect_encoder/s3g_ambi_insect_encoder_clap.cpp|s3g Ambi Encoder Insect"
-  "plugins/clap_ambi_neural_ecology/s3g_ambi_neural_ecology_clap.cpp|s3g Ambi Encoder Neural Ecology"
-  "plugins/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder_clap.cpp|s3g Ambi Encoder Pulsar"
-  "plugins/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder_clap.cpp|s3g Ambi Encoder Stochastic"
-  "plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp|s3g Ambi Encoder VOT"
-  "plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp|s3g Ambi Encoder Vox"
-  "plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp|s3g Ambi Encoder Water"
-  "plugins/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder_clap.cpp|s3g Ambi Encoder Pyrosphere"
-  "plugins/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder_clap.cpp|s3g Ambi Encoder Cryosphere"
-  "plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp|s3g Ambi Encoder Wave Terrain"
-  "plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp|s3g Ambi Encoder Wind"
-  "plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp|s3g Ambi Encoder Wrangler"
+  "plugins/clap_ambi_point_encoder/s3g_ambi_point_encoder_clap.cpp|s3g Ambi Encoder Point 64"
+  "plugins/clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder_clap.cpp|s3g Ambi Encoder Cloud 64"
+  "plugins/clap_ambi_path_encoder/s3g_ambi_path_encoder_clap.cpp|s3g Ambi Encoder Path 64"
+  "plugins/clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator_clap.cpp|s3g Ambi Encoder Surface Terrain 64"
+  "plugins/clap_ambi_ray_encoder/s3g_ambi_ray_encoder_clap.cpp|s3g Ambi Encoder Ray 64"
+  "plugins/clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder_clap.cpp|s3g Ambi Encoder Ray Bilocation 64"
+  "plugins/clap_ambi_insect_encoder/s3g_ambi_insect_encoder_clap.cpp|s3g Ambi Encoder Insect 64"
+  "plugins/clap_ambi_neural_ecology/s3g_ambi_neural_ecology_clap.cpp|s3g Ambi Encoder Neural Ecology 64"
+  "plugins/clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder_clap.cpp|s3g Ambi Encoder Pulsar 64"
+  "plugins/clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder_clap.cpp|s3g Ambi Encoder Stochastic 64"
+  "plugins/clap_ambi_vot_encoder/s3g_ambi_vot_encoder_clap.cpp|s3g Ambi Encoder VOT 64"
+  "plugins/clap_ambi_vox_encoder/s3g_ambi_vox_encoder_clap.cpp|s3g Ambi Encoder Vox 64"
+  "plugins/clap_ambi_water_encoder/s3g_ambi_water_encoder_clap.cpp|s3g Ambi Encoder Water 64"
+  "plugins/clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder_clap.cpp|s3g Ambi Encoder Pyrosphere 64"
+  "plugins/clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder_clap.cpp|s3g Ambi Encoder Cryosphere 64"
+  "plugins/clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder_clap.cpp|s3g Ambi Encoder Wave Terrain 64"
+  "plugins/clap_ambi_wind_encoder/s3g_ambi_wind_encoder_clap.cpp|s3g Ambi Encoder Wind 64"
+  "plugins/clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder_clap.cpp|s3g Ambi Encoder Wrangler 64"
 )
 for member in "${encoder_family_members[@]}"; do
   file="${member%%|*}"
@@ -261,9 +287,9 @@ for member in "${encoder_family_members[@]}"; do
 done
 
 decoder_family_members=(
-  "plugins/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder_clap.cpp|s3g Ambi Decoder Head"
-  "plugins/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder_clap.cpp|s3g Ambi Decoder Stereo"
-  "plugins/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder_clap.cpp|s3g Ambi Decoder Sub"
+  "plugins/clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder_clap.cpp|s3g Ambi Decoder Head 2"
+  "plugins/clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder_clap.cpp|s3g Ambi Decoder Stereo 2"
+  "plugins/clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder_clap.cpp|s3g Ambi Decoder Sub 8"
   "plugins/clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder_clap.cpp|s3g Ambi Decoder Adaptive 64"
   "plugins/clap_ambi_object_decoder/s3g_ambi_object_decoder_clap.cpp|s3g Ambi Decoder Object 64"
   "plugins/clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder_clap.cpp|s3g Ambi Decoder Speaker 64"
@@ -760,16 +786,16 @@ fi
 
 section "Macro Family"
 macro_family_names=(
-  "plugins/clap_macro_delay/CMakeLists.txt|s3g Macro Delay 8ch"
-  "plugins/clap_macro_delay/CMakeLists.txt|s3g Macro Delay 24ch"
-  "plugins/clap_macro_pitch/CMakeLists.txt|s3g Macro Pitch 8ch"
-  "plugins/clap_macro_pitch/CMakeLists.txt|s3g Macro Pitch 24ch"
-  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred Mono"
-  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 8ch"
-  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 24ch"
-  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture Mono"
-  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture 8ch"
-  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture 24ch"
+  "plugins/clap_macro_delay/CMakeLists.txt|s3g Macro Delay 8"
+  "plugins/clap_macro_delay/CMakeLists.txt|s3g Macro Delay 24"
+  "plugins/clap_macro_pitch/CMakeLists.txt|s3g Macro Pitch 8"
+  "plugins/clap_macro_pitch/CMakeLists.txt|s3g Macro Pitch 24"
+  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred Mono 1"
+  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 8"
+  "plugins/clap_macro_shred/CMakeLists.txt|s3g Macro Shred 24"
+  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture Mono 1"
+  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture 8"
+  "plugins/clap_macro_fracture/CMakeLists.txt|s3g Macro Fracture 24"
 )
 for contract in "${macro_family_names[@]}"; do
   file="${contract%%|*}"
@@ -860,10 +886,10 @@ fi
 
 section "Panner Family"
 panner_family=(
-  "plugins/clap_layout_panner/s3g_layout_panner_clap.cpp|s3g Panner Layout"
-  "plugins/clap_dbap_panner/s3g_dbap_panner_clap.cpp|s3g Panner DBAP"
-  "plugins/clap_lbap_panner/s3g_lbap_panner_clap.cpp|s3g Panner LBAP"
-  "plugins/clap_vbap_panner/s3g_vbap_panner_clap.cpp|s3g Panner VBAP"
+  "plugins/clap_layout_panner/s3g_layout_panner_clap.cpp|s3g Panner Layout 64"
+  "plugins/clap_dbap_panner/s3g_dbap_panner_clap.cpp|s3g Panner DBAP 64"
+  "plugins/clap_lbap_panner/s3g_lbap_panner_clap.cpp|s3g Panner LBAP 64"
+  "plugins/clap_vbap_panner/s3g_vbap_panner_clap.cpp|s3g Panner VBAP 64"
 )
 for contract in "${panner_family[@]}"; do
   file="${contract%%|*}"
@@ -941,8 +967,9 @@ sample_family_names=(
   'plugins/clap_sample_motion/s3g_sample_motion_clap.cpp|s3g Sample Motion 32'
   'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Lanes 2'
   'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Lanes 32'
-  'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Grains 2'
-  'plugins/clap_sample_lanes/s3g_sample_lanes_clap.cpp|s3g Sample Grains 32'
+  'plugins/clap_sample_grains/s3g_sample_grains_clap.cpp|s3g Sample Grains 2'
+  'plugins/clap_sample_grains/s3g_sample_grains_clap.cpp|s3g Sample Grains 32'
+  'plugins/clap_sample_rings/s3g_sample_rings_clap.cpp|s3g Sample Rings 8'
 )
 for contract in "${sample_family_names[@]}"; do
   file="${contract%%|*}"
@@ -954,18 +981,16 @@ for contract in "${sample_family_names[@]}"; do
 done
 
 processor_family_names=(
-  'plugins/clap_delay_processor/CMakeLists.txt|s3g Processor Delay 8ch'
-  'plugins/clap_delay_processor/CMakeLists.txt|s3g Processor Delay 24ch'
-  'plugins/clap_buffer_processor/s3g_buffer_processor_clap.cpp|s3g Processor Buffer 8ch'
-  'plugins/clap_wave_geometry_processor/CMakeLists.txt|s3g Processor Wave Geometry 8ch'
-  'plugins/clap_loop_processor/s3g_loop_processor_clap.cpp|s3g Processor Loop 8ch'
-  'plugins/clap_multi_loop_processor/s3g_multi_loop_processor_clap.cpp|s3g Processor Multi Loop 8ch'
-  'plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp|s3g Processor Fault 8ch'
-  'plugins/clap_no_input_mixer/s3g_no_input_mixer_clap.cpp|s3g Processor No Input Mixer 8ch'
-  'plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp|s3g Processor Ambi Grain 16ch'
-  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 8ch'
-  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 24ch'
-  'plugins/clap_feedback_shift/s3g_feedback_shift_clap.cpp|s3g Processor Feedback Shift'
+  'plugins/clap_delay_processor/CMakeLists.txt|s3g Processor Delay 8'
+  'plugins/clap_delay_processor/CMakeLists.txt|s3g Processor Delay 24'
+  'plugins/clap_buffer_processor/s3g_buffer_processor_clap.cpp|s3g Processor Buffer 8'
+  'plugins/clap_wave_geometry_processor/CMakeLists.txt|s3g Processor Wave Geometry 8'
+  'plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp|s3g Processor Fault 8'
+  'plugins/clap_no_input_mixer/s3g_no_input_mixer_clap.cpp|s3g Processor No Input Mixer 8'
+  'plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp|s3g Processor Ambi Grain 16'
+  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 8'
+  'plugins/clap_spectral_topology_processor/CMakeLists.txt|s3g Processor Spectral 24'
+  'plugins/clap_feedback_shift/s3g_feedback_shift_clap.cpp|s3g Processor Feedback Shift 8'
 )
 for contract in "${processor_family_names[@]}"; do
   file="${contract%%|*}"
@@ -979,8 +1004,6 @@ processor_family_sources=(
   plugins/clap_delay_processor/s3g_delay_processor_clap.cpp
   plugins/clap_buffer_processor/s3g_buffer_processor_clap.cpp
   plugins/clap_wave_geometry_processor/s3g_wave_geometry_processor_clap.cpp
-  plugins/clap_loop_processor/s3g_loop_processor_clap.cpp
-  plugins/clap_multi_loop_processor/s3g_multi_loop_processor_clap.cpp
   plugins/clap_psd_raw_field/s3g_psd_raw_field_clap.cpp
   plugins/clap_no_input_mixer/s3g_no_input_mixer_clap.cpp
   plugins/clap_ambi_grain_processor/s3g_ambi_grain_processor_clap.cpp
@@ -1214,8 +1237,14 @@ if [[ -f "$sample_lanes_source" && -f "$sample_lanes_gui" ]]; then
       || ! rg -Fq 'GrainMutate::Sorter' dsp/s3g_sample_grains.h \
       || ! rg -Fq 'GrainMutate::Doublets' dsp/s3g_sample_grains.h \
       || ! rg -Fq '@"2  GRAIN SOURCE / WINDOW + TEXTURE"' "$sample_lanes_gui" \
-      || ! rg -Fq '@"4  GRAIN PROCESS / TIMING + PATTERN"' "$sample_lanes_gui" \
+      || ! rg -Fq '@"4  GRAIN PROCESS / TIMING / VARIATION"' "$sample_lanes_gui" \
       || ! rg -Fq '@"READ HEAD PATH / LIVE GRAIN EVENTS"' "$sample_lanes_gui" \
+      || ! rg -Fq 'kGrainSizeVariationParamId' "$sample_lanes_source" "$sample_lanes_gui" \
+      || ! rg -Fq 'kSourceAdvanceParamId' "$sample_lanes_source" "$sample_lanes_gui" \
+      || ! rg -Fq 'kGrainPitchShiftParamId' "$sample_lanes_source" "$sample_lanes_gui" \
+      || ! rg -Fq 'grainPitchSemitones' dsp/s3g_sample_grains.h \
+      || ! rg -Fq 'GrainPositionBias::Ahead' dsp/s3g_sample_grains.h \
+      || ! rg -Fq 'GrainSourceAdvance::Grain' dsp/s3g_sample_grains.h \
       || ! rg -Fq 'grainCursorLaneSourceSpans' "$sample_lanes_gui" \
       || ! rg -Fq 'grainCursorGains' "$sample_lanes_gui" \
       || ! rg -Fq 'color(0xe0e0e0)' "$sample_lanes_gui" \
@@ -1430,11 +1459,11 @@ for file in "${compact_effect_sources[@]}"; do
   fi
 done
 compact_effect_names=(
-  'plugins/clap_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 2ch'
-  'plugins/clap_8ch_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 8ch'
-  'plugins/clap_shard_scatter/CMakeLists.txt|s3g Effect Shard Scatter'
-  'plugins/clap_orbit_delay/CMakeLists.txt|s3g Effect Orbit Delay'
-  'plugins/clap_cascade_taps/CMakeLists.txt|s3g Effect Cascade Taps'
+  'plugins/clap_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 2'
+  'plugins/clap_8ch_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 8'
+  'plugins/clap_shard_scatter/CMakeLists.txt|s3g Effect Shard Scatter 16'
+  'plugins/clap_orbit_delay/CMakeLists.txt|s3g Effect Orbit Delay 16'
+  'plugins/clap_cascade_taps/CMakeLists.txt|s3g Effect Cascade Taps 16'
 )
 for contract in "${compact_effect_names[@]}"; do
   file="${contract%%|*}"
@@ -1526,8 +1555,8 @@ fi
 
 section "Analyzer Family"
 analyzer_family=(
-  'plugins/clap_multichannel_meter/s3g_multichannel_meter_clap.cpp|s3g Analyzer Meter 64ch'
-  'plugins/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer_clap.cpp|s3g Analyzer Ambi Energy 64ch'
+  'plugins/clap_multichannel_meter/s3g_multichannel_meter_clap.cpp|s3g Analyzer Meter 64'
+  'plugins/clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer_clap.cpp|s3g Analyzer Ambi Energy 64'
 )
 for member in "${analyzer_family[@]}"; do
   file="${member%%|*}"
@@ -1551,9 +1580,9 @@ done
 
 section "Output Utility Family"
 output_utility_family=(
-  'plugins/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain_clap.cpp|s3g Output Autogain Stereo'
-  'plugins/clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain_clap.cpp|s3g Output Autogain Quad'
-  'plugins/clap_sub_crossover/s3g_sub_crossover_clap.cpp|s3g Output Crossover'
+  'plugins/clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain_clap.cpp|s3g Output Autogain Stereo 2'
+  'plugins/clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain_clap.cpp|s3g Output Autogain Quad 4'
+  'plugins/clap_sub_crossover/s3g_sub_crossover_clap.cpp|s3g Output Crossover 64'
 )
 for member in "${output_utility_family[@]}"; do
   file="${member%%|*}"
@@ -1577,7 +1606,7 @@ done
 
 section "Ambi Imprint"
 imprint_source=plugins/clap_ambi_imprint/s3g_ambi_imprint_clap.cpp
-if ! rg -Fq '"s3g Processor Ambi Imprint 64ch"' "$imprint_source"; then
+if ! rg -Fq '"s3g Processor Ambi Imprint 64"' "$imprint_source"; then
   warn "name" "$imprint_source" \
     "Ambi Imprint belongs to the developed Processor family."
 fi

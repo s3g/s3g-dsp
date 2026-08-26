@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Processor Conduit</h1>
 
-        <p><code>s3g Processor Conduit</code> is a mono-or-stereo live-input, stereo-output vocal distortion in which a virtual actuator sends the voice through a virtual material and virtual contact pickups receive it elsewhere. The entire transducer → material → contact-mic path is DSP. It requires no physical transducer, contact microphone, hydrophone, auxiliary channel, or external feedback routing.</p>
+        <p><code>s3g Processor Conduit 2</code> is a mono-or-stereo live-input, stereo-output vocal distortion in which a virtual actuator sends the voice through a virtual material and virtual contact pickups receive it elsewhere. The entire transducer → material → contact-mic path is DSP. It requires no physical transducer, contact microphone, hydrophone, auxiliary channel, or external feedback routing.</p>
 
         <p>The material is the filter: a selectable pedal can damage the voice before the actuator, after the piezo pickup, or on the moving-microphone return. The virtual actuator injects the voice into a propagation path and eight dispersive modes before the nonlinear virtual pickup recovers it. A true octave-down path can turn that recovered body into a smeared, slowed-vocal mass. The design is oriented toward vocal harsh noise and unstable physical color rather than realistic room simulation.</p>
 
@@ -43,7 +43,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Processor Conduit</code> on a live-microphone track and begin with a low monitoring level. The plug-in advertises stereo-in/stereo-out by default; a mono-in/stereo-out CLAP configuration remains available for hosts that support alternate port configurations.</li>
+          <li>Insert <code>s3g Processor Conduit 2</code> on a live-microphone track and begin with a low monitoring level. The plug-in advertises stereo-in/stereo-out by default; a mono-in/stereo-out CLAP configuration remains available for hosts that support alternate port configurations.</li>
           <li>Route the stereo output to the intended speakers or fold-down destination, then establish a conservative audible monitor path.</li>
           <li>Set <code>INPUT LISTEN</code> to <code>CHANNEL 1</code>, <code>CHANNEL 2</code>, or <code>SUM MONO</code> when one selected source should drive a single virtual body. Leave it at its default <code>STEREO</code> setting to pass both input channels through two complete Conduit bodies.</li>
           <li>Choose a <code>MATERIAL</code>, set <code>SIZE</code> and <code>TENSION</code>, then use <code>DAMPING</code> to decide how long the virtual body answers.</li>

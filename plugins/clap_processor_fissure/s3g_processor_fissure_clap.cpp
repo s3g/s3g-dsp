@@ -2504,7 +2504,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.processor-fissure",
-    "s3g Processor Fissure",
+    "s3g Processor Fissure 8",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

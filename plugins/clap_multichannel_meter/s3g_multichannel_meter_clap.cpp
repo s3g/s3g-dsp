@@ -749,11 +749,11 @@ static MeterFieldLayout makeFieldLayout(uint32_t requestedLayout, uint32_t visib
                                92.0);
     if (mode == static_cast<uint32_t>(MeterViewMode::Field)) {
         for (int i = 0; i < 2; ++i) {
-            s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:bar], bar, i == 0 ? @"-" : @"+", false, small, style);
+            s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i inRect:bar], bar, i == 0 ? @"-" : @"+", false, small, style);
         }
         static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
         for (int i = 0; i < 3; ++i) {
-            s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:bar], bar, viewLabels[i], i == _fieldViewMode, small, style);
+            s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:bar], bar, viewLabels[i], i == _fieldViewMode, small, style);
         }
     }
 
@@ -1170,7 +1170,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.multichannel-meter-64",
-    "s3g Analyzer Meter 64ch",
+    "s3g Analyzer Meter 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

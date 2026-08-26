@@ -1385,7 +1385,7 @@ static std::vector<float> readWavMono(NSURL* url)
     static NSString* labels[] = { @"FIELD", @"VECTOR", @"SCORE" };
     const NSRect header = NSMakeRect(18, 42, 596, 21);
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i], header, labels[i], i == _leftPage, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:i], header, labels[i], i == _leftPage, attrs, style);
     }
 }
 
@@ -1395,10 +1395,10 @@ static std::vector<float> readWavMono(NSURL* url)
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     const NSRect header = NSMakeRect(18, 42, 596, 21);
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
     }
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
 }
 
 - (void)drawField:(NSRect)rect attrs:(NSDictionary*)attrs
@@ -1852,7 +1852,7 @@ static std::vector<float> readWavMono(NSURL* url)
     s3g::clap_gui::drawPanelFrame(630, 134, 250, 158, style);
     s3g::clap_gui::drawPanelHeader(@"SOURCE / SYNTH", true, 630, 134, 250, 21, attrs, style);
     const NSRect synthHeader = NSMakeRect(630, 134, 250, 21);
-    s3g::clap_gui::drawHeaderActionButton(
+    s3g::clap_gui::drawToolboxHeaderActionButton(
         [self synthLoadButtonRect], synthHeader, @"LOAD", attrs, style);
     [self drawSlider:@"VOICES" param:kVoicesParamId value:p.voices min:1 max:64 y:kVoiceCountRowY attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawMenu:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotModeName(p.mode)] y:196 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -1898,9 +1898,9 @@ static std::vector<float> readWavMono(NSURL* url)
     s3g::clap_gui::drawPanelFrame(motionX, 472, 246, 202, style);
     s3g::clap_gui::drawPanelHeader(@"VECTOR SCORE", true, motionX, 472, 246, 21, attrs, style);
     const NSRect scoreHeader = NSMakeRect(motionX, 472, 246, 21);
-    s3g::clap_gui::drawHeaderActionButton([self scoreRemoveButtonRect], scoreHeader, @"-", attrs, style);
-    s3g::clap_gui::drawHeaderActionButton([self scoreAddButtonRect], scoreHeader, @"+", attrs, style);
-    s3g::clap_gui::drawHeaderActionButton([self scoreResetButtonRect], scoreHeader, @"RESET", attrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton([self scoreRemoveButtonRect], scoreHeader, @"-", attrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton([self scoreAddButtonRect], scoreHeader, @"+", attrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton([self scoreResetButtonRect], scoreHeader, @"RESET", attrs, style);
     [self drawMenuAtX:motionX name:@"MODE" value:[NSString stringWithUTF8String:s3g::ambiVotScoreModeName(p.scoreMode)] y:508 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"DURATION" param:kScoreDurationParamId value:p.scoreDurationSec min:0.25 max:60 y:534 attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSliderAtX:motionX name:@"DEPTH" param:kScoreDepthParamId value:p.scoreDepth min:0 max:1 y:560 attrs:attrs valueAttrs:valueAttrs style:style];
@@ -2737,7 +2737,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-vot-encoder-64",
-    "s3g Ambi Encoder VOT",
+    "s3g Ambi Encoder VOT 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

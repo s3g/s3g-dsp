@@ -2244,13 +2244,13 @@ int publishedPatternPresetIndex(const Plugin& plugin)
     static NSString* controlLabels[] {
         @"LINE", @"OSC", @"DRIVE", @"FIELD" };
     for (uint32_t page = 0u; page < 4u; ++page) {
-        s3g::clap_gui::drawHeaderButton(controlPageButtonRect(page),
+        s3g::clap_gui::drawToolboxHeaderButton(controlPageButtonRect(page),
             controlPanel, controlLabels[page],
             _controlPage == static_cast<NSInteger>(page), tinyAttrs, style);
     }
-    s3g::clap_gui::drawHeaderActionButton(spatialPathButtonRect(0u),
+    s3g::clap_gui::drawToolboxHeaderActionButton(spatialPathButtonRect(0u),
         spatialPanel, @"RESET", tinyAttrs, style);
-    s3g::clap_gui::drawHeaderActionButton(spatialPathButtonRect(1u),
+    s3g::clap_gui::drawToolboxHeaderActionButton(spatialPathButtonRect(1u),
         spatialPanel, @"RANDOM", tinyAttrs, style);
     for (const auto& row : kUiRows) {
         if (controlPageForRow(row)

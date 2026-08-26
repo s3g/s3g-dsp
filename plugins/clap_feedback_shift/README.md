@@ -1,6 +1,6 @@
-# s3g Processor Feedback Shift
+# s3g Processor Feedback Shift 8
 
-`s3g Processor Feedback Shift` is an eight-node CLAP audio processor for
+`s3g Processor Feedback Shift 8` is an eight-node CLAP audio processor for
 performing a feedback ecology rather than programming eight independent effect
 lanes. It exposes stable 8-channel audio input and output ports and is
 advertised as an audio effect, not a CLAP instrument. MIDI remains available as

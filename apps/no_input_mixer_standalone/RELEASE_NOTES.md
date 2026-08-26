@@ -41,7 +41,7 @@ The application is an arm64-only build for Apple silicon Macs and currently requ
 
 ## Highlights
 
-- Embeds the same No Input Mixer DSP used by `s3g Processor No Input Mixer 8ch` so plugin-side DSP changes remain shared with the standalone application.
+- Embeds the same No Input Mixer DSP used by `s3g Processor No Input Mixer 8` so plugin-side DSP changes remain shared with the standalone application.
 - Provides Stereo Autogain, Quad Autogain, and direct eight-channel Core Audio output, including selectable output-channel banks on larger interfaces.
 - Opens monitoring safe-muted. The output device, output mode, and channel bank can be checked before selecting `AUDIO ON`; `PANIC` remains available in the persistent output strip.
 - Includes optional CoreMIDI source selection and the same E16, BU16, NRPN, note, velocity, and LED-feedback protocol as the CLAP processor.

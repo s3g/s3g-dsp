@@ -714,7 +714,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
     }
 }
 
@@ -723,7 +723,7 @@ static NSColor* odSpeakerColorFromAed(float azDeg, float elDeg, float distance)
     static NSString* labels[] = { @"-", @"+" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 2; ++i) {
-        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
     }
 }
 

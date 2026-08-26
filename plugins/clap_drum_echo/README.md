@@ -1,4 +1,4 @@
-# s3g Drum Echo
+# s3g Drum Echo 2
 
 Drum Echo is a stereo multi-head tape delay built around percussion rather
 than a general-purpose echo. Three equally spaced playback heads can be used

@@ -48,7 +48,9 @@ Click a waveform row to expose that lane in the Lane Timing strip.
   Positive values advance the contents and negative values delay them. Both
   directions wrap seamlessly inside the shared Start/End bounds. The waveform
   visibly rotates beneath the fixed Start/End markers and timeline playhead;
-  the dashed marker is the point where the nudged content wraps.
+  the dashed marker is the point where the nudged content wraps. A restrained
+  dark waveform and bright, dark-haloed playhead keep live position legible
+  over dense material.
 
 The path clock and the four lane clocks are intentionally separate. A path can
 continue crossing lanes at a stable rate while the source material in each row
@@ -82,3 +84,32 @@ right toolbox column, and Voice or 32-channel Routing is a compact footer.
   shared Sample-family allocator.
 
 The complete user guide is in `docs/sample-lanes.html`.
+
+## Sample Grains variant
+
+Sample Grains reuses the four-file field and breakpoint path but clocks
+overlapping grain windows instead of continuous loop voices. Scan, Freeze,
+Cloud, and Slice choose grain start time; Parzen, Sine, Hann, Triangle, and
+Gaussian windows support an earlier/later peak skew. Per-event Size and Level
+Variation, continuously variable timing Scatter, and Behind/Around/Ahead
+Position Bias extend the scheduler without changing its overlap compensation.
+Its independently windowed, wrapping reads do not expose Lanes' continuous-loop
+Loop Join parameter. Grains also omits the inherited Manual Lane, Jump Slew,
+per-lane Speed/Stretch/Nudge, and fixed per-grain allocation-clock parameters;
+the breakpoint editor, grain start position, and per-grain allocator now own
+those responsibilities directly.
+
+Pitch Shift transposes every grain by up to four octaves without changing the
+source scan, density clock, or grain duration. Doublets Amount is the pair
+probability, and the Grains trigger menu is reduced to distinct Gate, finite
+one-traversal One Shot, and Toggle behaviors.
+
+Source Advance keeps the lane hierarchy explicit. `Scan` feeds the drawn path
+from the continuous source scan. `Grain` advances that same visible path once
+per event on its seeded eight-step clock, so Random and Manual never acquire a
+hidden second lane order. The event toolbox uses three compact columns for
+timing, mutation, variation, and source-field clocking. LOAD and CLEAR are
+stacked beside each lane so the shared waveform and live grain display use more
+horizontal space.
+
+The complete granular-instrument guide is in `docs/sample-grains.html`.

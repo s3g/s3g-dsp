@@ -1663,7 +1663,7 @@ const char* motionName(int value) noexcept
 {
     constexpr std::array<const char*, 8u> names {{
         "Hover", "Mirror", "Drunk", "Zigzag", "Forward", "Reverse",
-        "Moving Loop", "BaktoBak",
+        "Moving Loop", "Round Trip",
     }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 7))];
 }
@@ -1691,7 +1691,7 @@ const char* segmentModelName(int value) noexcept
 {
     constexpr std::array<const char*, 7u> names {{
         "Off", "Freeze", "Iterate", "Pulser", "Doublets", "Bounce",
-        "MCH Iterate",
+        "Routed Iterate",
     }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 6))];
 }

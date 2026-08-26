@@ -2,15 +2,14 @@
 
 `s3g Sample Motion 2` and `s3g Sample Motion 32` are polyphonic sample
 instruments that turn position in a mono or stereo recording into a performed
-trajectory. They adapt ideas from CDP HOVER/HOVER2, EXTEND DRUNK, ZIGZAG,
-LOOP, BAKTOBAK, FREEZE, ITERATE, PULSER, DOUBLETS, BOUNCE, MCHZIG, MCHITER,
-PACKET, and MOTOR to a realtime voice model; they are not command-compatible
-ports of the offline processes.
+trajectory. They combine bounded and stochastic source motion, nested packet
+articulation, realtime segment-event scheduling, and trigger-time output
+routing in one polyphonic voice model.
 
 The instruments provide:
 
 - Hover, Mirror, seeded Drunk, alternating Zigzag, one-way Forward/Reverse,
-  crawling Moving Loop, and non-inverting BaktoBak source motion;
+  crawling Moving Loop, and non-inverting Round Trip source motion;
 - a default `Normal` speed basis where `1x` follows the sample's ordinary
   native playback rate, including source duration and note pitch, plus a
   legacy-compatible absolute `Hertz` basis;
@@ -21,7 +20,7 @@ The instruments provide:
 - Motion Speed, Travel, Jitter, packet Inner Rate and Duty, Motor Outer Rate,
   and context-sensitive Join smoothing;
 - a fixed-size segment-event layer with Freeze, Iterate, Pulser, Doublets,
-  Bounce, and MCH Iterate models, plus Clock/Packet/Turn triggers, repeat
+  Bounce, and Routed Iterate models, plus Clock/Packet/Turn triggers, repeat
   count, Step, pitch and level variation, interval acceleration, and Cut or
   four-lane Layer playback;
 - as many as sixteen Poly voices, plus Mono and phase-preserving Legato modes;
@@ -45,8 +44,8 @@ and speed. Forward and Reverse are ordinary one-way scans; Join crossfades their
 wrap seam.
 
 Moving Loop reads one way and advances its Field window by Step on every wrap.
-BaktoBak uses Mirror's forward/reverse geometry without inverting the return.
-Step also advances Iterate, MCH Iterate, and Doublets source selection.
+Round Trip uses Mirror's forward/reverse geometry without inverting the return.
+Step also advances Iterate, Routed Iterate, and Doublets source selection.
 
 Packets applies only the inner pulse train. Motor uses the same train inside a
 slower shaped outer envelope and reverses Hover, Mirror, Drunk, and Zigzag
@@ -57,7 +56,7 @@ travel on the falling side. Forward and Reverse remain one-way in Motor.
 The editor presents the engine as a numbered flow: `1 SOURCE FIELD + MOTION`
 feeds one active `2 SOUND` model, which then feeds `3 VOICE / OUTPUT`. A single
 `SOUND` menu selects Continuous, Packets, Motor, Freeze, Iterate, Pulser,
-Doublets, Bounce, or MCH Iterate. This matches the DSP: selecting an Event
+Doublets, Bounce, or Routed Iterate. This matches the DSP: selecting an Event
 process replaces Direct articulation rather than layering an unseen process
 over it. The second panel shows only controls used by the selected Sound model,
 and the scope repeats the active Path, Source, and Sound stages.
@@ -66,8 +65,9 @@ An Event-Sound readout states exactly how the selected process obtains its
 source position and which Motion properties remain active. Motion always sets
 event playback speed and onset direction, and `Turn` can use its boundaries as
 the event clock. It does not always set event position: Freeze and Bounce lock
-to Locus; Doublets uses Locus plus Step; Iterate and MCH Iterate follow the live
-Motion cursor only at Step zero and otherwise use a Locus-plus-Step sequence;
+to Locus; Doublets uses Locus plus Step; Iterate and Routed Iterate follow the
+live Motion cursor only at Step zero and otherwise use a Locus-plus-Step
+sequence;
 Pulser chooses random positions in the Locus-centered Field, except that Moving
 Loop carries the complete random-selection Field through Start–End.
 
@@ -76,11 +76,11 @@ The readout classifies the connection as `FULL PATH FOLLOW`, `MOVING FIELD`, or
 contiguous Doublets grouping requires Clock. Controls that the current Path,
 Sound, or Trigger cannot use remain visible for orientation but are dimmed and
 non-interactive. Travel is active only for Drunk and Zigzag; Source Step is
-active for Moving Loop, Iterate, Doublets, and MCH Iterate. With an Event sound,
-Clock uses Event Rate, Packet exposes the actual Packet Rate (`Inner Rate`), and
-Turn follows Path boundaries. Pulser retains Event Rate as a duration basis
-under Packet or Turn, while Bounce Start Rate and Accel are disabled outside
-Clock.
+active for Moving Loop, Iterate, Doublets, and Routed Iterate. With an Event
+sound, Clock uses Event Rate, Packet exposes the actual Packet Rate (`Inner
+Rate`), and Turn follows Path boundaries. Pulser retains Event Rate as a
+duration basis under Packet or Turn, while Bounce Start Rate and Accel are
+disabled outside Clock.
 
 Choosing an Event entry from `SOUND` loads a usable starting recipe for that
 process, after which
@@ -93,7 +93,7 @@ generic shared bank. Freeze repeats one Locus slice; Iterate follows the live
 trajectory at Step zero or advances by Step, with natural timing, pitch, and
 level drift; Pulser produces short shaped selections from random positions;
 Doublets emits contiguous AAABBBCCC-style slice groups; Bounce accelerates,
-decays, and shrinks within each repeat group; and MCH Iterate allocates every
+decays, and shrinks within each repeat group; and Routed Iterate allocates every
 event independently. Clock uses Event Rate, except that Clocked Doublets starts
 the next repetition when the prior slice ends. Packet follows the inner packet
 clock, and Turn follows trajectory boundaries. Cut replaces the current event
@@ -102,8 +102,8 @@ Join and Shape control event edges, while Jitter becomes repeatable event-time
 scatter for the iteration and packet models.
 
 Sample Motion 32 can route at Note, Turn, or Segment boundaries. Turn with
-Zigzag is the MCHZIG behavior; Segment is explicit MCHITER behavior and is also
-selected automatically by the MCH Iterate model.
+Zigzag can reassign a held voice at each change of direction; Segment assigns
+each event independently and is selected automatically by Routed Iterate.
 
 Version-1 states load with their former absolute Motion Rate by selecting
 `Hertz` automatically and preserve the earlier linear Motor envelope. New
@@ -122,6 +122,9 @@ discarding the current source or unresolved path. REAPER Save As relocates the
 registered file only when a copy-media option is selected. A decoded asset
 with no usable locator remains embedded as a safety fallback while that
 locator is unavailable.
+
+Relevant source material and inspiration are listed in the central
+[References](../../docs/references.html#sample-motion).
 
 ## MIDI
 

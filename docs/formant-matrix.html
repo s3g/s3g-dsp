@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Processor Formant Matrix</h1>
 
-        <p><code>s3g Processor Formant Matrix</code> is a stereo channel-vocoder and resonant filter-bank audio effect. A live microphone, another audio signal, or the integrated sample-free speech generator supplies the articulation. A procedural carrier follows polyphonic MIDI notes or the estimated pitch of the selected modulator.</p>
+        <p><code>s3g Processor Formant Matrix 2</code> is a stereo channel-vocoder and resonant filter-bank audio effect. A live microphone, another audio signal, or the integrated sample-free speech generator supplies the articulation. A procedural carrier follows polyphonic MIDI notes or the estimated pitch of the selected modulator.</p>
 
         <p>The intention is not to mimic an analog vocoder precisely. Formant Matrix is a synthesis instrument that responds to vocal input: speech energy, consonants, pitch, and timing become controls for a procedural carrier and a routable resonant bank.</p>
 
@@ -45,7 +45,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Processor Formant Matrix</code> as a normal stereo CLAP effect. Route a microphone or vocal track to <code>Modulator In</code>, then keep the track's host wet/dry control at 100% wet.</li>
+          <li>Insert <code>s3g Processor Formant Matrix 2</code> as a normal stereo CLAP effect. Route a microphone or vocal track to <code>Modulator In</code>, then keep the track's host wet/dry control at 100% wet.</li>
           <li>Monitor <code>Formant Matrix Out</code> through the track's normal stereo speaker or headphone path. Select <code>CLASSIC MIC</code>, confirm <code>MOD SOURCE</code> is <code>EXTERNAL MIC</code>, and verify that the orange analysis meters follow the incoming voice.</li>
           <li>Hold a MIDI note or chord. The oscillator supplies the carrier; the microphone opens and shapes the filter bank. Silence at the microphone closes the pre-echo bank even while MIDI remains held.</li>
           <li>For keyboard-free use, select <code>VOICE PITCH</code>, choose a scale and root, then sing. Set <code>PITCH HOLD</code> to <code>INFINITE</code> when the last confident pitch should survive consonants and silence.</li>

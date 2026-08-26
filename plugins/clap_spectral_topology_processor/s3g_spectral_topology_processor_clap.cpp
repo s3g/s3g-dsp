@@ -44,7 +44,7 @@ namespace {
 #endif
 
 #ifndef S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME
-#define S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME "s3g Processor Spectral 8ch"
+#define S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME "s3g Processor Spectral 8"
 #endif
 
 constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
@@ -1380,7 +1380,7 @@ NSString* spectralFrequencyText(float frequencyHz)
     NSString* pageLabels[2] = { @"TOPO", @"SONO" };
     for (int i = 0; i < 2; ++i) {
         NSRect button = [self fieldPageButtonRect:rect index:i];
-        s3g::clap_gui::drawHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
+        s3g::clap_gui::drawToolboxHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
     }
     if (_fieldPage == 0) {
         s3g::clap_gui::drawTopologyProcessorCameraButtons(
@@ -1674,8 +1674,8 @@ NSString* spectralFrequencyText(float frequencyHz)
     const NSRect engineHeader = NSMakeRect(panelX, panelY, panelW, headerH);
     const NSRect captureButton = spectralEngineCaptureButtonRect(panelY);
     const NSRect clearButton = spectralEngineClearButtonRect(panelY);
-    s3g::clap_gui::drawHeaderActionButton(captureButton, engineHeader, @"CAP", small, style);
-    s3g::clap_gui::drawHeaderActionButton(clearButton, engineHeader, @"CLR", small, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(captureButton, engineHeader, @"CAP", small, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(clearButton, engineHeader, @"CLR", small, style);
     if (p->processor.hasCapture()) {
         [style.accent setFill];
         NSRectFill(NSMakeRect(captureButton.origin.x + 3.0, captureButton.origin.y + 3.0, 3.0, 3.0));

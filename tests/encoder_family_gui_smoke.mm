@@ -732,23 +732,20 @@ struct DocumentationSampleLanesState {
 
 struct DocumentationSampleGrainsState {
     uint32_t magic = 0x47533353u;
-    uint32_t version = 2u;
-    uint32_t parameterCount = 62u;
+    uint32_t version = 4u;
+    uint32_t parameterCount = 53u;
     uint8_t storageMode = 2u;
     std::array<uint8_t, 3u> reserved {};
-    std::array<double, 62u> parameters {{
-        -6.0, 0.0, 0.0, 1.0, 0.06, 0.94, 0.02,
-        7.0, 0.0, 1.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.005,
+    std::array<double, 53u> parameters {{
+        -6.0, 0.0, 0.0, 1.0, 0.06, 0.94,
+        7.0, 0.0, 1.0, 1.0, 0.0, 0.5, 0.0,
         0.0, 1.0, 60.0, 0.0, 0.0, 0.003, 0.02, 0.0, 1.0,
         11.0, 0.0,
-        1.0, 1.0, 0.0,
-        1.0, 1.0, 0.0,
-        1.0, 1.0, 0.0,
-        1.0, 1.0, 0.0,
-        0.0, 32.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        0.0, 32.0, 0.0, 1.0, 0.0, 0.0,
         0.0, 24.0, 120.0, 0.0, 0.12, 3.0, 0.15,
         2.0, 1.0, 0.0, 0.5, 16.0, 1.0,
         0.0, 1.0, 0.35,
+        0.35, 0.20, 0.65, 0.25, 2.0, 1.0, 7.0,
     }};
     std::array<DocumentationSampleLanesLaneState, 4u> lanes {};
     DocumentationSampleLanesPathState manualPath;
@@ -766,7 +763,7 @@ static_assert(sizeof(DocumentationSampleMotionState) == 1304u,
               "Sample Motion documentation state fixture changed");
 static_assert(sizeof(DocumentationSampleLanesState) == 4680u,
               "Sample Lanes documentation state fixture changed");
-static_assert(sizeof(DocumentationSampleGrainsState) == 4808u,
+static_assert(sizeof(DocumentationSampleGrainsState) == 4736u,
               "Sample Grains documentation state fixture changed");
 
 bool decodeStochasticState(const MemoryPluginState& memory,
@@ -1889,6 +1886,8 @@ int main(int argc, char** argv)
             "org.s3g.s3g-dsp.sample-grains-32") == 0;
         const bool sampleGrains = sampleGrains32 || std::strcmp(pluginId,
             "org.s3g.s3g-dsp.sample-grains") == 0;
+        bool documentationLanesActivated = false;
+        bool documentationLanesProcessing = false;
         bool documentationGrainsActivated = false;
         bool documentationGrainsProcessing = false;
         if (ok && sampleLanes && !sampleLanes32) {
@@ -1944,6 +1943,34 @@ int main(int argc, char** argv)
             if (ok) {
                 [document setNeedsDisplay:YES];
                 [document displayIfNeeded];
+            }
+            if (ok && documentationCapture) {
+                documentationLanesActivated = plugin->activate(
+                    plugin, 48000.0, 1u, 512u);
+                documentationLanesProcessing = documentationLanesActivated
+                    && plugin->start_processing(plugin);
+                ok = documentationLanesProcessing;
+                std::array<std::array<float, 512u>, 2u> lanesAudio {};
+                std::array<float*, 2u> lanesChannels {{
+                    lanesAudio[0u].data(), lanesAudio[1u].data(),
+                }};
+                clap_audio_buffer_t lanesOutput {};
+                lanesOutput.data32 = lanesChannels.data();
+                lanesOutput.channel_count = 2u;
+                SingleNoteEventInput lanesNote {};
+                setSingleNoteOnEvent(lanesNote, 60);
+                clap_process_t lanesProcess {};
+                lanesProcess.steady_time = -1;
+                lanesProcess.frames_count = 512u;
+                lanesProcess.audio_outputs = &lanesOutput;
+                lanesProcess.audio_outputs_count = 1u;
+                lanesProcess.in_events = &lanesNote.events;
+                ok = ok && plugin->process(plugin, &lanesProcess)
+                    == CLAP_PROCESS_CONTINUE;
+                if (ok) {
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                }
             }
             if (ok && !documentationCapture) {
                 failureStage = "Sample Lanes breakpoint editor";
@@ -3590,6 +3617,9 @@ int main(int argc, char** argv)
         const bool pointEncoder = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-point-encoder-64") == 0;
+        const bool stochasticEncoder = std::strcmp(
+            pluginId,
+            "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0;
         const bool analyzer = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.multichannel-meter-64") == 0
@@ -3700,11 +3730,33 @@ int main(int argc, char** argv)
                 "Mono Spread");
             const bool hasOutputMode = hasParameterNamed(params, plugin,
                 "Output Mode");
-            ok = sampleGrains32
+            const bool hasLoopCrossfade = hasParameterNamed(params, plugin,
+                "Loop Crossfade");
+            const bool hasManualLane = hasParameterNamed(params, plugin,
+                "Manual Lane");
+            const bool hasLaneSlew = hasParameterNamed(params, plugin,
+                "Lane Slew");
+            const bool hasLaneTiming = hasParameterNamed(params, plugin,
+                    "Lane 1 Speed")
+                || hasParameterNamed(params, plugin, "Lane 1 Stretch")
+                || hasParameterNamed(params, plugin, "Lane 1 Nudge");
+            const bool hasAllocationClock = hasParameterNamed(params, plugin,
+                "Allocation Clock");
+            const bool hasGrainExtensions = hasParameterNamed(params, plugin,
+                    "Size Variation")
+                && hasParameterNamed(params, plugin, "Level Variation")
+                && hasParameterNamed(params, plugin, "Timing Scatter")
+                && hasParameterNamed(params, plugin, "Envelope Skew")
+                && hasParameterNamed(params, plugin, "Position Bias")
+                && hasParameterNamed(params, plugin, "Source Advance")
+                && hasParameterNamed(params, plugin, "Grain Pitch Shift");
+            ok = !hasLoopCrossfade && !hasManualLane && !hasLaneSlew
+                && !hasLaneTiming && !hasAllocationClock
+                && hasGrainExtensions && (sampleGrains32
                 ? (!hasChannelMode && !hasStereoLink && !hasMonoSpread
                     && hasOutputMode)
                 : (hasChannelMode && hasStereoLink && hasMonoSpread
-                    && !hasOutputMode);
+                    && !hasOutputMode));
         }
         if (ok && sampleGrains && !sampleGrains32
             && !documentationCapture) {
@@ -3727,9 +3779,8 @@ int main(int argc, char** argv)
         if (ok && sampleGrains && !documentationCapture) {
             failureStage = "Sample Grains visible slider targets";
             double rateBefore = 0.0;
-            double nudgeBefore = 0.0;
             ok = params->get_value(plugin, 4u, &rateBefore)
-                && params->get_value(plugin, 30u, &nudgeBefore);
+                && !params->get_value(plugin, 30u, &rateBefore);
             if (ok) {
                 const NSPoint scanSpeed = NSMakePoint(1120.0, 142.0);
                 [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
@@ -3737,11 +3788,8 @@ int main(int argc, char** argv)
                 [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
                     scanSpeed)];
                 double rateAfter = 0.0;
-                double nudgeAfter = 0.0;
                 ok = params->get_value(plugin, 4u, &rateAfter)
-                    && params->get_value(plugin, 30u, &nudgeAfter)
-                    && std::abs(rateAfter - rateBefore) > 0.000001
-                    && std::abs(nudgeAfter - nudgeBefore) < 0.000001;
+                    && std::abs(rateAfter - rateBefore) > 0.000001;
             }
         }
         if (ok && sampleGrains && !documentationCapture) {
@@ -3752,12 +3800,12 @@ int main(int argc, char** argv)
                 && params->get_value(plugin, 58u, &regionsBefore);
             if (ok) {
                 [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
-                    NSMakePoint(135.0, 642.0))];
+                    NSMakePoint(135.0, 666.0))];
                 [document mouseDragged:mouseEvent(
                     NSEventTypeLeftMouseDragged,
-                    NSMakePoint(268.0, 642.0))];
+                    NSMakePoint(268.0, 666.0))];
                 [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
-                    NSMakePoint(268.0, 642.0))];
+                    NSMakePoint(268.0, 666.0))];
                 double amountAfterDrag = 0.0;
                 double regionsAfterAmount = 0.0;
                 ok = params->get_value(plugin, 57u, &amountAfterDrag)
@@ -3767,9 +3815,9 @@ int main(int argc, char** argv)
                         < 0.000001;
                 if (ok) {
                     [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
-                        NSMakePoint(150.0, 666.0))];
+                        NSMakePoint(700.0, 618.0))];
                     [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
-                        NSMakePoint(150.0, 666.0))];
+                        NSMakePoint(700.0, 618.0))];
                     double regionsAfterClick = 0.0;
                     ok = params->get_value(plugin, 58u,
                             &regionsAfterClick)
@@ -3777,12 +3825,12 @@ int main(int argc, char** argv)
                 }
                 if (ok) {
                     [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
-                        NSMakePoint(150.0, 666.0))];
+                        NSMakePoint(700.0, 618.0))];
                     [document mouseDragged:mouseEvent(
                         NSEventTypeLeftMouseDragged,
-                        NSMakePoint(268.0, 666.0))];
+                        NSMakePoint(856.0, 618.0))];
                     [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
-                        NSMakePoint(268.0, 666.0))];
+                        NSMakePoint(856.0, 618.0))];
                     double amountAfterRegions = 0.0;
                     double regionsAfterDrag = 0.0;
                     ok = params->get_value(plugin, 57u,
@@ -3798,15 +3846,32 @@ int main(int argc, char** argv)
                     ok = params->get_value(plugin, 57u,
                         &amountBeforeDeadArea);
                     [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
-                        NSMakePoint(500.0, 642.0))];
+                        NSMakePoint(500.0, 690.0))];
                     [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
-                        NSMakePoint(500.0, 642.0))];
+                        NSMakePoint(500.0, 690.0))];
                     double amountAfterDeadArea = 0.0;
                     ok = ok && params->get_value(plugin, 57u,
                             &amountAfterDeadArea)
                         && std::abs(amountAfterDeadArea
                             - amountBeforeDeadArea) < 0.000001;
                 }
+            }
+        }
+        if (ok && sampleGrains && !documentationCapture) {
+            failureStage = "Sample Grains pitch shift slider target";
+            double pitchBefore = 0.0;
+            ok = params->get_value(plugin, 69u, &pitchBefore);
+            if (ok) {
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    NSMakePoint(700.0, 642.0))];
+                [document mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged,
+                    NSMakePoint(856.0, 642.0))];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                    NSMakePoint(856.0, 642.0))];
+                double pitchAfter = 0.0;
+                ok = params->get_value(plugin, 69u, &pitchAfter)
+                    && pitchAfter > pitchBefore;
             }
         }
         if (ok && (sampleLanes || sampleGrains)
@@ -4025,6 +4090,118 @@ int main(int argc, char** argv)
                 }
             } @catch (NSException* exception) {
                 std::cerr << "Environmental Voices hit-map exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            }
+        }
+        if (ok && stochasticEncoder && !documentationCapture) {
+            failureStage = "Stochastic topology camera convention";
+            @try {
+                ok = [document respondsToSelector:
+                        @selector(setViewPreset:)]
+                    && [document respondsToSelector:
+                        @selector(projectWorldPointX:y:z:)];
+                const auto project = [&](double x, double y, double z) {
+                    return [document projectWorldPointX:x y:y z:z];
+                };
+
+                if (ok) [document setViewPreset:0];
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 0
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue] - 90.0) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue]) < 0.001;
+                if (ok) {
+                    const NSPoint center = project(0.0, 0.0, 0.0);
+                    const NSPoint pressure = project(0.75, 0.0, 0.0);
+                    const NSPoint events = project(0.0, 0.75, 0.0);
+                    const NSPoint period = project(0.0, 0.0, 0.75);
+                    ok = pressure.x < center.x - 20.0
+                        && std::fabs(pressure.y - center.y) < 0.001
+                        && std::hypot(events.x - center.x,
+                            events.y - center.y) < 0.001
+                        && std::fabs(period.x - center.x) < 0.001
+                        && period.y < center.y - 20.0;
+                }
+
+                if (ok) [document setViewPreset:1];
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 1
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue] - 90.0) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue] - 90.0) < 0.001;
+                if (ok) {
+                    const NSPoint center = project(0.0, 0.0, 0.0);
+                    const NSPoint pressure = project(0.75, 0.0, 0.0);
+                    const NSPoint events = project(0.0, 0.75, 0.0);
+                    const NSPoint period = project(0.0, 0.0, 0.75);
+                    ok = pressure.x < center.x - 20.0
+                        && std::fabs(pressure.y - center.y) < 0.001
+                        && std::fabs(events.x - center.x) < 0.001
+                        && events.y < center.y - 20.0
+                        && std::hypot(period.x - center.x,
+                            period.y - center.y) < 0.001;
+                }
+
+                if (ok) [document setViewPreset:2];
+                ok = ok
+                    && [[document valueForKey:@"viewMode"] intValue] == 2
+                    && std::fabs([[document valueForKey:@"viewAzDeg"]
+                        doubleValue] - 38.0) < 0.001
+                    && std::fabs([[document valueForKey:@"viewElDeg"]
+                        doubleValue] - 32.0) < 0.001;
+                if (ok) {
+                    const NSPoint center = project(0.0, 0.0, 0.0);
+                    const NSPoint pressure = project(0.75, 0.0, 0.0);
+                    const NSPoint events = project(0.0, 0.75, 0.0);
+                    const NSPoint period = project(0.0, 0.0, 0.75);
+                    ok = pressure.x < center.x - 20.0
+                        && pressure.y < center.y - 20.0
+                        && std::fabs(events.x - center.x) < 0.001
+                        && events.y < center.y - 20.0
+                        && period.x > center.x + 20.0
+                        && period.y < center.y - 20.0;
+                }
+
+                const NSPoint dragStart = NSMakePoint(42.0, 518.0);
+                const auto checkPresetDragContinuity = [&](int preset) {
+                    [document setViewPreset:preset];
+                    const NSPoint before = project(0.55, 0.35, 0.20);
+                    const NSPoint dragEnd = NSMakePoint(
+                        dragStart.x + 1.0, dragStart.y);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, dragStart)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, dragEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, dragEnd)];
+                    const NSPoint after = project(0.55, 0.35, 0.20);
+                    return [[document valueForKey:@"viewMode"] intValue] == -1
+                        && std::hypot(after.x - before.x,
+                            after.y - before.y) < 4.0;
+                };
+                ok = ok && checkPresetDragContinuity(0)
+                    && checkPresetDragContinuity(1);
+
+                if (ok) {
+                    [document setViewPreset:2];
+                    const NSPoint dragEnd = NSMakePoint(
+                        dragStart.x, dragStart.y + 10.0);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown, dragStart)];
+                    [document mouseDragged:mouseEvent(
+                        NSEventTypeLeftMouseDragged, dragEnd)];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp, dragEnd)];
+                    ok = [[document valueForKey:@"viewMode"] intValue] == -1
+                        && [[document valueForKey:@"viewElDeg"] doubleValue]
+                            < 32.0;
+                }
+                [document setViewPreset:0];
+            } @catch (NSException* exception) {
+                std::cerr << "Stochastic camera exception: "
                     << [[exception reason] UTF8String] << "\n";
                 ok = false;
             }
@@ -4348,11 +4525,11 @@ int main(int argc, char** argv)
                         && std::abs(motion - 6.0) < 0.000001;
                 }
                 if (ok) {
-                    const NSPoint bakToBakRow = NSMakePoint(220.0, 648.0);
+                    const NSPoint roundTripRow = NSMakePoint(220.0, 648.0);
                     [document mouseDown:mouseEvent(
                         NSEventTypeLeftMouseDown, motionMenu)];
                     [document mouseDown:mouseEvent(
-                        NSEventTypeLeftMouseDown, bakToBakRow)];
+                        NSEventTypeLeftMouseDown, roundTripRow)];
                     double motion = -1.0;
                     ok = params->get_value(plugin, 2u, &motion)
                         && std::abs(motion - 7.0) < 0.000001;
@@ -12557,6 +12734,9 @@ int main(int argc, char** argv)
                 }
             }
         }
+        if (documentationLanesProcessing)
+            plugin->stop_processing(plugin);
+        if (documentationLanesActivated) plugin->deactivate(plugin);
         if (documentationGrainsProcessing)
             plugin->stop_processing(plugin);
         if (documentationGrainsActivated) plugin->deactivate(plugin);

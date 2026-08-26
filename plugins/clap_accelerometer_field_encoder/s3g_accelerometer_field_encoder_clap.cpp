@@ -2750,11 +2750,11 @@ NSColor* modalBodyColorFromAed(
         attrs, style);
     s3g::clap_gui::drawTopologyProcessorCameraButtons(
         panel, _viewMode, attrs, style);
-    s3g::clap_gui::drawHeaderButton(
+    s3g::clap_gui::drawToolboxHeaderButton(
         modalZoomButtonRect(0u), panel, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton(
+    s3g::clap_gui::drawToolboxHeaderButton(
         modalZoomButtonRect(1u), panel, @"+", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton(
+    s3g::clap_gui::drawToolboxHeaderButton(
         modalResetLayoutButtonRect(), panel, @"RESET", false, attrs, style);
     [s3g::clap_gui::color(0x0a0a0a) setFill];
     NSRectFill(field);

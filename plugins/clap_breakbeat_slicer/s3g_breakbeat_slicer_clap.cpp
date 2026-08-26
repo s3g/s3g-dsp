@@ -5903,13 +5903,13 @@ double gainDb(float gain)
     NSDictionary* compact = s3g::clap_gui::textAttrs(
         s3g::clap_gui::color(0xb8b8b8), 8.5);
     const NSRect navigationBand = NSMakeRect(282.0, 42.0, 780.0, 24.0);
-    s3g::clap_gui::drawHeaderButton(editorTabRect(0u), navigationBand,
+    s3g::clap_gui::drawToolboxHeaderButton(editorTabRect(0u), navigationBand,
         @"OVERVIEW", _page == 0u, label, style);
-    s3g::clap_gui::drawHeaderButton(editorTabRect(1u), navigationBand,
+    s3g::clap_gui::drawToolboxHeaderButton(editorTabRect(1u), navigationBand,
         @"BREAK EDIT", _page == 1u, label, style);
-    s3g::clap_gui::drawHeaderButton(editorTabRect(2u), navigationBand,
+    s3g::clap_gui::drawToolboxHeaderButton(editorTabRect(2u), navigationBand,
         @"MIXER", _page == 2u, label, style);
-    s3g::clap_gui::drawHeaderButton(editorTabRect(3u), navigationBand,
+    s3g::clap_gui::drawToolboxHeaderButton(editorTabRect(3u), navigationBand,
         @"MUTATE", _page == 3u, label, style);
     uint64_t projectAudioBytes = 0u;
     uint64_t sourceFileBytes = 0u;
@@ -5969,9 +5969,9 @@ double gainDb(float gain)
             s3g::sample_storage::storageModeName(
                 _instance->storageMode), sourceFileCount, size.c_str()];
     }
-    s3g::clap_gui::drawHeaderButton(killAllButtonRect(), navigationBand,
+    s3g::clap_gui::drawToolboxHeaderButton(killAllButtonRect(), navigationBand,
         @"KILL ALL", false, compact, style);
-    s3g::clap_gui::drawHeaderButton(embedAudioButtonRect(),
+    s3g::clap_gui::drawToolboxHeaderButton(embedAudioButtonRect(),
         navigationBand, projectAudioLabel,
         _instance->storageMode
             != s3g::sample_storage::StorageMode::Link, compact, style);
@@ -6066,13 +6066,13 @@ double gainDb(float gain)
                     s3g::gui_layout::kStandardMetrics.headerHeight),
                 label, style);
         }
-        s3g::clap_gui::drawHeaderButton(sampleLoadButtonRect(),
+        s3g::clap_gui::drawToolboxHeaderButton(sampleLoadButtonRect(),
             sampleToolboxRect(), @"LOAD", false, label, style);
-        s3g::clap_gui::drawHeaderButton(sampleClearButtonRect(),
+        s3g::clap_gui::drawToolboxHeaderButton(sampleClearButtonRect(),
             sampleToolboxRect(), @"CLEAR", false, label, style);
-        s3g::clap_gui::drawHeaderButton(sliceActionButtonRect(),
+        s3g::clap_gui::drawToolboxHeaderButton(sliceActionButtonRect(),
             sliceMapToolboxRect(), @"SLICE", false, label, style);
-        s3g::clap_gui::drawHeaderButton(automapButtonRect(),
+        s3g::clap_gui::drawToolboxHeaderButton(automapButtonRect(),
             sliceMapToolboxRect(), @"AUTO MAP", slotHasCompleteMap(slot),
             label, style);
         [self drawWaveformForSlot:slot];

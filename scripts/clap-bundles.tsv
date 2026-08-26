@@ -1,48 +1,47 @@
 # Relative build path	Canonical installed filename	CLAP/CFBundle identifier	Current host name
-clap_24ch_passthrough/s3g_24ch_passthrough_test.clap	s3g_passthrough_test_24ch.clap	org.s3g.s3g-dsp.24ch-passthrough-test	s3g Passthrough Test 24ch
-clap_delay_processor/s3g_8ch_delay_processor.clap	s3g_processor_delay_8ch.clap	org.s3g.s3g-dsp.delay-processor-8ch	s3g Processor Delay 8ch
-clap_delay_processor/s3g_24ch_delay_processor.clap	s3g_processor_delay_24ch.clap	org.s3g.s3g-dsp.delay-processor-24ch	s3g Processor Delay 24ch
-clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap	s3g_output_autogain_stereo.clap	org.s3g.s3g-dsp.mc-to-stereo-autogain	s3g Output Autogain Stereo
-clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap	s3g_output_autogain_quad.clap	org.s3g.s3g-dsp.mc-to-quad-autogain	s3g Output Autogain Quad
-clap_ambi_point_encoder/s3g_ambi_point_encoder.clap	s3g_ambi_encoder_point.clap	org.s3g.s3g-dsp.ambi-point-encoder-64	s3g Ambi Encoder Point
-clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap	s3g_ambi_encoder_cloud.clap	org.s3g.s3g-dsp.ambi-cloud-encoder-64	s3g Ambi Encoder Cloud
-clap_ambi_cartography_encoder/s3g_ambi_cartography_encoder.clap	s3g_ambi_encoder_cartography.clap	org.s3g.s3g-dsp.ambi-cartography-encoder-64	s3g Ambi Encoder Cartography
+clap_24ch_passthrough/s3g_24ch_passthrough_test.clap	s3g_passthrough_test_24.clap	org.s3g.s3g-dsp.24ch-passthrough-test	s3g Passthrough Test 24
+clap_delay_processor/s3g_8ch_delay_processor.clap	s3g_processor_delay_8.clap	org.s3g.s3g-dsp.delay-processor-8ch	s3g Processor Delay 8
+clap_delay_processor/s3g_24ch_delay_processor.clap	s3g_processor_delay_24.clap	org.s3g.s3g-dsp.delay-processor-24ch	s3g Processor Delay 24
+clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap	s3g_output_autogain_stereo_2.clap	org.s3g.s3g-dsp.mc-to-stereo-autogain	s3g Output Autogain Stereo 2
+clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap	s3g_output_autogain_quad_4.clap	org.s3g.s3g-dsp.mc-to-quad-autogain	s3g Output Autogain Quad 4
+clap_ambi_point_encoder/s3g_ambi_point_encoder.clap	s3g_ambi_encoder_point_64.clap	org.s3g.s3g-dsp.ambi-point-encoder-64	s3g Ambi Encoder Point 64
+clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap	s3g_ambi_encoder_cloud_64.clap	org.s3g.s3g-dsp.ambi-cloud-encoder-64	s3g Ambi Encoder Cloud 64
+clap_ambi_cartography_encoder/s3g_ambi_cartography_encoder.clap	s3g_ambi_encoder_cartography_64.clap	org.s3g.s3g-dsp.ambi-cartography-encoder-64	s3g Ambi Encoder Cartography 64
 clap_ambi_acid_encoder/s3g_ambi_encoder_acid.clap	s3g_ambi_encoder_acid_16.clap	org.s3g.s3g-dsp.ambi-encoder-acid-16	s3g Ambi Encoder Acid 16
-clap_ambi_horizon_encoder/s3g_ambi_horizon_encoder.clap	s3g_ambi_encoder_horizon.clap	org.s3g.s3g-dsp.ambi-horizon-encoder-64	s3g Ambi Encoder Horizon
+clap_ambi_horizon_encoder/s3g_ambi_horizon_encoder.clap	s3g_ambi_encoder_horizon_64.clap	org.s3g.s3g-dsp.ambi-horizon-encoder-64	s3g Ambi Encoder Horizon 64
 clap_ambi_membrane_kick/s3g_ambi_encoder_membrane_kick.clap	s3g_ambi_encoder_membrane_kick_16.clap	org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16	s3g Ambi Encoder Membrane Kick 16
-clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap	s3g_ambi_encoder_surface_terrain.clap	org.s3g.s3g-dsp.ambi-terrain-navigator-64	s3g Ambi Encoder Surface Terrain
-clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap	s3g_ambi_encoder_vot.clap	org.s3g.s3g-dsp.ambi-vot-encoder-64	s3g Ambi Encoder VOT
-clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap	s3g_ambi_encoder_vox.clap	org.s3g.s3g-dsp.ambi-vox-encoder-64	s3g Ambi Encoder Vox
-clap_acapella_source_synth/s3g_formant_matrix.clap	s3g_processor_formant_matrix.clap	org.s3g.s3g-dsp.formant-matrix	s3g Processor Formant Matrix
-clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap	s3g_ambi_encoder_wave_terrain.clap	org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64	s3g Ambi Encoder Wave Terrain
-clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap	s3g_ambi_encoder_pulsar.clap	org.s3g.s3g-dsp.ambi-pulsar-encoder-64	s3g Ambi Encoder Pulsar
-clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap	s3g_ambi_encoder_neural_ecology.clap	org.s3g.s3g-dsp.ambi-neural-ecology-64	s3g Ambi Encoder Neural Ecology
-clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap	s3g_ambi_encoder_stochastic.clap	org.s3g.s3g-dsp.ambi-stochastic-encoder-64	s3g Ambi Encoder Stochastic
-clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap	s3g_ambi_encoder_wrangler.clap	org.s3g.s3g-dsp.ambi-wrangler-encoder-64	s3g Ambi Encoder Wrangler
-clap_ambi_wind_encoder/s3g_ambi_wind_encoder.clap	s3g_ambi_encoder_wind.clap	org.s3g.s3g-dsp.ambi-wind-encoder-64	s3g Ambi Encoder Wind
-clap_ambi_water_encoder/s3g_ambi_water_encoder.clap	s3g_ambi_encoder_water.clap	org.s3g.s3g-dsp.ambi-water-encoder-64	s3g Ambi Encoder Water
-clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap	s3g_ambi_encoder_pyrosphere.clap	org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64	s3g Ambi Encoder Pyrosphere
-clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap	s3g_ambi_encoder_cryosphere.clap	org.s3g.s3g-dsp.ambi-cryosphere-encoder-64	s3g Ambi Encoder Cryosphere
-clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap	s3g_ambi_encoder_insect.clap	org.s3g.s3g-dsp.ambi-insect-encoder-64	s3g Ambi Encoder Insect
+clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap	s3g_ambi_encoder_surface_terrain_64.clap	org.s3g.s3g-dsp.ambi-terrain-navigator-64	s3g Ambi Encoder Surface Terrain 64
+clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap	s3g_ambi_encoder_vot_64.clap	org.s3g.s3g-dsp.ambi-vot-encoder-64	s3g Ambi Encoder VOT 64
+clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap	s3g_ambi_encoder_vox_64.clap	org.s3g.s3g-dsp.ambi-vox-encoder-64	s3g Ambi Encoder Vox 64
+clap_acapella_source_synth/s3g_formant_matrix.clap	s3g_processor_formant_matrix_2.clap	org.s3g.s3g-dsp.formant-matrix	s3g Processor Formant Matrix 2
+clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap	s3g_ambi_encoder_wave_terrain_64.clap	org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64	s3g Ambi Encoder Wave Terrain 64
+clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap	s3g_ambi_encoder_pulsar_64.clap	org.s3g.s3g-dsp.ambi-pulsar-encoder-64	s3g Ambi Encoder Pulsar 64
+clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap	s3g_ambi_encoder_neural_ecology_64.clap	org.s3g.s3g-dsp.ambi-neural-ecology-64	s3g Ambi Encoder Neural Ecology 64
+clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap	s3g_ambi_encoder_stochastic_64.clap	org.s3g.s3g-dsp.ambi-stochastic-encoder-64	s3g Ambi Encoder Stochastic 64
+clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap	s3g_ambi_encoder_wrangler_64.clap	org.s3g.s3g-dsp.ambi-wrangler-encoder-64	s3g Ambi Encoder Wrangler 64
+clap_ambi_wind_encoder/s3g_ambi_wind_encoder.clap	s3g_ambi_encoder_wind_64.clap	org.s3g.s3g-dsp.ambi-wind-encoder-64	s3g Ambi Encoder Wind 64
+clap_ambi_water_encoder/s3g_ambi_water_encoder.clap	s3g_ambi_encoder_water_64.clap	org.s3g.s3g-dsp.ambi-water-encoder-64	s3g Ambi Encoder Water 64
+clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap	s3g_ambi_encoder_pyrosphere_64.clap	org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64	s3g Ambi Encoder Pyrosphere 64
+clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap	s3g_ambi_encoder_cryosphere_64.clap	org.s3g.s3g-dsp.ambi-cryosphere-encoder-64	s3g Ambi Encoder Cryosphere 64
+clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap	s3g_ambi_encoder_insect_64.clap	org.s3g.s3g-dsp.ambi-insect-encoder-64	s3g Ambi Encoder Insect 64
 clap_accelerometer_field_encoder/s3g_ambi_encoder_modal.clap	s3g_ambi_encoder_modal_16.clap	org.s3g.s3g-dsp.accelerometer-field-encoder-16	s3g Ambi Encoder Modal 16
 clap_ambi_encoder_medium/s3g_ambi_encoder_medium.clap	s3g_ambi_encoder_medium_16.clap	org.s3g.s3g-dsp.ambi-encoder-medium-16	s3g Ambi Encoder Medium 16
-clap_ambi_imprint/s3g_ambi_imprint.clap	s3g_processor_ambi_imprint_64ch.clap	org.s3g.s3g-dsp.ambi-imprint-64	s3g Processor Ambi Imprint 64ch
-clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap	s3g_ambi_encoder_ray.clap	org.s3g.s3g-dsp.ambi-ray-encoder	s3g Ambi Encoder Ray
-clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap	s3g_ambi_encoder_ray_bilocation.clap	org.s3g.s3g-dsp.ambi-ray-bilocation-encoder	s3g Ambi Encoder Ray Bilocation
-clap_ambi_path_encoder/s3g_ambi_path_encoder.clap	s3g_ambi_encoder_path.clap	org.s3g.s3g-dsp.ambi-path-encoder-64	s3g Ambi Encoder Path
+clap_ambi_imprint/s3g_ambi_imprint.clap	s3g_processor_ambi_imprint_64.clap	org.s3g.s3g-dsp.ambi-imprint-64	s3g Processor Ambi Imprint 64
+clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap	s3g_ambi_encoder_ray_64.clap	org.s3g.s3g-dsp.ambi-ray-encoder	s3g Ambi Encoder Ray 64
+clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap	s3g_ambi_encoder_ray_bilocation_64.clap	org.s3g.s3g-dsp.ambi-ray-bilocation-encoder	s3g Ambi Encoder Ray Bilocation 64
+clap_ambi_path_encoder/s3g_ambi_path_encoder.clap	s3g_ambi_encoder_path_64.clap	org.s3g.s3g-dsp.ambi-path-encoder-64	s3g Ambi Encoder Path 64
 clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder.clap	s3g_ambi_decoder_speaker_64.clap	org.s3g.s3g-dsp.ambi-speaker-decoder-64	s3g Ambi Decoder Speaker 64
-clap_layout_panner/s3g_layout_panner.clap	s3g_panner_layout.clap	org.s3g.s3g-dsp.layout-panner	s3g Panner Layout
-clap_dbap_panner/s3g_dbap_panner.clap	s3g_panner_dbap.clap	org.s3g.s3g-dsp.dbap-panner	s3g Panner DBAP
-clap_lbap_panner/s3g_lbap_panner.clap	s3g_panner_lbap.clap	org.s3g.s3g-dsp.lbap-panner	s3g Panner LBAP
-clap_vbap_panner/s3g_vbap_panner.clap	s3g_panner_vbap.clap	org.s3g.s3g-dsp.vbap-panner	s3g Panner VBAP
-clap_sub_crossover/s3g_sub_crossover.clap	s3g_output_crossover.clap	org.s3g.s3g-dsp.sub-crossover	s3g Output Crossover
-clap_loop_processor/s3g_loop_processor.clap	s3g_processor_loop_8ch.clap	org.s3g.s3g-dsp.loop-processor-8ch	s3g Processor Loop 8ch
-clap_multi_loop_processor/s3g_multi_loop_processor.clap	s3g_processor_multi_loop_8ch.clap	org.s3g.s3g-dsp.multi-loop-processor-8ch	s3g Processor Multi Loop 8ch
-clap_processor_errant/s3g_processor_errant.clap	s3g_processor_errant.clap	org.s3g.s3g-dsp.processor-errant	s3g Processor Errant
-clap_feedback_shift/s3g_feedback_shift.clap	s3g_processor_feedback_shift.clap	org.s3g.s3g-dsp.feedback-shift	s3g Processor Feedback Shift
-clap_processor_fissure/s3g_processor_fissure.clap	s3g_processor_fissure.clap	org.s3g.s3g-dsp.processor-fissure	s3g Processor Fissure
-clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8ch.clap	org.s3g.s3g-dsp.fault	s3g Processor Fault 8ch
-clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8ch.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8ch
+clap_layout_panner/s3g_layout_panner.clap	s3g_panner_layout_64.clap	org.s3g.s3g-dsp.layout-panner	s3g Panner Layout 64
+clap_dbap_panner/s3g_dbap_panner.clap	s3g_panner_dbap_64.clap	org.s3g.s3g-dsp.dbap-panner	s3g Panner DBAP 64
+clap_lbap_panner/s3g_lbap_panner.clap	s3g_panner_lbap_64.clap	org.s3g.s3g-dsp.lbap-panner	s3g Panner LBAP 64
+clap_vbap_panner/s3g_vbap_panner.clap	s3g_panner_vbap_64.clap	org.s3g.s3g-dsp.vbap-panner	s3g Panner VBAP 64
+clap_sub_crossover/s3g_sub_crossover.clap	s3g_output_crossover_64.clap	org.s3g.s3g-dsp.sub-crossover	s3g Output Crossover 64
+clap_sample_rings/s3g_sample_rings.clap	s3g_sample_rings_8.clap	org.s3g.s3g-dsp.sample-rings-8	s3g Sample Rings 8
+clap_processor_errant/s3g_processor_errant.clap	s3g_processor_errant_2.clap	org.s3g.s3g-dsp.processor-errant	s3g Processor Errant 2
+clap_feedback_shift/s3g_feedback_shift.clap	s3g_processor_feedback_shift_8.clap	org.s3g.s3g-dsp.feedback-shift	s3g Processor Feedback Shift 8
+clap_processor_fissure/s3g_processor_fissure.clap	s3g_processor_fissure_8.clap	org.s3g.s3g-dsp.processor-fissure	s3g Processor Fissure 8
+clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8.clap	org.s3g.s3g-dsp.fault	s3g Processor Fault 8
+clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8
 clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture
 clap_tracker/s3g_tracker.clap	s3g_tracker.clap	org.s3g.s3g-dsp.tracker	s3g Tracker
 clap_breakbeat_slicer/s3g_slicer.clap	s3g_sample_slicer_16.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g Sample Slicer 16
@@ -52,40 +51,40 @@ clap_sample_wavesets/s3g_sample_wavesets.clap	s3g_sample_wavesets_2.clap	org.s3g
 clap_sample_motion/s3g_sample_motion.clap	s3g_sample_motion_2.clap	org.s3g.s3g-dsp.sample-motion	s3g Sample Motion 2
 clap_sample_lanes/s3g_sample_lanes.clap	s3g_sample_lanes_2.clap	org.s3g.s3g-dsp.sample-lanes	s3g Sample Lanes 2
 clap_sample_grains/s3g_sample_grains.clap	s3g_sample_grains_2.clap	org.s3g.s3g-dsp.sample-grains	s3g Sample Grains 2
-clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth
-clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack
-clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit
-clap_drum_kick/s3g_drum_kick.clap	s3g_drum_kick.clap	org.s3g.s3g-dsp.drum-kick	s3g Drum Kick
-clap_drum_snare/s3g_drum_snare.clap	s3g_drum_snare.clap	org.s3g.s3g-dsp.drum-snare	s3g Drum Snare
-clap_drum_floor_tom/s3g_drum_floor_tom.clap	s3g_drum_floor_tom.clap	org.s3g.s3g-dsp.drum-floor-tom	s3g Drum Floor Tom
-clap_drum_concert_bass/s3g_drum_concert_bass.clap	s3g_drum_concert_bass.clap	org.s3g.s3g-dsp.drum-concert-bass	s3g Drum Concert Bass
-clap_drum_toms/s3g_drum_toms.clap	s3g_drum_toms.clap	org.s3g.s3g-dsp.drum-toms	s3g Drum Toms
-clap_drum_hi_hat/s3g_drum_hi_hat.clap	s3g_drum_hi_hat.clap	org.s3g.s3g-dsp.drum-hi-hat	s3g Drum Hi-Hat
-clap_drum_clap/s3g_drum_clap.clap	s3g_drum_clap.clap	org.s3g.s3g-dsp.drum-clap	s3g Drum Clap
-clap_drum_cowbell/s3g_drum_cowbell.clap	s3g_drum_cowbell.clap	org.s3g.s3g-dsp.drum-cowbell	s3g Drum Cowbell
-clap_drum_crash/s3g_drum_crash.clap	s3g_drum_crash.clap	org.s3g.s3g-dsp.drum-crash	s3g Drum Crash
-clap_drum_break/s3g_drum_break.clap	s3g_drum_break.clap	org.s3g.s3g-dsp.drum-break	s3g Drum Break
-clap_drum_overload/s3g_drum_overload.clap	s3g_drum_overload.clap	org.s3g.s3g-dsp.drum-overload	s3g Drum Overload
-clap_drum_echo/s3g_drum_echo.clap	s3g_drum_echo.clap	org.s3g.s3g-dsp.drum-echo	s3g Drum Echo
+clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth_2.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth 2
+clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack_2.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack 2
+clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit_2.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit 2
+clap_drum_kick/s3g_drum_kick.clap	s3g_drum_kick_2.clap	org.s3g.s3g-dsp.drum-kick	s3g Drum Kick 2
+clap_drum_snare/s3g_drum_snare.clap	s3g_drum_snare_2.clap	org.s3g.s3g-dsp.drum-snare	s3g Drum Snare 2
+clap_drum_floor_tom/s3g_drum_floor_tom.clap	s3g_drum_floor_tom_2.clap	org.s3g.s3g-dsp.drum-floor-tom	s3g Drum Floor Tom 2
+clap_drum_concert_bass/s3g_drum_concert_bass.clap	s3g_drum_concert_bass_2.clap	org.s3g.s3g-dsp.drum-concert-bass	s3g Drum Concert Bass 2
+clap_drum_toms/s3g_drum_toms.clap	s3g_drum_toms_2.clap	org.s3g.s3g-dsp.drum-toms	s3g Drum Toms 2
+clap_drum_hi_hat/s3g_drum_hi_hat.clap	s3g_drum_hi_hat_2.clap	org.s3g.s3g-dsp.drum-hi-hat	s3g Drum Hi-Hat 2
+clap_drum_clap/s3g_drum_clap.clap	s3g_drum_clap_2.clap	org.s3g.s3g-dsp.drum-clap	s3g Drum Clap 2
+clap_drum_cowbell/s3g_drum_cowbell.clap	s3g_drum_cowbell_2.clap	org.s3g.s3g-dsp.drum-cowbell	s3g Drum Cowbell 2
+clap_drum_crash/s3g_drum_crash.clap	s3g_drum_crash_2.clap	org.s3g.s3g-dsp.drum-crash	s3g Drum Crash 2
+clap_drum_break/s3g_drum_break.clap	s3g_drum_break_2.clap	org.s3g.s3g-dsp.drum-break	s3g Drum Break 2
+clap_drum_overload/s3g_drum_overload.clap	s3g_drum_overload_2.clap	org.s3g.s3g-dsp.drum-overload	s3g Drum Overload 2
+clap_drum_echo/s3g_drum_echo.clap	s3g_drum_echo_2.clap	org.s3g.s3g-dsp.drum-echo	s3g Drum Echo 2
 clap_drum_mixer/s3g_drum_mixer.clap	s3g_drum_mixer_16.clap	org.s3g.s3g-dsp.drum-mixer-16	s3g Drum Mixer 16
-clap_ambi_grain_processor/s3g_ambi_grain_processor.clap	s3g_processor_ambi_grain_16ch.clap	org.s3g.s3g-dsp.ambi-grain-processor	s3g Processor Ambi Grain 16ch
-clap_macro_delay/s3g_macro_delay.clap	s3g_macro_delay_8ch.clap	org.s3g.s3g-dsp.macro-delay-8ch	s3g Macro Delay 8ch
-clap_macro_delay/s3g_24ch_macro_delay.clap	s3g_macro_delay_24ch.clap	org.s3g.s3g-dsp.macro-delay-24ch	s3g Macro Delay 24ch
-clap_macro_pitch/s3g_macro_pitch.clap	s3g_macro_pitch_8ch.clap	org.s3g.s3g-dsp.macro-pitch-8ch	s3g Macro Pitch 8ch
-clap_macro_pitch/s3g_24ch_macro_pitch.clap	s3g_macro_pitch_24ch.clap	org.s3g.s3g-dsp.macro-pitch-24ch	s3g Macro Pitch 24ch
-clap_macro_shred/s3g_macro_shred_mono.clap	s3g_macro_shred_mono.clap	org.s3g.s3g-dsp.macro-shred-mono	s3g Macro Shred Mono
-clap_macro_shred/s3g_macro_shred.clap	s3g_macro_shred_8ch.clap	org.s3g.s3g-dsp.macro-shred-8ch	s3g Macro Shred 8ch
-clap_macro_shred/s3g_24ch_macro_shred.clap	s3g_macro_shred_24ch.clap	org.s3g.s3g-dsp.macro-shred-24ch	s3g Macro Shred 24ch
-clap_macro_fracture/s3g_macro_fracture_mono.clap	s3g_macro_fracture_mono.clap	org.s3g.s3g-dsp.macro-fracture-mono	s3g Macro Fracture Mono
-clap_macro_fracture/s3g_macro_fracture.clap	s3g_macro_fracture_8ch.clap	org.s3g.s3g-dsp.macro-fracture-8ch	s3g Macro Fracture 8ch
-clap_macro_fracture/s3g_24ch_macro_fracture.clap	s3g_macro_fracture_24ch.clap	org.s3g.s3g-dsp.macro-fracture-24ch	s3g Macro Fracture 24ch
-clap_buffer_processor/s3g_buffer_processor.clap	s3g_processor_buffer_8ch.clap	org.s3g.s3g-dsp.buffer-processor	s3g Processor Buffer 8ch
-clap_wave_geometry_processor/s3g_wave_geometry_processor.clap	s3g_processor_wave_geometry_8ch.clap	org.s3g.s3g-dsp.wave-geometry-processor	s3g Processor Wave Geometry 8ch
-clap_multichannel_meter/s3g_multichannel_meter.clap	s3g_analyzer_meter_64ch.clap	org.s3g.s3g-dsp.multichannel-meter-64	s3g Analyzer Meter 64ch
-clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap	s3g_analyzer_ambi_energy_64ch.clap	org.s3g.s3g-dsp.ambisonic-energy-visualizer-64	s3g Analyzer Ambi Energy 64ch
-clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap	s3g_ambi_decoder_stereo.clap	org.s3g.s3g-dsp.ambisonic-stereo-decoder	s3g Ambi Decoder Stereo
-clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap	s3g_ambi_decoder_head.clap	org.s3g.s3g-dsp.ambisonic-head-decoder	s3g Ambi Decoder Head
-clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap	s3g_ambi_decoder_sub.clap	org.s3g.s3g-dsp.ambisonic-sub-decoder	s3g Ambi Decoder Sub
+clap_ambi_grain_processor/s3g_ambi_grain_processor.clap	s3g_processor_ambi_grain_16.clap	org.s3g.s3g-dsp.ambi-grain-processor	s3g Processor Ambi Grain 16
+clap_macro_delay/s3g_macro_delay.clap	s3g_macro_delay_8.clap	org.s3g.s3g-dsp.macro-delay-8ch	s3g Macro Delay 8
+clap_macro_delay/s3g_24ch_macro_delay.clap	s3g_macro_delay_24.clap	org.s3g.s3g-dsp.macro-delay-24ch	s3g Macro Delay 24
+clap_macro_pitch/s3g_macro_pitch.clap	s3g_macro_pitch_8.clap	org.s3g.s3g-dsp.macro-pitch-8ch	s3g Macro Pitch 8
+clap_macro_pitch/s3g_24ch_macro_pitch.clap	s3g_macro_pitch_24.clap	org.s3g.s3g-dsp.macro-pitch-24ch	s3g Macro Pitch 24
+clap_macro_shred/s3g_macro_shred_mono.clap	s3g_macro_shred_mono_1.clap	org.s3g.s3g-dsp.macro-shred-mono	s3g Macro Shred Mono 1
+clap_macro_shred/s3g_macro_shred.clap	s3g_macro_shred_8.clap	org.s3g.s3g-dsp.macro-shred-8ch	s3g Macro Shred 8
+clap_macro_shred/s3g_24ch_macro_shred.clap	s3g_macro_shred_24.clap	org.s3g.s3g-dsp.macro-shred-24ch	s3g Macro Shred 24
+clap_macro_fracture/s3g_macro_fracture_mono.clap	s3g_macro_fracture_mono_1.clap	org.s3g.s3g-dsp.macro-fracture-mono	s3g Macro Fracture Mono 1
+clap_macro_fracture/s3g_macro_fracture.clap	s3g_macro_fracture_8.clap	org.s3g.s3g-dsp.macro-fracture-8ch	s3g Macro Fracture 8
+clap_macro_fracture/s3g_24ch_macro_fracture.clap	s3g_macro_fracture_24.clap	org.s3g.s3g-dsp.macro-fracture-24ch	s3g Macro Fracture 24
+clap_buffer_processor/s3g_buffer_processor.clap	s3g_processor_buffer_8.clap	org.s3g.s3g-dsp.buffer-processor	s3g Processor Buffer 8
+clap_wave_geometry_processor/s3g_wave_geometry_processor.clap	s3g_processor_wave_geometry_8.clap	org.s3g.s3g-dsp.wave-geometry-processor	s3g Processor Wave Geometry 8
+clap_multichannel_meter/s3g_multichannel_meter.clap	s3g_analyzer_meter_64.clap	org.s3g.s3g-dsp.multichannel-meter-64	s3g Analyzer Meter 64
+clap_ambisonic_energy_visualizer/s3g_ambisonic_energy_visualizer.clap	s3g_analyzer_ambi_energy_64.clap	org.s3g.s3g-dsp.ambisonic-energy-visualizer-64	s3g Analyzer Ambi Energy 64
+clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap	s3g_ambi_decoder_stereo_2.clap	org.s3g.s3g-dsp.ambisonic-stereo-decoder	s3g Ambi Decoder Stereo 2
+clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap	s3g_ambi_decoder_head_2.clap	org.s3g.s3g-dsp.ambisonic-head-decoder	s3g Ambi Decoder Head 2
+clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap	s3g_ambi_decoder_sub_8.clap	org.s3g.s3g-dsp.ambisonic-sub-decoder	s3g Ambi Decoder Sub 8
 clap_ambi_object_decoder/s3g_ambi_object_decoder.clap	s3g_ambi_decoder_object_64.clap	org.s3g.s3g-dsp.ambi-object-decoder-64	s3g Ambi Decoder Object 64
 clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder.clap	s3g_ambi_decoder_adaptive_64.clap	org.s3g.s3g-dsp.ambi-adaptive-decoder-64	s3g Ambi Decoder Adaptive 64
 clap_array_hpf/s3g_array_hpf_16.clap	s3g_array_hpf_16.clap	org.s3g.s3g-dsp.array-hpf-16	s3g Array HPF 16
@@ -121,11 +120,11 @@ clap_group_matrix/s3g_group_matrix.clap	s3g_matrix_group_64.clap	org.s3g.s3g-dsp
 clap_group_matrix_32/s3g_group_matrix_32.clap	s3g_matrix_group_32.clap	org.s3g.s3g-dsp.group-matrix-32	s3g Matrix Group 32
 clap_node_track_mixer/s3g_node_bus_mixer.clap	s3g_mixer_node_bus_128.clap	org.s3g.s3g-dsp.node-bus-mixer	s3g Mixer Node Bus 128
 clap_node_track_mixer/s3g_ambi_node_bus_mixer.clap	s3g_ambi_mixer_node_bus_128.clap	org.s3g.s3g-dsp.ambi-node-bus-mixer	s3g Ambi Mixer Node Bus 128
-clap_spectral_spray/s3g_spectral_spray.clap	s3g_effect_spectral_spray_2ch.clap	org.s3g.s3g-dsp.spectral-spray	s3g Effect Spectral Spray 2ch
-clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap	s3g_effect_spectral_spray_8ch.clap	org.s3g.s3g-dsp.8ch-spectral-spray	s3g Effect Spectral Spray 8ch
-clap_spectral_topology_processor/s3g_spectral_topology_processor.clap	s3g_processor_spectral_8ch.clap	org.s3g.s3g-dsp.spectral-topology-processor	s3g Processor Spectral 8ch
-clap_spectral_topology_processor/s3g_24ch_spectral_topology_processor.clap	s3g_processor_spectral_24ch.clap	org.s3g.s3g-dsp.spectral-topology-processor-24ch	s3g Processor Spectral 24ch
-clap_shard_scatter/s3g_shard_scatter.clap	s3g_effect_shard_scatter.clap	org.s3g.s3g-dsp.shard-scatter	s3g Effect Shard Scatter
-clap_orbit_delay/s3g_orbit_delay.clap	s3g_effect_orbit_delay.clap	org.s3g.s3g-dsp.orbit-delay	s3g Effect Orbit Delay
-clap_cascade_taps/s3g_cascade_taps.clap	s3g_effect_cascade_taps.clap	org.s3g.s3g-dsp.cascade-taps	s3g Effect Cascade Taps
-clap_crcltr/s3g_crcltr.clap	s3g_effect_crcltr.clap	org.s3g.s3g-dsp.crcltr	s3g Effect CRCLTR
+clap_spectral_spray/s3g_spectral_spray.clap	s3g_effect_spectral_spray_2.clap	org.s3g.s3g-dsp.spectral-spray	s3g Effect Spectral Spray 2
+clap_8ch_spectral_spray/s3g_8ch_spectral_spray.clap	s3g_effect_spectral_spray_8.clap	org.s3g.s3g-dsp.8ch-spectral-spray	s3g Effect Spectral Spray 8
+clap_spectral_topology_processor/s3g_spectral_topology_processor.clap	s3g_processor_spectral_8.clap	org.s3g.s3g-dsp.spectral-topology-processor	s3g Processor Spectral 8
+clap_spectral_topology_processor/s3g_24ch_spectral_topology_processor.clap	s3g_processor_spectral_24.clap	org.s3g.s3g-dsp.spectral-topology-processor-24ch	s3g Processor Spectral 24
+clap_shard_scatter/s3g_shard_scatter.clap	s3g_effect_shard_scatter_16.clap	org.s3g.s3g-dsp.shard-scatter	s3g Effect Shard Scatter 16
+clap_orbit_delay/s3g_orbit_delay.clap	s3g_effect_orbit_delay_16.clap	org.s3g.s3g-dsp.orbit-delay	s3g Effect Orbit Delay 16
+clap_cascade_taps/s3g_cascade_taps.clap	s3g_effect_cascade_taps_16.clap	org.s3g.s3g-dsp.cascade-taps	s3g Effect Cascade Taps 16
+clap_crcltr/s3g_crcltr.clap	s3g_effect_crcltr_2.clap	org.s3g.s3g-dsp.crcltr	s3g Effect CRCLTR 2

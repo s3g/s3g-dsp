@@ -19,10 +19,8 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x47533353u;
-constexpr uint32_t kPreviousStateVersion = 1u;
-constexpr uint32_t kCurrentStateVersion = 2u;
-constexpr std::size_t kPreviousParamCount = 59u;
-constexpr std::size_t kCurrentParamCount = 62u;
+constexpr uint32_t kCurrentStateVersion = 4u;
+constexpr std::size_t kCurrentParamCount = 53u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr uint32_t kFrames = 4096u;
 
@@ -44,20 +42,19 @@ struct ManualPathState {
 
 struct SavedState {
     uint32_t magic = kStateMagic;
-    uint32_t version = kPreviousStateVersion;
-    uint32_t parameterCount = static_cast<uint32_t>(kPreviousParamCount);
+    uint32_t version = kCurrentStateVersion;
+    uint32_t parameterCount = static_cast<uint32_t>(kCurrentParamCount);
     uint8_t storageMode = 2u;
     std::array<uint8_t, 3u> reserved {};
-    std::array<double, kPreviousParamCount> parameters {{
-        -6.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.02,
-        0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 0.005,
-        0.0, 1.0, 60.0, 0.0, 0.0, 0.0, 0.02, 0.0, 1.0,
-        1.0, 0.0,
-        1.0, 1.0, 0.0, 1.0, 1.0, 0.0,
-        1.0, 1.0, 0.0, 1.0, 1.0, 0.0,
-        0.0, 32.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-        0.0, 24.0, 90.0, 0.0, 0.08, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.5, 16.0, 1.0,
+    std::array<double, kCurrentParamCount> parameters {{
+        -6.0, 0.0, 0.0, 1.0, 0.0, 1.0,
+        0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.0,
+        0.0, 1.0, 60.0, 0.0, 0.0, 0.003, 0.02, 0.0, 1.0, 1.0, 0.0,
+        0.0, 32.0, 0.0, 1.0, 0.0, 0.0,
+        0.0, 24.0, 90.0, 0.0, 0.08, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.5, 16.0, 1.0,
+        0.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0,
     }};
     std::array<LaneState, 4u> lanes {};
     ManualPathState manualPath;
@@ -242,7 +239,7 @@ bool exercise(const clap_plugin_factory_t* factory,
     clap_audio_port_info_t port {};
     clap_audio_ports_config_t config {};
     ok = ok && params && state && ports && configs && notes
-        && params->count(plugin) == (outputChannels == 2u ? 55u : 59u)
+        && params->count(plugin) == (outputChannels == 2u ? 47u : 50u)
         && ports->get(plugin, 0u, false, &port)
         && port.channel_count == outputChannels
         && configs->count(plugin) == 1u
@@ -253,6 +250,13 @@ bool exercise(const clap_plugin_factory_t* factory,
     bool hasChannelMode = false;
     bool hasGrainSource = false;
     bool hasMutateProcess = false;
+    bool hasSizeVariation = false;
+    bool hasSourceAdvance = false;
+    bool hasPitchShift = false;
+    bool hasScanRoot = false;
+    bool hasScanTune = false;
+    bool hasScanFine = false;
+    bool hasStaleParameter = false;
     clap_param_info_t info {};
     for (uint32_t index = 0u; ok && index < params->count(plugin); ++index) {
         ok = params->get_info(plugin, index, &info);
@@ -264,16 +268,51 @@ bool exercise(const clap_plugin_factory_t* factory,
             && std::strcmp(info.name, "Grain Source") == 0;
         hasMutateProcess |= info.id == 56u
             && std::strcmp(info.name, "Mutate Process") == 0;
+        hasSizeVariation |= info.id == 63u
+            && std::strcmp(info.name, "Size Variation") == 0;
+        hasSourceAdvance |= info.id == 68u
+            && std::strcmp(info.name, "Source Advance") == 0;
+        hasPitchShift |= info.id == 69u
+            && std::strcmp(info.name, "Grain Pitch Shift") == 0;
+        hasScanRoot |= info.id == 19u
+            && std::strcmp(info.name, "Scan Root Note") == 0;
+        hasScanTune |= info.id == 20u
+            && std::strcmp(info.name, "Scan Tune") == 0;
+        hasScanFine |= info.id == 21u
+            && std::strcmp(info.name, "Scan Fine Tune") == 0;
+        hasStaleParameter |= info.id == 7u || info.id == 15u
+            || info.id == 16u
+            || (info.id >= 28u && info.id <= 39u)
+            || info.id == 42u;
     }
     ok = ok && hasGrainSource && hasMutateProcess
+        && hasSizeVariation && hasSourceAdvance && hasPitchShift
+        && hasScanRoot && hasScanTune && hasScanFine
+        && !hasStaleParameter
         && hasChannelMode == (outputChannels == 2u)
         && hasRoutingMode == (outputChannels > 2u);
+    double unavailable = -1.0;
+    ok = ok && !params->get_value(plugin, 7u, &unavailable)
+        && !params->get_value(plugin, 15u, &unavailable)
+        && !params->get_value(plugin, 16u, &unavailable)
+        && !params->get_value(plugin, 28u, &unavailable)
+        && !params->get_value(plugin, 39u, &unavailable)
+        && !params->get_value(plugin, 42u, &unavailable);
     char text[64] {};
     double parsed = -1.0;
     ok = ok && params->value_to_text(plugin, 56u, 4.0, text, sizeof(text))
         && std::strcmp(text, "Doublets") == 0
         && params->text_to_value(plugin, 55u, "Scatter", &parsed)
-        && parsed == 1.0;
+        && parsed == 1.0
+        && params->value_to_text(plugin, 67u, 2.0, text, sizeof(text))
+        && std::strcmp(text, "Ahead") == 0
+        && params->text_to_value(plugin, 68u, "Grain", &parsed)
+        && parsed == 1.0
+        && params->value_to_text(plugin, 69u, 12.0, text, sizeof(text))
+        && std::strcmp(text, "12.00 st") == 0
+        && params->text_to_value(plugin, 18u, "Gate", &parsed)
+        && parsed == 1.0
+        && !params->text_to_value(plugin, 18u, "Auto", &parsed);
     if (outputChannels == 2u) {
         double unavailable = -1.0;
         ok = ok && params->value_to_text(plugin, 60u, 0.0, text,
@@ -291,8 +330,7 @@ bool exercise(const clap_plugin_factory_t* factory,
     ok = ok && state->load(plugin, &fixture.stream);
     MemoryOutput saved;
     ok = ok && state->save(plugin, &saved.stream)
-        && saved.bytes.size() == fixture.bytes.size()
-            + (kCurrentParamCount - kPreviousParamCount) * sizeof(double);
+        && saved.bytes.size() == fixture.bytes.size();
     if (ok) {
         uint32_t savedVersion = 0u;
         uint32_t savedParamCount = 0u;

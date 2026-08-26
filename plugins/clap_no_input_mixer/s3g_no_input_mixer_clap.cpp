@@ -6686,11 +6686,11 @@ NSRect effectEditorToggleRect(uint32_t row)
         family.fieldPanel.x, family.fieldPanel.y, family.fieldPanel.width,
         s3g::gui_layout::kStandardMetrics.headerHeight, label, style);
     for (uint32_t index = 0u; index < kPageCount; ++index) {
-        s3g::clap_gui::drawHeaderButton(fieldTabRect(index),
+        s3g::clap_gui::drawToolboxHeaderButton(fieldTabRect(index),
             s3g::clap_gui::cocoaRect(family.fieldPanel), pageNames[index],
             page == index, value, style);
     }
-    s3g::clap_gui::drawHeaderButton(mixerPopButtonRect(),
+    s3g::clap_gui::drawToolboxHeaderButton(mixerPopButtonRect(),
         s3g::clap_gui::cocoaRect(family.fieldPanel),
         _mixerPopupChild ? @"DOCK" : @"POP",
         _mixerPopupChild || (_pagePanels[page]
@@ -8581,7 +8581,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.no-input-mixer-8ch",
-    "s3g Processor No Input Mixer 8ch",
+    "s3g Processor No Input Mixer 8",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

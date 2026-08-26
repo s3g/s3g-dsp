@@ -27,6 +27,11 @@ SAFE_BUNDLE_RE = re.compile(r"^[a-z0-9][a-z0-9_]*\.clap$")
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SAFE_LEGACY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\*?$")
 VARIABLE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+BARE_OUTPUT_SUFFIX_RE = re.compile(r" [1-9][0-9]*$")
+NO_AUDIO_OUTPUT_HOST_NAMES = {
+    "s3g Tracker",
+    "s3g Utility NIM Gesture",
+}
 
 # Every configured CLAP directory belongs to the 0.7 package inventory. Keep
 # these collections in place so a later source-only experiment must be added
@@ -190,6 +195,19 @@ def parse_active(path: Path, audit: Audit) -> list[ActiveBundle]:
             audit.error(row_location, "host name must begin with 's3g '")
         if not bundle.host_name.isascii():
             audit.error(row_location, "host name must be ASCII so its package slug is portable")
+        if re.search(r"[0-9]+ch$", bundle.host_name):
+            audit.error(
+                row_location,
+                "host name output width must use a bare number without 'ch'",
+            )
+        elif (
+            bundle.host_name not in NO_AUDIO_OUTPUT_HOST_NAMES
+            and not BARE_OUTPUT_SUFFIX_RE.search(bundle.host_name)
+        ):
+            audit.error(
+                row_location,
+                "audio host name must end with its main output-bus channel count",
+            )
         if not SAFE_ID_RE.fullmatch(bundle.plugin_id):
             audit.error(row_location, f"unsafe CLAP identifier {bundle.plugin_id!r}")
         elif not bundle.plugin_id.startswith("org.s3g.s3g-dsp."):

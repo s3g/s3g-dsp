@@ -39,7 +39,7 @@ constexpr bool kPassExtraHostChannels = kChannelCount >= 24;
 #define S3G_MACRO_PITCH_PLUGIN_ID "org.s3g.s3g-dsp.macro-pitch-8ch"
 #endif
 #ifndef S3G_MACRO_PITCH_PLUGIN_NAME
-#define S3G_MACRO_PITCH_PLUGIN_NAME "s3g Macro Pitch 8ch"
+#define S3G_MACRO_PITCH_PLUGIN_NAME "s3g Macro Pitch 8"
 #endif
 #ifndef S3G_MACRO_PITCH_DESCRIPTION
 #define S3G_MACRO_PITCH_DESCRIPTION "8-channel macro pitch shifter with smoothed dual-reader time-domain pitch and lane relationship controls."

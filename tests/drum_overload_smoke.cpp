@@ -439,6 +439,6 @@ int main()
         || !completedTomFamilyProbe()) {
         return 1;
     }
-    std::cout << "s3g Drum Overload smoke passed\n";
+    std::cout << "s3g Drum Overload 2 smoke passed\n";
     return 0;
 }

@@ -324,7 +324,7 @@ int main(int argc, char** argv)
         ? factory->get_plugin_descriptor(factory, 0u) : nullptr;
     ok &= check(descriptor
             && std::strcmp(descriptor->id, pluginId) == 0
-            && std::strcmp(descriptor->name, "s3g Processor Fissure") == 0
+            && std::strcmp(descriptor->name, "s3g Processor Fissure 8") == 0
             && std::strcmp(descriptor->version, "0.10.5") == 0,
         "descriptor identity, host name, or version is wrong");
     ok &= check(hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)

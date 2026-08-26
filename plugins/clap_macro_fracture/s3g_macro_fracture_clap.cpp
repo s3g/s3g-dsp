@@ -38,7 +38,7 @@ constexpr bool kPassExtraHostChannels = kChannelCount >= 24u;
     "org.s3g.s3g-dsp.macro-fracture-8ch"
 #endif
 #ifndef S3G_MACRO_FRACTURE_PLUGIN_NAME
-#define S3G_MACRO_FRACTURE_PLUGIN_NAME "s3g Macro Fracture 8ch"
+#define S3G_MACRO_FRACTURE_PLUGIN_NAME "s3g Macro Fracture 8"
 #endif
 #ifndef S3G_MACRO_FRACTURE_DESCRIPTION
 #define S3G_MACRO_FRACTURE_DESCRIPTION \

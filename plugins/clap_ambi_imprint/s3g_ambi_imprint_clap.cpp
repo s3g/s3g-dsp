@@ -42,7 +42,7 @@ constexpr uint32_t kGuiStateMagic = 0x53474956u;
 constexpr uint32_t kGuiStateVersion = 1u;
 constexpr uint32_t kMaximumStateJsonBytes = 2u * 1024u * 1024u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-imprint-64";
-constexpr const char* kPluginName = "s3g Processor Ambi Imprint 64ch";
+constexpr const char* kPluginName = "s3g Processor Ambi Imprint 64";
 constexpr const char* kPluginDesc = "64-channel ambisonic directional imprint convolution.";
 
 enum ParamId : clap_id {
@@ -1502,11 +1502,11 @@ NSRect imprintAtlasMenuRect()
     s3g::clap_gui::drawPanelHeader(@"IMPRINT FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i], fieldPanel, viewLabels[i], i == _viewMode, value, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i], fieldPanel, viewLabels[i], i == _viewMode, value, style);
     }
     static NSString* zoomLabels[] = { @"-", @"+" };
     for (int i = 0; i < 2; ++i) {
-        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i], fieldPanel, zoomLabels[i], false, value, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i], fieldPanel, zoomLabels[i], false, value, style);
     }
     [self drawRoom:snapshot rect:s3g::clap_gui::cocoaRect(
         s3g::gui_layout::kImprintFamilyLayout.field) attrs:value];
@@ -1531,8 +1531,8 @@ NSRect imprintAtlasMenuRect()
         imprintPanel.origin.x + 115.0, imprintPanel.origin.y + 2.0, 71.0, 17.0);
     const NSRect imprintLoadButton = NSMakeRect(
         imprintPanel.origin.x + 191.0, imprintPanel.origin.y + 2.0, 68.0, 17.0);
-    s3g::clap_gui::drawHeaderActionButton(atlasButton, imprintHeader, @"ATLAS", value, style);
-    s3g::clap_gui::drawHeaderActionButton(imprintLoadButton, imprintHeader, @"LOAD", value, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(atlasButton, imprintHeader, @"ATLAS", value, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(imprintLoadButton, imprintHeader, @"LOAD", value, style);
     const CGFloat imprintLabelX = imprintPanel.origin.x + 12.0;
     const CGFloat imprintValueX = imprintPanel.origin.x + 60.0;
     [@"FILE" drawAtPoint:NSMakePoint(imprintLabelX, imprintPanel.origin.y + 35.0) withAttributes:text];

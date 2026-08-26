@@ -29,14 +29,11 @@ DEFAULT_BUILD_DIR = ROOT / "build-clap"
 DEFAULT_OUTPUT_DIR = ROOT / "docs" / "assets" / "plugin-guis"
 PLUGIN_ID_PREFIX = "org.s3g.s3g-dsp."
 DOCUMENTATION_SAMPLE_RECIPES = {
-    f"{PLUGIN_ID_PREFIX}loop-processor-8ch": (
-        ("loop-field-8ch.wav", 8, 3.6, 1),
-    ),
-    f"{PLUGIN_ID_PREFIX}multi-loop-processor-8ch": (
-        ("source-pulse-1ch.wav", 1, 1.2, 2),
-        ("source-ribbon-2ch.wav", 2, 1.5, 3),
-        ("source-cluster-4ch.wav", 4, 1.8, 4),
-        ("source-field-8ch.wav", 8, 2.1, 5),
+    f"{PLUGIN_ID_PREFIX}sample-rings-8": (
+        ("source-field-a-8ch.wav", 8, 1.2, 2),
+        ("source-field-b-8ch.wav", 8, 1.5, 3),
+        ("source-field-c-8ch.wav", 8, 1.8, 4),
+        ("source-field-d-8ch.wav", 8, 2.1, 5),
     ),
     f"{PLUGIN_ID_PREFIX}ambi-grain-processor": (
         ("ambi-field-16ch.wav", 16, 3.2, 6),
@@ -61,6 +58,10 @@ SHARED_BUNDLE_PLUGIN_IDS = {
         f"{PLUGIN_ID_PREFIX}sample-wavesets",
     f"{PLUGIN_ID_PREFIX}sample-motion-32":
         f"{PLUGIN_ID_PREFIX}sample-motion",
+    f"{PLUGIN_ID_PREFIX}sample-lanes-32":
+        f"{PLUGIN_ID_PREFIX}sample-lanes",
+    f"{PLUGIN_ID_PREFIX}sample-grains-32":
+        f"{PLUGIN_ID_PREFIX}sample-grains",
 }
 PREFERRED_SLICER_SAMPLES = (
     "Angles Break.wav",

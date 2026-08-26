@@ -472,7 +472,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.shard-scatter",
-    "s3g Effect Shard Scatter",
+    "s3g Effect Shard Scatter 16",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -4275,7 +4275,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.formant-matrix",
-    "s3g Processor Formant Matrix",
+    "s3g Processor Formant Matrix 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

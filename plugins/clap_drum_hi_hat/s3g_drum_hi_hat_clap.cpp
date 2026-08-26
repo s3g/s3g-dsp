@@ -1982,7 +1982,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.drum-hi-hat",
-    "s3g Drum Hi-Hat",
+    "s3g Drum Hi-Hat 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

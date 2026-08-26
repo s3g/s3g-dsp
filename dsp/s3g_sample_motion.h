@@ -26,7 +26,7 @@ enum class MotionMode : uint8_t {
     Forward,
     Reverse,
     MovingLoop,
-    BakToBak,
+    RoundTrip,
 };
 
 enum class MotionArticulation : uint8_t {
@@ -54,7 +54,7 @@ enum class SegmentModel : uint8_t {
     Pulser,
     Doublets,
     Bounce,
-    MchIter,
+    RoutedIterate,
 };
 
 enum class SegmentTrigger : uint8_t {
@@ -154,7 +154,7 @@ struct MotionSettings {
     bool valid() const noexcept
     {
         return static_cast<uint8_t>(motion)
-                <= static_cast<uint8_t>(MotionMode::BakToBak)
+                <= static_cast<uint8_t>(MotionMode::RoundTrip)
             && static_cast<uint8_t>(articulation)
                 <= static_cast<uint8_t>(MotionArticulation::Packets)
             && static_cast<uint8_t>(rateBasis)
@@ -162,7 +162,7 @@ struct MotionSettings {
             && static_cast<uint8_t>(motorEnvelope)
                 <= static_cast<uint8_t>(MotorEnvelopeShape::Plateau)
             && static_cast<uint8_t>(segmentModel)
-                <= static_cast<uint8_t>(SegmentModel::MchIter)
+                <= static_cast<uint8_t>(SegmentModel::RoutedIterate)
             && static_cast<uint8_t>(segmentTrigger)
                 <= static_cast<uint8_t>(SegmentTrigger::Turn)
             && static_cast<uint8_t>(segmentOverlap)
@@ -609,7 +609,7 @@ private:
     {
         const bool segmentAssigned = settings.outputAssignmentEvent
                 == OutputAssignmentEvent::Segment
-            || settings.segmentModel == SegmentModel::MchIter;
+            || settings.segmentModel == SegmentModel::RoutedIterate;
         if (!segmentAssigned) return nextOutput(settings);
         s3g::routing::VoiceOutputAssignment output;
         const uint32_t channels = std::min(outputChannelCount_,
@@ -739,7 +739,7 @@ private:
             break;
         }
         case SegmentModel::Iterate:
-        case SegmentModel::MchIter:
+        case SegmentModel::RoutedIterate:
             if (settings.eventStep <= 0.0f)
                 center = voice.sourcePosition;
             break;
@@ -779,7 +779,7 @@ private:
                 * settings.eventPitchScatterSemitones / 12.0f);
         const bool routeSegment = settings.outputAssignmentEvent
                 == OutputAssignmentEvent::Segment
-            || settings.segmentModel == SegmentModel::MchIter;
+            || settings.segmentModel == SegmentModel::RoutedIterate;
         if (routeSegment) {
             lane->output = nextOutput(settings);
             voice.output = lane->output;
@@ -796,7 +796,7 @@ private:
                     voice.eventBasePosition + step,
                     settings.start, settings.end);
         } else if ((settings.segmentModel == SegmentModel::Iterate
-                || settings.segmentModel == SegmentModel::MchIter)
+                || settings.segmentModel == SegmentModel::RoutedIterate)
             && step > 0.0) {
             voice.eventBasePosition = wrapRange(
                 voice.eventBasePosition + step,
@@ -877,7 +877,7 @@ private:
         const double span = 0.5 * (high - low);
         switch (settings.motion) {
         case MotionMode::Mirror:
-        case MotionMode::BakToBak: {
+        case MotionMode::RoundTrip: {
             const double triangle = voice.motionPhase < 0.5
                 ? voice.motionPhase * 2.0
                 : 2.0 - voice.motionPhase * 2.0;
@@ -1079,7 +1079,7 @@ private:
             } else updateMotionRateScale(voice, settings);
         }
         if (!wrappedMotion && (settings.motion == MotionMode::Mirror
-                || settings.motion == MotionMode::BakToBak)
+                || settings.motion == MotionMode::RoundTrip)
             && ((previousMotion < 0.5 && voice.motionPhase >= 0.5)
                 || (previousMotion >= 0.5 && voice.motionPhase < 0.5)))
             turnBoundary = true;
@@ -1250,7 +1250,7 @@ private:
             || voice.motion == MotionMode::MovingLoop) return true;
         if (voice.motion == MotionMode::Reverse) return false;
         if (voice.motion == MotionMode::Mirror
-            || voice.motion == MotionMode::BakToBak)
+            || voice.motion == MotionMode::RoundTrip)
             return voice.motionPhase < 0.5;
         if (voice.motion == MotionMode::Hover)
             return voice.motionPhase < 0.25 || voice.motionPhase > 0.75;
@@ -1264,7 +1264,7 @@ private:
             1.0 / std::max<double>(1.0, asset_->frameCount() - 1.0));
         const double normalized = std::clamp((position - low) / width,
             0.0, 1.0);
-        if (motion == MotionMode::Mirror || motion == MotionMode::BakToBak)
+        if (motion == MotionMode::Mirror || motion == MotionMode::RoundTrip)
             return forward ? normalized * 0.5 : 1.0 - normalized * 0.5;
         if (motion == MotionMode::Hover) {
             const double sine = normalized * 2.0 - 1.0;

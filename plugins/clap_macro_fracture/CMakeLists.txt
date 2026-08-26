@@ -39,7 +39,7 @@ add_s3g_macro_fracture_target(
   1
   "s3g_macro_fracture_mono"
   "org.s3g.s3g-dsp.macro-fracture-mono"
-  "s3g Macro Fracture Mono"
+  "s3g Macro Fracture Mono 1"
   "Mono macro relay, digital fracture, logic, vocal, robotic, and octave processor."
 )
 
@@ -48,7 +48,7 @@ add_s3g_macro_fracture_target(
   8
   "s3g_macro_fracture"
   "org.s3g.s3g-dsp.macro-fracture-8ch"
-  "s3g Macro Fracture 8ch"
+  "s3g Macro Fracture 8"
   "8-channel macro fracture processor with ten selectable models and smoothed lane relationships."
 )
 
@@ -57,6 +57,6 @@ add_s3g_macro_fracture_target(
   24
   "s3g_24ch_macro_fracture"
   "org.s3g.s3g-dsp.macro-fracture-24ch"
-  "s3g Macro Fracture 24ch"
+  "s3g Macro Fracture 24"
   "24-channel macro fracture processor with ten selectable models and smoothed lane relationships."
 )

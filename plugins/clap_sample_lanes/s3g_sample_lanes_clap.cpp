@@ -170,10 +170,17 @@ const char* voiceName(int value) noexcept
 
 const char* triggerName(int value) noexcept
 {
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    constexpr std::array<const char*, 3u> names {{
+        "Gate", "One Shot", "Toggle",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 1, 3) - 1)];
+#else
     constexpr std::array<const char*, 4u> names {{
         "Auto", "Gate", "One Shot", "Toggle",
     }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 3))];
+#endif
 }
 
 const char* outputModeName(int value) noexcept
@@ -181,13 +188,8 @@ const char* outputModeName(int value) noexcept
 
 const char* allocationCadenceName(int value) noexcept
 {
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
-    (void)value;
-    return "Grain";
-#else
     constexpr std::array<const char*, 3u> names {{ "Note", "Lane", "Turn" }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 2))];
-#endif
 }
 
 const char* traversalName(int value) noexcept
@@ -237,6 +239,17 @@ const char* grainEnvelopeName(int value) noexcept
 
 const char* grainTimingName(int value) noexcept
 { return value <= 0 ? "Regular" : "Scatter"; }
+
+const char* grainPositionBiasName(int value) noexcept
+{
+    constexpr std::array<const char*, 3u> names {{
+        "Behind", "Around", "Ahead",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 2))];
+}
+
+const char* grainSourceAdvanceName(int value) noexcept
+{ return value <= 0 ? "Scan" : "Grain"; }
 
 const char* grainMutateName(int value) noexcept
 {
@@ -373,6 +386,12 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
     else if (id == kGrainTimingParamId)
         std::snprintf(display, size, "%s", grainTimingName(
             static_cast<int>(std::lround(value))));
+    else if (id == kPositionBiasParamId)
+        std::snprintf(display, size, "%s", grainPositionBiasName(
+            static_cast<int>(std::lround(value))));
+    else if (id == kSourceAdvanceParamId)
+        std::snprintf(display, size, "%s", grainSourceAdvanceName(
+            static_cast<int>(std::lround(value))));
     else if (id == kGrainMutateParamId)
         std::snprintf(display, size, "%s", grainMutateName(
             static_cast<int>(std::lround(value))));
@@ -422,12 +441,17 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
         std::snprintf(display, size, "%.2f Hz", value);
     else if (id == kGrainSizeParamId)
         std::snprintf(display, size, "%.1f ms", value);
-    else if (id == kPitchSprayParamId)
+    else if (id == kPitchSprayParamId || id == kGrainPitchShiftParamId)
         std::snprintf(display, size, "%.2f st", value);
     else if (id == kSourcePositionParamId
         || id == kPositionSprayParamId || id == kReverseChanceParamId
-        || id == kMutateAmountParamId || id == kMonoSpreadParamId)
+        || id == kMutateAmountParamId || id == kMonoSpreadParamId
+        || id == kGrainSizeVariationParamId
+        || id == kGrainLevelVariationParamId
+        || id == kTimingScatterParamId)
         std::snprintf(display, size, "%.1f %%", value * 100.0);
+    else if (id == kEnvelopeSkewParamId)
+        std::snprintf(display, size, "%+.1f %%", value * 100.0);
 #endif
     else if (id >= kLane1SpeedParamId && id <= kLane4NudgeParamId) {
         const clap_id laneOffset = (id - kLane1SpeedParamId) % 3u;
@@ -456,18 +480,23 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         return parseNamedValue(display, value, 4, shapeName);
     if (id == kVoiceModeParamId)
         return parseNamedValue(display, value, 3, voiceName);
-    if (id == kTriggerParamId)
+    if (id == kTriggerParamId) {
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        for (int trigger = 1; trigger <= 3; ++trigger) {
+            if (strcasecmp(display, triggerName(trigger)) == 0) {
+                *value = static_cast<double>(trigger);
+                return true;
+            }
+        }
+        return false;
+#else
         return parseNamedValue(display, value, 4, triggerName);
+#endif
+    }
     if (id == kOutputModeParamId)
         return parseNamedValue(display, value, 2, outputModeName);
     if (id == kAllocationCadenceParamId)
-        return parseNamedValue(display, value,
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
-            1,
-#else
-            3,
-#endif
-            allocationCadenceName);
+        return parseNamedValue(display, value, 3, allocationCadenceName);
     if (id == kTraversalParamId)
         return parseNamedValue(display, value, 5, traversalName);
     if (id == kOutputWidthParamId)
@@ -487,6 +516,10 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         return parseNamedValue(display, value, 5, grainEnvelopeName);
     if (id == kGrainTimingParamId)
         return parseNamedValue(display, value, 2, grainTimingName);
+    if (id == kPositionBiasParamId)
+        return parseNamedValue(display, value, 3, grainPositionBiasName);
+    if (id == kSourceAdvanceParamId)
+        return parseNamedValue(display, value, 2, grainSourceAdvanceName);
     if (id == kGrainMutateParamId)
         return parseNamedValue(display, value, 5, grainMutateName);
     if (id == kSourceTimeSyncParamId)
@@ -517,6 +550,10 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
             || id == kPositionSprayParamId
             || id == kReverseChanceParamId
             || id == kMutateAmountParamId || id == kMonoSpreadParamId
+            || id == kGrainSizeVariationParamId
+            || id == kGrainLevelVariationParamId
+            || id == kTimingScatterParamId
+            || id == kEnvelopeSkewParamId
 #endif
             || (id >= kLane1NudgeParamId && id <= kLane4NudgeParamId
                 && (id - kLane1NudgeParamId) % 3u == 0u))
@@ -633,12 +670,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
-        || (header.version != kStateVersion
-            && header.version != kPreviousStateVersion)
-        || (header.version == kStateVersion
-            && header.parameterCount != kParamCount)
-        || (header.version == kPreviousStateVersion
-            && header.parameterCount != kGrainsPreviousParamCount)
+        || header.version != kStateVersion
+        || header.parameterCount != kParamCount
 #else
         || (header.version != kStateVersion
             && header.version != kRoutingPreviousStateVersion
@@ -668,10 +701,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         || !s3g::clap_state::readAll(stream, saved.lanes.data(),
             saved.lanes.size() * sizeof(LaneState))) return false;
     if (
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
-        header.version >= kPreviousStateVersion
-#else
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
         header.version >= kRoutingPreviousStateVersion
+#else
+        true
 #endif
         && !s3g::clap_state::readAll(stream, &saved.manualPath,
             sizeof(saved.manualPath))) return false;
@@ -1024,6 +1057,10 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
             index < grainCursorCount
                 ? grainCursors[index].lanePositionNormalized : 0.0f,
             std::memory_order_release);
+        instance.grainCursorPathClockPhases[index].store(
+            index < grainCursorCount
+                ? grainCursors[index].pathClockPhase : 0.0f,
+            std::memory_order_release);
         for (std::size_t lane = 0u;
              lane < s3g::sample::kSampleLaneCount; ++lane) {
             instance.grainCursorLaneSourcePositions[index][lane].store(
@@ -1157,7 +1194,11 @@ bool noteNameGet(const clap_plugin_t* plugin, uint32_t index,
     noteName->key = static_cast<int16_t>(std::lround(
         paramValue(*self(plugin), kRootParamId)));
     std::snprintf(noteName->name, sizeof(noteName->name), "%s",
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        "GRAINS SCAN ROOT");
+#else
         "LANES ROOT");
+#endif
     return true;
 }
 
@@ -1324,7 +1365,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "s3g Sample Grains 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.1.0",
+    "", "", "0.4.1",
     "Four-file granular instrument with shaped source-field paths and event mutation.",
     stereoFeatures,
 };
@@ -1335,7 +1376,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Grains 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.1.0",
+    "", "", "0.4.1",
     "Four-file granular instrument with field preservation or per-grain 32-channel allocation.",
     multichannelFeatures,
 };
@@ -1446,9 +1487,9 @@ const ParamDef* paramDef(clap_id id) noexcept
 
 std::size_t paramIndex(clap_id id) noexcept
 {
-    return id >= kOutParamId
-        && id <= static_cast<clap_id>(kParamCount)
-        ? static_cast<std::size_t>(id - kOutParamId) : kParamCount;
+    for (std::size_t index = 0u; index < kParamDefs.size(); ++index)
+        if (kParamDefs[index].id == id) return index;
+    return kParamCount;
 }
 
 double paramValue(const Plugin& instance, clap_id id) noexcept
@@ -1592,7 +1633,11 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         std::lround(paramValue(instance, kTriggerParamId))));
     settings.start = paramValue(instance, kStartParamId);
     settings.end = paramValue(instance, kEndParamId);
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    settings.loopCrossfade = 0.0;
+#else
     settings.loopCrossfade = paramValue(instance, kLoopCrossfadeParamId);
+#endif
     settings.rate = static_cast<float>(paramValue(instance, kRateParamId));
     settings.pathCycles = static_cast<float>(
         paramValue(instance, kCyclesParamId));
@@ -1602,12 +1647,20 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         paramValue(instance, kSkewParamId));
     settings.pathCurve = static_cast<float>(
         paramValue(instance, kCurveParamId));
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    settings.manualLane = 0.5f;
+#else
     settings.manualLane = static_cast<float>(
         paramValue(instance, kManualLaneParamId));
+#endif
     settings.manualPathPointCount = manualPathSnapshot(instance,
         settings.manualPathPoints);
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    settings.laneSlewSeconds = 0.0f;
+#else
     settings.laneSlewSeconds = static_cast<float>(
         paramValue(instance, kLaneSlewParamId));
+#endif
     settings.outputGainDecibels = static_cast<float>(
         paramValue(instance, kOutParamId));
     settings.rootNote = static_cast<uint8_t>(std::lround(
@@ -1627,9 +1680,13 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         paramValue(instance, kSeedParamId)));
     settings.outputMode = static_cast<LaneOutputMode>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kOutputModeParamId))));
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    settings.allocationCadence = LaneAllocationCadence::Note;
+#else
     settings.allocationCadence = static_cast<LaneAllocationCadence>(
         static_cast<uint8_t>(std::lround(
             paramValue(instance, kAllocationCadenceParamId))));
+#endif
     settings.activeOutputChannels = std::min<uint32_t>(
         instance.outputChannelCount, static_cast<uint32_t>(std::lround(
             paramValue(instance, kActiveOutputsParamId))));
@@ -1648,12 +1705,18 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         = paramValue(instance, kAvoidAdjacentParamId) >= 0.5;
     for (std::size_t lane = 0u; lane < s3g::sample::kSampleLaneCount;
          ++lane) {
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        settings.laneSpeed[lane] = 1.0f;
+        settings.laneStretch[lane] = 1.0f;
+        settings.laneNudge[lane] = 0.0f;
+#else
         settings.laneSpeed[lane] = static_cast<float>(paramValue(
             instance, laneSpeedParamId(lane)));
         settings.laneStretch[lane] = static_cast<float>(paramValue(
             instance, laneStretchParamId(lane)));
         settings.laneNudge[lane] = static_cast<float>(paramValue(
             instance, laneNudgeParamId(lane)));
+#endif
     }
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     settings.grainSourceMode = static_cast<GrainSourceMode>(
@@ -1671,6 +1734,22 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         instance, kPitchSprayParamId));
     settings.reverseChance = static_cast<float>(paramValue(
         instance, kReverseChanceParamId));
+    settings.grainPitchSemitones = static_cast<float>(paramValue(
+        instance, kGrainPitchShiftParamId));
+    settings.grainSizeVariation = static_cast<float>(paramValue(
+        instance, kGrainSizeVariationParamId));
+    settings.grainLevelVariation = static_cast<float>(paramValue(
+        instance, kGrainLevelVariationParamId));
+    settings.timingScatter = static_cast<float>(paramValue(
+        instance, kTimingScatterParamId));
+    settings.envelopeSkew = static_cast<float>(paramValue(
+        instance, kEnvelopeSkewParamId));
+    settings.positionBias = static_cast<GrainPositionBias>(
+        static_cast<uint8_t>(std::lround(
+            paramValue(instance, kPositionBiasParamId))));
+    settings.sourceAdvance = static_cast<GrainSourceAdvance>(
+        static_cast<uint8_t>(std::lround(
+            paramValue(instance, kSourceAdvanceParamId))));
     settings.grainEnvelope = static_cast<GrainEnvelope>(
         static_cast<uint8_t>(std::lround(
             paramValue(instance, kGrainEnvelopeParamId))));

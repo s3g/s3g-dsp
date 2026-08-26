@@ -115,6 +115,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
+add_executable(s3g_sample_rings_smoke
+  tests/sample_rings_smoke.cpp)
+target_link_libraries(s3g_sample_rings_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_rings_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
 add_executable(s3g_voice_output_allocator_smoke
   tests/voice_output_allocator_smoke.cpp)
 target_link_libraries(s3g_voice_output_allocator_smoke PRIVATE s3g_dsp)
@@ -426,6 +434,7 @@ if(BUILD_TESTING)
     s3g_sample_motion_smoke
     s3g_sample_lanes_smoke
     s3g_sample_grains_smoke
+    s3g_sample_rings_smoke
     s3g_voice_output_allocator_smoke
     s3g_feedback_shift_smoke
     s3g_processor_fissure_smoke
@@ -763,6 +772,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_sample_lanes_clap_smoke PRIVATE
       ${CMAKE_DL_LIBS})
   endif()
+
+  add_executable(s3g_sample_rings_clap_smoke
+    tests/sample_rings_clap_smoke.cpp)
+  target_include_directories(s3g_sample_rings_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_sample_rings_clap_smoke PRIVATE
+    ${CMAKE_DL_LIBS})
 
   if(S3G_BUILD_SAMPLE_GRAINS_PREVIEW)
     add_executable(s3g_sample_grains_clap_smoke
@@ -1121,7 +1137,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_acapella_source_synth_clap>
           org.s3g.s3g-dsp.formant-matrix
-          1356 968 "s3g Processor Formant Matrix" responsive)
+          1356 968 "s3g Processor Formant Matrix 2" responsive)
       set_tests_properties(s3g_formant_matrix_gui_smoke PROPERTIES
         LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
@@ -1216,7 +1232,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_feedback_shift_clap>
           org.s3g.s3g-dsp.feedback-shift
-          1100 760 "s3g Processor Feedback Shift" responsive)
+          1100 760 "s3g Processor Feedback Shift 8" responsive)
       set_tests_properties(s3g_feedback_shift_gui_smoke PROPERTIES
         LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
@@ -1355,6 +1371,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
   endif()
+  if(BUILD_TESTING)
+    add_test(NAME s3g_sample_rings_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_sample_rings_clap_smoke>
+        $<TARGET_FILE:s3g_sample_rings_clap>)
+    set_tests_properties(s3g_sample_rings_clap_smoke PROPERTIES
+      LABELS "non_nim;sample;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_sample_rings_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_rings_clap>
+          org.s3g.s3g-dsp.sample-rings-8
+          1356 820 "s3g Sample Rings 8" responsive-wide)
+      set_tests_properties(s3g_sample_rings_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+    endif()
+  endif()
   if(S3G_BUILD_SAMPLE_GRAINS_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_sample_grains_clap_smoke
       COMMAND $<TARGET_FILE:s3g_sample_grains_clap_smoke>
@@ -1407,6 +1439,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_sample_grains_smoke>
       COMMAND $<TARGET_FILE:s3g_sample_grains_clap_smoke>
         $<TARGET_FILE:s3g_sample_grains_clap>
+      COMMAND $<TARGET_FILE:s3g_sample_rings_smoke>
+      COMMAND $<TARGET_FILE:s3g_sample_rings_clap_smoke>
+        $<TARGET_FILE:s3g_sample_rings_clap>
       DEPENDS
         s3g_breakbeat_slicer_smoke
         s3g_breakbeat_slicer_clap_smoke
@@ -1429,7 +1464,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_sample_grains_smoke
         s3g_sample_grains_clap_smoke
         s3g_sample_grains_clap
-      COMMENT "Validating the Sample Slicer, Player, Doubles, Wavesets, Motion, Lanes, and Grains family")
+        s3g_sample_rings_smoke
+        s3g_sample_rings_clap_smoke
+        s3g_sample_rings_clap
+      COMMENT "Validating the Sample Slicer, Player, Doubles, Wavesets, Motion, Lanes, Grains, and Rings family")
   endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
@@ -1441,8 +1479,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_lbap_panner)
   add_subdirectory(plugins/clap_vbap_panner)
   add_subdirectory(plugins/clap_sub_crossover)
-  add_subdirectory(plugins/clap_loop_processor)
-  add_subdirectory(plugins/clap_multi_loop_processor)
+  add_subdirectory(plugins/clap_sample_rings)
   add_subdirectory(plugins/clap_ambi_grain_processor)
   add_subdirectory(plugins/clap_macro_delay)
   add_subdirectory(plugins/clap_macro_fracture)
@@ -1723,7 +1760,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_kick_clap>
           org.s3g.s3g-dsp.drum-kick
-          920 680 "s3g Drum Kick" responsive
+          920 680 "s3g Drum Kick 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_kick_clap
@@ -1751,7 +1788,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_snare_clap>
           org.s3g.s3g-dsp.drum-snare
-          920 680 "s3g Drum Snare" responsive
+          920 680 "s3g Drum Snare 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_snare_clap
@@ -1781,7 +1818,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_floor_tom_clap>
           org.s3g.s3g-dsp.drum-floor-tom
-          920 680 "s3g Drum Floor Tom" responsive
+          920 680 "s3g Drum Floor Tom 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_floor_tom_clap
@@ -1815,7 +1852,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_concert_bass_clap>
           org.s3g.s3g-dsp.drum-concert-bass
-          920 704 "s3g Drum Concert Bass" responsive
+          920 704 "s3g Drum Concert Bass 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_concert_bass_clap
@@ -1845,7 +1882,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_toms_clap>
           org.s3g.s3g-dsp.drum-toms
-          920 680 "s3g Drum Toms" responsive
+          920 680 "s3g Drum Toms 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_toms_clap
@@ -1873,7 +1910,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_hi_hat_clap>
           org.s3g.s3g-dsp.drum-hi-hat
-          920 680 "s3g Drum Hi-Hat" responsive
+          920 680 "s3g Drum Hi-Hat 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_hi_hat_clap
@@ -1901,7 +1938,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_clap_clap>
           org.s3g.s3g-dsp.drum-clap
-          920 680 "s3g Drum Clap" responsive
+          920 680 "s3g Drum Clap 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_clap_clap
@@ -1929,7 +1966,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_cowbell_clap>
           org.s3g.s3g-dsp.drum-cowbell
-          920 680 "s3g Drum Cowbell" responsive
+          920 680 "s3g Drum Cowbell 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_cowbell_clap
@@ -1957,7 +1994,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_crash_clap>
           org.s3g.s3g-dsp.drum-crash
-          920 680 "s3g Drum Crash" responsive
+          920 680 "s3g Drum Crash 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_crash_clap
@@ -1991,7 +2028,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_break_clap>
           org.s3g.s3g-dsp.drum-break
-          920 760 "s3g Drum Break" responsive
+          920 760 "s3g Drum Break 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_break_clap
@@ -2167,7 +2204,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_low_frequency_synth_clap>
           org.s3g.s3g-dsp.low-frequency-synth
-          980 672 "s3g Processor LF Synth" responsive
+          980 672 "s3g Processor LF Synth 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_low_frequency_synth_clap
@@ -2196,7 +2233,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_stack_clap>
           org.s3g.s3g-dsp.processor-stack
-          980 774 "s3g Processor Stack" responsive
+          980 774 "s3g Processor Stack 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_stack_clap
@@ -2225,7 +2262,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_conduit_clap>
           org.s3g.s3g-dsp.processor-conduit
-          760 620 "s3g Processor Conduit" responsive
+          760 620 "s3g Processor Conduit 2" responsive
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_conduit_clap
@@ -2280,7 +2317,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
         $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
         org.s3g.s3g-dsp.ambi-horizon-encoder-64
-        1160 760 "s3g Ambi Encoder Horizon" responsive
+        1160 760 "s3g Ambi Encoder Horizon 64" responsive
       DEPENDS
         s3g_ambi_horizon_encoder_smoke
         s3g_ambi_horizon_encoder_clap_smoke
@@ -2506,7 +2543,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_point_encoder_clap> org.s3g.s3g-dsp.ambi-point-encoder-64 900 716
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cloud_encoder_clap> org.s3g.s3g-dsp.ambi-cloud-encoder-64 900 672
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cartography_encoder_clap> org.s3g.s3g-dsp.ambi-cartography-encoder-64 1356 760 "s3g Ambi Encoder Cartography" responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cartography_encoder_clap> org.s3g.s3g-dsp.ambi-cartography-encoder-64 1356 760 "s3g Ambi Encoder Cartography 64" responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_path_encoder_clap> org.s3g.s3g-dsp.ambi-path-encoder-64 900 792
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_terrain_navigator_clap> org.s3g.s3g-dsp.ambi-terrain-navigator-64 900 792
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_ray_encoder_clap> org.s3g.s3g-dsp.ambi-ray-encoder 1040 628
@@ -2587,8 +2624,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 696 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_loop_processor_clap> org.s3g.s3g-dsp.loop-processor-8ch 920 640 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multi_loop_processor_clap> org.s3g.s3g-dsp.multi-loop-processor-8ch 920 726 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sample_rings_clap> org.s3g.s3g-dsp.sample-rings-8 1356 820 "s3g Sample Rings 8" responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide
@@ -2600,8 +2636,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_24ch_delay_processor_clap
         s3g_buffer_processor_clap
         s3g_wave_geometry_processor_clap
-        s3g_loop_processor_clap
-        s3g_multi_loop_processor_clap
+        s3g_sample_rings_clap
         s3g_psd_raw_field_clap
         s3g_ambi_grain_processor_clap
         s3g_no_input_mixer_clap
@@ -3006,7 +3041,6 @@ endif()
 
 if(S3G_BUILD_STANDALONE_APPS)
   add_subdirectory(standalone)
-  add_subdirectory(apps/multi_loop_processor_standalone)
   add_subdirectory(apps/no_input_mixer_standalone)
   add_subdirectory(apps/vox_builder)
 endif()

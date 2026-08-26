@@ -34,7 +34,7 @@ namespace {
 #endif
 
 #ifndef S3G_WAVE_GEOMETRY_PLUGIN_NAME
-#define S3G_WAVE_GEOMETRY_PLUGIN_NAME "s3g Processor Wave Geometry 8ch"
+#define S3G_WAVE_GEOMETRY_PLUGIN_NAME "s3g Processor Wave Geometry 8"
 #endif
 
 constexpr uint32_t kChannelCount = s3g::kWaveGeometryChannels;
@@ -1194,7 +1194,7 @@ const clap_plugin_tail_t tailExt { tailGet };
     NSString* pageLabels[2] = { @"TOPO", @"SCOPE" };
     for (int i = 0; i < 2; ++i) {
         NSRect button = [self fieldPageButtonRect:rect index:i];
-        s3g::clap_gui::drawHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
+        s3g::clap_gui::drawToolboxHeaderButton(button, rect, pageLabels[i], _fieldPage == i, small, style);
     }
     if (_fieldPage == 0) {
         s3g::clap_gui::drawTopologyProcessorCameraButtons(

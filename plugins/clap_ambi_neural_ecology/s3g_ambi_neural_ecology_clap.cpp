@@ -3171,25 +3171,25 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     s3g::clap_gui::drawPanelHeader(@"SELF-LISTENING AMBISONIC FIELD", true,
         panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
-    s3g::clap_gui::drawHeaderButton([self scorePageButtonRect:0], header, @"FIELD",
+    s3g::clap_gui::drawToolboxHeaderButton([self scorePageButtonRect:0], header, @"FIELD",
         !_scorePage, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self scorePageButtonRect:1], header, @"SCORE",
+    s3g::clap_gui::drawToolboxHeaderButton([self scorePageButtonRect:1], header, @"SCORE",
         _scorePage, attrs, style);
     if (_scorePage) {
         static NSString* planeCountLabels[] = { @"1P", @"2P", @"4P", @"8P" };
         for (int index = 0; index < 4; ++index) {
-            s3g::clap_gui::drawHeaderButton([self scorePlaneCountButtonRect:index],
+            s3g::clap_gui::drawToolboxHeaderButton([self scorePlaneCountButtonRect:index],
                 header, planeCountLabels[index],
                 static_cast<int>(p.scorePlanes) == index, attrs, style);
         }
         [self drawScore:attrs valueAttrs:valueAttrs style:style];
         return;
     }
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
     for (int index = 0; index < 3; ++index) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], header, viewLabels[index],
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:index], header, viewLabels[index],
             _viewMode == index, attrs, style);
     }
 
@@ -3543,7 +3543,7 @@ double sliderValue(const GuiSliderSpec& slider, NSPoint point)
     const NSRect scoreHeader = NSMakeRect(896, 750, 246, 21);
     static NSString* shortModeNames[] = { @"OFF", @"FLD", @"MIDI", @"CPL" };
     for (int mode = 0; mode < 4; ++mode) {
-        s3g::clap_gui::drawHeaderButton([self scoreModeButtonRect:mode], scoreHeader,
+        s3g::clap_gui::drawToolboxHeaderButton([self scoreModeButtonRect:mode], scoreHeader,
             shortModeNames[mode], static_cast<int>(p.scoreMode) == mode, attrs, style);
     }
     for (const auto& slider : kGuiSliders) {
@@ -4038,7 +4038,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-neural-ecology-64",
-    "s3g Ambi Encoder Neural Ecology",
+    "s3g Ambi Encoder Neural Ecology 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

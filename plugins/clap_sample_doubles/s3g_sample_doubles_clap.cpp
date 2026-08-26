@@ -4354,9 +4354,9 @@ NSString* tempoReadout(Plugin& instance)
         sourcePanel.origin.x, sourcePanel.origin.y, sourcePanel.size.width,
         static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
         labelAttrs, style);
-    s3g::clap_gui::drawHeaderButton(loadButtonRect(), sourcePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(loadButtonRect(), sourcePanel,
         @"LOAD SAMPLE", false, labelAttrs, style);
-    s3g::clap_gui::drawHeaderButton(embedButtonRect(), sourcePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(embedButtonRect(), sourcePanel,
         [NSString stringWithFormat:@"STORE %s",
             s3g::sample_storage::storageModeName(_instance->storageMode)],
         _instance->storageMode != StorageMode::Link, labelAttrs, style);

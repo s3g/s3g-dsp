@@ -1279,9 +1279,9 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"TERRAIN VOICE FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
-    for (int index = 0; index < 3; ++index) s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], panel, labels[index], index == _viewMode, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], panel, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], panel, @"+", false, attrs, style);
+    for (int index = 0; index < 3; ++index) s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:index], panel, labels[index], index == _viewMode, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], panel, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], panel, @"+", false, attrs, style);
     [s3g::clap_gui::color(0x090909) setFill]; NSRectFill(field); [style.grid setStroke]; NSFrameRect(field);
     [NSGraphicsContext saveGraphicsState]; [[NSBezierPath bezierPathWithRect:NSInsetRect(field, 1, 1)] addClip];
     struct Facet { std::array<NSPoint, 4> p {}; CGFloat depth = 0.0; NSColor* color = nil; };
@@ -1429,7 +1429,7 @@ CGFloat effectiveGuiRowY(const GuiRow& row,
     drawToolbox(@"TERRAIN", layout.terrain);
     static NSString* terrainTabs[] = { @"FORM", @"SKIN", @"WARP", @"READ" };
     for (int index = 0; index < 4; ++index) {
-        s3g::clap_gui::drawHeaderButton([self terrainTabRect:index],
+        s3g::clap_gui::drawToolboxHeaderButton([self terrainTabRect:index],
             s3g::clap_gui::cocoaRect(layout.terrain),
             terrainTabs[index], index == _terrainPage, attrs, style);
     }
@@ -1826,7 +1826,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64",
-    "s3g Ambi Encoder Wave Terrain",
+    "s3g Ambi Encoder Wave Terrain 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "", "", "0.5.0-pre",

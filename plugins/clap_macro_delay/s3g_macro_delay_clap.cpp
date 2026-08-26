@@ -40,7 +40,7 @@ constexpr bool kPassExtraHostChannels = kChannelCount >= 24;
 #define S3G_MACRO_DELAY_PLUGIN_ID "org.s3g.s3g-dsp.macro-delay-8ch"
 #endif
 #ifndef S3G_MACRO_DELAY_PLUGIN_NAME
-#define S3G_MACRO_DELAY_PLUGIN_NAME "s3g Macro Delay 8ch"
+#define S3G_MACRO_DELAY_PLUGIN_NAME "s3g Macro Delay 8"
 #endif
 #ifndef S3G_MACRO_DELAY_DESCRIPTION
 #define S3G_MACRO_DELAY_DESCRIPTION "8-channel macro delay with shared effect trims and smoothed channel-relationship controls."

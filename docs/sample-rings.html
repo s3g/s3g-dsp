@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Rings - s3g-dsp</title>
+    <meta name="description" content="User guide for Sample Rings 8, a four-source file and live-input instrument whose eight read heads move through a concentric field of as many as 32 loop-channel rings.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Rings</h1>
+
+        <p><code>s3g Sample Rings 8</code> is the unified successor to Processor Loop and Processor Multi Loop. Its four slots can load files or record the signal arriving from the DAW and upstream effects. Every usable channel becomes a concentric loop ring—up to eight per slot and 32 in total—and eight read heads move through that radial source field without baking the files into one composite.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-rings.png" aria-label="Open the high-resolution Sample Rings 8 interface screenshot">
+              <img src="assets/plugin-guis/sample-rings.png" alt="Sample Rings 8 interface with 32 concentric loop-channel waveforms, eight editable read heads, radial and angular motion controls, input capture, selected-slot timing, and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Radius chooses a file/channel ring; angle chooses loop time. Four eight-channel sources fill all 32 rings while eight independently timed heads move through them.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Sample Rings 8</code> on a fixed eight-channel REAPER track. Leave <code>Store Project</code> selected for project-contained media, or choose Link or Embed, then load or drop files into slots A–D. You can instead route audio from the track or an earlier effect into the plug-in and record a slot.</li>
+          <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
+          <li>Choose a Radial Path and Head Formation, then choose the Angular Model among the eight heads. The Field Path and Head Clocks columns separate the two layers, while Master Rate scales both. The field shows the actual ring, source channel, loop phase, crossfade, and formation of every enabled head.</li>
+          <li>Select a source row and set its Start, End, Speed, pitch-preserving Stretch, Pitch, Wrap Nudge, Gain, and Reverse state.</li>
+          <li>Set Loop Join and Seam Duck, then audition without MIDI using Play, Pause, Stop, and Sync. Pause retains position, Stop pauses and returns the motion system to its start state, and Sync relaunches without changing whether transport is running. Finally choose direct eight-channel, quad-ring, or stereo-ring output.</li>
+        </ol>
+
+        <h2 id="sources">Four Independent Loop Sources</h2>
+
+        <p>Slots A–D retain separate audio assets and clocks. Files do not need equal durations, sample rates, or channel widths. The first eight channels of each loaded file become adjacent rings, ordered A1–A8, B1–B8, C1–C8, and D1–D8 as available. A mono file contributes one ring, stereo contributes two, and four eight-channel files fill the 32-ring field. Two-tone muted teal separator rings demarcate each file boundary without competing with the channel waveforms or read heads. The selected slot's waveform band brightens while the other slots remain in a closer neutral grayscale, so selection—not the letter A–D—determines visual priority. Click a source badge to select its controls. Multiple-file drag and drop fills consecutive slots.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Start / End</td><td>Set a proportional loop window for the selected source only.</td></tr>
+            <tr><td>Speed</td><td>Changes that source's transport speed and pitch together from one-eighth to four times rate.</td></tr>
+            <tr><td>Stretch</td><td>Changes elapsed loop time without changing the pitch established by Speed and Pitch. A dual-window overlap reader moves between direct and stretched playback.</td></tr>
+            <tr><td>Pitch</td><td>Transposes the selected source by as much as four octaves without changing its transport speed.</td></tr>
+            <tr><td>Wrap Nudge</td><td>Rotates source content by as much as half a loop. The waveform moves visibly and a dashed line identifies the wrapped seam.</td></tr>
+            <tr><td>Loop Join</td><td>Crossfades the outgoing end of every active loop into its beginning. It is global because a head may cross source boundaries.</td></tr>
+            <tr><td>Seam Duck</td><td>Adds attenuation around the center of the join when overlapping endpoints would otherwise build up.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="storage">Project, Link, and Embed Storage</h2>
+
+        <p>The title-bar <code>Store</code> button applies one Sample-family storage policy to all four file slots. New instances default to Project. Loading and content verification run away from the audio thread.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Saved-source behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Project</td><td>Copies each loaded file into the saved REAPER project's <code>s3g Samples</code> media directory and saves a project-relative locator. Content hashing reuses an existing verified copy when the same unchanged file is loaded again; files already inside project media are reused in place.</td></tr>
+            <tr><td>Link</td><td>Keeps the original external file path and writes no audio payload for a file-backed slot.</td></tr>
+            <tr><td>Embed</td><td>Stores decoded floating-point audio for every populated slot in CLAP state, subject to the shared one-gigabyte safety cap.</td></tr>
+          </tbody>
+        </table>
+
+        <p>If Project is selected before the REAPER project has been saved, the source plays from its original path and reports <code>Project Pending / Save Project</code>. The plug-in copies it once the project supplies a media directory. Changing storage mode does not interrupt playback. A live capture has no file to copy or link, so it remains embedded under every mode.</p>
+
+        <h2 id="capture">DAW Input and Capture</h2>
+
+        <p>The plug-in reports one paired eight-channel input and output. It records the audio that reaches its input, so the source can be a track item, live interface routing, a send, or the output of plug-ins earlier in the same chain.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Target</td><td>Selects slot A, B, C, or D for recording and selects the same row for editing.</td></tr>
+            <tr><td>Input Width</td><td><code>Auto</code> follows the highest active input lane. An explicit value from 1–8 captures exactly that many channels. Stereo normally uses input lanes 1–2; a wider source uses lanes 1 through the chosen width.</td></tr>
+            <tr><td>Replace</td><td>Starts a new loop and replaces the target slot when recording stops.</td></tr>
+            <tr><td>Overdub</td><td>Records around the existing slot duration and adds input to retained material using Overdub Feedback.</td></tr>
+            <tr><td>Punch</td><td>Records around the existing slot duration and replaces the corresponding interval rather than summing it.</td></tr>
+            <tr><td>Quantize</td><td>Starts and stops freely or at the next beat, bar, two-bar, four-bar, or eight-bar boundary when the host supplies tempo and beat position.</td></tr>
+            <tr><td>Monitor</td><td><code>Loop</code> hears the matrix, <code>Input</code> hears the incoming lanes in place, and <code>Both</code> combines them with equal-power attenuation.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Record and stop from the editor when using Overdub or Punch so the existing slot can be prepared before realtime processing begins. Capture buffers are allocated at activation; the audio thread does not allocate memory while recording.</p>
+
+        <h2 id="rings">Concentric Source Field</h2>
+
+        <p>The field is a literal view of the reader. Radius identifies a packed file/channel ring and angle identifies normalized time within that ring's own loop. Each circular trace now combines a faint sampled-peak envelope, a stronger RMS-energy band, and a fine signed contour. This preserves recognizable sections, transients, and level changes that a single-point trace can miss; every channel is normalized against its own sampled peak for legibility, so band width describes relative structure rather than absolute gain. Wrap Nudge visibly rotates the analysis with the loop content. Two dots connected across adjacent rings show the two independently clocked reads being combined, and their brightness follows the equal-power crossfade. The thin bridge appears only while both reads make an audible contribution; hard selection and completed crossfades show only the active dot. A two-tone muted teal circle marks each boundary between populated source files.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Radial Path</th><th>Ring motion</th></tr></thead>
+          <tbody>
+            <tr><td>Fixed Ring</td><td>Holds around Ring Position. Formation Spread can place separate formations at different radii.</td></tr>
+            <tr><td>Outward / Inward</td><td>Sweeps once through the packed rings in the named direction, then wraps.</td></tr>
+            <tr><td>Bounce</td><td>Travels outward and inward without a radial discontinuity.</td></tr>
+            <tr><td>Sine Sweep</td><td>Eases at the inner and outer turnarounds.</td></tr>
+            <tr><td>Stepped Bands</td><td>Moves among four discrete radial regions.</td></tr>
+            <tr><td>Random Walk</td><td>Chooses a repeatable seeded ring region at each of sixteen path steps.</td></tr>
+            <tr><td>Manual</td><td>Uses the Manual Ring value of each free head or formation leader. Drag a head anywhere in the circle to enter Manual radial and angular editing.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>Master Rate</code> is the editor label for the host's Playback Rate parameter and is the common master for angular playback and radial motion. Each source's angular clock additionally follows its own loop duration, Speed, Stretch, and the selected Angular Model. Radial Ratio scales a stable eight-second reference cycle instead of borrowing slot A's duration: at Master Rate <code>1x</code> and Radial Ratio <code>1x</code>, Outward or Inward traverses the field in eight seconds, while Bounce or Sine completes an outward-and-return cycle in eight seconds. This keeps radial behavior unchanged when files are reordered or replaced. <code>Rad Rev</code> reverses path time from its current phase and therefore applies to every moving path, including Bounce, Steps, and Random; it is inactive for Fixed Ring and Manual. Fixed and Manual do not advance a hidden radial clock, so choosing a moving path later begins from the visible phase. <code>Ang Rev</code> independently reverses audible playback and displayed movement around every ring. Ring Position centers shaped motion, Depth sets its radial range, Offset changes starting path phase, <code>Form Spread</code> offsets separate free heads or groups, and Slew rounds jumps. Field 8 has one radial group, so Form Spread is intentionally inactive. Ring Blend moves from hard adjacent-ring selection to a smooth equal-power crossfade.</p>
+
+        <h2 id="presets">Factory Presets and Conditional Controls</h2>
+
+        <p>The title-bar Preset menu contains eleven starting points ranging from Slow Field and Four Loop Pairs to Stepped Relay, Random Constellation, and Stereo Fold. Factory presets reset the motion, head, loop, MIDI, and routing controls while preserving the current Output Gain and all four loaded or captured sources. Editing a factory or loaded preset appends <code>*</code> to its title until another preset is applied, loaded, or saved. The adjacent Load and Save buttons continue to manage complete user state presets.</p>
+
+        <p>Controls that the current mode cannot use are dimmed, show a short reason in place of their value, and do not accept editor gestures. Their stored values remain intact for automation and return when the relevant mode is selected. Examples include Radial Ratio in Fixed or Manual, Formation Spread in Field 8, Overdub Feedback outside Overdub, Rotate in 8 Direct, Root while MIDI is Off, and slot controls when the selected slot is empty. Manual Ring, Phase, and Rate receive a muted teal emphasis when their respective Manual model is selected. Motion Seed replaces the older Path Seed label because it conditions both Random radial motion and seeded angular drift.</p>
+
+        <h2 id="formations">Head Formations and Source Width</h2>
+
+        <p>Formation controls radial linkage only. Every head keeps its own angular phase and rate, so an eight-head Canon or Orbit remains eight distinct clocks even when all heads cross source bands together.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Formation</th><th>Radial behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Free Heads</td><td>All eight heads can occupy and cross arbitrary packed rings independently.</td></tr>
+            <tr><td>Linked Pairs</td><td>H1–H2, H3–H4, H5–H6, and H7–H8 share radial motion. Inside each source, the members address successive channels modulo that source's width.</td></tr>
+            <tr><td>Linked Quads</td><td>H1–H4 and H5–H8 form two radial rakes while retaining four separate angular clocks per rake.</td></tr>
+            <tr><td>Field 8</td><td>All heads form one rake. With four eight-channel files, H1–H8 move coherently from A1–A8 through B1–B8, C1–C8, and D1–D8.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Narrower sources wrap channel correspondence inside a linked formation: a stereo file repeats channels 1–2 across the eight heads and a mono file supplies its one channel to all heads. Free Heads instead treats every packed channel as an independent radial destination. Empty slots contribute no rings and are skipped automatically.</p>
+
+        <h2 id="heads">Eight-Head Motion</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Head Model</th><th>Motion</th></tr></thead>
+          <tbody>
+            <tr><td>Unison</td><td>All enabled heads start together and run at the same relationship rate.</td></tr>
+            <tr><td>Canon</td><td>Offsets launch phase progressively while retaining a common rate.</td></tr>
+            <tr><td>Fan</td><td>Spreads rates continuously around Head Pivot. Negative Amount mirrors the fast and slow sides.</td></tr>
+            <tr><td>Ratio</td><td>Moves toward the fixed set 1/2, 2/3, 3/4, 1, 4/3, 3/2, 2, and 3. Negative Amount assigns that set to the heads in reverse order.</td></tr>
+            <tr><td>Shear</td><td>Combines a smaller phase fan with a smaller rate fan.</td></tr>
+            <tr><td>Orbit</td><td>Starts around the loop and gently modulates head rates around the ring.</td></tr>
+            <tr><td>Drift</td><td>Assigns stable slow deviations to the heads. The separate Drift control can add a smaller deviation to any model.</td></tr>
+            <tr><td>Manual</td><td>Uses the phase and signed rate stored for each head. Manual Rate spans −4x to +4x: negative values counter-rotate that head and 0x stops it. Drag a head around the circle to set phase and radius together, or use Manual Phase and Manual Rate in the selected-head panel.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Angle Amount is bipolar from −1 to +1. Its sign reverses Canon phase order, mirrors the head ordering of Fan, Ratio, and Shear, and inverts Orbit or Drift modulation; 0 collapses the relationship toward unison. Head Pivot chooses the neutral head for rate-spread models, while Angle Glide smooths relationship changes. Click H1–H8 to select a head. The selected-head panel reports its effective ring read, phase, rate, source/channel read, crossfade, and linked group during automatic motion. Manual Ring replaces its ring readout only in Manual radial mode; Manual Phase and Manual Rate replace their live readouts only in Manual angular mode. <code>Mute</code> toggles that head; <code>Solo</code> leaves only it sounding and restores the previous head mask when released. Option-clicking a head remains a fast mute shortcut. Manual Ring edits the selected free head or the leader shared by its linked formation, while Manual Phase and Manual Rate remain per head. Manual Phase is displayed as a wrapped −180° to +180° position, and a signed Manual Rate composes with global <code>Ang Rev</code> and the selected slot's <code>Reverse</code>.</p>
+
+        <h2 id="midi-output">MIDI and Output</h2>
+
+        <p>MIDI Off leaves transport under the Play, Pause, Stop, and Sync buttons. Gate plays while one or more notes are held. Trigger relaunches the field on note-on. In Gate and Trigger, note number changes Playback Rate around Root without altering the independent per-slot Pitch parameter.</p>
+
+        <p><code>8 Direct</code> preserves all eight matrix outputs. <code>Quad Ring</code> and <code>Stereo Ring</code> project the eight lanes into a four- or two-channel ring while retaining the fixed eight-channel host port; unused outputs are silent. Rotate turns the ring before projection.</p>
+
+        <h2 id="state">State and Retirement</h2>
+
+        <ul>
+          <li>All 91 controls, the Project/Link/Embed selection, four source locators, per-head Manual values, and the four source slots are saved in CLAP state. Mute and Solo operate the saved, automatable Head Mask.</li>
+          <li>Project is the default. Its content-addressed, verified copy reuses identical media instead of creating duplicates and registers the result with the exact owning REAPER project for copy-media Save As operations.</li>
+          <li>Recorded slots have no external file and are always embedded as decoded floating-point PCM, so saving the host project preserves captures. Embedded state size is approximately channels × frames × four bytes.</li>
+          <li>Processor Loop, Processor Multi Loop, and the provisional Sample Loop Matrix identity have been retired. Sample Rings uses a new plug-in identifier; replace those effects in existing host sessions.</li>
+          <li>The storage-aware engine uses state version 6. Manually imported version 5 development state migrates file references to Link while retaining pathless captures as embedded audio.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="effect-crcltr.html"><span>Previous</span>Effect CRCLTR</a>
+          <a class="page-nav-link next" href="voice-instruments.html"><span>Next</span>Voice / Language Instruments</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-lanes.html">Sample Lanes</a>
+          <a href="sample-grains.html">Sample Grains</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="effect-crcltr.html">Effect CRCLTR</a>
+          <a href="sample-rings.html">Sample Rings</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#sources">Loop Sources</a>
+          <a href="#storage">Project, Link, and Embed</a>
+          <a href="#capture">DAW Input and Capture</a>
+          <a href="#rings">Concentric Source Field</a>
+          <a href="#presets">Presets and Control States</a>
+          <a href="#formations">Head Formations</a>
+          <a href="#heads">Eight-Head Motion</a>
+          <a href="#midi-output">MIDI and Output</a>
+          <a href="#state">State and Retirement</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -1970,16 +1970,16 @@ static clap_id lpSliderParamId(int slider)
     s3g::clap_gui::drawPanelHeader(panelTitle, true, mainPanel.origin.x, mainPanel.origin.y, mainPanel.size.width, 21, lab, style);
     static NSString* pageLabels[] = { @"FIELD", @"MIXER", @"DESIGN" };
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i inRect:mainPanel], mainPanel, pageLabels[i], i == _page, small, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:i inRect:mainPanel], mainPanel, pageLabels[i], i == _page, small, style);
     }
     if (_page == 0 || _page == 2) {
         static NSString* zoomLabels[] = { @"-", @"+" };
         for (int i = 0; i < 2; ++i) {
-            s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:mainPanel], mainPanel, zoomLabels[i], false, small, style);
+            s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i inRect:mainPanel], mainPanel, zoomLabels[i], false, small, style);
         }
         static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
         for (int i = 0; i < 3; ++i) {
-            s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:mainPanel], mainPanel, viewLabels[i], i == _viewMode, small, style);
+            s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:mainPanel], mainPanel, viewLabels[i], i == _viewMode, small, style);
         }
         [self drawField:fieldRect attrs:small style:style];
     } else {
@@ -2143,7 +2143,7 @@ static clap_id lpSliderParamId(int slider)
     const auto& family = s3g::gui_layout::kPannerFamilyLayout;
     const auto titleBand = s3g::clap_gui::encoderTitleBand(900.0, 720.0);
     if (s3g::clap_gui::handleProcessorTitleClick(
-            pt, &p->plugin, @"s3g Panner Layout", titleBand,
+            pt, &p->plugin, @"s3g Panner Layout 64", titleBand,
             _titlePresetName, sizeof(_titlePresetName), kOutputParamId)) {
         [self setNeedsDisplay:YES];
         return;
@@ -2542,7 +2542,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.layout-panner",
-    "s3g Panner Layout",
+    "s3g Panner Layout 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

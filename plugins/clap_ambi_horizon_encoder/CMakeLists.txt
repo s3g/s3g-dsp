@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.ambi-horizon-encoder-64"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Horizon"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Encoder Horizon 64"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
   )

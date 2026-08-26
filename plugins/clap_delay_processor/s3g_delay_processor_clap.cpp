@@ -43,12 +43,12 @@ static_assert(kChannelCount > 0 && kChannelCount <= s3g::kLanePatchMaxChannels,
 
 #if S3G_DELAY_PROCESSOR_CHANNEL_COUNT == 24
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-24ch";
-constexpr const char* kPluginName = "s3g Processor Delay 24ch";
+constexpr const char* kPluginName = "s3g Processor Delay 24";
 constexpr const char* kPluginDescription =
     "24-channel topological delay with per-lane shaping, diffusion, and directed Echo Routes that walk repeats across the channel graph.";
 #else
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.delay-processor-8ch";
-constexpr const char* kPluginName = "s3g Processor Delay 8ch";
+constexpr const char* kPluginName = "s3g Processor Delay 8";
 constexpr const char* kPluginDescription =
     "8-channel topological delay with per-lane shaping, diffusion, and directed Echo Routes that walk repeats across the channel graph.";
 #endif
@@ -2914,7 +2914,7 @@ static CGFloat delayOutputRowY(CGFloat panelY, uint32_t index)
     NSString* pageLabels[2] = { @"TOPO", @"SCOPE" };
     for (int i = 0; i < 2; ++i) {
         NSRect button = [self fieldPageButtonRect:topologyPanel index:i];
-        s3g::clap_gui::drawHeaderButton(button, topologyPanel, pageLabels[i], _fieldPage == i, smallAttrs, pageStyle);
+        s3g::clap_gui::drawToolboxHeaderButton(button, topologyPanel, pageLabels[i], _fieldPage == i, smallAttrs, pageStyle);
     }
     if (_fieldPage == 0) {
         s3g::clap_gui::drawTopologyProcessorCameraButtons(

@@ -1340,7 +1340,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     static NSString* labels[] = { @"FIELD", @"MIXER" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 2; ++i) {
-        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i inRect:rect], rect, labels[i], i == _leftPage, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:i inRect:rect], rect, labels[i], i == _leftPage, attrs, style);
     }
 }
 - (void)drawMixerBankButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
@@ -1354,7 +1354,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
         const uint32_t first = bank * kMixerBankSize + 1u;
         const uint32_t last = std::min<uint32_t>((bank + 1u) * kMixerBankSize, active);
         NSString* label = [NSString stringWithFormat:@"%u-%u", first, last];
-        s3g::clap_gui::drawHeaderButton([self mixerBankButtonRect:bank inRect:rect], rect, label, bank == _mixerBank, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self mixerBankButtonRect:bank inRect:rect], rect, label, bank == _mixerBank, attrs, style);
     }
 }
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
@@ -1362,7 +1362,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     static NSString* labels[] = { @"-", @"+" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 2; ++i) {
-        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
     }
 }
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs
@@ -1370,7 +1370,7 @@ static NSColor* pointColorFromAed(float azDeg, float elDeg, float distance, bool
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
     }
 }
 - (CGFloat)viewScaleForRect:(NSRect)rect
@@ -2315,7 +2315,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-point-encoder-64",
-    "s3g Ambi Encoder Point",
+    "s3g Ambi Encoder Point 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

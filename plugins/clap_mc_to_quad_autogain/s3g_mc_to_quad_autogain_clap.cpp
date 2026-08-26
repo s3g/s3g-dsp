@@ -783,7 +783,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.mc-to-quad-autogain",
-    "s3g Output Autogain Quad",
+    "s3g Output Autogain Quad 4",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

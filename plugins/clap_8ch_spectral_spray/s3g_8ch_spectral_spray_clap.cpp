@@ -706,7 +706,7 @@ const char* const features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr };
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.8ch-spectral-spray",
-    "s3g Effect Spectral Spray 8ch",
+    "s3g Effect Spectral Spray 8",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

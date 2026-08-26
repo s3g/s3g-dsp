@@ -27,7 +27,7 @@ if(BUILD_TESTING)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
         $<TARGET_FILE:s3g_processor_errant_clap>
         org.s3g.s3g-dsp.processor-errant
-        920 582 "s3g Processor Errant" responsive)
+        920 582 "s3g Processor Errant 2" responsive)
     set_tests_properties(s3g_processor_errant_gui_smoke PROPERTIES
       LABELS "non_nim;clap;gui" TIMEOUT 120)
   endif()
@@ -46,7 +46,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.processor-errant"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Errant"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Errant 2"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.4.1"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.1"
   )

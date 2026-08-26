@@ -26,19 +26,19 @@ constexpr std::array<const char*, 22u> kMotionPresetNames {{
     "INIT", "Hover Field", "Mirror Flip", "Drunk Walk", "Zigzag Cuts",
     "Forward Tape", "Reverse Tape", "Packets", "Motor Hover",
     "Motor Mirror", "Motor Drunk", "Rounded Motor", "Wide Swarm",
-    "Moving Loop", "BaktoBak", "MCH Zig", "Freeze", "Iterate",
-    "Pulser", "Doublets", "Bounce", "MCH Iterate",
+    "Moving Loop", "Round Trip", "Routed Zigzag", "Freeze", "Iterate",
+    "Pulser", "Doublets", "Bounce", "Routed Iterate",
 }};
 NSString* const kMotionPresetItems[] = {
     @"INIT", @"Hover Field", @"Mirror Flip", @"Drunk Walk",
     @"Zigzag Cuts", @"Forward Tape", @"Reverse Tape", @"Packets",
     @"Motor Hover", @"Motor Mirror", @"Motor Drunk", @"Rounded Motor",
-    @"Wide Swarm", @"Moving Loop", @"BaktoBak", @"MCH Zig", @"Freeze",
-    @"Iterate", @"Pulser", @"Doublets", @"Bounce", @"MCH Iterate",
+    @"Wide Swarm", @"Moving Loop", @"Round Trip", @"Routed Zigzag", @"Freeze",
+    @"Iterate", @"Pulser", @"Doublets", @"Bounce", @"Routed Iterate",
 };
 NSString* const kMotionModeItems[] = {
     @"Hover", @"Mirror", @"Drunk", @"Zigzag", @"Forward", @"Reverse",
-    @"Moving Loop", @"BaktoBak",
+    @"Moving Loop", @"Round Trip",
 };
 NSString* const kRateBasisItems[] = { @"Normal", @"Hertz" };
 NSString* const kMotorEnvelopeItems[] = {
@@ -47,7 +47,7 @@ NSString* const kMotorEnvelopeItems[] = {
 NSString* const kSoundModeItems[] = {
     @"Continuous", @"Packets", @"Motor", @"Freeze Loop",
     @"Natural Iterate", @"Pulser", @"Doublets", @"Bounce",
-    @"MCH Iterate",
+    @"Routed Iterate",
 };
 NSString* const kSegmentTriggerItems[] = { @"Clock", @"Packet", @"Turn" };
 NSString* const kSegmentOverlapItems[] = { @"Cut", @"Layer" };
@@ -884,7 +884,7 @@ uint32_t motionPreviewRandom(uint32_t& randomState) noexcept
         set(kJoinParamId, 0.90);
         set(kEventOverlapParamId, 1.0);
         break;
-    case 6: // MCH Iterate: natural copies, random-cycle spatial allocation.
+    case 6: // Routed Iterate: natural copies, random-cycle spatial allocation.
         set(kSegmentTriggerParamId, 0.0);
         set(kEventRateParamId, 6.0);
         set(kFieldParamId, 0.14);
@@ -1853,9 +1853,9 @@ uint32_t motionPreviewRandom(uint32_t& randomState) noexcept
         NSMinY(kSamplePanel), NSWidth(kSamplePanel),
         static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
         labels, style);
-    s3g::clap_gui::drawHeaderButton(kSampleLoadButton, kSamplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(kSampleLoadButton, kSamplePanel,
         @"LOAD SAMPLE", false, labels, style);
-    s3g::clap_gui::drawHeaderButton(kClearButton, kSamplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(kClearButton, kSamplePanel,
         @"CLEAR", false, labels, style);
     StorageMode storageMode = StorageMode::Project;
     {
@@ -1864,7 +1864,7 @@ uint32_t motionPreviewRandom(uint32_t& randomState) noexcept
     }
     NSString* storageLabel = [NSString stringWithFormat:@"STORE %s",
         s3g::sample_storage::storageModeName(storageMode)];
-    s3g::clap_gui::drawHeaderButton(kStorageButton, kSamplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(kStorageButton, kSamplePanel,
         storageLabel, storageMode != StorageMode::Link, labels, style);
     std::string status;
     {
@@ -1883,8 +1883,11 @@ uint32_t motionPreviewRandom(uint32_t& randomState) noexcept
     const int selectedModel = static_cast<int>(std::lround(paramValue(
         *_instance, kSegmentModelParamId)));
     const bool eventActive = selectedModel != 0;
+    NSString* outputSection = _outputRoutingPage ? @"OUTPUT / ROUTING"
+        : isMultichannel(*_instance) ? @"VOICE / PITCH / MIDI"
+        : kOutputVoicePanelTitle;
     NSString* outputTitle = [NSString stringWithFormat:@"3  %@",
-        _outputRoutingPage ? @"OUTPUT / ROUTING" : kOutputVoicePanelTitle];
+        outputSection];
     const struct Panel { NSRect rect; NSString* title; } panels[] = {
         { kMotionPanel, @"1  SOURCE FIELD + MOTION" },
         { kMotorPanel, eventActive ? @"2  EVENT PROCESS"
@@ -1899,7 +1902,7 @@ uint32_t motionPreviewRandom(uint32_t& randomState) noexcept
             27.0, labels, style);
     }
     if (isMultichannel(*_instance))
-        s3g::clap_gui::drawHeaderButton(kOutputPageButton, kOutputPanel,
+        s3g::clap_gui::drawToolboxHeaderButton(kOutputPageButton, kOutputPanel,
             _outputRoutingPage ? @"VOICE / PITCH" : @"ROUTING",
             _outputRoutingPage, labels, style);
     [self drawMenu:kMotionParamId name:@"PATH" y:482 panel:kMotionPanel style:style labels:labels values:values];

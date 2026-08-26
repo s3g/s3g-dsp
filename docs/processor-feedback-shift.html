@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Processor Feedback Shift - s3g-dsp</title>
-    <meta name="description" content="s3g Processor Feedback Shift eight-channel feedback network, scene morphing, virtual splicing, insert, aux, routing, and safety documentation.">
+    <meta name="description" content="s3g Processor Feedback Shift 8 eight-channel feedback network, scene morphing, virtual splicing, insert, aux, routing, and safety documentation.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Processor Feedback Shift</h1>
 
-        <p><code>s3g Processor Feedback Shift</code> is an eight-input, eight-output CLAP audio effect for performing one coupled feedback network. Eight shift/ring nodes, a signed 8-by-8 matrix, paired scenes, energy-responsive governors, virtual patch splicing, per-node inserts, an in-network aux return, and a post-network granulator form one playable system rather than eight unrelated channel effects.</p>
+        <p><code>s3g Processor Feedback Shift 8</code> is an eight-input, eight-output CLAP audio effect for performing one coupled feedback network. Eight shift/ring nodes, a signed 8-by-8 matrix, paired scenes, energy-responsive governors, virtual patch splicing, per-node inserts, an in-network aux return, and a post-network granulator form one playable system rather than eight unrelated channel effects.</p>
 
         <p>Every node may process its matching external input, excite itself from noise, tone, sub bass, or MIDI hits, or run only from matrix feedback. The plug-in remains an audio effect in the host even when an internal source is selected; it does not advertise itself as a CLAP instrument.</p>
 
@@ -43,7 +43,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Set a REAPER track to eight channels and insert <code>s3g Processor Feedback Shift</code>. Feed as many matching input lanes as the patch requires.</li>
+          <li>Set a REAPER track to eight channels and insert <code>s3g Processor Feedback Shift 8</code>. Feed as many matching input lanes as the patch requires.</li>
           <li>Route the eight ordinary output lanes to the intended main speaker outputs, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring.</li>
           <li>Begin with <code>COLD START</code>, keep OUTPUT low, and choose a SOURCE for each active node. Use <code>EXTERNAL</code> when the incoming lane should drive the network directly.</li>
           <li>Build a sparse matrix first. Click an empty crosspoint to create it, click an active crosspoint again to remove it, and Option-click to create a negative connection.</li>

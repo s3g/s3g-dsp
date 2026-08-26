@@ -1046,7 +1046,7 @@ const clap_plugin_t pluginClass {
 };
 
 constexpr const char* features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_AMBISONIC, nullptr };
-const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.ambi-grain-processor", "s3g Processor Ambi Grain 16ch", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "Coherent grain processor for loaded ACN/SN3D ambisonic media.", features };
+const clap_plugin_descriptor_t descriptor { CLAP_VERSION_INIT, "org.s3g.s3g-dsp.ambi-grain-processor", "s3g Processor Ambi Grain 16", "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.0", "Coherent grain processor for loaded ACN/SN3D ambisonic media.", features };
 
 const clap_plugin_t* createPlugin(const clap_host_t* host, const char* pluginId)
 {

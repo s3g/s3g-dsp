@@ -44,7 +44,7 @@ constexpr double kContentCoordinateHeight =
 constexpr uint32_t kStateMagic = 0x5347424cu;
 constexpr uint32_t kStateVersion = 2u;
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-bilocation-encoder";
-constexpr const char* kPluginName = "s3g Ambi Encoder Ray Bilocation";
+constexpr const char* kPluginName = "s3g Ambi Encoder Ray Bilocation 64";
 constexpr const char* kPluginDesc = "One mono source simultaneously inhabiting two contrasting ambisonic ray fields.";
 
 enum ParamId : clap_id {
@@ -1503,9 +1503,9 @@ NSPoint projectElevationPosition(const GuiFieldSnapshot& field, NSRect plot, s3g
     const CGFloat zModeWidth = [zMode sizeWithAttributes:labelAttrs].width;
     [zMode drawAtPoint:NSMakePoint(620.0 - zModeWidth * 0.5, (sourceYA + sourceYB) * 0.5 - 16.0) withAttributes:labelAttrs];
 
-    s3g::clap_gui::drawHeaderActionButton(loadAButtonRect(), NSMakeRect(12, 34, 570, 21), @"LOAD A", valueAttrs, style);
-    s3g::clap_gui::drawHeaderActionButton(loadBButtonRect(), NSMakeRect(658, 34, 570, 21), @"LOAD B", valueAttrs, style);
-    s3g::clap_gui::drawHeaderActionButton(pairButtonRect(), NSMakeRect(584, 34, 72, 21), @"PAIR", valueAttrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(loadAButtonRect(), NSMakeRect(12, 34, 570, 21), @"LOAD A", valueAttrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(loadBButtonRect(), NSMakeRect(658, 34, 570, 21), @"LOAD B", valueAttrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(pairButtonRect(), NSMakeRect(584, 34, 72, 21), @"PAIR", valueAttrs, style);
     s3g::clap_gui::drawHeaderButton(sourceModeRect(), NSMakeRect(584, 76, 72, 22), @"SRC", !_editListener, valueAttrs, style);
     s3g::clap_gui::drawHeaderButton(listenerModeRect(), NSMakeRect(584, 102, 72, 22), @"LIS", _editListener, valueAttrs, style);
     [@"TWO" drawAtPoint:NSMakePoint(608, 178) withAttributes:labelAttrs];

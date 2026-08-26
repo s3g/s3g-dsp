@@ -1,4 +1,4 @@
-# s3g Processor No Input Mixer 8ch — MIDI protocol
+# s3g Processor No Input Mixer 8 — MIDI protocol
 
 Status: published protocol, version 0.6.
 

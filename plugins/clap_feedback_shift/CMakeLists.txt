@@ -20,7 +20,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.feedback-shift"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Feedback Shift"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Feedback Shift 8"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.18.1"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.18.1"
   )

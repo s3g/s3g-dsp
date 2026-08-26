@@ -2491,7 +2491,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         const BOOL active = (index == 0 && _surfaceEdit)
             || (index == 1 && _surfaceSnapshot.enabled)
             || (index == 5 && (_surfacePopupChild || [_surfacePanel isVisible]));
-        s3g::clap_gui::drawHeaderButton([self surfaceButtonRect:index],
+        s3g::clap_gui::drawToolboxHeaderButton([self surfaceButtonRect:index],
             header, labels[index], active, attrs, style);
     }
     const NSRect curve = [self surfaceCurveRect];
@@ -2503,18 +2503,18 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
         withAttributes:valueAttrs];
     [@"FOCUS" drawAtPoint:NSMakePoint(field.origin.x + 122.0,
         field.origin.y + 40.0) withAttributes:attrs];
-    s3g::clap_gui::drawHeaderButton([self surfaceFocusRect:0], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceFocusRect:0], header,
         @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceFocusRect:1], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceFocusRect:1], header,
         @"+", false, attrs, style);
     [[NSString stringWithFormat:@"%.2f", _surfaceSnapshot.focus]
         drawAtPoint:NSMakePoint(field.origin.x + 222.0, field.origin.y + 40.0)
         withAttributes:valueAttrs];
     [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 280.0,
         field.origin.y + 40.0) withAttributes:attrs];
-    s3g::clap_gui::drawHeaderButton([self surfaceGlideRect:0], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceGlideRect:0], header,
         @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceGlideRect:1], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceGlideRect:1], header,
         @"+", false, attrs, style);
     NSString* glide = _surfaceSnapshot.glideMs < 0.5f ? @"OFF"
         : [NSString stringWithFormat:@"%.0f MS", _surfaceSnapshot.glideMs];
@@ -2550,18 +2550,18 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"CRYOSPHERE GEO FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:0], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:0], header,
         @"FIELD", _fieldPage == 0, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:1], header,
         @"SURF", _fieldPage == 1, attrs, style);
     if (_fieldPage == 1) {
         [self drawSurfacePage:attrs valueAttrs:valueAttrs style:style];
         return;
     }
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
-    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
+    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
     [s3g::clap_gui::color(0x090909) setFill];
     NSRectFill(field);
     [s3g::clap_gui::color(0x555555) setStroke];
@@ -3335,7 +3335,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-cryosphere-encoder-64",
-    "s3g Ambi Encoder Cryosphere",
+    "s3g Ambi Encoder Cryosphere 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

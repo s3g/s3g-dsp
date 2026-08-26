@@ -43,12 +43,12 @@
         <ol>
           <li>Insert Sample Grains 2 on a stereo instrument track or Sample Grains 32 on a fixed 32-channel track, then load or drop as many as four files. Grains 2 accepts mono and stereo files; Grains 32 accepts files with one to sixteen channels.</li>
           <li>Route the stereo output, or the selected Grains 32 lanes, to the intended speakers or headphone monitor. In Grains 32, open Routing to choose Preserve Field or per-grain distribution and set the active output count.</li>
-          <li>Set Start, End, Loop Join, Direction, Rate Basis, and Scan Speed to establish the shared source-time motion.</li>
+          <li>Set Start, End, Direction, Rate Basis, and Scan Speed to establish the shared source-time motion, then choose Scan- or Grain-clocked Source Advance.</li>
           <li>Choose Scan, Freeze, Cloud, or Slice, then set grain Density, Size, envelope, position and pitch spray, and reverse probability.</li>
-          <li>Choose a lane Path. Use Crossfade for continuous equal-power movement between files or Jump for discrete selection with Jump Slew.</li>
-          <li>Choose Regular or Scatter timing and, if wanted, a Grain Process.</li>
+          <li>Choose a lane Path. Use Crossfade for continuous equal-power movement between files or Jump for a direct lane choice at each independently windowed grain, then choose whether Source Advance follows the continuous Scan clock or steps the drawn path once per grain.</li>
+          <li>Choose Regular or Scatter timing, set the Scatter amount, and add any Size, Level, envelope, or Grain Process variation wanted.</li>
           <li>In Grains 2, decide how stereo channels are interpreted and how mono grains occupy the stereo field. In Grains 32, open Routing to preserve a source field or allocate grains.</li>
-          <li>Set Polyphony, Trigger, pitch, amplitude timing, velocity, and MIDI reception, then play notes or press <code>PLAY</code>.</li>
+          <li>Set Polyphony, Trigger, MIDI-conditioned scan rate, independent grain pitch, amplitude timing, velocity, and MIDI reception, then play notes or press <code>PLAY</code>.</li>
         </ol>
 
         <h2 id="source-scan">Source Scan and Grain Source</h2>
@@ -57,9 +57,9 @@
           <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
           <tbody>
             <tr><td>Direction</td><td>Forward and Reverse wrap through the selected source window. Ping Pong reflects at its ends.</td></tr>
-            <tr><td>Rate Basis</td><td>Normal interprets Scan Speed as a multiplier of file playback speed. Hertz interprets it as complete source-window scans per second.</td></tr>
+            <tr><td>Rate Basis</td><td>Normal interprets Scan Speed as a multiplier of file playback speed. Hertz interprets it as complete source-window scans per second. The played MIDI note then conditions either rate around Scan Root, doubling per octave.</td></tr>
             <tr><td>Start / End</td><td>Set the shared proportional source window for all loaded files, regardless of their individual lengths.</td></tr>
-            <tr><td>Loop Join</td><td>Retains the shared Lanes wrap-join setting for state and automation compatibility. Grain reads already wrap at source boundaries and are independently windowed, so the current Grains engine does not add a separate loop crossfade from this value.</td></tr>
+            <tr><td>Source boundaries</td><td>Every grain is independently windowed and its source read wraps inside Start–End, so Grains does not expose the continuous-loop Loop Join control used by Sample Lanes.</td></tr>
             <tr><td>Scan</td><td>Emit grains along the moving scan position.</td></tr>
             <tr><td>Freeze</td><td>Hold grain starts at Position while notes and the grain clock continue.</td></tr>
             <tr><td>Cloud</td><td>Choose stochastic grain positions across the shared source window, then apply Position Spray.</td></tr>
@@ -67,6 +67,8 @@
             <tr><td>Density</td><td>Sets the mean number of grain events per second. Regular uses even spacing; Scatter varies the intervals.</td></tr>
             <tr><td>Grain Size</td><td>Sets each grain window from 8–4000 ms. Density and size together determine overlap.</td></tr>
             <tr><td>Position Spray</td><td>Offsets each event from its selected source position. Independent stereo also gives the right channel its own position decision.</td></tr>
+            <tr><td>Position Bias</td><td>Behind restricts Position Spray to earlier source time, Around spreads to either side, and Ahead restricts it to later source time. All three wrap inside the sample window.</td></tr>
+            <tr><td>Pitch Shift</td><td>Independently transposes every grain by ±48 semitones without changing Scan Speed, event Density, or Grain Size. MIDI note height does not enter this pitch offset.</td></tr>
             <tr><td>Pitch Spray</td><td>Adds a random pitch offset up to the selected semitone range. Independent stereo makes separate left and right decisions.</td></tr>
             <tr><td>Reverse</td><td>Sets the probability that a grain reads backward. Independent stereo evaluates the two original channels separately.</td></tr>
           </tbody>
@@ -74,7 +76,7 @@
 
         <h2 id="envelopes">Grain Envelopes and Display</h2>
 
-        <p>Parzen, Sine, Hann, Triangle, and Gaussian windows shape every grain. Short windows produce compact events; longer windows and higher Density build overlapping clouds. Output level is overlap-compensated so increasing overlap does not produce a directly proportional gain increase.</p>
+        <p>Parzen, Sine, Hann, Triangle, and Gaussian windows shape every grain. Envelope Skew moves the window peak earlier or later without changing the selected shape. Size Variation ranges each event from progressively shorter to longer around Grain Size; Level Variation attenuates individual grains by a seeded random amount before overlap compensation. Short windows produce compact events; longer windows and higher Density build overlapping clouds. Output level is overlap-compensated so increasing overlap does not produce a directly proportional gain increase.</p>
 
         <p>The waveform is intentionally darker than the live grain overlay. A faint filled span accumulates where grains overlap. Medium gray is the elapsed portion of a grain, bright gray is the remaining portion, contour thickness follows the current lane weight, and contour brightness follows the current windowed gain. The white point with a dark halo is the current phase. A grain crossing a source-window seam breaks at one edge and continues at the other. Matching rings in the read-head scope identify sounding grain events against the file-lane path.</p>
 
@@ -88,9 +90,11 @@
             <tr><td>Steps Down / Steps Up</td><td>Select lanes as discrete ordered steps.</td></tr>
             <tr><td>Random</td><td>Follow a reproducible seeded path; the drawn path is the path the engine uses.</td></tr>
             <tr><td>Manual</td><td>Click to add a breakpoint, drag a point to reshape the path, and right-click a point to remove it. The endpoints remain anchored to the path-clock boundaries.</td></tr>
-            <tr><td>Lane Change</td><td>Crossfade uses equal-power lane weights. Jump selects one lane and applies Jump Slew to suppress clicks.</td></tr>
+            <tr><td>Lane Change</td><td>Crossfade uses equal-power lane weights. Jump selects one lane when a grain starts; the grain envelope itself supplies the click-safe transition, so Grains has no Jump Slew.</td></tr>
             <tr><td>Shape / Cycles</td><td>Shape bends time between path points. Cycles sets how often the lane path repeats across one scan.</td></tr>
             <tr><td>Offset / Skew / Curve</td><td>Rotate, redistribute, and bend path-clock time without changing the source files.</td></tr>
+            <tr><td>Source Advance: Scan</td><td>Use the continuously moving source scan as the horizontal clock for the drawn lane path.</td></tr>
+            <tr><td>Source Advance: Grain</td><td>Advance through the same visible path in eight event-locked steps. Random therefore follows its displayed seeded eight-step order, and Manual follows its drawn breakpoint shape. With Steps Down or Steps Up, Path Cycles can set how many grain events remain on each lane.</td></tr>
           </tbody>
         </table>
 
@@ -117,6 +121,8 @@
 
         <h2 id="process">Timing and Grain Process</h2>
 
+        <p>Regular emits evenly spaced events. Scatter retains the same mean Density while varying individual intervals; the Scatter slider continuously moves from regular spacing at zero to the full timing range at 100%.</p>
+
         <table class="readout-table">
           <thead><tr><th>Process</th><th>Behavior</th></tr></thead>
           <tbody>
@@ -124,15 +130,15 @@
             <tr><td>Sorter</td><td>Rank Regions by sampled loudness and move through that ordering. Amount blends between the original and sorted positions.</td></tr>
             <tr><td>Stutter</td><td>Hold a grain-start anchor for an Amount-dependent repeat group before choosing a new anchor.</td></tr>
             <tr><td>Shrink</td><td>Progressively shorten a repeat chain and accelerate its source reading. Amount controls chain length and contraction.</td></tr>
-            <tr><td>Doublets</td><td>Schedule a second, slightly shorter grain halfway to the next event. With Source Sync on, its source position advances by the same elapsed source time.</td></tr>
+            <tr><td>Doublets</td><td>Amount sets the probability that an event receives a second, slightly shorter grain halfway to the next event. At 100% every event is paired; at 0% none are. With Source Sync on, the second grain's source position advances by the same elapsed source time.</td></tr>
           </tbody>
         </table>
 
         <p>These names parallel Sample Slicer's mutation vocabulary, but the mechanisms are different. Slicer rearranges rendered slice material; Grains schedules overlapping live grain windows.</p>
 
-        <h2 id="voices">Polyphony, Pitch, and MIDI</h2>
+        <h2 id="voices">Polyphony, Scan Rate, Grain Pitch, and MIDI</h2>
 
-        <p>Poly layers note emitters. Mono replaces the previous note. Legato retargets pitch while retaining the active scan position and amplitude. Auto and Gate begin Release on note-off; One Shot ignores note-off; Toggle alternately starts and releases a matching note. Root, Tune, and Fine set pitch before Pitch Spray. Attack and Release shape the note emitter around the independently windowed grains. Velocity blends between fixed gain and note velocity, and MIDI selects Omni or channels 1–16.</p>
+        <p>Poly layers note emitters. Mono replaces the previous note. Legato retargets the scan rate while retaining the active scan position and amplitude. Gate begins Release on note-off. One Shot ignores note-off and begins Release after one complete traversal of the selected source window. Toggle alternately starts and releases a matching note. Scan Root is the note that runs at the displayed Scan Speed; every octave above or below doubles or halves that speed. Scan Tune and Scan Fine offset this rate relationship. Grain Pitch Shift remains a separate fixed transposition, followed by Pitch Spray, so changing MIDI note does not transpose the audio within a grain. Attack and Release shape the note emitter around the independently windowed grains. Velocity blends between fixed gain and note velocity, and MIDI selects Omni or channels 1–16.</p>
 
         <h2 id="routing">Grains 32 Routing</h2>
 
@@ -158,23 +164,23 @@
           <thead><tr><th>Preset</th><th>Starting configuration</th></tr></thead>
           <tbody>
             <tr><td>Init</td><td>Forward Scan, regular Parzen grains, a descending lane path, and linked preserved stereo origins.</td></tr>
-            <tr><td>Soft Cloud</td><td>Cloud positions, Gaussian windows, longer grains, and wider position spray.</td></tr>
-            <tr><td>Frozen Halo</td><td>Freeze at the middle source position with long grains and a slow sine lane path.</td></tr>
+            <tr><td>Soft Cloud</td><td>Cloud positions, Gaussian windows, longer grains, wider position spray, and gentle Size and Level Variation.</td></tr>
+            <tr><td>Frozen Halo</td><td>Freeze at the middle source position with long, early-peaking grains and a slow sine lane path.</td></tr>
             <tr><td>Loudness Sort</td><td>Slice source positions reordered by the Sorter process.</td></tr>
-            <tr><td>Stutter Field</td><td>Grouped repeated anchors over a stepped lane path.</td></tr>
-            <tr><td>Shrinking Rain</td><td>Contracting and accelerating grain chains over a random lane path.</td></tr>
-            <tr><td>Doublet Scatter</td><td>Scattered paired grains with source-time synchronization.</td></tr>
-            <tr><td>Manual Path</td><td>A four-point editable path that moves nonlinearly among the file lanes.</td></tr>
+            <tr><td>Stutter Field</td><td>Grouped repeated anchors with grain-clocked steps across the file lanes.</td></tr>
+            <tr><td>Shrinking Rain</td><td>Contracting, accelerating, size-varied grain chains over a grain-clocked random path.</td></tr>
+            <tr><td>Doublet Scatter</td><td>Scattered paired grains with variable timing depth and source-time synchronization.</td></tr>
+            <tr><td>Manual Path</td><td>A four-point editable lane route sampled by the grain event clock.</td></tr>
           </tbody>
         </table>
 
-        <h2 id="state">Automation, Storage, and Compatibility</h2>
+        <h2 id="state">Automation and Storage</h2>
 
         <ul>
-          <li>Grains 2 publishes 55 automatable controls, including Channel Mode, Stereo Link, and Mono Spread. It does not publish or honor the seven Grains 32 allocator controls.</li>
-          <li>Grains 32 publishes 59 automatable controls, including its seven routing controls. It does not publish the three stereo-only controls.</li>
-          <li>Earlier Grains state loads with Preserve Origins, Linked stereo, and zero Mono Spread unless the new controls were saved.</li>
-          <li>The inherited per-lane Speed, Stretch, and wrap Nudge values remain state-compatible and host-automatable, although Grains does not show the Lanes timing toolbox.</li>
+          <li>Grains 2 publishes 47 automatable controls, including Channel Mode, Stereo Link, Mono Spread, and the shared grain-variation controls. It does not publish the Grains 32 allocator controls.</li>
+          <li>Grains 32 publishes 50 automatable controls, including six routing controls and the shared grain-variation controls. It does not publish the three stereo-only controls.</li>
+          <li>Version 0.4 intentionally replaces the earlier Grains parameter and state schema. Loop Join, Manual Lane, Jump Slew, Alloc Clock, and the twelve inherited per-lane Speed/Stretch/Nudge controls are absent rather than retained as hidden automation.</li>
+          <li>The Manual breakpoint path is the sole manual lane representation. With no edited path points it begins as a centered two-point path.</li>
           <li><code>PROJECT</code> copies sources into the saved REAPER project's media path, <code>LINK</code> retains their original locations, and <code>EMBED</code> stores decoded floating-point PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a>.</li>
         </ul>
 
@@ -196,8 +202,7 @@
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
           <a href="effect-crcltr.html">Effect CRCLTR</a>
-          <a href="processor-loop.html">Processor Loop</a>
-          <a href="processor-multi-loop.html">Processor Multi Loop</a>
+          <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
         <div class="toc-section">
@@ -208,7 +213,7 @@
           <a href="#lane-path">File-Lane Path</a>
           <a href="#stereo">Grains 2 Stereo</a>
           <a href="#process">Grain Process</a>
-          <a href="#voices">Polyphony and MIDI</a>
+          <a href="#voices">Scan Rate and MIDI</a>
           <a href="#routing">Grains 32 Routing</a>
           <a href="#presets">Factory Presets</a>
           <a href="#state">Automation and State</a>

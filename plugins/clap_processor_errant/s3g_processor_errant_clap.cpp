@@ -1349,7 +1349,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.processor-errant",
-    "s3g Processor Errant",
+    "s3g Processor Errant 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

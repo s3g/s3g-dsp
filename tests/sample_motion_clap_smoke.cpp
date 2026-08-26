@@ -431,7 +431,7 @@ int main(int argc, char** argv)
         && params->value_to_text(plugin, 2u, 6.0, namedText,
             sizeof(namedText))
         && std::strcmp(namedText, "Moving Loop") == 0
-        && params->text_to_value(plugin, 2u, "BaktoBak", &namedValue)
+        && params->text_to_value(plugin, 2u, "Round Trip", &namedValue)
         && std::abs(namedValue - 7.0) < 1.0e-9
         && params->value_to_text(plugin, 3u, 2.0, namedText,
             sizeof(namedText))
@@ -747,20 +747,21 @@ int main(int argc, char** argv)
         && maximumMagnitude(multichannelAudio[4u]) > 1.0e-5f
         && channelDifference(multichannelAudio[0u],
             multichannelAudio[4u]) > 1.0e-5f;
-    Events mchIter;
-    mchIter.midiCc(0u, 123u, 0u);
-    mchIter.parameter(28u, 0.0);
-    mchIter.parameter(29u, 0.0);
-    mchIter.parameter(31u, 8.0);
-    mchIter.parameter(32u, 6.0);
-    mchIter.parameter(34u, 80.0);
-    mchIter.parameter(7u, 0.005);
-    mchIter.parameter(41u, 2.0);
-    mchIter.note(CLAP_EVENT_NOTE_ON, 0, 72);
+    Events routedIterate;
+    routedIterate.midiCc(0u, 123u, 0u);
+    routedIterate.parameter(28u, 0.0);
+    routedIterate.parameter(29u, 0.0);
+    routedIterate.parameter(31u, 8.0);
+    routedIterate.parameter(32u, 6.0);
+    routedIterate.parameter(34u, 80.0);
+    routedIterate.parameter(7u, 0.005);
+    routedIterate.parameter(41u, 2.0);
+    routedIterate.note(CLAP_EVENT_NOTE_ON, 0, 72);
     std::array<bool, 32u> eventOutputs {};
     for (uint32_t block = 0u; ok && block < 20u; ++block) {
         ok = processMultichannelBlock(multichannel, 256u,
-            block == 0u ? &mchIter.interface : nullptr, multichannelAudio);
+            block == 0u ? &routedIterate.interface : nullptr,
+            multichannelAudio);
         for (std::size_t channel = 0u; channel < eventOutputs.size(); ++channel)
             eventOutputs[channel] = eventOutputs[channel]
                 || maximumMagnitude(multichannelAudio[channel]) > 1.0e-5f;

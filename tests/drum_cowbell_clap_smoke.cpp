@@ -24,7 +24,7 @@
 namespace {
 
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.drum-cowbell";
-constexpr const char* kPluginName = "s3g Drum Cowbell";
+constexpr const char* kPluginName = "s3g Drum Cowbell 2";
 constexpr double kSampleRate = 48000.0;
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kChannels = 2u;

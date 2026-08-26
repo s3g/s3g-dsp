@@ -361,7 +361,7 @@ int main(int argc, char** argv)
         ? factory->get_plugin_descriptor(factory, 0u) : nullptr;
     ok = ok && factory && factory->get_plugin_count(factory) == 1u
         && descriptor && std::strcmp(descriptor->id, argv[2]) == 0
-        && std::strcmp(descriptor->name, "s3g Drum Echo") == 0
+        && std::strcmp(descriptor->name, "s3g Drum Echo 2") == 0
         && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_DELAY)
         && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_STEREO);
 
@@ -390,6 +390,6 @@ int main(int argc, char** argv)
         std::cerr << "Drum Echo CLAP smoke failed\n";
         return 1;
     }
-    std::cout << "s3g Drum Echo CLAP smoke passed\n";
+    std::cout << "s3g Drum Echo 2 CLAP smoke passed\n";
     return 0;
 }

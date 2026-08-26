@@ -18,7 +18,16 @@ window accumulates where grains overlap; the elapsed contour is medium gray,
 the remaining contour is bright, and the white dot with a dark halo is the
 current grain phase. Contour thickness follows lane weight, while luminance
 also follows the grain's actual current windowed gain. A contour that crosses
-a loop or wrap-nudge seam breaks at one edge and continues at the other.
+a source-window seam breaks at one edge and continues at the other.
+
+MIDI note height controls source Scan Speed around `Scan Root`; each octave
+doubles or halves the scan rate in both Normal and Hertz rate bases. `Scan
+Tune` and `Scan Fine` offset that rate relationship. They do not transpose the
+audio inside a grain. `Pitch Shift` independently transposes every grain by
+±48 semitones without changing source scan speed, event density, or grain
+duration, while `Pitch Spray` remains the per-event random offset. Doublets
+Amount is the probability of emitting the paired grain, from none at zero to
+every event at 100%.
 
 The stereo edition accepts mono or stereo files. `Preserve Origins` keeps a
 stereo file's left and right channels on their original sides. `Mono Sum`,
@@ -36,7 +45,7 @@ Palindrome, Random, or Random Cycle allocator places it.
 Only the 32-channel edition publishes the allocator parameters and exposes the
 Motion-style `ROUTING` tab with its categorical `ACTIVE OUT` menu. The stereo
 edition has a fixed two-channel output and shows its channel interpretation
-controls beside voice, pitch, and MIDI.
+controls beside voice, scan rate, and MIDI.
 
 The 1280-by-932 editor gives every slider a full-width track at a consistent
 24-pixel row pitch. Source waveforms, the read-head path, and a full-width
@@ -45,9 +54,18 @@ right column continuously; Voice or Routing spans both columns as the footer.
 It does not show Lanes' selected-lane Timing/Stretch toolbox or a separate
 simulated grain graph.
 
-Legacy per-lane timing values remain state-compatible and host-automatable,
-but they do not occupy the Grains editor. Sources use the Sample-family
-Project, Link, and Embed storage contract and accept multi-file drag and drop.
+Version 0.4.1 restores MIDI-note control of Scan Speed while leaving Grain
+Pitch Shift independent.
+
+Version 0.4 removes the inherited Loop Join, Manual Lane, Jump Slew,
+per-lane Speed/Stretch/Nudge, and fixed allocation-clock parameters from the
+Grains automation and state contract. Manual paths live entirely in the
+breakpoint editor, lane jumps occur only at independently windowed grain
+starts, and output allocation always occurs per grain. The trigger menu now
+contains distinct Gate, finite one-window One Shot, and Toggle behaviors.
+
+Sources use the Sample-family Project, Link, and Embed storage contract and
+accept multi-file drag and drop.
 Project copies are content-verified: reloading the same unchanged source, or
 loading its existing project-media copy directly, reuses that file rather than
 creating another copy. The operation remains pending until the host project

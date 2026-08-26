@@ -2350,9 +2350,9 @@ NSRect landscapePageButtonRect(uint32_t index)
     s3g::clap_gui::drawPanelHeader(@"LOUDSPEAKER CARTOGRAPHY", true,
         18.0, 42.0, 650.0, 21.0, labels, style);
     const NSRect mapPanel = NSMakeRect(18.0, 42.0, 650.0, 696.0);
-    s3g::clap_gui::drawHeaderButton(
+    s3g::clap_gui::drawToolboxHeaderButton(
         [self zoomButtonRect:0], mapPanel, @"-", false, values, style);
-    s3g::clap_gui::drawHeaderButton(
+    s3g::clap_gui::drawToolboxHeaderButton(
         [self zoomButtonRect:1], mapPanel, @"+", false, values, style);
     s3g::clap_gui::drawTopologyProcessorCameraButtons(
         mapPanel, _viewMode, values, style);
@@ -2373,14 +2373,14 @@ NSRect landscapePageButtonRect(uint32_t index)
     drawPanel(@"LANDSCAPE FX", CartographyPanel::Guide);
     NSString* processPages[2] = { @"CORE", @"REL" };
     for (uint32_t index = 0u; index < 2u; ++index) {
-        s3g::clap_gui::drawHeaderButton(
+        s3g::clap_gui::drawToolboxHeaderButton(
             processPageButtonRect(index),
             panelRect(CartographyPanel::Process), processPages[index],
             _processPage == static_cast<int>(index), values, style);
     }
     NSString* landscapePages[3] = { @"MAP", @"PATH", @"FIELD" };
     for (uint32_t index = 0u; index < 3u; ++index) {
-        s3g::clap_gui::drawHeaderButton(
+        s3g::clap_gui::drawToolboxHeaderButton(
             landscapePageButtonRect(index),
             panelRect(CartographyPanel::Guide), landscapePages[index],
             _landscapePage == static_cast<int>(index), values, style);
@@ -2946,7 +2946,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-cartography-encoder-64",
-    "s3g Ambi Encoder Cartography",
+    "s3g Ambi Encoder Cartography 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

@@ -43,7 +43,7 @@ constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kMaximumStateJsonBytes = 8u * 1024u * 1024u;
 constexpr const char* kWorldToAedConvention = "azimuth_deg=atan2(-x_right,y_front)";
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.ambi-ray-encoder";
-constexpr const char* kPluginName = "s3g Ambi Encoder Ray";
+constexpr const char* kPluginName = "s3g Ambi Encoder Ray 64";
 constexpr const char* kPluginDesc = "Moving source and listener encoder with bundled or user ray-field rooms.";
 
 enum ParamId : clap_id {
@@ -1606,8 +1606,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
 
     s3g::clap_gui::drawPanelFrame(mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, mapPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"MAP", true, mapPanel.origin.x, mapPanel.origin.y, mapPanel.size.width, 21, text, style);
-    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(879, 128, 64, 17), NSMakeRect(724, 126, 304, 21), @"ATLAS", value, style);
-    s3g::clap_gui::drawHeaderActionButton(NSMakeRect(951, 128, 64, 17), NSMakeRect(724, 126, 304, 21), @"LOAD", value, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(NSMakeRect(879, 128, 64, 17), NSMakeRect(724, 126, 304, 21), @"ATLAS", value, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(NSMakeRect(951, 128, 64, 17), NSMakeRect(724, 126, 304, 21), @"LOAD", value, style);
     [@"FILE" drawAtPoint:NSMakePoint(742, 160) withAttributes:text];
     [compactFileName(snapshot.name) drawAtPoint:NSMakePoint(790, 160) withAttributes:value];
     [@"STAT" drawAtPoint:NSMakePoint(742, 183) withAttributes:text];
@@ -1618,8 +1618,8 @@ NSPoint projectFieldPosition(const GuiSnapshot& snapshot, s3g::Vec3 position, NS
     s3g::clap_gui::drawPanelFrame(positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, positionPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"POSITION", true, positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, 21, text, style);
     const NSRect positionHeader = NSMakeRect(positionPanel.origin.x, positionPanel.origin.y, positionPanel.size.width, 21);
-    s3g::clap_gui::drawHeaderButton(sourceModeRect(), positionHeader, @"SRC", !_editListener, value, style);
-    s3g::clap_gui::drawHeaderButton(listenerModeRect(), positionHeader, @"LIS", _editListener, value, style);
+    s3g::clap_gui::drawToolboxHeaderButton(sourceModeRect(), positionHeader, @"SRC", !_editListener, value, style);
+    s3g::clap_gui::drawToolboxHeaderButton(listenerModeRect(), positionHeader, @"LIS", _editListener, value, style);
     const s3g::Vec3 editPosition = _editListener ? snapshot.listener : snapshot.source;
     const float editX = _editListener ? params.listenerX : params.sourceX;
     const float editY = _editListener ? params.listenerY : params.sourceY;

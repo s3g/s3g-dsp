@@ -733,15 +733,15 @@ NSColor* sourceMarkerColor(uint32_t source, bool selected)
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
-    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self editButtonRect:0 inRect:rect], rect, @"EDIT", _editMode, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self editButtonRect:1 inRect:rect], rect, @"PLAY", !_editMode, attrs, style);
+    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self editButtonRect:0 inRect:rect], rect, @"EDIT", _editMode, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self editButtonRect:1 inRect:rect], rect, @"PLAY", !_editMode, attrs, style);
 }
 
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"-", @"+" };
-    for (int i = 0; i < 2; ++i) s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
+    for (int i = 0; i < 2; ++i) s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
 }
 
 - (NSString*)displayValueForParam:(clap_id)param value:(double)value
@@ -1674,7 +1674,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-path-encoder-64",
-    "s3g Ambi Encoder Path",
+    "s3g Ambi Encoder Path 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

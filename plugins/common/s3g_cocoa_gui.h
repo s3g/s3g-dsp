@@ -1110,6 +1110,35 @@ inline void drawHeaderButton(NSRect button,
     (void)headerRect;
 }
 
+inline void drawToolboxHeaderButton(NSRect button,
+                                    NSRect headerRect,
+                                    NSString* label,
+                                    bool active,
+                                    NSDictionary* attrs,
+                                    const Style& style)
+{
+    [color(active ? 0x505050 : 0x383838) setFill];
+    NSRectFill(button);
+    [(active ? style.accent : color(0x777777)) setStroke];
+    NSFrameRect(button);
+    const NSSize size = [label sizeWithAttributes:attrs];
+    [label drawAtPoint:NSMakePoint(
+        button.origin.x + (button.size.width - size.width) * 0.5,
+        button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
+        withAttributes:attrs];
+    (void)headerRect;
+}
+
+inline void drawToolboxHeaderActionButton(NSRect button,
+                                          NSRect headerRect,
+                                          NSString* label,
+                                          NSDictionary* attrs,
+                                          const Style& style)
+{
+    drawToolboxHeaderButton(
+        button, headerRect, label, false, attrs, style);
+}
+
 inline NSRect topologyProcessorFieldContentRect(NSRect fieldPanel)
 {
     return NSMakeRect(
@@ -1170,7 +1199,7 @@ inline void drawTopologyProcessorCameraButtons(
 {
     NSString* labels[3] = { @"TOP", @"SIDE", @"3/4" };
     for (uint32_t index = 0u; index < 3u; ++index) {
-        drawHeaderButton(
+        drawToolboxHeaderButton(
             topologyProcessorCameraButtonRect(fieldPanel, index),
             fieldPanel,
             labels[index],

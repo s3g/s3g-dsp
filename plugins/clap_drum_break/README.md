@@ -1,6 +1,6 @@
-# s3g Drum Break
+# s3g Drum Break 2
 
-`s3g Drum Break` is a procedural four-voice break kit. It does not load or
+`s3g Drum Break 2` is a procedural four-voice break kit. It does not load or
 play samples: kick, snare, tom, and hi-hat hits are generated from oscillators, modal
 resonators, filtered stochastic energy, envelopes, cross-band bleed, and a
 shared room/character path.

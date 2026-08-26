@@ -2,7 +2,7 @@
 
 `s3g Utility NIM Gesture` is a MIDI-only CLAP note effect designed specifically
 for use in conjunction with the OXI E16, its `NIM P2` scene, and
-`s3g Processor No Input Mixer 8ch`. It records free-running E16 encoder
+`s3g Processor No Input Mixer 8`. It records free-running E16 encoder
 gestures without using the E16's finite internal motion tracks and returns the
 played values to the E16 for LED-ring feedback. It is not required for BU16,
 DIY MIDI mappings, ordinary host automation, or direct E16 control when
@@ -13,7 +13,7 @@ gesture recording is not wanted.
 Use one track, with the FX in this order:
 
 1. `s3g Utility NIM Gesture`
-2. `s3g Processor No Input Mixer 8ch`
+2. `s3g Processor No Input Mixer 8`
 
 Set the track MIDI input to E16 USB Port 3 and Grid, then enable MIDI hardware
 outputs to both E16 USB Port 3 and Grid. NIM Gesture generates canonical

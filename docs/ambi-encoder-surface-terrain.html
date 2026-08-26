@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Ambi Encoder Surface Terrain</h1>
 
-        <p><code>s3g Ambi Encoder Surface Terrain</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic encoder. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
+        <p><code>s3g Ambi Encoder Surface Terrain 64</code> is a 64-in, first-through-seventh-order <code>ACN/SN3D</code> ambisonic encoder. Each input lane becomes a point in AED and follows a predefined trace across one displaced procedural terrain shell.</p>
 
         <p>Wave-terrain mapping normally scans a surface to produce sound; here the sampled height bends each source's azimuth, elevation, and distance instead. The field view draws the shell, traces, and source positions together. For terrain used as the sound source itself, choose <a href="ambi-encoder-wave-terrain.html">Ambi Encoder Wave Terrain</a>.</p>
 
@@ -43,7 +43,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Encoder Surface Terrain</code> on a 64-channel source track or bus, set <code>INPUTS</code> for the active source lanes, and select the output <code>ORDER</code>.</li>
+          <li>Insert <code>s3g Ambi Encoder Surface Terrain 64</code> on a 64-channel source track or bus, set <code>INPUTS</code> for the active source lanes, and select the output <code>ORDER</code>.</li>
           <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Choose a <code>TRACE</code>, then construct the shell with the <code>FORM</code>, <code>SKIN</code>, <code>WARP</code>, and <code>READ</code> pages.</li>
           <li>Set <code>RATE</code>, <code>RATE SP</code>, and <code>RATE DEV</code> for shared, distributed, or independently varied source motion.</li>

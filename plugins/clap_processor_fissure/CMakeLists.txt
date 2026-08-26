@@ -23,7 +23,7 @@ if(APPLE)
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.processor-fissure"
-    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Fissure"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Processor Fissure 8"
     MACOSX_BUNDLE_BUNDLE_VERSION "0.10.5"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.10.5"
   )
@@ -49,7 +49,7 @@ if(BUILD_TESTING)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
         $<TARGET_FILE:s3g_processor_fissure_clap>
         org.s3g.s3g-dsp.processor-fissure
-        1356 770 "s3g Processor Fissure" responsive)
+        1356 770 "s3g Processor Fissure 8" responsive)
     set_tests_properties(s3g_processor_fissure_gui_smoke PROPERTIES
       LABELS "non_nim;clap;gui" TIMEOUT 120)
   endif()

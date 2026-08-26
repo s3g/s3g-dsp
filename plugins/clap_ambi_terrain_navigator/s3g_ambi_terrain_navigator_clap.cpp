@@ -1729,13 +1729,13 @@ CGImageRef createTerrainSurfaceImage(
 - (void)drawViewButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
-    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
 }
 
 - (void)drawZoomButtonsInRect:(NSRect)rect attrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     static NSString* labels[] = { @"-", @"+" };
-    for (int i = 0; i < 2; ++i) s3g::clap_gui::drawHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
+    for (int i = 0; i < 2; ++i) s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:i inRect:rect], rect, labels[i], false, attrs, style);
 }
 
 - (void)drawPathTabsWithAttrs:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
@@ -1743,7 +1743,7 @@ CGImageRef createTerrainSurfaceImage(
     static NSString* labels[] = { @"PATH", @"FORM", @"SKIN", @"WARP", @"READ" };
     const NSRect tabHeader = NSMakeRect(630, 160, 250, 21);
     for (int index = 0; index < 5; ++index)
-        s3g::clap_gui::drawHeaderButton([self pathTabRect:index], tabHeader, labels[index], index == _surfacePage, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self pathTabRect:index], tabHeader, labels[index], index == _surfacePage, attrs, style);
 }
 
 - (s3g::Vec3)worldPoint:(const s3g::AmbiTerrainPoint&)point
@@ -2413,7 +2413,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-terrain-navigator-64",
-    "s3g Ambi Encoder Surface Terrain",
+    "s3g Ambi Encoder Surface Terrain 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

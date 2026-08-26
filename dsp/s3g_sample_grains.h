@@ -19,6 +19,7 @@ struct SampleGrainCursor {
     float gain = 0.0f;
     float sourcePositionNormalized = 0.0f;
     float lanePositionNormalized = 0.0f;
+    float pathClockPhase = 0.0f;
     std::array<float, kSampleLaneCount> laneSourcePositions {};
     std::array<float, kSampleLaneCount> laneSourceSpans {};
     std::array<float, kSampleLaneCount> laneWeights {};
@@ -43,6 +44,17 @@ enum class GrainEnvelope : uint8_t {
 enum class GrainTiming : uint8_t {
     Regular = 0u,
     Scatter,
+};
+
+enum class GrainPositionBias : uint8_t {
+    Behind = 0u,
+    Around,
+    Ahead,
+};
+
+enum class GrainSourceAdvance : uint8_t {
+    Scan = 0u,
+    Grain,
 };
 
 enum class GrainMutate : uint8_t {
@@ -72,12 +84,19 @@ struct SampleGrainsSettings : SampleLanesSettings {
     GrainEnvelope grainEnvelope = GrainEnvelope::Parzen;
     GrainTiming grainTiming = GrainTiming::Regular;
     GrainMutate grainMutate = GrainMutate::Ordinary;
+    GrainPositionBias positionBias = GrainPositionBias::Around;
+    GrainSourceAdvance sourceAdvance = GrainSourceAdvance::Scan;
     float grainDensityHz = 24.0f;
     float grainSizeMilliseconds = 90.0f;
     float sourcePosition = 0.0f;
     float positionSpray = 0.08f;
+    float grainPitchSemitones = 0.0f;
     float pitchSpraySemitones = 0.0f;
     float reverseChance = 0.0f;
+    float grainSizeVariation = 0.0f;
+    float grainLevelVariation = 0.0f;
+    float timingScatter = 1.0f;
+    float envelopeSkew = 0.0f;
     float mutateAmount = 0.5f;
     uint32_t regionCount = 16u;
     bool sourceTimeSync = true;
@@ -96,6 +115,10 @@ struct SampleGrainsSettings : SampleLanesSettings {
                 <= static_cast<uint8_t>(GrainTiming::Scatter)
             && static_cast<uint8_t>(grainMutate)
                 <= static_cast<uint8_t>(GrainMutate::Doublets)
+            && static_cast<uint8_t>(positionBias)
+                <= static_cast<uint8_t>(GrainPositionBias::Ahead)
+            && static_cast<uint8_t>(sourceAdvance)
+                <= static_cast<uint8_t>(GrainSourceAdvance::Grain)
             && std::isfinite(grainDensityHz) && grainDensityHz >= 0.1f
             && grainDensityHz <= 160.0f
             && std::isfinite(grainSizeMilliseconds)
@@ -105,11 +128,22 @@ struct SampleGrainsSettings : SampleLanesSettings {
             && sourcePosition <= 1.0f
             && std::isfinite(positionSpray) && positionSpray >= 0.0f
             && positionSpray <= 1.0f
+            && std::isfinite(grainPitchSemitones)
+            && grainPitchSemitones >= -48.0f
+            && grainPitchSemitones <= 48.0f
             && std::isfinite(pitchSpraySemitones)
             && pitchSpraySemitones >= 0.0f
             && pitchSpraySemitones <= 24.0f
             && std::isfinite(reverseChance) && reverseChance >= 0.0f
             && reverseChance <= 1.0f
+            && std::isfinite(grainSizeVariation)
+            && grainSizeVariation >= 0.0f && grainSizeVariation <= 1.0f
+            && std::isfinite(grainLevelVariation)
+            && grainLevelVariation >= 0.0f && grainLevelVariation <= 1.0f
+            && std::isfinite(timingScatter) && timingScatter >= 0.0f
+            && timingScatter <= 1.0f
+            && std::isfinite(envelopeSkew) && envelopeSkew >= -1.0f
+            && envelopeSkew <= 1.0f
             && std::isfinite(mutateAmount) && mutateAmount >= 0.0f
             && mutateAmount <= 1.0f
             && regionCount >= 2u && regionCount <= 32u
@@ -255,7 +289,8 @@ public:
                     emitter.pendingDoubletCountdown -= 1.0;
                     if (emitter.pendingDoubletCountdown <= 0.0) {
                         startGrain(emitter, settings,
-                            emitter.pendingDoubletSource, true);
+                            emitter.pendingDoubletSource,
+                            emitter.pendingDoubletPathClock, true);
                         emitter.pendingDoublet = false;
                     }
                 }
@@ -296,7 +331,9 @@ private:
         double lastPathPhase = 0.0;
         double stutterAnchor = 0.0;
         double pendingDoubletSource = 0.0;
+        double pendingDoubletPathClock = 0.0;
         double pendingDoubletCountdown = 0.0;
+        double oneShotDistance = 0.0;
         uint32_t patternIndex = 0u;
         uint32_t repeatIndex = 0u;
         bool directionForward = true;
@@ -311,6 +348,7 @@ private:
         double sourceIncrement = 1.0;
         double rightSourcePosition = 0.0;
         double rightSourceIncrement = 1.0;
+        double pathClockPhase = 0.0;
         std::array<float, kSampleLaneCount> laneWeights {};
         std::array<double, kSampleLaneCount> lanePositions {};
         std::array<double, kSampleLaneCount> rightLanePositions {};
@@ -405,10 +443,15 @@ private:
         }
     }
 
-    static float window(GrainEnvelope envelope, float phase) noexcept
+    static float window(GrainEnvelope envelope, float phase,
+        float skew) noexcept
     {
         constexpr float pi = 3.14159265358979323846f;
         phase = std::clamp(phase, 0.0f, 1.0f);
+        const float peak = 0.5f + 0.4f * std::clamp(skew, -1.0f, 1.0f);
+        phase = phase <= peak
+            ? 0.5f * phase / peak
+            : 0.5f + 0.5f * (phase - peak) / (1.0f - peak);
         switch (envelope) {
         case GrainEnvelope::Sine:
             return std::sin(pi * phase);
@@ -426,6 +469,47 @@ private:
             return triangle * triangle * (3.0f - 2.0f * triangle);
         }
         }
+    }
+
+    double positionOffset(const SampleGrainsSettings& settings) noexcept
+    {
+        switch (settings.positionBias) {
+        case GrainPositionBias::Behind:
+            return -static_cast<double>(randomUnit())
+                * settings.positionSpray;
+        case GrainPositionBias::Ahead:
+            return static_cast<double>(randomUnit())
+                * settings.positionSpray;
+        case GrainPositionBias::Around:
+        default:
+            return static_cast<double>(randomBipolar())
+                * settings.positionSpray;
+        }
+    }
+
+    static double pathClockForEvent(const Emitter& emitter,
+        const SampleGrainsSettings& settings) noexcept
+    {
+        if (settings.sourceAdvance == GrainSourceAdvance::Grain)
+            return wrap((static_cast<double>(emitter.patternIndex) + 0.5)
+                / 8.0);
+        return std::clamp(emitter.scanPhase, 0.0, 1.0);
+    }
+
+    static double pathPhaseFromClock(double pathClock,
+        const SampleGrainsSettings& settings) noexcept
+    {
+        return settings.path == LanePath::Manual
+            ? std::clamp(pathClock, 0.0, 1.0)
+            : wrap(pathClock * settings.pathCycles + settings.pathOffset);
+    }
+
+    static double grainLanePathUnit(double phase,
+        const SampleGrainsSettings& settings) noexcept
+    {
+        if (settings.path == LanePath::Manual
+            && settings.manualPathPointCount < 2u) return 0.5;
+        return sampleLanePathUnit(phase, settings);
     }
 
     std::array<float, kSampleLaneCount> laneWeights(double lane,
@@ -468,7 +552,7 @@ private:
     }
 
     double sourceForEvent(Emitter& emitter,
-        const SampleGrainsSettings& settings) noexcept
+        const SampleGrainsSettings& settings, double pathClock) noexcept
     {
         double source = emitter.scanPhase;
         switch (settings.grainSourceMode) {
@@ -487,13 +571,16 @@ private:
             source = emitter.scanPhase;
             break;
         }
-        source = wrap(source + randomBipolar() * settings.positionSpray);
+        source = wrap(source + positionOffset(settings));
 
         const uint32_t repeats = 1u + static_cast<uint32_t>(std::lround(
             settings.mutateAmount * 7.0f));
         switch (settings.grainMutate) {
         case GrainMutate::Sorter:
-            source = sorterPosition(source, settings);
+            source = sorterPosition(source,
+                settings.sourceAdvance == GrainSourceAdvance::Grain
+                    ? pathClock : source,
+                settings);
             break;
         case GrainMutate::Stutter:
             if (emitter.repeatIndex == 0u) emitter.stutterAnchor = source;
@@ -509,11 +596,11 @@ private:
         return source;
     }
 
-    double sorterPosition(double original,
+    double sorterPosition(double original, double pathClock,
         const SampleGrainsSettings& settings) const noexcept
     {
         const uint32_t count = settings.regionCount;
-        const auto* asset = dominantAssetForPath(original, settings);
+        const auto* asset = dominantAssetForPath(pathClock, settings);
         if (!asset || asset->frameCount() < count) return original;
         std::array<std::pair<float, uint8_t>, 32u> ranking {};
         for (uint32_t region = 0u; region < count; ++region) {
@@ -543,12 +630,11 @@ private:
         return wrap(original + (sorted - original) * settings.mutateAmount);
     }
 
-    const SampleAsset* dominantAssetForPath(double phase,
+    const SampleAsset* dominantAssetForPath(double pathClock,
         const SampleGrainsSettings& settings) const noexcept
     {
-        const double pathPhase = settings.path == LanePath::Manual
-            ? phase : wrap(phase * settings.pathCycles + settings.pathOffset);
-        const double lane = 3.0 * sampleLanePathUnit(pathPhase, settings);
+        const double pathPhase = pathPhaseFromClock(pathClock, settings);
+        const double lane = 3.0 * grainLanePathUnit(pathPhase, settings);
         const auto weights = laneWeights(lane, settings.blend);
         std::size_t best = 0u;
         for (std::size_t index = 1u; index < weights.size(); ++index)
@@ -559,9 +645,13 @@ private:
     void startEvent(Emitter& emitter,
         const SampleGrainsSettings& settings, double interval) noexcept
     {
-        const double source = sourceForEvent(emitter, settings);
-        startGrain(emitter, settings, source, false);
-        if (settings.grainMutate == GrainMutate::Doublets) {
+        const double pathClock = pathClockForEvent(emitter, settings);
+        const double source = sourceForEvent(emitter, settings, pathClock);
+        startGrain(emitter, settings, source, pathClock, false);
+        if (settings.grainMutate == GrainMutate::Doublets
+            && (settings.mutateAmount >= 1.0f
+                || (settings.mutateAmount > 0.0f
+                    && randomUnit() < settings.mutateAmount))) {
             const double spacing = std::max(1.0, interval * 0.5);
             double second = source;
             if (settings.sourceTimeSync) {
@@ -573,6 +663,7 @@ private:
             }
             emitter.pendingDoublet = true;
             emitter.pendingDoubletSource = second;
+            emitter.pendingDoubletPathClock = pathClock;
             emitter.pendingDoubletCountdown = spacing;
         }
         ++emitter.patternIndex;
@@ -580,7 +671,7 @@ private:
     }
 
     void startGrain(Emitter& emitter, const SampleGrainsSettings& settings,
-        double source, bool doublet) noexcept
+        double source, double pathClock, bool doublet) noexcept
     {
         Grain* slot = nullptr;
         for (auto& grain : grains_) if (!grain.active) {
@@ -589,35 +680,29 @@ private:
         }
         if (!slot) slot = &grains_[replacementIndex_++ % grains_.size()];
 
-        const double pathPhase = settings.path == LanePath::Manual
-            ? std::clamp(emitter.scanPhase, 0.0, 1.0)
-            : wrap(emitter.scanPhase * settings.pathCycles
-                + settings.pathOffset);
-        const double lane = 3.0 * sampleLanePathUnit(pathPhase, settings);
+        const double pathPhase = pathPhaseFromClock(pathClock, settings);
+        const double lane = 3.0 * grainLanePathUnit(pathPhase, settings);
         const float pitchSpray = randomBipolar()
             * settings.pitchSpraySemitones;
         double rate = std::pow(2.0,
-            (static_cast<double>(emitter.key) - settings.rootNote
-                + settings.tuneSemitones
-                + settings.fineTuneCents * 0.01
-                + pitchSpray) / 12.0);
+            (settings.grainPitchSemitones + pitchSpray) / 12.0);
         if (randomUnit() < settings.reverseChance) rate = -rate;
         double rightSource = source;
         double rightRate = rate;
         if (outputChannelCount_ == 2u
             && settings.stereoLink == GrainStereoLink::Independent) {
-            rightSource = wrap(source
-                + randomBipolar() * settings.positionSpray);
+            rightSource = wrap(source + positionOffset(settings));
             const float rightPitchSpray = randomBipolar()
                 * settings.pitchSpraySemitones;
             rightRate = std::pow(2.0,
-                (static_cast<double>(emitter.key) - settings.rootNote
-                    + settings.tuneSemitones
-                    + settings.fineTuneCents * 0.01
-                    + rightPitchSpray) / 12.0);
+                (settings.grainPitchSemitones + rightPitchSpray) / 12.0);
             if (randomUnit() < settings.reverseChance) rightRate = -rightRate;
         }
         float size = settings.grainSizeMilliseconds;
+        if (settings.grainSizeVariation > 0.0f)
+            size *= std::max(0.0f, 1.0f
+                + randomBipolar() * settings.grainSizeVariation);
+        const float compensationSize = size;
         if (settings.grainMutate == GrainMutate::Shrink) {
             const uint32_t repeats = 1u + static_cast<uint32_t>(std::lround(
                 settings.mutateAmount * 7.0f));
@@ -641,39 +726,40 @@ private:
         slot->sourceIncrement = rate;
         slot->rightSourcePosition = rightSource;
         slot->rightSourceIncrement = rightRate;
+        slot->pathClockPhase = pathClock;
         slot->monoPan = std::clamp(settings.pan
             + randomBipolar() * settings.monoSpread, -1.0f, 1.0f);
         slot->laneWeights = laneWeights(lane, settings.blend);
         for (std::size_t index = 0u; index < slot->lanePositions.size();
              ++index) {
-            slot->lanePositions[index] = wrap(
-                source * settings.laneSpeed[index]
-                    / settings.laneStretch[index]
-                + settings.laneNudge[index]);
-            slot->rightLanePositions[index] = wrap(
-                rightSource * settings.laneSpeed[index]
-                    / settings.laneStretch[index]
-                + settings.laneNudge[index]);
+            slot->lanePositions[index] = source;
+            slot->rightLanePositions[index] = rightSource;
         }
         const float overlap = settings.grainDensityHz
-            * settings.grainSizeMilliseconds * 0.001f;
+            * compensationSize * 0.001f;
+        const float levelVariation = settings.grainLevelVariation > 0.0f
+            ? 1.0f - settings.grainLevelVariation * randomUnit() : 1.0f;
         slot->gain = emitter.envelope * emitter.velocityGain
-            * dbToGain(settings.outputGainDecibels)
+            * levelVariation * dbToGain(settings.outputGainDecibels)
             / std::sqrt(std::max(1.0f, overlap));
         slot->identity = ++ageCounter_;
         slot->outputAssignment = allocator_.next(
             settings.activeOutputChannels, settings.outputRouting);
         emitter.lastSourcePosition = source;
         emitter.lastLanePosition = lane;
-        emitter.lastPathPhase = pathPhase;
+        emitter.lastPathPhase = pathClock;
     }
 
     double nextInterval(const SampleGrainsSettings& settings) noexcept
     {
         const double mean = outputSampleRate_
             / static_cast<double>(settings.grainDensityHz);
-        if (settings.grainTiming == GrainTiming::Regular) return mean;
-        return std::max(1.0, mean * (0.2 + 1.8 * randomUnit()));
+        if (settings.grainTiming == GrainTiming::Regular
+            || settings.timingScatter <= 0.0f) return mean;
+        const double scattered = 0.2 + 1.8 * randomUnit();
+        const double factor = 1.0 + settings.timingScatter
+            * (scattered - 1.0);
+        return std::max(1.0, mean * factor);
     }
 
     void renderGrains(const SampleGrainsSettings& settings,
@@ -692,7 +778,7 @@ private:
             const float phase = static_cast<float>(grain.age)
                 / static_cast<float>(std::max(1u, grain.duration - 1u));
             const float gain = grain.gain * window(settings.grainEnvelope,
-                phase);
+                phase, settings.envelopeSkew);
             if (outputChannelCount == 2u) {
                 float stereoLeft = 0.0f;
                 float stereoRight = 0.0f;
@@ -860,7 +946,7 @@ private:
         if (settings.triggerMode == TriggerMode::Toggle) {
             bool stopped = false;
             for (auto& emitter : emitters_) if (matches(emitter)) {
-                emitter.active = false;
+                beginEmitterRelease(emitter, settings);
                 stopped = true;
             }
             if (stopped) return;
@@ -909,15 +995,23 @@ private:
                 : emitter.key == event.key
                     && emitter.midiChannel == event.midiChannel;
             if (!matches) continue;
-            if (settings.triggerMode == TriggerMode::OneShot
+            if (settings.triggerMode == TriggerMode::Auto
+                || settings.triggerMode == TriggerMode::OneShot
                 || settings.triggerMode == TriggerMode::Toggle) continue;
-            if (settings.releaseSeconds <= 0.0f) emitter.active = false;
-            else {
-                emitter.releasing = true;
-                emitter.releaseDecrement = static_cast<float>(1.0
-                    / std::max(1.0,
-                        settings.releaseSeconds * outputSampleRate_));
-            }
+            beginEmitterRelease(emitter, settings);
+        }
+    }
+
+    void beginEmitterRelease(Emitter& emitter,
+        const SampleGrainsSettings& settings) noexcept
+    {
+        if (emitter.releasing) return;
+        if (settings.releaseSeconds <= 0.0f) emitter.active = false;
+        else {
+            emitter.releasing = true;
+            emitter.releaseDecrement = static_cast<float>(1.0
+                / std::max(1.0,
+                    settings.releaseSeconds * outputSampleRate_));
         }
     }
 
@@ -935,7 +1029,7 @@ private:
     }
 
     void advanceEmitter(Emitter& emitter,
-        const SampleGrainsSettings& settings) const noexcept
+        const SampleGrainsSettings& settings) noexcept
     {
         const auto* reference = referenceAsset();
         if (!reference) return;
@@ -945,6 +1039,10 @@ private:
                 / outputSampleRate_
                 / static_cast<double>(reference->frameCount())
                 / (settings.end - settings.start);
+        const double rateSemitones = static_cast<double>(emitter.key)
+            - settings.rootNote + settings.tuneSemitones
+            + settings.fineTuneCents * 0.01;
+        speed *= std::pow(2.0, rateSemitones / 12.0);
         if (settings.transport == LaneTransport::PingPong) {
             emitter.scanPhase += emitter.directionForward ? speed : -speed;
             while (emitter.scanPhase > 1.0 || emitter.scanPhase < 0.0) {
@@ -959,6 +1057,13 @@ private:
         } else {
             if (settings.transport == LaneTransport::Reverse) speed = -speed;
             emitter.scanPhase = wrap(emitter.scanPhase + speed);
+        }
+        if (!emitter.releasing
+            && (settings.triggerMode == TriggerMode::Auto
+                || settings.triggerMode == TriggerMode::OneShot)) {
+            emitter.oneShotDistance += std::abs(speed);
+            if (emitter.oneShotDistance >= 1.0)
+                beginEmitterRelease(emitter, settings);
         }
     }
 
@@ -980,10 +1085,8 @@ private:
             cursor.laneWeights = weights;
             for (std::size_t lane = 0u; lane < weights.size(); ++lane)
                 cursor.laneSourcePositions[lane] = assets_[lane]
-                    ? static_cast<float>(wrap(emitter.lastSourcePosition
-                        * settings.laneSpeed[lane]
-                        / settings.laneStretch[lane]
-                        + settings.laneNudge[lane])) : -1.0f;
+                    ? static_cast<float>(wrap(emitter.lastSourcePosition))
+                    : -1.0f;
         }
     }
 
@@ -1000,6 +1103,7 @@ private:
             cursor.gain = std::abs(grain.gain);
             cursor.sourcePositionNormalized = static_cast<float>(
                 wrap(grain.sourcePosition));
+            cursor.pathClockPhase = static_cast<float>(grain.pathClockPhase);
             cursor.identity = grain.identity;
             cursor.laneWeights = grain.laneWeights;
             float weightSum = 0.0f;

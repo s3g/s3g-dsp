@@ -613,7 +613,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-sub-decoder",
-    "s3g Ambi Decoder Sub",
+    "s3g Ambi Decoder Sub 8",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

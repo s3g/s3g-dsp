@@ -141,8 +141,7 @@ EXPECTED_SHARED_TOC_LINKS = {
         "sample-grains.html",
         "sample-slicer.html",
         "effect-crcltr.html",
-        "processor-loop.html",
-        "processor-multi-loop.html",
+        "sample-rings.html",
         "processor-ambi-grain.html",
     ],
 }
@@ -157,6 +156,11 @@ WORKFLOW_HEADING_PATTERN = re.compile(r'<h2 id="workflow">(.*?)</h2>', re.DOTALL
 WORKFLOW_LIST_PATTERN = re.compile(r'<(ol|ul)>(.*?)</\1>', re.DOTALL)
 WORKFLOW_ITEM_PATTERN = re.compile(r'<li>(.*?)</li>', re.DOTALL)
 HTML_TAG_PATTERN = re.compile(r'<[^>]+>')
+REFERENCE_ONLY_INSPIRATION_PATTERN = re.compile(
+    r"\b(?:CDP|BAKTOBAK|MCHZIG|MCHITER)\b"
+    r"|Composers Desktop Project|composersdesktop\.com",
+    re.IGNORECASE,
+)
 EXPECTED_AMBI_WORKFLOW_DECODER_SECOND = {
     "ambi-encoder-cartography.html",
     "ambi-encoder-cloud.html",
@@ -214,8 +218,7 @@ EXPECTED_MULTICHANNEL_EFFECT_CHAIN_PAGES = {
 EXPECTED_MULTICHANNEL_WORKFLOW_OUTPUT_SECOND = {
     "processor-feedback-shift.html",
     "processor-fault.html",
-    "processor-loop.html",
-    "processor-multi-loop.html",
+    "sample-rings.html",
     "processor-no-input-mixer.html",
 }
 EXPECTED_AMBI_WORKFLOW_DECODER_STEP = "Follow it with an ambisonic decoder."
@@ -401,8 +404,7 @@ DOC_SEQUENCE = [
     "sample-grains.html",
     "sample-slicer.html",
     "effect-crcltr.html",
-    "processor-loop.html",
-    "processor-multi-loop.html",
+    "sample-rings.html",
     "voice-instruments.html",
     "formant-matrix.html",
     "vox-builder.html",
@@ -413,6 +415,8 @@ REDIRECT_PAGES = {
     "effects.html",
     "mix-pan.html",
     "processors.html",
+    "processor-loop.html",
+    "processor-multi-loop.html",
     "s3g-slicer.html",
 }
 NON_PRODUCT_PAGE_NAMES = {
@@ -474,8 +478,7 @@ EXPECTED_SHARED_TOC_PAGES = {
         "sample-grains.html",
         "sample-slicer.html",
         "effect-crcltr.html",
-        "processor-loop.html",
-        "processor-multi-loop.html",
+        "sample-rings.html",
     ],
 }
 
@@ -677,6 +680,10 @@ def parse_document(path: Path) -> Document:
             if not group:
                 document.errors.append("central References page has an empty bibliography group")
     else:
+        if REFERENCE_ONLY_INSPIRATION_PATTERN.search(source):
+            document.errors.append(
+                "attribution and reference-only process names belong on references.html"
+            )
         if document.has_references_heading:
             document.errors.append("page-level References sections belong on references.html")
         if document.bibliography_count:

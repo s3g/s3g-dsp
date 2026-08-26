@@ -183,6 +183,6 @@ int main()
     }
 
     if (!ok) return 1;
-    std::cout << "s3g Drum Echo smoke passed\n";
+    std::cout << "s3g Drum Echo 2 smoke passed\n";
     return 0;
 }

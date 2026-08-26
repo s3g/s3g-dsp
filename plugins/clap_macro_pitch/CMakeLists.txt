@@ -39,7 +39,7 @@ add_s3g_macro_pitch_target(
   8
   "s3g_macro_pitch"
   "org.s3g.s3g-dsp.macro-pitch-8ch"
-  "s3g Macro Pitch 8ch"
+  "s3g Macro Pitch 8"
   "8-channel macro pitch shifter with smoothed dual-reader time-domain pitch and lane relationship controls."
 )
 
@@ -48,6 +48,6 @@ add_s3g_macro_pitch_target(
   24
   "s3g_24ch_macro_pitch"
   "org.s3g.s3g-dsp.macro-pitch-24ch"
-  "s3g Macro Pitch 24ch"
+  "s3g Macro Pitch 24"
   "24-channel macro pitch shifter with smoothed dual-reader time-domain pitch and lane relationship controls."
 )

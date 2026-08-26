@@ -5088,11 +5088,11 @@ float wavesetsScopeProcessedSample(const std::vector<WavesetUnit>& units,
         NSMinX(kSamplePanel), NSMinY(kSamplePanel), NSWidth(kSamplePanel),
         static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
         labels, style);
-    s3g::clap_gui::drawHeaderButton(kSampleLoadButton, kSamplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(kSampleLoadButton, kSamplePanel,
         @"LOAD SAMPLE", false, labels, style);
-    s3g::clap_gui::drawHeaderButton(kClearButton, kSamplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(kClearButton, kSamplePanel,
         @"CLEAR", false, labels, style);
-    s3g::clap_gui::drawHeaderButton(kEmbedButton, kSamplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(kEmbedButton, kSamplePanel,
         [NSString stringWithFormat:@"STORE %s",
             s3g::sample_storage::storageModeName(_instance->storageMode)],
         _instance->storageMode != StorageMode::Link, labels, style);

@@ -1800,6 +1800,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 - (void)openSurfacePopup;
 - (void)hideSurfacePopup;
 - (void)destroySurfacePopup;
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
 @end
 
 @implementation S3GAmbiStochasticEncoderView
@@ -1818,8 +1819,8 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         _selectedVoice = 0u;
         _fieldPage = 0;
         _viewMode = plugin ? plugin->guiViewMode : 0;
-        _viewAzDeg = plugin ? plugin->guiViewAzDeg : 38.0;
-        _viewElDeg = plugin ? plugin->guiViewElDeg : 32.0;
+        _viewAzDeg = plugin ? plugin->guiViewAzDeg : 90.0;
+        _viewElDeg = plugin ? plugin->guiViewElDeg : 0.0;
         _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
         _dragView = NO;
         _lastDragPoint = NSZeroPoint;
@@ -2148,7 +2149,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 {
     _viewMode = mode;
     if (mode == 0) {
-        _viewAzDeg = 0.0;
+        _viewAzDeg = 90.0;
         _viewElDeg = 0.0;
     } else if (mode == 1) {
         _viewAzDeg = 90.0;
@@ -2188,12 +2189,23 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     const float sa = std::sin(azimuth);
     const float ce = std::cos(elevation);
     const float se = std::sin(elevation);
-    const float x1 = ca * point.x - sa * point.z;
-    const float z1 = sa * point.x + ca * point.z;
-    const float y2 = ce * point.y - se * z1;
-    const float z2 = se * point.y + ce * z1;
+    // The stochastic topology is (pressure, events/up, period/front), while
+    // the ambisonic camera expects (front, left, up).  Project the explicit
+    // permutation (z, x, y) so TOP, SIDE, 3/4, and the listener page all use
+    // the same camera convention.
+    const s3g::Vec3 world { point.z, point.x, point.y };
+    const float x1 = ca * world.x - sa * world.y;
+    const float y1 = sa * world.x + ca * world.y;
+    const float y2 = ce * y1 + se * world.z;
+    const float z2 = -se * y1 + ce * world.z;
     if (depth) *depth = z2;
-    return NSMakePoint(centerX - x1 * scale, centerY - y2 * scale);
+    return NSMakePoint(centerX + x1 * scale, centerY - y2 * scale);
+}
+
+- (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z
+{
+    return [self projectWorld:{ static_cast<float>(x),
+        static_cast<float>(y), static_cast<float>(z) } depth:nullptr];
 }
 
 - (s3g::AmbiStochasticPoint)snapshotPoint:(uint32_t)index
@@ -2615,18 +2627,18 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
 
     const NSRect controlHeader = NSMakeRect(field.origin.x, field.origin.y,
         field.size.width, 36.0);
-    s3g::clap_gui::drawHeaderButton([self surfaceEditRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceEditRect], controlHeader,
         _surfaceEdit ? @"EDIT" : @"PLAY", _surfaceEdit, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceEnableRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceEnableRect], controlHeader,
         _plugin->surface.enabled ? @"ON" : @"OFF", _plugin->surface.enabled,
         attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceAddRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceAddRect], controlHeader,
         @"ADD", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceDeleteRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceDeleteRect], controlHeader,
         @"DEL", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceCaptureRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceCaptureRect], controlHeader,
         @"CAP", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfacePopRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfacePopRect], controlHeader,
         @"POP", _surfacePopupChild || [_surfacePanel isVisible], attrs, style);
 
     const NSRect preset = [self surfacePresetRect];
@@ -2642,9 +2654,9 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     }
     [cellName drawAtPoint:NSMakePoint(preset.origin.x + 7.0, preset.origin.y + 2.0)
         withAttributes:valueAttrs];
-    s3g::clap_gui::drawHeaderButton([self surfaceFocusMinusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceFocusMinusRect], controlHeader,
         @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceFocusPlusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceFocusPlusRect], controlHeader,
         @"+", false, attrs, style);
     [[NSString stringWithFormat:@"%.2f", _plugin->surface.focus] drawAtPoint:
         NSMakePoint(field.origin.x + 202.0, field.origin.y + 40.0)
@@ -2662,9 +2674,9 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         withAttributes:valueAttrs];
     [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 278.0,
         field.origin.y + 40.0) withAttributes:attrs];
-    s3g::clap_gui::drawHeaderButton([self surfaceGlideMinusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceGlideMinusRect], controlHeader,
         @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceGlidePlusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceGlidePlusRect], controlHeader,
         @"+", false, attrs, style);
     NSString* glideText = _plugin->surface.glideMs < 0.5f
         ? @"OFF" : [NSString stringWithFormat:@"%.0f MS",
@@ -2701,11 +2713,11 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"VOICE FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:0], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:0], header,
         @"FIELD", _fieldPage == 0, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:1], header,
         @"LISTEN", _fieldPage == 1, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:2], header,
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:2], header,
         @"SURF", _fieldPage == 2, attrs, style);
     if (_fieldPage == 1) {
         [self drawListenerPage:attrs valueAttrs:valueAttrs style:style];
@@ -2716,10 +2728,10 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
         return;
     }
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
     for (int index = 0; index < 3; ++index) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], header, viewLabels[index], index == _viewMode, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:index], header, viewLabels[index], index == _viewMode, attrs, style);
     }
 
     [s3g::clap_gui::color(0x090909) setFill];
@@ -3538,7 +3550,7 @@ NSColor* pointColor(float azimuthDeg, float elevationDeg, float distance, bool s
     if (_dragView) {
         _viewMode = -1;
         _viewAzDeg = std::fmod(_viewAzDeg + (point.x - _lastDragPoint.x) * 0.55 + 540.0, 360.0) - 180.0;
-        _viewElDeg = std::clamp(_viewElDeg + (point.y - _lastDragPoint.y) * 0.45, -85.0, 85.0);
+        _viewElDeg = std::clamp(_viewElDeg - (point.y - _lastDragPoint.y) * 0.45, -85.0, 85.0);
         _lastDragPoint = point;
         [self storeViewState];
         [self setNeedsDisplay:YES];
@@ -3694,7 +3706,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-stochastic-encoder-64",
-    "s3g Ambi Encoder Stochastic",
+    "s3g Ambi Encoder Stochastic 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

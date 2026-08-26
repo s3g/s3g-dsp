@@ -2149,7 +2149,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.drum-break",
-    "s3g Drum Break",
+    "s3g Drum Break 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

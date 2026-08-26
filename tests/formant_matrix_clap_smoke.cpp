@@ -18,7 +18,7 @@
 namespace {
 
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.formant-matrix";
-constexpr const char* kPluginName = "s3g Processor Formant Matrix";
+constexpr const char* kPluginName = "s3g Processor Formant Matrix 2";
 constexpr uint32_t kFrames = 128u;
 constexpr uint32_t kBlocks = 96u;
 constexpr uint32_t kLongSilentBlocks = 384u;

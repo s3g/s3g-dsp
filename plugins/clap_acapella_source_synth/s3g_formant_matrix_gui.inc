@@ -1,4 +1,4 @@
-// Native editor for s3g Processor Formant Matrix. This file is included by
+// Native editor for s3g Processor Formant Matrix 2. This file is included by
 // the owning Objective-C++ translation unit after its DSP/control helpers have
 // been declared and before the CLAP GUI extension glue is reopened.
 

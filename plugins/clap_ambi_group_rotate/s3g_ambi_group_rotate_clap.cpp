@@ -509,7 +509,7 @@ constexpr const auto& kTransformLayout =
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     s3g::clap_gui::Style style;
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:rect], rect, labels[i], i == _viewMode, attrs, style);
     }
 }
 - (NSPoint)project:(s3g::Vec3)v rect:(NSRect)rect scale:(CGFloat)scale

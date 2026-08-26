@@ -2676,13 +2676,13 @@ void drawControlRow(Plugin& p, clap_id id, NSString* shortName,
         fieldPanelRect(), _viewMode, values, style);
     NSString* zoomLabels[2] = { @"-", @"+" };
     for (uint32_t index = 0u; index < 2u; ++index) {
-        s3g::clap_gui::drawHeaderButton(
+        s3g::clap_gui::drawToolboxHeaderButton(
             zoomButtonRect(index), fieldPanelRect(),
             zoomLabels[index], false, values, style);
     }
     NSString* excitationPages[3] = { @"SOURCE", @"SEQ", @"MIDI" };
     for (uint32_t index = 0u; index < 3u; ++index) {
-        s3g::clap_gui::drawHeaderButton(
+        s3g::clap_gui::drawToolboxHeaderButton(
             excitationPageButtonRect(index), excitationPanelRect(),
             excitationPages[index], _excitationPage == static_cast<int>(index),
             values, style);

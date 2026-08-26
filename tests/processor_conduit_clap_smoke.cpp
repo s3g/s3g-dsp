@@ -381,7 +381,7 @@ int main(int argc, char** argv)
         && std::strcmp(descriptor->id,
             "org.s3g.s3g-dsp.processor-conduit") == 0
         && std::strcmp(descriptor->name,
-            "s3g Processor Conduit") == 0;
+            "s3g Processor Conduit 2") == 0;
     bool advertisesStereo = false;
     if (descriptor && descriptor->features) {
         for (const char* const* feature = descriptor->features;

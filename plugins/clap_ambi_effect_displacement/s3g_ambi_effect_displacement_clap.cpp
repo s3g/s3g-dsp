@@ -1465,13 +1465,13 @@ uint32_t displacementRowForParam(clap_id param)
     const NSRect fieldPanel = [self fieldPanelRect];
     s3g::clap_gui::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, fieldPanel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"LISTENER PICKUPS / DISPLACEMENT FIELD", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, labels, style);
-    s3g::clap_gui::drawHeaderActionButton([self loadButtonRect], fieldPanel, @"LOAD SCORE", labels, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton([self loadButtonRect], fieldPanel, @"LOAD SCORE", labels, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4", @"MAP" };
     for (int index = 0; index < 2; ++index) {
-        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:index], fieldPanel, index == 0 ? @"-" : @"+", false, labels, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:index], fieldPanel, index == 0 ? @"-" : @"+", false, labels, style);
     }
     for (int index = 0; index < 4; ++index) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], fieldPanel, viewLabels[index], _viewMode == index, labels, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:index], fieldPanel, viewLabels[index], _viewMode == index, labels, style);
     }
     [self drawFieldWithScore:score params:params phase:phase rect:[self fieldRect] attrs:values];
     [self drawTimelineWithScore:score phase:phase attrs:values];

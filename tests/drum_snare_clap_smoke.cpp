@@ -23,7 +23,7 @@
 namespace {
 
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.drum-snare";
-constexpr const char* kPluginName = "s3g Drum Snare";
+constexpr const char* kPluginName = "s3g Drum Snare 2";
 constexpr double kSampleRate = 48000.0;
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kChannels = 2u;

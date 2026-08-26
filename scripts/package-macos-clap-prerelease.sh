@@ -326,13 +326,13 @@ THIRD_PARTY_NOTICES.md.
 
 VOT Wavetable Library:
 
-Use the LOAD button in s3g Ambi Encoder VOT to load any WAV file from the
+Use the LOAD button in s3g Ambi Encoder VOT 64 to load any WAV file from the
 included VOT Wavetables folder. The library contains twenty-eight 4 x 4 banks,
 including four vocal-source atlases.
 
 Ambi Vox Demo Voicebank:
 
-Use the LOAD button in the s3g Ambi Encoder Vox PHRASE panel to select the
+Use the LOAD button in the s3g Ambi Encoder Vox 64 PHRASE panel to select the
 included Ambi Vox Demo Voicebank folder. It is a small synthetic UTAU-style
 test bank with WAV aliases, oto.ini timing, and pronunciation examples. The
 same button can load a vocal WAV for WORLD analysis and resynthesis.

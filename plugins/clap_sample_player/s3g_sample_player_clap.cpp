@@ -3058,11 +3058,11 @@ NSString* const kMidiReceiveItems[] = {
         samplePanel.origin.x, samplePanel.origin.y, samplePanel.size.width,
         static_cast<CGFloat>(s3g::gui_layout::kStandardMetrics.headerHeight),
         labelAttrs, style);
-    s3g::clap_gui::drawHeaderButton(sampleLoadButtonRect(), samplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(sampleLoadButtonRect(), samplePanel,
         @"LOAD SAMPLE", false, labelAttrs, style);
     NSString* storageLabel = [NSString stringWithFormat:@"STORE %s",
         s3g::sample_storage::storageModeName(_instance->storageMode)];
-    s3g::clap_gui::drawHeaderButton(storageButtonRect(), samplePanel,
+    s3g::clap_gui::drawToolboxHeaderButton(storageButtonRect(), samplePanel,
         storageLabel, _instance->storageMode != StorageMode::Link,
         labelAttrs, style);
     NSString* status = [NSString stringWithUTF8String:
@@ -3269,7 +3269,8 @@ NSString* const kMidiReceiveItems[] = {
                 s3g::gui_layout::kStandardMetrics.headerHeight),
             labelAttrs, style);
     }
-    s3g::clap_gui::drawHeaderButton(killAllButtonRect(), outputPanelRect(),
+    s3g::clap_gui::drawToolboxHeaderButton(killAllButtonRect(),
+        outputPanelRect(),
         @"KILL ALL", false, labelAttrs, style);
 
     s3g::clap_gui::drawProcessorMenu(@"PLAY MODE",

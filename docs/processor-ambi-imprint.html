@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Processor Ambi Imprint</h1>
 
-        <p><code>s3g Processor Ambi Imprint 64ch</code> applies a designed directional space response to a first-through-seventh-order <code>ACN/SN3D</code> field. It loads <code>.s3gimprint</code> files exported directly by the browser-based <a href="https://s3g.github.io/s3g-mc/utilities-imprint-sketch.html" target="_blank" rel="noopener noreferrer"><code>s3g-mc Imprint Sketch</code></a> utility.</p>
+        <p><code>s3g Processor Ambi Imprint 64</code> applies a designed directional space response to a first-through-seventh-order <code>ACN/SN3D</code> field. It loads <code>.s3gimprint</code> files exported directly by the browser-based <a href="https://s3g.github.io/s3g-mc/utilities-imprint-sketch.html" target="_blank" rel="noopener noreferrer"><code>s3g-mc Imprint Sketch</code></a> utility.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -41,7 +41,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Processor Ambi Imprint 64ch</code> on a correctly routed Ambisonic track after the encoder or encoded source and match <code>ORD</code> to the field.</li>
+          <li>Insert <code>s3g Processor Ambi Imprint 64</code> on a correctly routed Ambisonic track after the encoder or encoded source and match <code>ORD</code> to the field.</li>
           <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
           <li>Select a bundled <code>ATLAS</code> response or use <code>LOAD</code> to open a custom <code>.s3gimprint</code> file.</li>
           <li>Raise <code>MIX</code> from dry, then refine focus, width, field listening, and output level while audio is playing.</li>

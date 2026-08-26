@@ -60,6 +60,12 @@ int main()
     SampleGrainsSettings invalid;
     invalid.grainDensityHz = 0.0f;
     require(!invalid.valid(), "invalid density rejected");
+    invalid = {};
+    invalid.grainSizeVariation = 1.1f;
+    require(!invalid.valid(), "invalid size variation rejected");
+    invalid = {};
+    invalid.envelopeSkew = -1.1f;
+    require(!invalid.valid(), "invalid envelope skew rejected");
 
     auto mono = makeAsset(1u, 48000u);
     auto stereo = makeAsset(2u, 36000u);
@@ -103,9 +109,165 @@ int main()
     const auto& liveGrain = engine.grainCursors()[0u];
     require(liveGrain.phase >= 0.0f && liveGrain.phase <= 1.0f
             && liveGrain.gain > 0.0f
+            && liveGrain.pathClockPhase >= 0.0f
+            && liveGrain.pathClockPhase <= 1.0f
             && liveGrain.laneSourcePositions[0u] >= 0.0f
             && std::abs(liveGrain.laneSourceSpans[0u]) > 0.0f,
         "live grain cursor exposes source window, envelope phase, and span");
+
+    SampleGrainsSettings variationSettings;
+    variationSettings.attackSeconds = 0.0f;
+    variationSettings.outputGainDecibels = 0.0f;
+    variationSettings.path = LanePath::Manual;
+    variationSettings.manualLane = 0.0f;
+    variationSettings.positionSpray = 0.0f;
+    variationSettings.grainDensityHz = 10.0f;
+    variationSettings.grainSizeMilliseconds = 200.0f;
+    engine.reset();
+    left.assign(128u, 0.0f);
+    right.assign(128u, 0.0f);
+    engine.render(variationSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    const float baseSpan = std::abs(
+        engine.grainCursors()[0u].laneSourceSpans[0u]);
+    const float baseGain = engine.grainCursors()[0u].gain;
+    const float baseGrainPhase = engine.grainCursors()[0u].phase;
+    const float baseScanPosition = engine.voiceCursors()[0u]
+        .sourcePositionNormalized;
+
+    engine.reset();
+    variationSettings.grainPitchSemitones = 12.0f;
+    engine.render(variationSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    const float octaveSpan = std::abs(
+        engine.grainCursors()[0u].laneSourceSpans[0u]);
+    require(std::abs(octaveSpan / baseSpan - 2.0f) < 0.01f
+            && std::abs(engine.voiceCursors()[0u].sourcePositionNormalized
+                - baseScanPosition) < 1.0e-6f
+            && std::abs(engine.grainCursors()[0u].phase
+                - baseGrainPhase) < 1.0e-6f,
+        "grain pitch shift transposes without changing scan speed or duration");
+
+    SampleGrainsSettings noteRateSettings;
+    noteRateSettings.attackSeconds = 0.0f;
+    noteRateSettings.outputGainDecibels = 0.0f;
+    noteRateSettings.positionSpray = 0.0f;
+    noteRateSettings.grainDensityHz = 100.0f;
+    noteRateSettings.grainSizeMilliseconds = 200.0f;
+    noteRateSettings.rateBasis = LaneRateBasis::Hertz;
+    noteRateSettings.rate = 1.0f;
+    left.assign(1024u, 0.0f);
+    right.assign(1024u, 0.0f);
+    engine.reset();
+    engine.render(noteRateSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    const float rootScanPosition = engine.voiceCursors()[0u]
+        .sourcePositionNormalized;
+    const float rootGrainSpan = std::abs(
+        engine.grainCursors()[0u].laneSourceSpans[0u]);
+    LanesRenderEvent octaveNote = note;
+    octaveNote.key = 72u;
+    engine.reset();
+    engine.render(noteRateSettings, &octaveNote, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    const float octaveScanPosition = engine.voiceCursors()[0u]
+        .sourcePositionNormalized;
+    const float octaveNoteGrainSpan = std::abs(
+        engine.grainCursors()[0u].laneSourceSpans[0u]);
+    require(rootScanPosition > 0.0f
+            && std::abs(octaveScanPosition / rootScanPosition - 2.0f)
+                < 0.01f
+            && std::abs(octaveNoteGrainSpan - rootGrainSpan) < 1.0e-6f,
+        "MIDI note tracks scan speed without transposing grain playback");
+
+    engine.reset();
+    variationSettings.grainPitchSemitones = 0.0f;
+    variationSettings.grainSizeVariation = 1.0f;
+    engine.render(variationSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(std::abs(std::abs(engine.grainCursors()[0u]
+                .laneSourceSpans[0u]) - baseSpan) > 1.0e-5f,
+        "size variation changes individual grain duration");
+
+    engine.reset();
+    variationSettings.grainSizeVariation = 0.0f;
+    variationSettings.grainLevelVariation = 1.0f;
+    engine.render(variationSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.grainCursors()[0u].gain < baseGain,
+        "level variation attenuates an individual grain before compensation");
+
+    variationSettings.grainLevelVariation = 0.0f;
+    variationSettings.grainDensityHz = 40.0f;
+    variationSettings.grainSizeMilliseconds = 240.0f;
+    variationSettings.grainTiming = GrainTiming::Regular;
+    std::vector<float> regularLeft(3000u);
+    std::vector<float> regularRight(3000u);
+    engine.reset();
+    engine.render(variationSettings, &note, 1u, regularLeft.data(),
+        regularRight.data(), static_cast<uint32_t>(regularLeft.size()));
+    variationSettings.grainTiming = GrainTiming::Scatter;
+    variationSettings.timingScatter = 0.0f;
+    std::vector<float> zeroScatterLeft(3000u);
+    std::vector<float> zeroScatterRight(3000u);
+    engine.reset();
+    engine.render(variationSettings, &note, 1u, zeroScatterLeft.data(),
+        zeroScatterRight.data(),
+        static_cast<uint32_t>(zeroScatterLeft.size()));
+    require(maximumDifference(regularLeft, zeroScatterLeft) < 1.0e-7f
+            && maximumDifference(regularRight, zeroScatterRight) < 1.0e-7f,
+        "zero timing scatter is sample-identical to regular timing");
+
+    variationSettings.grainTiming = GrainTiming::Regular;
+    variationSettings.envelopeSkew = 0.0f;
+    engine.reset();
+    engine.render(variationSettings, &note, 1u, regularLeft.data(),
+        regularRight.data(), static_cast<uint32_t>(regularLeft.size()));
+    variationSettings.envelopeSkew = 0.8f;
+    engine.reset();
+    engine.render(variationSettings, &note, 1u, zeroScatterLeft.data(),
+        zeroScatterRight.data(),
+        static_cast<uint32_t>(zeroScatterLeft.size()));
+    require(maximumDifference(regularLeft, zeroScatterLeft) > 1.0e-5f,
+        "envelope skew moves the selected window peak");
+
+    engine.reset();
+    settings.sourceAdvance = GrainSourceAdvance::Grain;
+    settings.path = LanePath::StepsDown;
+    settings.pathCycles = 2.0f;
+    settings.positionSpray = 0.0f;
+    left.assign(1300u, 0.0f);
+    right.assign(1300u, 0.0f);
+    engine.render(settings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.voiceCursorCount() == 1u
+            && std::abs(engine.voiceCursors()[0u].pathPhase - 0.1875f)
+                < 1.0e-5f
+            && std::abs(engine.voiceCursors()[0u].lanePositionNormalized
+                - 1.0f / 3.0f) < 1.0e-5f,
+        "grain advance clocks the visible eight-step source path per event");
+
+    settings = {};
+    settings.attackSeconds = 0.0f;
+    settings.grainSourceMode = GrainSourceMode::Freeze;
+    settings.sourcePosition = 0.5f;
+    settings.positionSpray = 0.2f;
+    settings.positionBias = GrainPositionBias::Behind;
+    engine.reset();
+    left.assign(128u, 0.0f);
+    right.assign(128u, 0.0f);
+    engine.render(settings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.grainCursorCount() == 1u
+            && engine.grainCursors()[0u].sourcePositionNormalized <= 0.5f,
+        "behind bias constrains position spray behind the source point");
+    settings.positionBias = GrainPositionBias::Ahead;
+    engine.reset();
+    engine.render(settings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.grainCursorCount() == 1u
+            && engine.grainCursors()[0u].sourcePositionNormalized >= 0.5f,
+        "ahead bias constrains position spray ahead of the source point");
 
     SampleGrainsSettings channelSettings;
     channelSettings.attackSeconds = 0.0f;
@@ -200,13 +362,22 @@ int main()
 
     engine.reset();
     settings.grainMutate = GrainMutate::Doublets;
+    settings.grainDensityHz = 40.0f;
     settings.sourceTimeSync = true;
+    settings.mutateAmount = 1.0f;
     left.assign(700u, 0.0f);
     right.assign(700u, 0.0f);
     engine.render(settings, &note, 1u, left.data(), right.data(),
         static_cast<uint32_t>(left.size()));
     require(engine.activeGrainCount() == 2u,
         "doublets create two source-time-related grains per event");
+
+    engine.reset();
+    settings.mutateAmount = 0.0f;
+    engine.render(settings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.activeGrainCount() == 1u,
+        "doublets Amount controls whether the paired grain is emitted");
 
     for (const auto process : { GrainMutate::Sorter, GrainMutate::Stutter,
             GrainMutate::Shrink }) {
@@ -221,6 +392,29 @@ int main()
         require(peak(left) > 1.0e-5f,
             "mutate operation remains a productive grain event process");
     }
+
+    SampleGrainsSettings triggerSettings;
+    triggerSettings.attackSeconds = 0.0f;
+    triggerSettings.releaseSeconds = 0.0f;
+    triggerSettings.outputGainDecibels = 0.0f;
+    triggerSettings.rateBasis = LaneRateBasis::Hertz;
+    triggerSettings.rate = 80.0f;
+    triggerSettings.grainDensityHz = 20.0f;
+    triggerSettings.grainSizeMilliseconds = 80.0f;
+    triggerSettings.triggerMode = TriggerMode::OneShot;
+    engine.reset();
+    left.assign(1024u, 0.0f);
+    right.assign(1024u, 0.0f);
+    engine.render(triggerSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.voiceCursorCount() == 0u,
+        "one-shot emitter stops after one selected-window traversal");
+    triggerSettings.triggerMode = TriggerMode::Gate;
+    engine.reset();
+    engine.render(triggerSettings, &note, 1u, left.data(), right.data(),
+        static_cast<uint32_t>(left.size()));
+    require(engine.voiceCursorCount() == 1u,
+        "gate emitter remains active until note-off");
 
     auto field = makeAsset(4u, 24000u);
     require(engine.prepare(48000.0, 32u), "multichannel prepare");

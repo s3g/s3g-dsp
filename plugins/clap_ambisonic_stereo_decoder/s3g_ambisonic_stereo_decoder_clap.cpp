@@ -732,7 +732,7 @@ static NSColor* s3gAmbiStereoColor(int rgb, CGFloat alpha = 1.0)
     s3g::clap_gui::drawPanelHeader(@"STEREO IMAGE", true, fieldPanel.origin.x, fieldPanel.origin.y, fieldPanel.size.width, 21, text, style);
     static NSString* viewLabels[] = { @"TOP", @"SIDE", @"3/4" };
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i inRect:fieldPanel], fieldPanel, viewLabels[i], i == _viewMode, small, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i inRect:fieldPanel], fieldPanel, viewLabels[i], i == _viewMode, small, style);
     }
     NSRect field = NSMakeRect(28, 70, 536, 542);
     [s3gAmbiStereoColor(0x101010) setFill];
@@ -1274,7 +1274,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambisonic-stereo-decoder",
-    "s3g Ambi Decoder Stereo",
+    "s3g Ambi Decoder Stereo 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

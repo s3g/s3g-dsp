@@ -343,6 +343,6 @@ int main()
         || !perVoiceLevelAndBandProbe()
         || !widthAndVelocityProbe() || !tailAndPolyphonyProbe()
         || !presetAndRandomProbe()) return 1;
-    std::cout << "s3g Drum Break smoke test passed\n";
+    std::cout << "s3g Drum Break 2 smoke test passed\n";
     return 0;
 }

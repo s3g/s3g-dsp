@@ -4392,16 +4392,16 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
     const NSRect outputHeader = s3g::clap_gui::cocoaRect(
         kOutputPanel.frame);
     for (uint8_t page = 0u; page < 4u; ++page) {
-        s3g::clap_gui::drawHeaderButton(stackPageButtonRect(page),
+        s3g::clap_gui::drawToolboxHeaderButton(stackPageButtonRect(page),
             outputHeader, pageLabels[page], page == _page,
             valueAttrs, style);
     }
     if (_page == 2u) {
         const NSRect linksHeader = s3g::clap_gui::cocoaRect(
             kLinksPanel.frame);
-        s3g::clap_gui::drawHeaderActionButton(stackCopyButtonRect(0u),
+        s3g::clap_gui::drawToolboxHeaderActionButton(stackCopyButtonRect(0u),
             linksHeader, @"COPY A > B", valueAttrs, style);
-        s3g::clap_gui::drawHeaderActionButton(stackCopyButtonRect(1u),
+        s3g::clap_gui::drawToolboxHeaderActionButton(stackCopyButtonRect(1u),
             linksHeader, @"COPY B > A", valueAttrs, style);
     }
     if (_page == 3u) {
@@ -4418,7 +4418,7 @@ bool queueRigCopy(Plugin& plugin, bool aToB)
                     == static_cast<int>(action)
                 && now < _scoreRandomFeedbackUntil;
             if (!pressed) {
-                s3g::clap_gui::drawHeaderActionButton(button,
+                s3g::clap_gui::drawToolboxHeaderActionButton(button,
                     timingHeader, labels[action], valueAttrs, style);
                 continue;
             }
@@ -5281,7 +5281,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.processor-stack",
-    "s3g Processor Stack",
+    "s3g Processor Stack 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

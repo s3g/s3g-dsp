@@ -53,9 +53,9 @@
         <h2 id="versions">Versions and Routing</h2>
 
         <ul>
-          <li><code>s3g Macro Fracture Mono</code>: one input and output channel. LOGIC compares the input against a signal-relative carrier assist.</li>
-          <li><code>s3g Macro Fracture 8ch</code>: eight independent processor states. LOGIC compares each lane against its next neighbor plus a low-level signal-relative carrier assist.</li>
-          <li><code>s3g Macro Fracture 24ch</code>: twenty-four independent states and the same ring-neighbor LOGIC relationship.</li>
+          <li><code>s3g Macro Fracture Mono 1</code>: one input and output channel. LOGIC compares the input against a signal-relative carrier assist.</li>
+          <li><code>s3g Macro Fracture 8</code>: eight independent processor states. LOGIC compares each lane against its next neighbor plus a low-level signal-relative carrier assist.</li>
+          <li><code>s3g Macro Fracture 24</code>: twenty-four independent states and the same ring-neighbor LOGIC relationship.</li>
         </ul>
 
         <p>The plugin preserves lane identity and does not mix or ambisonically encode the bus. In the multichannel LOGIC model, the last lane wraps around to the first, so the comparison forms a closed ring. The carrier assist has a stable lane-specific phase and follows the greater of the lane and neighbor levels. It keeps identical or strongly correlated material from collapsing to one static logic state, then decays with the signal rather than creating a free-running tone.</p>

@@ -77,8 +77,7 @@ sample-wavesets	sample-wavesets
 sample-motion	sample-motion
 sample-lanes	sample-lanes
 sample-grains	sample-grains
-loop-processor-8ch	loop-processor
-multi-loop-processor-8ch	multi-loop-processor
+sample-rings-8	sample-rings
 crcltr	crcltr
 
 # Drum instruments and effect.

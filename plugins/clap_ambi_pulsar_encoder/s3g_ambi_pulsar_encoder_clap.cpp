@@ -2385,10 +2385,10 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         if (listeningGuiParam(slider.id)) [self drawSlider:slider style:style];
     }
     const NSRect controlHeader = NSMakeRect(field.origin.x, 604.0, field.size.width, 27.0);
-    s3g::clap_gui::drawHeaderButton([self listeningEnableRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self listeningEnableRect], controlHeader,
         _plugin->params.listening.enabled ? @"LISTEN ON" : @"LISTEN OFF",
         _plugin->params.listening.enabled != 0u, labels, style);
-    s3g::clap_gui::drawHeaderButton([self listeningBypassRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self listeningBypassRect], controlHeader,
         _plugin->params.listening.bypass ? @"BYPASSED" : @"RETURN ACTIVE",
         _plugin->params.listening.bypass != 0u, labels, style);
     NSString* status = [NSString stringWithFormat:@"A %3.0f  C %3.0f  N %3.0f  R %3.0f",
@@ -2409,15 +2409,15 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         panel.size.width, 21.0, attrs, style);
     static NSString* pageNames[] = { @"FIELD", @"PULSARETS", @"NEURAL", @"LISTEN" };
     for (int index = 0; index < 4; ++index) {
-        s3g::clap_gui::drawHeaderButton([self pageButtonRect:index], header, pageNames[index],
+        s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:index], header, pageNames[index],
             index == _visualPage, attrs, style);
     }
     if (_visualPage == 0) {
-        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-        s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
         static NSString* viewNames[] = { @"TOP", @"SIDE", @"3/4" };
         for (int index = 0; index < 3; ++index) {
-            s3g::clap_gui::drawHeaderButton([self viewButtonRect:index], header, viewNames[index],
+            s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:index], header, viewNames[index],
                 index == _viewMode, attrs, style);
         }
         [self drawPointField:style];
@@ -2511,7 +2511,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
     const uint32_t captureGeneration = _plugin->guiCaptureGeneration.load(std::memory_order_relaxed);
     const BOOL capturePending = _plugin->guiCaptureRequestSerial.load(std::memory_order_acquire)
         != _plugin->guiCaptureCompletedSerial.load(std::memory_order_acquire);
-    s3g::clap_gui::drawHeaderActionButton([self captureRect], [self captureHeaderRect],
+    s3g::clap_gui::drawToolboxHeaderActionButton([self captureRect], [self captureHeaderRect],
         capturePending ? @"CAPTURING" : captureGeneration > 0u ? @"RECAPTURE" : @"CAPTURE", attrs, style);
     [self drawCaptureState:style];
 }
@@ -2527,7 +2527,7 @@ float displayWave(s3g::AmbiPulsarWaveform waveform, float phase)
         panel.size.width, 21.0, attrs, style);
     static NSString* laneNames[] = { @"A", @"B", @"C" };
     for (uint32_t lane = 0u; lane < s3g::kAmbiPulsarLanes; ++lane) {
-        s3g::clap_gui::drawHeaderButton([self laneButtonRect:lane], header, laneNames[lane],
+        s3g::clap_gui::drawToolboxHeaderButton([self laneButtonRect:lane], header, laneNames[lane],
             lane == _selectedLane, attrs, style);
     }
     for (const auto& slider : kGuiSliders) {
@@ -2914,7 +2914,7 @@ constexpr const char* features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-pulsar-encoder-64",
-    "s3g Ambi Encoder Pulsar",
+    "s3g Ambi Encoder Pulsar 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

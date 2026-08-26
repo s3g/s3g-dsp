@@ -381,7 +381,7 @@ bool loadPlugin(const char* argument, HostContext& host, LoadedPlugin& loaded)
     const auto* descriptor = loaded.factory->get_plugin_descriptor(
         loaded.factory, 0u);
     if (!descriptor || std::strcmp(descriptor->id, kPluginId) != 0
-        || std::strcmp(descriptor->name, "s3g Processor LF Synth") != 0
+        || std::strcmp(descriptor->name, "s3g Processor LF Synth 2") != 0
         || std::strcmp(descriptor->version, "1.3.6") != 0) {
         std::cerr << "descriptor mismatch\n";
         return false;

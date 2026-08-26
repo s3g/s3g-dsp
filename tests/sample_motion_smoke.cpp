@@ -469,11 +469,11 @@ int main()
 
     {
         auto constant = makeConstantAsset();
-        SampleMotionEngine bakToBak;
-        require(bakToBak.prepare(48000.0), "BaktoBak prepare");
-        bakToBak.setAsset(constant.get());
+        SampleMotionEngine roundTrip;
+        require(roundTrip.prepare(48000.0), "Round Trip prepare");
+        roundTrip.setAsset(constant.get());
         MotionSettings back;
-        back.motion = MotionMode::BakToBak;
+        back.motion = MotionMode::RoundTrip;
         back.rateBasis = MotionRateBasis::Hertz;
         back.motionRate = 4.0f;
         back.attackSeconds = 0.0f;
@@ -481,17 +481,17 @@ int main()
             41u, 60u, 1.0f, 0u };
         std::vector<float> backLeft(7000u);
         std::vector<float> backRight(7000u);
-        bakToBak.render(back, &note, 1u, backLeft.data(), backRight.data(),
+        roundTrip.render(back, &note, 1u, backLeft.data(), backRight.data(),
             static_cast<uint32_t>(backLeft.size()));
-        require(!bakToBak.voiceCursors()[0u].directionForward,
-            "BaktoBak returns without Mirror's polarity inversion");
+        require(!roundTrip.voiceCursors()[0u].directionForward,
+            "Round Trip returns without Mirror's polarity inversion");
     }
 
     {
         auto constant = makeConstantAsset();
-        SampleMotionEngine mchZig;
-        require(mchZig.prepare(48000.0, 32u), "MCHZIG prepare");
-        mchZig.setAsset(constant.get());
+        SampleMotionEngine routedZigzag;
+        require(routedZigzag.prepare(48000.0, 32u), "routed Zigzag prepare");
+        routedZigzag.setAsset(constant.get());
         MotionSettings zig;
         zig.motion = MotionMode::Zigzag;
         zig.rateBasis = MotionRateBasis::Hertz;
@@ -513,13 +513,13 @@ int main()
             channels[channel].resize(12000u);
             pointers[channel] = channels[channel].data();
         }
-        mchZig.render(zig, &note, 1u, pointers.data(), pointers.size(),
+        routedZigzag.render(zig, &note, 1u, pointers.data(), pointers.size(),
             static_cast<uint32_t>(channels[0u].size()));
         uint32_t used = 0u;
         for (const auto& channel : channels)
             if (peak(channel) > 0.05f) ++used;
         require(used >= 4u,
-            "MCHZIG reallocates a held voice at successive turns");
+            "routed Zigzag reallocates a held voice at successive turns");
     }
 
     {
@@ -604,11 +604,12 @@ int main()
 
     {
         auto constant = makeConstantAsset();
-        SampleMotionEngine mchIter;
-        require(mchIter.prepare(48000.0, 32u), "MCH Iterate prepare");
-        mchIter.setAsset(constant.get());
+        SampleMotionEngine routedIterate;
+        require(routedIterate.prepare(48000.0, 32u),
+            "Routed Iterate prepare");
+        routedIterate.setAsset(constant.get());
         MotionSettings iter;
-        iter.segmentModel = SegmentModel::MchIter;
+        iter.segmentModel = SegmentModel::RoutedIterate;
         iter.eventRateHz = 20.0f;
         iter.field = 0.01;
         iter.attackSeconds = 0.0f;
@@ -625,13 +626,13 @@ int main()
             channels[channel].resize(9600u);
             pointers[channel] = channels[channel].data();
         }
-        mchIter.render(iter, &note, 1u, pointers.data(), pointers.size(),
+        routedIterate.render(iter, &note, 1u, pointers.data(), pointers.size(),
             static_cast<uint32_t>(channels[0u].size()));
         uint32_t used = 0u;
         for (const auto& channel : channels)
             if (peak(channel) > 0.05f) ++used;
         require(used >= 3u,
-            "MCH Iterate allocates successive events across outputs");
+            "Routed Iterate allocates successive events across outputs");
     }
 
     std::cout << "sample motion smoke passed\n";

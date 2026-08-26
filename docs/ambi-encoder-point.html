@@ -27,14 +27,14 @@
       <main class="content" id="content">
         <h1>Ambi Encoder Point</h1>
 
-        <p><code>s3g Ambi Encoder Point</code> is a variable 1-to-64-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state. New instances start with 16 active points.</p>
+        <p><code>s3g Ambi Encoder Point 64</code> is a variable 1-to-64-point ambisonic encoder. Each mono input lane is treated as a point source with azimuth, elevation, distance, gain, mute, and solo state. New instances start with 16 active points.</p>
 
         <p>The selectable output spans first- through seventh-order ambisonics in <code>ACN/SN3D</code>. The plugin is for point-source placement and motion-controlled spatial scenes, not for generic channel fold-down.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Set the REAPER track to 64 channels, insert <code>s3g Ambi Encoder Point</code>, select the ambisonic <code>ORDER</code>, choose <code>POINTS</code> from 1 to 64, and route mono source lanes to the corresponding inputs.</li>
+          <li>Set the REAPER track to 64 channels, insert <code>s3g Ambi Encoder Point 64</code>, select the ambisonic <code>ORDER</code>, choose <code>POINTS</code> from 1 to 64, and route mono source lanes to the corresponding inputs.</li>
           <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
           <li>Place each active point with azimuth, elevation, distance, and gain.</li>
           <li>Use <code>MOTION: OFF</code> / <code>MANUAL</code> for direct editing or REAPER automation, or choose a motion engine and compatible style.</li>
@@ -137,7 +137,7 @@
 
         <h3 id="spatial-score">Spatial Score Automation</h3>
 
-        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Encoder Point</code>, set <code>MOTION</code> to <code>OFF</code> / <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Encoder Point parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
+        <p>The <a href="https://s3g.github.io/s3g-mc/utilities-spatial-score.html" target="_blank" rel="noopener noreferrer">Spatial Score</a> browser utility in <code>s3g-mc</code> can compose larger point-motion scores outside REAPER. Export the Spatial Score JSON, focus an instance of <code>s3g Ambi Encoder Point 64</code>, set <code>MOTION</code> to <code>OFF</code> / <code>MANUAL</code>, then run <code>Load Spatial Score JSON</code> from <code>s3g-mc</code>. The loader writes the score's azimuth, elevation, and distance lanes to the matching Encoder Point parameters; if the score contains more point paths than the plugin exposes, the first available points are used.</p>
 
         <h2 id="physics">Motion and Physics Controls</h2>
 

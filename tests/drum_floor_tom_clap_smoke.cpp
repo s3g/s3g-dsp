@@ -24,7 +24,7 @@
 namespace {
 
 constexpr const char* kPluginId = "org.s3g.s3g-dsp.drum-floor-tom";
-constexpr const char* kPluginName = "s3g Drum Floor Tom";
+constexpr const char* kPluginName = "s3g Drum Floor Tom 2";
 constexpr double kSampleRate = 48000.0;
 constexpr uint32_t kFrames = 256u;
 constexpr uint32_t kChannels = 2u;

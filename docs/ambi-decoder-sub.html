@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Ambi Decoder Sub</h1>
 
-        <p><code>s3g Ambi Decoder Sub</code> derives one to eight low-frequency feeds from an <code>ACN/SN3D</code> field. A single-sub setup low-passes the omnidirectional <code>W</code> component. Multi-sub setups can add horizontal first-order <code>X/Y</code> direction so low-frequency energy is distributed around an evenly spaced ring instead of being copied identically to every output.</p>
+        <p><code>s3g Ambi Decoder Sub 8</code> derives one to eight low-frequency feeds from an <code>ACN/SN3D</code> field. A single-sub setup low-passes the omnidirectional <code>W</code> component. Multi-sub setups can add horizontal first-order <code>X/Y</code> direction so low-frequency energy is distributed around an evenly spaced ring instead of being copied identically to every output.</p>
 
         <p>Sub is a parallel low-frequency extractor, not a complete speaker decoder or crossover manager. It does not high-pass the main speaker feeds, align loudspeaker and subwoofer delay, apply room correction, or prevent overlap with another bass-management stage.</p>
 
@@ -43,7 +43,7 @@
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert <code>s3g Ambi Decoder Sub</code> on a track carrying the encoded field, match <code>ORDER</code> to the source, and choose the active <code>SUBS</code> count from one to eight.</li>
+          <li>Insert <code>s3g Ambi Decoder Sub 8</code> on a track carrying the encoded field, match <code>ORDER</code> to the source, and choose the active <code>SUBS</code> count from one to eight.</li>
           <li>Route output lanes 1 through the selected sub count to the corresponding subwoofer feeds, keeping them separate from the full-range speaker decode.</li>
           <li>Set <code>CUTOFF</code> for the intended low-frequency band and adjust <code>WIDTH</code> while listening at the system crossover region.</li>
           <li>Trim <code>OUT</code>, verify polarity, delay, and combined level with the main speakers, and use <code>BYPASS</code> for a silent sub-path comparison.</li>

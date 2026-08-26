@@ -36,7 +36,7 @@ constexpr bool kPassExtraHostChannels = kChannelCount >= 24;
 #define S3G_MACRO_SHRED_PLUGIN_ID "org.s3g.s3g-dsp.macro-shred-8ch"
 #endif
 #ifndef S3G_MACRO_SHRED_PLUGIN_NAME
-#define S3G_MACRO_SHRED_PLUGIN_NAME "s3g Macro Shred 8ch"
+#define S3G_MACRO_SHRED_PLUGIN_NAME "s3g Macro Shred 8"
 #endif
 #ifndef S3G_MACRO_SHRED_DESCRIPTION
 #define S3G_MACRO_SHRED_DESCRIPTION "8-channel macro pressure, selectable circuit distortion, and bounded resonant-feedback processor."

@@ -1,7 +1,7 @@
 # Imprint Atlas
 
 The Imprint Atlas contains deterministic spaces authored by `s3g-mc Imprint
-Sketch` for `s3g Processor Ambi Imprint 64ch`.
+Sketch` for `s3g Processor Ambi Imprint 64`.
 
 Five entries exercise geometry-derived flutter, axial, coupled-chamber,
 circulating, and irregular relay echo structures. Their paths are resolved into

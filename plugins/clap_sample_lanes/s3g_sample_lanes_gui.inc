@@ -27,7 +27,9 @@ constexpr NSRect kPathPanel = {{ 880.0, 478.0 }, { 382.0, 248.0 }};
 constexpr NSRect kPathColumn1 = kPathPanel;
 constexpr NSRect kPathColumn2 = kPathPanel;
 constexpr NSRect kGrainEventPanel = {{ 18.0, 554.0 }, { 850.0, 172.0 }};
-constexpr NSRect kGrainEventColumn = kGrainEventPanel;
+constexpr NSRect kGrainEventColumn1 = {{ 18.0, 554.0 }, { 270.0, 172.0 }};
+constexpr NSRect kGrainEventColumn2 = {{ 300.0, 554.0 }, { 270.0, 172.0 }};
+constexpr NSRect kGrainEventColumn3 = {{ 582.0, 554.0 }, { 286.0, 172.0 }};
 constexpr NSRect kVoicePanel = {{ 18.0, 738.0 }, { 1244.0, 174.0 }};
 constexpr NSRect kVoiceColumn1 = {{ 18.0, 738.0 }, { 392.0, 174.0 }};
 constexpr NSRect kVoiceColumn2 = {{ 422.0, 738.0 }, { 392.0, 174.0 }};
@@ -79,9 +81,13 @@ NSString* const kShapeItems[] = {
     @"Linear", @"Smooth", @"Exponential", @"Plateau",
 };
 NSString* const kVoiceItems[] = { @"Poly", @"Mono", @"Legato" };
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+NSString* const kTriggerItems[] = { @"Gate", @"One Shot", @"Toggle" };
+#else
 NSString* const kTriggerItems[] = {
     @"Auto", @"Gate", @"One Shot", @"Toggle",
 };
+#endif
 NSString* const kOutputModeItems[] = { @"Preserve Field", @"Distribute" };
 NSString* const kActiveOutputCountItems[] = {
     @"02", @"03", @"04", @"05", @"06", @"07", @"08", @"09",
@@ -89,9 +95,7 @@ NSString* const kActiveOutputCountItems[] = {
     @"18", @"19", @"20", @"21", @"22", @"23", @"24", @"25",
     @"26", @"27", @"28", @"29", @"30", @"31", @"32",
 };
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
-NSString* const kAllocationCadenceItems[] = { @"Grain" };
-#else
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
 NSString* const kAllocationCadenceItems[] = { @"Note", @"Lane", @"Turn" };
 #endif
 NSString* const kTraversalItems[] = {
@@ -112,6 +116,8 @@ NSString* const kGrainEnvelopeItems[] = {
     @"Parzen", @"Sine", @"Hann", @"Triangle", @"Gaussian",
 };
 NSString* const kGrainTimingItems[] = { @"Regular", @"Scatter" };
+NSString* const kPositionBiasItems[] = { @"Behind", @"Around", @"Ahead" };
+NSString* const kSourceAdvanceItems[] = { @"Scan", @"Grain" };
 NSString* const kGrainMutateItems[] = {
     @"Ordinary", @"Sorter", @"Stutter", @"Shrink", @"Doublets",
 };
@@ -137,13 +143,17 @@ LanesMenuSpec lanesMenuSpec(clap_id id) noexcept
     case kBlendParamId: return { kBlendItems, 2u, 1u };
     case kShapeParamId: return { kShapeItems, 4u, 1u };
     case kVoiceModeParamId: return { kVoiceItems, 3u, 1u };
-    case kTriggerParamId: return { kTriggerItems, 4u, 1u };
+    case kTriggerParamId:
+        return { kTriggerItems,
+            static_cast<uint32_t>(std::size(kTriggerItems)), 1u };
     case kOutputModeParamId: return { kOutputModeItems, 2u, 1u };
     case kActiveOutputsParamId:
         return { kActiveOutputCountItems, 31u, 5u };
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
     case kAllocationCadenceParamId:
         return { kAllocationCadenceItems,
             static_cast<uint32_t>(std::size(kAllocationCadenceItems)), 1u };
+#endif
     case kTraversalParamId: return { kTraversalItems, 5u, 1u };
     case kOutputWidthParamId: return { kOutputWidthItems, 2u, 1u };
     case kPairLayoutParamId: return { kPairLayoutItems, 2u, 1u };
@@ -155,6 +165,10 @@ LanesMenuSpec lanesMenuSpec(clap_id id) noexcept
         return { kGrainEnvelopeItems, 5u, 1u };
     case kGrainTimingParamId:
         return { kGrainTimingItems, 2u, 1u };
+    case kPositionBiasParamId:
+        return { kPositionBiasItems, 3u, 1u };
+    case kSourceAdvanceParamId:
+        return { kSourceAdvanceItems, 2u, 1u };
     case kGrainMutateParamId:
         return { kGrainMutateItems, 5u, 1u };
     case kSourceTimeSyncParamId: return { kOnOffItems, 2u, 1u };
@@ -169,13 +183,22 @@ LanesMenuSpec lanesMenuSpec(clap_id id) noexcept
 int lanesMenuIndex(clap_id id, double value) noexcept
 {
     const int index = static_cast<int>(std::lround(value));
-    return id == kActiveOutputsParamId ? index - 2 : index;
+    if (id == kActiveOutputsParamId) return index - 2;
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    if (id == kTriggerParamId) return index - 1;
+#endif
+    return index;
 }
 
 double lanesMenuValue(clap_id id, int index) noexcept
 {
-    return static_cast<double>(id == kActiveOutputsParamId
-        ? index + 2 : index);
+    if (id == kActiveOutputsParamId)
+        return static_cast<double>(index + 2);
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    if (id == kTriggerParamId)
+        return static_cast<double>(index + 1);
+#endif
+    return static_cast<double>(index);
 }
 
 bool isOutputRoutingParam(clap_id id) noexcept
@@ -228,14 +251,19 @@ constexpr UiRow kRows[] = {
     { kPositionSprayParamId, kGrainTextureColumn, 402.0, "POSITION SPRAY", false },
     { kPitchSprayParamId, kGrainTextureColumn, 426.0, "PITCH SPRAY", false },
     { kReverseChanceParamId, kGrainTextureColumn, 450.0, "REVERSE", false },
-    { kGrainTimingParamId, kGrainEventColumn, 594.0, "TIMING", true },
-    { kGrainMutateParamId, kGrainEventColumn, 618.0, "GRAIN PROCESS", true },
-    { kMutateAmountParamId, kGrainEventColumn, 642.0, "AMOUNT", false },
-    { kRegionCountParamId, kGrainEventColumn, 666.0, "REGIONS", false },
-    { kSourceTimeSyncParamId, kGrainEventColumn, 690.0, "SOURCE SYNC", true },
+    { kGrainTimingParamId, kGrainEventColumn1, 594.0, "TIMING", true },
+    { kTimingScatterParamId, kGrainEventColumn1, 618.0, "SCATTER DEPTH", false },
+    { kGrainMutateParamId, kGrainEventColumn1, 642.0, "GRAIN PROCESS", true },
+    { kMutateAmountParamId, kGrainEventColumn1, 666.0, "AMOUNT", false },
+    { kSourceTimeSyncParamId, kGrainEventColumn1, 690.0, "SOURCE SYNC", true },
+    { kGrainSizeVariationParamId, kGrainEventColumn2, 594.0, "SIZE VAR", false },
+    { kGrainLevelVariationParamId, kGrainEventColumn2, 618.0, "LEVEL VAR", false },
+    { kEnvelopeSkewParamId, kGrainEventColumn2, 642.0, "ENV SKEW", false },
+    { kPositionBiasParamId, kGrainEventColumn3, 594.0, "SPRAY BIAS", true },
+    { kRegionCountParamId, kGrainEventColumn3, 618.0, "REGIONS", false },
+    { kGrainPitchShiftParamId, kGrainEventColumn3, 642.0, "PITCH SHIFT", false },
     { kOutputModeParamId, kVoiceColumn1, 776.0, "ROUTING MODE", true },
     { kActiveOutputsParamId, kVoiceColumn1, 800.0, "ACTIVE OUT", true },
-    { kAllocationCadenceParamId, kVoiceColumn1, 824.0, "ALLOC CLOCK", true },
     { kTraversalParamId, kVoiceColumn2, 776.0, "TRAVERSAL", true },
     { kOutputWidthParamId, kVoiceColumn2, 800.0, "GRAIN WIDTH", true },
     { kPairLayoutParamId, kVoiceColumn2, 824.0, "PAIR LAYOUT", true },
@@ -245,7 +273,7 @@ constexpr UiRow kRows[] = {
     { kRateParamId, kLoopPanel, 142.0, "SCAN SPEED", false },
     { kStartParamId, kLoopPanel, 166.0, "START", false },
     { kEndParamId, kLoopPanel, 190.0, "END", false },
-    { kLoopCrossfadeParamId, kLoopPanel, 214.0, "LOOP JOIN", false },
+    { kSourceAdvanceParamId, kLoopPanel, 214.0, "SOURCE ADVANCE", true },
     { kPathParamId, kPathPanel, 518.0, "PATH", true },
     { kBlendParamId, kPathPanel, 542.0, "LANE CHANGE", true },
     { kShapeParamId, kPathPanel, 566.0, "SHAPE", true },
@@ -253,16 +281,15 @@ constexpr UiRow kRows[] = {
     { kOffsetParamId, kPathColumn2, 614.0, "OFFSET", false },
     { kSkewParamId, kPathColumn1, 638.0, "SKEW", false },
     { kCurveParamId, kPathColumn2, 662.0, "CURVE", false },
-    { kLaneSlewParamId, kPathColumn1, 686.0, "JUMP SLEW", false },
-    { kSeedParamId, kPathColumn2, 710.0, "SEED", false },
+    { kSeedParamId, kPathColumn2, 686.0, "SEED", false },
     { kOutParamId, kVoiceColumn1, 776.0, "OUT", false },
     { kPanParamId, kVoiceColumn1, 800.0, "PAN", false },
     { kVoiceModeParamId, kVoiceColumn1, 824.0, "POLYPHONY", true },
     { kTriggerParamId, kVoiceColumn1, 848.0, "TRIGGER", true },
     { kMidiParamId, kVoiceColumn1, 872.0, "MIDI", true },
-    { kRootParamId, kVoiceColumn2, 776.0, "ROOT", false },
-    { kTuneParamId, kVoiceColumn2, 800.0, "TUNE", false },
-    { kFineParamId, kVoiceColumn2, 824.0, "FINE", false },
+    { kRootParamId, kVoiceColumn2, 776.0, "SCAN ROOT", false },
+    { kTuneParamId, kVoiceColumn2, 800.0, "SCAN TUNE", false },
+    { kFineParamId, kVoiceColumn2, 824.0, "SCAN FINE", false },
     { kAttackParamId, kVoiceColumn2, 848.0, "ATTACK", false },
     { kReleaseParamId, kVoiceColumn2, 872.0, "RELEASE", false },
     { kChannelModeParamId, kVoiceColumn3, 776.0, "CHANNEL MODE", true },
@@ -315,20 +342,20 @@ NSRect laneRowRect(std::size_t lane) noexcept
 NSRect laneWaveRect(std::size_t lane) noexcept
 {
     const NSRect row = laneRowRect(lane);
-    return NSMakeRect(118.0, row.origin.y + 5.0, 600.0,
+    return NSMakeRect(118.0, row.origin.y + 5.0, 664.0,
         row.size.height - 10.0);
 }
 
 NSRect laneLoadRect(std::size_t lane) noexcept
 {
     const NSRect row = laneRowRect(lane);
-    return NSMakeRect(726.0, row.origin.y + 8.0, 56.0, 16.0);
+    return NSMakeRect(790.0, row.origin.y + 7.0, 52.0, 16.0);
 }
 
 NSRect laneClearRect(std::size_t lane) noexcept
 {
     const NSRect row = laneRowRect(lane);
-    return NSMakeRect(790.0, row.origin.y + 8.0, 52.0, 16.0);
+    return NSMakeRect(790.0, row.origin.y + 34.0, 52.0, 16.0);
 }
 
 double normalizedParam(const ParamDef& def, double value) noexcept
@@ -371,10 +398,15 @@ double paramFromNormalized(const ParamDef& def, double value) noexcept
 }
 
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
-float grainDisplayWindow(GrainEnvelope envelope, float phase) noexcept
+float grainDisplayWindow(GrainEnvelope envelope, float phase,
+    float skew) noexcept
 {
     constexpr float pi = 3.14159265358979323846f;
     phase = std::clamp(phase, 0.0f, 1.0f);
+    const float peak = 0.5f + 0.4f * std::clamp(skew, -1.0f, 1.0f);
+    phase = phase <= peak
+        ? 0.5f * phase / peak
+        : 0.5f + 0.5f * (phase - peak) / (1.0f - peak);
     switch (envelope) {
     case GrainEnvelope::Sine:
         return std::sin(pi * phase);
@@ -404,25 +436,15 @@ uint32_t editableManualPath(Plugin& instance,
 {
     uint32_t count = manualPathSnapshot(instance, points);
     if (count >= 2u) return count;
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    constexpr float lane = 0.5f;
+#else
     const float lane = static_cast<float>(paramValue(
         instance, kManualLaneParamId));
+#endif
     points[0u] = { 0.0f, lane };
     points[1u] = { 1.0f, lane };
     return 2u;
-}
-
-void drawVoiceFooterButton(NSRect button, NSString* label, bool active,
-    NSDictionary* attrs, const s3g::clap_gui::Style& style)
-{
-    [s3g::clap_gui::color(active ? 0x505050 : 0x383838) setFill];
-    NSRectFill(button);
-    [(active ? style.accent : s3g::clap_gui::color(0x777777)) setStroke];
-    NSFrameRect(button);
-    const NSSize size = [label sizeWithAttributes:attrs];
-    [label drawAtPoint:NSMakePoint(
-        NSMinX(button) + (NSWidth(button) - size.width) * 0.5,
-        NSMinY(button) + (NSHeight(button) - size.height) * 0.5 - 0.5)
-        withAttributes:attrs];
 }
 
 NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
@@ -613,7 +635,11 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     const double start = paramValue(*_instance, kStartParamId);
     const double end = paramValue(*_instance, kEndParamId);
     const double span = end - start;
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    constexpr double nudge = 0.0;
+#else
     const double nudge = paramValue(*_instance, laneNudgeParamId(lane));
+#endif
     [s3g::clap_gui::color(0x161616) setFill]; NSRectFill(rect);
     [style.grid setStroke]; NSFrameRect(rect);
     [s3g::clap_gui::color(0x343434) setStroke];
@@ -686,11 +712,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             [waveform moveToPoint:NSMakePoint(x, y1)];
             [waveform lineToPoint:NSMakePoint(x, y2)];
         }
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
         [s3g::clap_gui::color(0x555555) setStroke];
-#else
-        [style.dim setStroke];
-#endif
         [waveform stroke];
     }
     if (span > 0.0 && std::abs(nudge) > 1.0e-6) {
@@ -751,7 +773,8 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
                 _instance->grainCursorPhases[slot].load(
                     std::memory_order_relaxed), 0.0f, 1.0f);
             const float currentWindow = grainDisplayWindow(
-                settings.grainEnvelope, currentPhase);
+                settings.grainEnvelope, currentPhase,
+                settings.envelopeSkew);
             const float baseGain = std::max(0.0f,
                 _instance->grainCursorGains[slot].load(
                     std::memory_order_relaxed));
@@ -768,7 +791,8 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
                 const CGFloat x = NSMinX(rect)
                     + displayPosition(source) * NSWidth(rect);
                 const CGFloat amplitude = (4.0 + 8.0 * weight)
-                    * grainDisplayWindow(settings.grainEnvelope, phase);
+                    * grainDisplayWindow(settings.grainEnvelope, phase,
+                        settings.envelopeSkew);
                 top = NSMakePoint(x, NSMidY(rect) - amplitude);
                 bottom = NSMakePoint(x,
                     NSMidY(rect) + amplitude);
@@ -891,8 +915,14 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         }
         const CGFloat x = NSMinX(rect)
             + timelinePosition * NSWidth(rect);
-        [[style.accent colorWithAlphaComponent:std::clamp<CGFloat>(
-            weight, 0.15, 1.0)] setFill];
+        const CGFloat activity = std::sqrt(std::clamp<CGFloat>(
+            weight, 0.0, 1.0));
+        [[s3g::clap_gui::color(0x080808) colorWithAlphaComponent:0.92]
+            setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            x - 4.5, NSMidY(rect) - 4.5, 9.0, 9.0)] fill];
+        [[s3g::clap_gui::color(0xf5f5f5) colorWithAlphaComponent:
+            0.76 + 0.24 * activity] setFill];
         [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
             x - 3.0, NSMidY(rect) - 3.0, 6.0, 6.0)] fill];
     }
@@ -912,13 +942,25 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
 #endif
         true, NSMinX(kPathScope), NSMinY(kPathScope), NSWidth(kPathScope),
         27.0, labels, style);
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    const bool grainClock = paramValue(*_instance,
+        kSourceAdvanceParamId) >= 0.5;
+    [(grainClock ? @"X  GRAIN CLOCK" : @"X  SCAN CLOCK")
+        drawAtPoint:NSMakePoint(30.0, 401.0)
+        withAttributes:labels];
+#else
     [@"X  PATH CLOCK" drawAtPoint:NSMakePoint(30.0, 401.0)
         withAttributes:labels];
+#endif
     [@"Y  FILE LANE" drawAtPoint:NSMakePoint(30.0, 418.0)
         withAttributes:labels];
     NSString* rule = paramValue(*_instance, kBlendParamId) < 0.5
         ? @"LANE CHANGE: EQUAL-POWER"
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        : @"LANE CHANGE: DIRECT GRAIN CHOICE";
+#else
         : @"LANE CHANGE: SMOOTHED JUMP";
+#endif
     [rule drawAtPoint:NSMakePoint(30.0, 451.0) withAttributes:values];
     [@"EMPTY: USE NEAREST LOADED" drawAtPoint:NSMakePoint(30.0, 468.0)
         withAttributes:values];
@@ -947,7 +989,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             drawAtPoint:NSMakePoint(NSMinX(kPathGraph) - 18.0, y - 6.0)
             withAttributes:values];
     }
-    const SampleLanesSettings settings = settingsSnapshot(*_instance);
+    const InstrumentSettings settings = settingsSnapshot(*_instance);
     NSBezierPath* path = [NSBezierPath bezierPath];
     [path setLineWidth:1.4];
     constexpr std::size_t points = 240u;
@@ -989,7 +1031,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         static_cast<uint32_t>(s3g::sample::kMaximumLaneVoices));
     for (uint32_t slot = 0u; slot < emitterCount; ++slot) {
         const double horizontal = std::clamp(
-            static_cast<double>(_instance->cursorSourcePositions[slot].load(
+            static_cast<double>(_instance->cursorPathPhases[slot].load(
                 std::memory_order_relaxed)), 0.0, 1.0);
         const double lane = _instance->cursorLanePositions[slot].load(
             std::memory_order_relaxed);
@@ -1007,7 +1049,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             paramValue(*_instance, kGrainEnvelopeParamId))));
     for (uint32_t slot = 0u; slot < grainCount; ++slot) {
         const double horizontal = std::clamp(static_cast<double>(
-            _instance->grainCursorSourcePositions[slot].load(
+            _instance->grainCursorPathClockPhases[slot].load(
                 std::memory_order_relaxed)), 0.0, 1.0);
         const double lane = std::clamp(static_cast<double>(
             _instance->grainCursorLanePositions[slot].load(
@@ -1016,7 +1058,8 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             _instance->grainCursorPhases[slot].load(
                 std::memory_order_relaxed), 0.0f, 1.0f);
         const CGFloat radius = 2.5 + 2.5
-            * grainDisplayWindow(grainEnvelope, phase);
+            * grainDisplayWindow(grainEnvelope, phase,
+                settings.envelopeSkew);
         [[style.accent colorWithAlphaComponent:0.78] setStroke];
         NSBezierPath* marker = [NSBezierPath bezierPathWithOvalInRect:
             NSMakeRect(NSMinX(kPathGraph)
@@ -1106,10 +1149,14 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     case 1:
         set(kGrainSourceModeParamId, 2.0); set(kGrainDensityParamId, 32.0);
         set(kGrainSizeParamId, 180.0); set(kPositionSprayParamId, 0.22);
-        set(kGrainEnvelopeParamId, 4.0); break;
+        set(kGrainEnvelopeParamId, 4.0);
+        set(kGrainSizeVariationParamId, 0.28);
+        set(kGrainLevelVariationParamId, 0.16);
+        set(kPositionBiasParamId, 1.0); break;
     case 2:
         set(kGrainSourceModeParamId, 1.0); set(kSourcePositionParamId, 0.5);
         set(kGrainSizeParamId, 300.0); set(kPitchSprayParamId, 0.16);
+        set(kEnvelopeSkewParamId, -0.24);
         set(kPathParamId, 3.0); set(kCyclesParamId, 0.25); break;
     case 3:
         set(kGrainSourceModeParamId, 3.0); set(kGrainMutateParamId, 1.0);
@@ -1117,16 +1164,22 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         set(kPathParamId, 0.0); break;
     case 4:
         set(kGrainMutateParamId, 2.0); set(kMutateAmountParamId, 0.72);
-        set(kGrainDensityParamId, 18.0); set(kPathParamId, 4.0); break;
+        set(kGrainDensityParamId, 18.0); set(kPathParamId, 4.0);
+        set(kSourceAdvanceParamId, 1.0); set(kCyclesParamId, 2.0); break;
     case 5:
         set(kGrainMutateParamId, 3.0); set(kMutateAmountParamId, 0.68);
-        set(kGrainSizeParamId, 140.0); set(kPathParamId, 6.0); break;
+        set(kGrainSizeParamId, 140.0); set(kPathParamId, 6.0);
+        set(kGrainSizeVariationParamId, 0.42);
+        set(kSourceAdvanceParamId, 1.0); break;
     case 6:
         set(kGrainMutateParamId, 4.0); set(kGrainTimingParamId, 1.0);
+        set(kTimingScatterParamId, 0.72);
+        set(kMutateAmountParamId, 1.0);
         set(kSourceTimeSyncParamId, 1.0); set(kTraversalParamId, 4.0);
         set(kOutputModeParamId, 1.0); break;
     case 7:
-        set(kPathParamId, 7.0); set(kManualLaneParamId, 0.5);
+        set(kPathParamId, 7.0);
+        set(kSourceAdvanceParamId, 1.0);
         manualPoints[0u] = { 0.0f, 0.5f };
         manualPoints[1u] = { 0.28f, 0.08f };
         manualPoints[2u] = { 0.62f, 0.92f };
@@ -1240,7 +1293,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     }
     NSString* storage = [NSString stringWithFormat:@"STORE %s",
         s3g::sample_storage::storageModeName(mode)];
-    s3g::clap_gui::drawHeaderButton(kStorageButton, kSamplePanel, storage,
+    s3g::clap_gui::drawToolboxHeaderButton(kStorageButton, kSamplePanel, storage,
         mode != StorageMode::Link, labels, style);
     const std::size_t selected = std::min<std::size_t>(
         _instance->selectedLane.load(std::memory_order_acquire), 3u);
@@ -1282,8 +1335,8 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     NSString* voiceTitle = @"VOICE / PITCH / MIDI";
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     voiceTitle = _instance->outputChannelCount == 2u
-        ? @"POLYPHONY / PITCH / MIDI / STEREO"
-        : @"POLYPHONY / PITCH / MIDI";
+        ? @"POLYPHONY / SCAN RATE / MIDI / STEREO"
+        : @"POLYPHONY / SCAN RATE / MIDI";
 #endif
     NSString* outputTitle = [NSString stringWithFormat:@"%d  %@",
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
@@ -1297,7 +1350,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         { kLoopPanel, @"1  SOURCE SCAN / NORMAL RATE IS FILE SPEED" },
         { kGrainPanel, @"2  GRAIN SOURCE / WINDOW + TEXTURE" },
         { kPathPanel, @"3  SOURCE FIELD PATH / WHICH FILE LANE" },
-        { kGrainEventPanel, @"4  GRAIN PROCESS / TIMING + PATTERN" },
+        { kGrainEventPanel, @"4  GRAIN PROCESS / TIMING / VARIATION" },
         { kVoicePanel, outputTitle },
 #else
         { kLoopPanel, @"1  LOOP TRANSPORT" },
@@ -1313,10 +1366,10 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             27.0, labels, style);
     }
     if (_instance->outputChannelCount > 2u)
-        drawVoiceFooterButton(kOutputPageButton,
+        s3g::clap_gui::drawToolboxHeaderButton(kOutputPageButton, kVoicePanel,
             _outputRoutingPage
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
-                ? @"POLYPHONY / PITCH"
+                ? @"POLYPHONY / SCAN"
 #else
                 ? @"VOICE / PITCH"
 #endif
@@ -1327,9 +1380,9 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         if (row.menu) [self drawMenu:row style:style labels:labels values:values];
         else [self drawSlider:row style:style labels:labels values:values];
     }
-    drawVoiceFooterButton(kPreviewButton, @"PLAY",
+    s3g::clap_gui::drawToolboxHeaderButton(kPreviewButton, kVoicePanel, @"PLAY",
         (_feedbackMask & kActionPreview) != 0u, values, style);
-    drawVoiceFooterButton(kStopButton,
+    s3g::clap_gui::drawToolboxHeaderButton(kStopButton, kVoicePanel,
         @"STOP / KILL ALL", (_feedbackMask & kActionStopAll) != 0u,
         values, style);
     if (_presetMenuOpen) {

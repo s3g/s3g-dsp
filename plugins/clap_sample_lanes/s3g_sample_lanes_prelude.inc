@@ -39,7 +39,9 @@ using InstrumentSettings = s3g::sample::SampleGrainsSettings;
 using s3g::sample::GrainChannelMode;
 using s3g::sample::GrainEnvelope;
 using s3g::sample::GrainMutate;
+using s3g::sample::GrainPositionBias;
 using s3g::sample::GrainSourceMode;
+using s3g::sample::GrainSourceAdvance;
 using s3g::sample::GrainStereoLink;
 using s3g::sample::GrainTiming;
 #else
@@ -56,10 +58,7 @@ using s3g::sample_storage::StorageMode;
 
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr uint32_t kStateMagic = 0x47533353u; // "S3SG"
-constexpr uint32_t kStateVersion = 2u;
-constexpr uint32_t kRoutingPreviousStateVersion = 0xfffffffdu;
-constexpr uint32_t kPreviousStateVersion = 1u;
-constexpr uint32_t kLegacyStateVersion = 0xffffffffu;
+constexpr uint32_t kStateVersion = 4u;
 #else
 constexpr uint32_t kStateMagic = 0x4c533353u; // "S3SL"
 constexpr uint32_t kStateVersion = 4u;
@@ -69,9 +68,6 @@ constexpr uint32_t kLegacyStateVersion = 1u;
 #endif
 constexpr std::size_t kLegacyParamCount = 27u;
 constexpr std::size_t kPreviousParamCount = 39u;
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
-constexpr std::size_t kGrainsPreviousParamCount = 59u;
-#endif
 constexpr uint32_t kGuiWidth = 1280u;
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr uint32_t kGuiHeight = 932u;
@@ -150,7 +146,14 @@ constexpr clap_id kSourceTimeSyncParamId = 59u;
 constexpr clap_id kChannelModeParamId = 60u;
 constexpr clap_id kStereoLinkParamId = 61u;
 constexpr clap_id kMonoSpreadParamId = 62u;
-constexpr std::size_t kParamCount = 62u;
+constexpr clap_id kGrainSizeVariationParamId = 63u;
+constexpr clap_id kGrainLevelVariationParamId = 64u;
+constexpr clap_id kTimingScatterParamId = 65u;
+constexpr clap_id kEnvelopeSkewParamId = 66u;
+constexpr clap_id kPositionBiasParamId = 67u;
+constexpr clap_id kSourceAdvanceParamId = 68u;
+constexpr clap_id kGrainPitchShiftParamId = 69u;
+constexpr std::size_t kParamCount = 53u;
 #else
 constexpr std::size_t kParamCount = 46u;
 #endif
@@ -179,8 +182,10 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kRateParamId, "Rate", "Loop", 0.01, 80.0, 1.0, false },
     { kStartParamId, "Start", "Loop", 0.0, 1.0, 0.0, false },
     { kEndParamId, "End", "Loop", 0.0, 1.0, 1.0, false },
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
     { kLoopCrossfadeParamId, "Loop Crossfade", "Loop", 0.0, 0.5,
         0.02, false },
+#endif
     { kPathParamId, "Lane Path", "Path", 0.0, 7.0, 0.0, true },
     { kBlendParamId, "Lane Change", "Path", 0.0, 1.0, 0.0, true },
     { kShapeParamId, "Path Shape", "Path", 0.0, 3.0, 0.0, true },
@@ -188,19 +193,33 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kOffsetParamId, "Path Offset", "Path", 0.0, 1.0, 0.0, false },
     { kSkewParamId, "Path Skew", "Path", 0.05, 0.95, 0.5, false },
     { kCurveParamId, "Path Curve", "Path", -1.0, 1.0, 0.0, false },
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
     { kManualLaneParamId, "Manual Lane", "Path", 0.0, 1.0, 0.0, false },
     { kLaneSlewParamId, "Lane Slew", "Path", 0.0, 0.1, 0.005, false },
+#endif
     { kVoiceModeParamId, "Voice Mode", "Voice", 0.0, 2.0, 0.0, true },
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    { kTriggerParamId, "Trigger", "Voice", 1.0, 3.0, 1.0, true },
+#else
     { kTriggerParamId, "Trigger", "Voice", 0.0, 3.0, 1.0, true },
+#endif
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    { kRootParamId, "Scan Root Note", "Scan Rate", 0.0, 127.0, 60.0, true },
+    { kTuneParamId, "Scan Tune", "Scan Rate", -60.0, 60.0, 0.0, false },
+    { kFineParamId, "Scan Fine Tune", "Scan Rate", -100.0, 100.0, 0.0,
+        false },
+#else
     { kRootParamId, "Root Note", "Pitch", 0.0, 127.0, 60.0, true },
     { kTuneParamId, "Tune", "Pitch", -60.0, 60.0, 0.0, false },
     { kFineParamId, "Fine Tune", "Pitch", -100.0, 100.0, 0.0, false },
+#endif
     { kAttackParamId, "Attack", "Amp", 0.0, 2.0, 0.003, false },
     { kReleaseParamId, "Release", "Amp", 0.0, 2.0, 0.020, false },
     { kPanParamId, "Pan", "Output", -1.0, 1.0, 0.0, false },
     { kVelocityParamId, "Velocity", "MIDI", 0.0, 1.0, 1.0, false },
     { kSeedParamId, "Seed", "Path", 1.0, 65535.0, 1.0, true },
     { kMidiParamId, "MIDI Receive", "MIDI", 0.0, 16.0, 0.0, true },
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
     { kLane1SpeedParamId, "Lane 1 Speed", "Lane 1", 0.25, 4.0, 1.0,
         false },
     { kLane1StretchParamId, "Lane 1 Stretch", "Lane 1", 0.25, 4.0, 1.0,
@@ -225,13 +244,11 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         false },
     { kLane4NudgeParamId, "Lane 4 Nudge", "Lane 4", -0.5, 0.5, 0.0,
         false },
+#endif
     { kOutputModeParamId, "Output Mode", "Output", 0.0, 1.0, 0.0, true },
     { kActiveOutputsParamId, "Active Outputs", "Output", 2.0, 32.0,
         32.0, true },
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
-    { kAllocationCadenceParamId, "Allocation Unit", "Output", 0.0, 0.0,
-        0.0, true },
-#else
+#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
     { kAllocationCadenceParamId, "Allocation Clock", "Output", 0.0, 2.0,
         0.0, true },
 #endif
@@ -276,6 +293,20 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         0.0, true },
     { kMonoSpreadParamId, "Mono Spread", "Stereo Output", 0.0, 1.0,
         0.0, false },
+    { kGrainSizeVariationParamId, "Size Variation", "Grain Variation",
+        0.0, 1.0, 0.0, false },
+    { kGrainLevelVariationParamId, "Level Variation", "Grain Variation",
+        0.0, 1.0, 0.0, false },
+    { kTimingScatterParamId, "Timing Scatter", "Grain Timing", 0.0, 1.0,
+        1.0, false },
+    { kEnvelopeSkewParamId, "Envelope Skew", "Grain Window", -1.0, 1.0,
+        0.0, false },
+    { kPositionBiasParamId, "Position Bias", "Grain Source", 0.0, 2.0,
+        1.0, true },
+    { kSourceAdvanceParamId, "Source Advance", "Source Field", 0.0, 1.0,
+        0.0, true },
+    { kGrainPitchShiftParamId, "Grain Pitch Shift", "Grain Variation",
+        -48.0, 48.0, 0.0, false },
 #endif
 }};
 
@@ -412,6 +443,9 @@ struct Plugin {
     std::array<std::atomic<float>,
         s3g::sample::kMaximumPublishedGrainCursors>
         grainCursorLanePositions {};
+    std::array<std::atomic<float>,
+        s3g::sample::kMaximumPublishedGrainCursors>
+        grainCursorPathClockPhases {};
     std::array<std::array<std::atomic<float>,
         s3g::sample::kSampleLaneCount>,
         s3g::sample::kMaximumPublishedGrainCursors>

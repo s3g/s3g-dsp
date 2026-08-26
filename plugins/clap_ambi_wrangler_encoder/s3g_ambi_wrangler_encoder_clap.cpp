@@ -3936,10 +3936,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     }
 
     const NSRect controlHeader = NSMakeRect(field.origin.x, 604.0, field.size.width, 27.0);
-    s3g::clap_gui::drawHeaderButton([self listenEnableRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self listenEnableRect], controlHeader,
         _paramsSnapshot.listeningEnabled ? @"LISTEN ON" : @"LISTEN OFF",
         _paramsSnapshot.listeningEnabled != 0u, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self returnBypassRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self returnBypassRect], controlHeader,
         settleResponse
             ? @"RETURN INERT"
             : (_paramsSnapshot.returnBypass ? @"BYPASSED" : @"RETURN ACTIVE"),
@@ -4012,18 +4012,18 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     NSFrameRect(field);
     const NSRect controlHeader = NSMakeRect(field.origin.x, field.origin.y,
         field.size.width, 36.0);
-    s3g::clap_gui::drawHeaderButton([self surfaceEditRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceEditRect], controlHeader,
         _surfaceEdit ? @"EDIT" : @"PLAY", _surfaceEdit, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceEnableRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceEnableRect], controlHeader,
         _surfaceSnapshot.enabled ? @"ON" : @"OFF", _surfaceSnapshot.enabled,
         attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceAddRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceAddRect], controlHeader,
         @"ADD", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceDeleteRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceDeleteRect], controlHeader,
         @"DEL", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceCaptureRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceCaptureRect], controlHeader,
         @"CAP", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfacePopRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfacePopRect], controlHeader,
         @"POP", _surfacePopupChild || [_surfacePanel isVisible], attrs, style);
     const NSRect preset = [self surfacePresetRect];
     [style.strip setFill];
@@ -4039,9 +4039,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     }
     [cellName drawAtPoint:NSMakePoint(preset.origin.x + 7.0, preset.origin.y + 2.0)
         withAttributes:valueAttrs];
-    s3g::clap_gui::drawHeaderButton([self surfaceFocusMinusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceFocusMinusRect], controlHeader,
         @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceFocusPlusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceFocusPlusRect], controlHeader,
         @"+", false, attrs, style);
     [[NSString stringWithFormat:@"%.2f", _surfaceSnapshot.focus] drawAtPoint:
         NSMakePoint(field.origin.x + 202.0, field.origin.y + 40.0)
@@ -4059,9 +4059,9 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         withAttributes:valueAttrs];
     [@"GLIDE" drawAtPoint:NSMakePoint(field.origin.x + 278.0,
         field.origin.y + 40.0) withAttributes:attrs];
-    s3g::clap_gui::drawHeaderButton([self surfaceGlideMinusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceGlideMinusRect], controlHeader,
         @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self surfaceGlidePlusRect], controlHeader,
+    s3g::clap_gui::drawToolboxHeaderButton([self surfaceGlidePlusRect], controlHeader,
         @"+", false, attrs, style);
     NSString* glideText = _surfaceSnapshot.glideMs < 0.5f
         ? @"OFF" : [NSString stringWithFormat:@"%.0f MS",
@@ -4098,10 +4098,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
     s3g::clap_gui::drawPanelFrame(panel.origin.x, panel.origin.y, panel.size.width, panel.size.height, style);
     s3g::clap_gui::drawPanelHeader(@"VOICE FIELD", true, panel.origin.x, panel.origin.y, panel.size.width, 21, attrs, style);
     const NSRect header = NSMakeRect(panel.origin.x, panel.origin.y, panel.size.width, 21);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:0], header, @"FIELD", _fieldPage == 0, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:1], header, @"CURVE", _fieldPage == 1, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:2], header, @"LISTEN", _fieldPage == 2, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self pageButtonRect:3], header, @"SURF", _fieldPage == 3, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:0], header, @"FIELD", _fieldPage == 0, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:1], header, @"CURVE", _fieldPage == 1, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:2], header, @"LISTEN", _fieldPage == 2, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:3], header, @"SURF", _fieldPage == 3, attrs, style);
     if (_fieldPage == 1) {
         [self drawBreakpointEditor:attrs valueAttrs:valueAttrs style:style];
         return;
@@ -4114,10 +4114,10 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
         [self drawSurfacePage:attrs valueAttrs:valueAttrs style:style];
         return;
     }
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
-    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
+    for (int i = 0; i < 3; ++i) s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
 
     [s3g::clap_gui::color(0x090909) setFill];
     NSRectFill(field);
@@ -4245,7 +4245,7 @@ double rateNormToHzForDisplay(double value, uint32_t mode)
 
     s3g::clap_gui::drawPanelFrame(kOscillatorPanel, style);
     s3g::clap_gui::drawPanelHeader(@"SOURCE / OSCILLATORS", true, kOscillatorPanel, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self circuitLawButtonRect],
+    s3g::clap_gui::drawToolboxHeaderButton([self circuitLawButtonRect],
         s3g::clap_gui::cocoaRect(kOscillatorPanel.frame),
         p.circuitLaw == s3g::AmbiWranglerCircuitLaw::Bounded
             ? @"CIR BOUNDED" : @"CIR LEGACY",
@@ -5030,7 +5030,7 @@ constexpr const char* features[] { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_F
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-wrangler-encoder-64",
-    "s3g Ambi Encoder Wrangler",
+    "s3g Ambi Encoder Wrangler 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",

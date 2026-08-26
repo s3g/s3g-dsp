@@ -8844,7 +8844,7 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     static constexpr int pages[] = { 0, 3 };
     const NSRect header = NSMakeRect(18, 42, 596, 21);
     for (int i = 0; i < 2; ++i) {
-        s3g::clap_gui::drawHeaderButton([self pageButtonRect:i], header, labels[i], pages[i] == _leftPage, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self pageButtonRect:i], header, labels[i], pages[i] == _leftPage, attrs, style);
     }
 }
 
@@ -8853,10 +8853,10 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     static NSString* labels[] = { @"TOP", @"SIDE", @"3/4" };
     const NSRect header = NSMakeRect(18, 42, 596, 21);
     for (int i = 0; i < 3; ++i) {
-        s3g::clap_gui::drawHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
+        s3g::clap_gui::drawToolboxHeaderButton([self viewButtonRect:i], header, labels[i], i == _viewMode, attrs, style);
     }
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:0], header, @"-", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton([self zoomButtonRect:1], header, @"+", false, attrs, style);
 }
 
 - (void)drawField:(NSRect)rect attrs:(NSDictionary*)attrs
@@ -9389,9 +9389,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
         withAttributes:attrs];
     const NSRect modeHeader = NSMakeRect(rect.origin.x, rect.origin.y,
         rect.size.width, 24.0);
-    s3g::clap_gui::drawHeaderButton([self lyricEditorModeButtonRect:0],
+    s3g::clap_gui::drawToolboxHeaderButton([self lyricEditorModeButtonRect:0],
         modeHeader, @"TEXT", !_showLyricGenerator, attrs, style);
-    s3g::clap_gui::drawHeaderButton([self lyricEditorModeButtonRect:1],
+    s3g::clap_gui::drawToolboxHeaderButton([self lyricEditorModeButtonRect:1],
         modeHeader, @"GENERATE", _showLyricGenerator, attrs, style);
     if (_showLyricGenerator) {
         [self drawLyricGenerator:rect attrs:attrs valueAttrs:valueAttrs style:style];
@@ -9547,8 +9547,8 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     s3g::clap_gui::drawPanelFrame(motionX, 420, 246, 152, style);
     s3g::clap_gui::drawPanelHeader(@"PHRASE", true, motionX, 420, 246, 21, attrs, style);
     const NSRect phraseHeader = NSMakeRect(motionX, 420, 246, 21);
-    s3g::clap_gui::drawHeaderActionButton([self worldResetButtonRect], phraseHeader, @"RESET", attrs, style);
-    s3g::clap_gui::drawHeaderActionButton([self encodedLoadButtonRect], phraseHeader, @"LOAD", attrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton([self worldResetButtonRect], phraseHeader, @"RESET", attrs, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton([self encodedLoadButtonRect], phraseHeader, @"LOAD", attrs, style);
     const bool hasBank = _plugin && static_cast<bool>(std::atomic_load_explicit(&_plugin->voicebank, std::memory_order_acquire));
     const bool hasWorld = _plugin && static_cast<bool>(std::atomic_load_explicit(&_plugin->worldSample, std::memory_order_acquire));
     if (_phraseField) {
@@ -11086,7 +11086,7 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.ambi-vox-encoder-64",
-    "s3g Ambi Encoder Vox",
+    "s3g Ambi Encoder Vox 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
