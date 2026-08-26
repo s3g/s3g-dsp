@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Output Format Upscale 64 - s3g-dsp</title>
+    <meta name="description" content="Direct non-ambisonic multichannel format expansion with a format-sized connection matrix and custom speaker coordinates.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Output Format Upscale 64</h1>
+
+        <p><code>s3g Output Format Upscale 64</code> expands one named ordinary multichannel format into another without encoding an ambisonic field. Its primary workflow is a matrix whose input rows and output columns are generated directly from the two selected speaker formats.</p>
+
+        <p>The CLAP exposes one fixed 64-channel input and one fixed 64-channel output for stable host routing. The selected formats determine which lanes are active; every inactive output is cleared.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/format-upscale.png" aria-label="Open high-resolution Format Upscale GUI screenshot">
+              <img src="assets/plugin-guis/format-upscale.png" alt="Output Format Upscale custom three-input by nine-output weighted matrix with elevation-tier and AED labels" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>A custom three-channel source mapped to a custom nine-channel, three-tier array. Format, edit, automap, clear, and normalization tools occupy the right rail, leaving the title strip as a Matrix / Tier Rings / AED Flat view selector. Elevation brackets group the output tiers and crosspoint size shows connection weight.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/format-upscale.layout.png" aria-label="Open high-resolution Format Upscale Tier Rings layout screenshot">
+              <img src="assets/plugin-guis/format-upscale.layout.png" alt="Output Format Upscale equal-size input and output overhead plans with physical height tiers separated into nested plan contours" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The optional Layout page defaults to <code>TIER RINGS</code>, an abstract overhead plan derived from each speaker’s horizontal XYZ position. The lowest plane is the outer Tier 1 contour and progressively higher planes move inward without losing circular, rectangular, or irregular array shapes. Click an input to color its mapped outputs or an output to color its contributing inputs; point size follows applied gain.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/format-upscale.aed-flat.png" aria-label="Open high-resolution Format Upscale flattened AED screenshot">
+              <img src="assets/plugin-guis/format-upscale.aed-flat.png" alt="Output Format Upscale equal-size input and output flattened AED projections for exact coordinate verification" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption><code>AED FLAT</code> preserves the exact-coordinate alternative: both panels put azimuth +90° on the left and −90° on the right, with elevation −90°…+90°, so the same coordinate occupies the same relative position on either side.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/format-upscale.cube41.png" aria-label="Open high-resolution Format Upscale Cube 41 elevation-plane screenshot">
+              <img src="assets/plugin-guis/format-upscale.cube41.png" alt="Output Format Upscale Cube 41 Tier Rings overhead plan with four Cartesian height planes and a zenith speaker at the center" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Cube 41 demonstrates why a physical height plane cannot always carry one elevation label. Its four rectangular Cartesian planes remain rectangular while nesting from outer Tier 1 inward; the direct-overhead speaker sits at the center while the separate tier legend reports each plane's Z coordinate, exact minimum-to-maximum elevation, and speaker count.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the host track and plugin pins to 64 channels, then choose the source format with <code>IN FORMAT</code> and the larger destination with <code>OUT FORMAT</code> in the right rail. Each selector opens a fitted two-column menu to the left of the rail.</li>
+          <li>Choose <code>AUTO MODE</code> in the Formats toolbox for the routing tradition you want: coordinate matching, same-side repetition, crisscross, rotation, interleaving, nearest-speaker distribution, a weighted span, or exhaustive tier filling. Choosing a mode applies its automatic matrix immediately. <code>AUTO MAP</code> beside that label reapplies the selected mode after manual edits; <code>CLEAR</code> starts an empty editable matrix.</li>
+          <li>Use the title-strip view selector to switch among <code>MATRIX</code>, <code>TIER RINGS</code>, and <code>AED FLAT</code>. The two layout views show equal-size abstract speaker plans; click an input point to reveal only its destinations or an output point to reveal only its contributors. <code>POP OUT</code> inside the Layout surface detaches that live page and returns the main plug-in to the matrix so both can remain visible; <code>DOCK</code> closes the detached panel and restores Layout inside the plug-in.</li>
+          <li>Press <code>CLEAR</code> for an empty matrix, then click or drag across the crosspoints for the speaker outputs that should pass audio. A single click selects an existing connection or adds an empty one; double-click or right-click sets that connection to zero.</li>
+          <li>Select a cell and adjust <code>DIST WEIGHT</code>, or drag vertically inside a sufficiently large cell, for a partial connection. Choose <code>ROW</code> or <code>COLUMN</code> beside <code>SHAPE</code>, then use <code>FLAT</code>, <code>CENTER</code>, <code>EDGES</code>, or <code>TAPER</code> across that selected axis. In Auto Map, row shaping remains a global recipe applied to every input.</li>
+          <li>In the Selected Crosspoint toolbox, choose <code>ROW NORM</code>, <code>COL NORM</code>, or the default <code>DUAL LIMIT</code>. Row and column power cannot both equal one in a rectangular matrix unless their dimensions happen to balance. For editable and ordinary Share maps, DUAL LIMIT therefore row-normalizes first, then attenuates only output columns whose coefficient power exceeds one.</li>
+          <li>Read the coordinate policy directly on the matrix: input labels show role and AED, output columns show azimuth, and contiguous output elevations are bracketed as tiers. The selected-crosspoint inspector adds exact input/output AED and Cartesian XYZ values without requiring a separate speaker map.</li>
+          <li>Press <code>EDIT IN</code> or <code>EDIT OUT</code> in the Formats toolbox header to copy that side to a Custom AED layout. Use <code>COUNT</code> and <code>SELECT</code> to change or choose channels, then use the full-length <code>AZ</code>, <code>EL</code>, and <code>DST</code> controls or numeric fields for exact coordinates. <code>FRONT 3</code> and <code>3 × 3 TIERS</code> provide useful starting arrays.</li>
+          <li>If useful, use <code>OUTPUT TREATMENT</code> to add delay or decorrelation to the routed copies, smooth routing changes, and set the final plugin level. Verify destination channel order before routing to hardware.</li>
+        </ol>
+
+        <h2 id="formats">Formats</h2>
+
+        <p>The format library uses the same coordinate and channel-order policy as <a href="panner-layout.html">Layout Panner</a> and <a href="ambi-decoder-speaker.html">Speaker Decoder</a>. Presets include Mono, Stereo, LCR, Quad, Quad + overhead, 5.0, 6.0, 7.0, 5.0.2, 7.0.2, 5.0.4, 7.0.4, 9.0, 9.0.2, 9.0.4, 9.0.6, 7.0.6, 11.0.8, Octophonic and 12–64-channel rings, 16–64-channel double rings, Cube 8/17/41, LPAC 41, Dodeca 12, Icosahedron 20, Dome 24/25, SRST 25, Sphere 24, and Custom AED.</p>
+
+        <p>s3g AED uses <code>+90°</code> for listener-left and <code>−90°</code> for listener-right. Room-style preset order begins at the stereo-right position, proceeds clockwise around an elevation layer, and then appends higher layers. Custom layout channel order is exactly the order shown by the numbered nodes and <code>SELECT</code> control. A destination with fewer channels than the source is rejected safely; use an Output Autogain plugin for fold-down instead.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>IN FORMAT / OUT FORMAT</td><td>Right-rail selectors for named source and destination speaker formats using the shared s3g coordinate and channel-order policy, plus a state-saved Custom AED layout for each side.</td></tr>
+            <tr><td>Matrix point</td><td>Rows are inputs and columns are outputs. Click to select or add; drag across cells to paint full-weight connections. A vertical drag that remains inside a cell adjusts its weight, with upward motion increasing it and downward motion decreasing it. Double-click or right-click zeros the cell. Marker size follows weight.</td></tr>
+            <tr><td>DIST WEIGHT</td><td>Sets the selected raw crosspoint weight from 0–100%. The applied gain also depends on the selected normalization policy. Relative weights are preserved along the normalized or limited axis.</td></tr>
+            <tr><td>ROW / COLUMN SHAPE</td><td>Selects whether FLAT, CENTER, EDGES, and TAPER reshape the connected outputs in the selected input row or the contributing inputs in the selected output column. FLAT sets equal weights. CENTER produces a 50–100–50-style curve across ordered connections. EDGES reverses that curve. TAPER favors the selected crosspoint and reduces other weights according to AED angular distance, with a 25% floor. In Auto Map, ROW keeps its global automatic-row behavior; choosing COLUMN and a shape converts the visible map to an editable matrix.</td></tr>
+            <tr><td>ROW NORM</td><td>Normalizes each nonempty input row independently: <var>g<sub>ij</sub></var> = <var>w<sub>ij</sub></var> / √Σ<sub>o</sub><var>w²<sub>io</sub></var>. Each distributed input has unit coefficient power, but several inputs converging on one output can give that column power greater than one.</td></tr>
+            <tr><td>COL NORM</td><td>Normalizes each nonempty output column independently: <var>g<sub>ij</sub></var> = <var>w<sub>ij</sub></var> / √Σ<sub>i</sub><var>w²<sub>ij</sub></var>. This is useful when many inputs feed one speaker, but individual row powers are no longer guaranteed to equal one.</td></tr>
+            <tr><td>DUAL LIMIT</td><td>The default for new instances. For an editable matrix or an ordinary Share map, it first performs row normalization, then scales down only columns whose Σ<var>g²</var> exceeds one. Automatic Keep retains its origin-gain policy before the same column limit. DUAL LIMIT never boosts a sparse column. This is an L2 coefficient-power limit for nominally independent inputs, not a peak limiter; correlated signals can still sum above full scale.</td></tr>
+            <tr><td>AUTO MODE</td><td>Selects and immediately applies Match, Same Side, Cross, Rotate, Interleave, Nearest, Span, or Tier Fill. Candidate output columns are ranked first by current assignment count and then by the selected spatial rule, so an eligible unused column wins before a column is reused. When every elevation tier has room for every input, each input is routed once on every tier before extra copies are allocated.</td></tr>
+            <tr><td>AUTO MAP</td><td>Located beside AUTO MODE in the Formats toolbox. Reapplies the selected automatic mode. Editing any cell captures the current automatic map as an editable matrix before applying the change.</td></tr>
+            <tr><td>CLEAR</td><td>Enters Matrix mode with every crosspoint off.</td></tr>
+            <tr><td>EDIT IN / OUT</td><td>Located in the Formats toolbox header. Copies the chosen preset side to Custom AED and opens count, channel selection, azimuth, elevation, and distance controls. AED and derived XYZ are shown together; distance is clamped to 0.10–3.00.</td></tr>
+            <tr><td>VIEW SELECTOR</td><td>The title strip contains only MATRIX, TIER RINGS, and AED FLAT. TIER RINGS derives each tier’s top-plan shape from speaker AED and distance, puts the lowest physical plane on the outer Tier 1 contour, scales higher contours inward without overlap, reserves an outer gutter for the cardinal-degree labels, and places a +90° zenith speaker at the center. AED FLAT switches to common azimuth/elevation dimensions for exact coordinate verification. Click an input or output point to change focus instead of drawing an overlapping all-routes line graph. POP OUT is local to the Layout surface; DOCK returns it to the plug-in.</td></tr>
+            <tr><td>G DELAY</td><td>A single global maximum-delay amount, not a per-speaker setting. Each treated output receives a fixed, deterministic value between 35% and 100% of the amount. In editable Matrix mode every visible connection is treated.</td></tr>
+            <tr><td>G DECOR</td><td>A single global decorrelation intensity, not a per-speaker setting. The allpass coefficient varies deterministically by output so routed copies do not receive identical treatment.</td></tr>
+            <tr><td>SMOOTH</td><td>Transition time for route gains and extension delay changes.</td></tr>
+            <tr><td>GAIN</td><td>Final output trim.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="output-treatment">Output Treatment</h2>
+
+        <p>The Output Treatment section is downstream of matrix weighting. <code>G DELAY</code> and <code>G DECOR</code> are global amounts; there is not a separate user control for each speaker. The DSP derives a repeatable variation for every output channel, so one global setting still produces different delay and allpass values around the destination array. These treatments change the timing and correlation of routed copies without changing their displayed distribution weights.</p>
+
+        <p>In <code>AUTO MAP</code>, the original anchor routes remain untreated while only added extension routes receive these processes. Once the matrix is edited, all visible crosspoints belong to the editable routed layer and therefore receive Delay and Decor. Set both global amounts to zero for a pure gain matrix.</p>
+
+        <p><code>SMOOTH</code> controls how quickly route gains and delay changes move to new values, reducing clicks during edits. <code>GAIN</code> is the final trim after routing, normalization, delay, and decorrelation. It changes the entire plugin output and does not alter the relative balance shown in the matrix.</p>
+
+        <h2 id="auto-modes">Auto Map Modes</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Mode</th><th>Automatic routing rule</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Match</td><td>Keeps each source at its closest matching role or AED position. In a sufficiently populated height array, that position is repeated on every elevation tier.</td></tr>
+            <tr><td>Same Side</td><td>Adds destinations on the same left, center, or right side as each source.</td></tr>
+            <tr><td>Cross</td><td>Adds destinations on the opposite side, reproducing the familiar crisscross stereo-to-quad convention.</td></tr>
+            <tr><td>Rotate</td><td>Advances added destinations around the array by the stored rotation angle; the default is 90°.</td></tr>
+            <tr><td>Interleave</td><td>Distributes sources by channel index, useful for regular rings and repeated tier structures.</td></tr>
+            <tr><td>Nearest</td><td>Chooses the closest unused output coordinates for each source.</td></tr>
+            <tr><td>Span</td><td>Uses nearby outputs but gives closer positions greater pre-normalization weight according to the stored spread setting.</td></tr>
+            <tr><td>Tier Fill</td><td>Routes every input onto every elevation tier even when a tier has fewer speakers than inputs. Sparse-tier destinations are shared as evenly as possible, then the mode adds balanced routes until every output column has been used.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>Copies</code> counts the anchor as one target: a value of <code>2</code> normally means one anchor plus one added destination per input, not two added destinations. The standard modes keep that base count but globally load-balance their added routes, so two sources cannot reuse an eligible destination while another eligible column remains unused. Tier coverage takes priority when every tier can support a unique result. <code>Tier Fill</code> is the explicit exhaustive alternative: it may exceed the base copy count, permits balanced sharing where a tier is sparse, reaches every tier from every input, and then touches every output column.</p>
+
+        <h2 id="recipes">Connection Starting Points</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Conversion</th><th>Matrix points to enable</th><th>Result</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Stereo → Quad</td><td>Connect Left to front-left and rear-left; connect Right to front-right and rear-right.</td><td>A conventional same-side front/rear repeat at constant power.</td></tr>
+            <tr><td>Stereo → Quad</td><td>Connect Left to front-left and rear-right; connect Right to front-right and rear-left.</td><td>A crisscross repeat across the rear pair.</td></tr>
+            <tr><td>Stereo → Ring 8</td><td>Connect each source to alternating or side-matched points around the ring.</td><td>A traceable repeated stereo distribution whose width follows the chosen pattern.</td></tr>
+            <tr><td>5.0 → 7.0</td><td>Keep L, C, and R one-to-one; connect each surround input to its side and rear output.</td><td>The surround lanes share equally with the added rear speakers.</td></tr>
+            <tr><td>5.0 → 5.0.4</td><td>Keep the bed one-to-one, then connect chosen bed lanes to the nearest height outputs.</td><td>Explicit height extension without a sound-field encode/decode stage.</td></tr>
+            <tr><td>Custom 3 → Custom 9</td><td>Choose <code>FRONT 3</code> and <code>3 × 3 TIERS</code>; connect each source to its matching angular position on all three tiers.</td><td>Three source lanes distribute across three elevations while all nine AED coordinates remain editable.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="reading-map">Reading the Matrix</h2>
+
+        <p>The matrix always places one-based input channels on the left and output channels across the top. Large formats reduce cell size and label frequency while preserving every crosspoint. Filled teal points are active and grow with connection weight. Selection is reported textually in the crosspoint inspector and footer; the grid does not add bright row, column, or cell highlighting.</p>
+
+        <p>Output elevation tiers are expressed as brackets over contiguous matrix columns, while channel roles and AED values remain attached to the axes. Selecting any crosspoint shows both endpoints as AED and XYZ in the inspector. This keeps routing, weighting, ordering, and coordinate verification in one visual language.</p>
+
+        <h2 id="layout-view">Layout Mapping</h2>
+
+        <p>The Layout page is a spatial counterpart to the editable matrix. It borrows the economical speaker-node language of <a href="https://docs.meyersound.com/products/en/user-guide---spacemap-go.html">Meyer Sound Spacemap Go</a> without adopting its panning engine: circles identify input lanes and square nodes identify physical output channels. It deliberately omits the complete connector-line graph, which becomes ambiguous as mappings overlap.</p>
+
+        <p><code>TIER RINGS</code> is the default projection. Each side is an abstract, listener-centered overhead plan: front is 0°, listener-left is +90°, listener-right is −90°, and rear is ±180°. Within each physical height plane, node placement follows horizontal XYZ reconstructed from AED and distance, so a rectangle remains rectangular, a circle remains circular, and an irregular layout retains its outline. The lowest plane is the outermost contour and Tier 1; successively higher planes receive higher tier numbers and are scaled inward into separated envelopes. A speaker at elevation +90° occupies the exact center because its azimuth has no physical meaning.</p>
+
+        <p><code>AED FLAT</code> switches both equal-size panels to the same equirectangular coordinate check. Following the speaker-plan convention, azimuth +90° is on the left, 0° is centered, and −90° is on the right; elevation runs vertically from −90° to +90°, with the same coordinate occupying the same relative position on either side. A dedicated coordinate gutter separates the degree scale from boundary speaker labels. Speaker labels are centered beneath their nodes so the point itself remains unobstructed. Tier ranges use line-and-bracket guides only; Cube 41, LPAC 41, and other broad planes have no filled highlight blocks.</p>
+
+        <p>In either projection, click an input circle to focus that matrix row: only its mapped output squares receive route colors. Click an output square to focus that column: only its contributing input circles receive route colors. Light gray means a primary anchor route, teal means an extension or copy route, magenta means negative gain, and dark gray means no route in the current focus. Point size follows the absolute applied gain.</p>
+
+        <p>Tier identity follows Cartesian speaker height, <var>Z</var> = sin(<var>E</var>) × distance, rather than assuming every speaker on a physical plane has the same spherical elevation. Tier numbers always rise with physical height. The legend reports exact elevation and channel count; a broad plane also reports its <var>Z</var> coordinate and minimum-to-maximum elevation range. In TIER RINGS that plane becomes one shape-preserving contour, with a direct zenith separated to the center when present; in AED FLAT it receives an unfilled bracket. This matters for geometries such as Cube 41: its top five speakers share the <code>Z +1.00</code> face, while their actual elevations span approximately <code>+57°…+90°</code>.</p>
+
+        <p><code>POP OUT</code> opens a utility panel containing the live Layout page and automatically restores the main plug-in to Matrix, allowing both views to be watched together or placed on separate displays. The detached panel remains tied to the plug-in’s GUI lifetime. <code>DOCK</code> hides the utility panel and restores the same Layout page inside the main window.</p>
+
+        <h2 id="large-arrays">Large Arrays</h2>
+
+        <p>The matrix always fits the complete active input-by-output grid; label reduction never removes a channel or crosspoint. As cells become smaller, the axes switch from every-channel role/AED text to collision-spaced channel indices. The first channel, last channel, and selected channel remain addressable, while small teal edge ticks identify the selected row and column without filling them.</p>
+
+        <p>Azimuth text is shown only while a cell is wide enough to contain it. Elevation brackets remain visible, but a tier name is omitted when it cannot fit inside its own bracket. Exact role, AED, XYZ, weight, and normalized gain are always available in the selected-crosspoint inspector. A 64 × 64 layout therefore remains a real 4096-point matrix rather than becoming a simplified visual proxy.</p>
+
+        <p>This version is deliberately deterministic: it does not extract ambience, classify content, or solve a decode/re-encode field. The matrix, normalization policy, automatic row shape, and both custom coordinate arrays are stored in plugin state, so the audible result remains traceable to visible connections and recallable with the session. The simplified interface exposes the routing tradition through <code>AUTO MODE</code>; the more detailed recipe parameters remain published for host automation and backward compatibility.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="output-autogain-quad.html">
+            <span>Previous</span>
+            Output Autogain Quad
+          </a>
+          <a class="page-nav-link next" href="analyzer-meter.html">
+            <span>Next</span>
+            Analyzer Meter 64
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Monitoring Pages</h2>
+          <a href="output-autogain-stereo.html">Output Autogain Stereo</a>
+          <a href="output-autogain-quad.html">Output Autogain Quad</a>
+          <a href="format-upscale.html">Output Format Upscale 64</a>
+          <a href="analyzer-meter.html">Analyzer Meter 64</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#formats">Formats</a>
+          <a href="#controls">Controls</a>
+          <a href="#output-treatment">Output Treatment</a>
+          <a href="#auto-modes">Auto Map Modes</a>
+          <a href="#recipes">Connection Starting Points</a>
+          <a href="#reading-map">Reading the Matrix</a>
+          <a href="#layout-view">Layout Connections</a>
+          <a href="#large-arrays">Large Arrays</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -56,6 +56,14 @@ if(APPLE)
   target_link_libraries(s3g_dsp_smoke PRIVATE "-framework Accelerate")
 endif()
 
+add_executable(s3g_format_upscale_smoke
+  tests/format_upscale_smoke.cpp)
+target_link_libraries(s3g_format_upscale_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_format_upscale_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
 add_executable(s3g_crcltr_smoke tests/crcltr_smoke.cpp)
 target_link_libraries(s3g_crcltr_smoke PRIVATE s3g_dsp)
 
@@ -128,6 +136,28 @@ add_executable(s3g_voice_output_allocator_smoke
 target_link_libraries(s3g_voice_output_allocator_smoke PRIVATE s3g_dsp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_voice_output_allocator_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_fixed_bus_ring_renderer_smoke
+  tests/fixed_bus_ring_renderer_smoke.cpp)
+target_link_libraries(s3g_fixed_bus_ring_renderer_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_fixed_bus_ring_renderer_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_iterate_delay_smoke tests/iterate_delay_smoke.cpp)
+target_link_libraries(s3g_iterate_delay_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_iterate_delay_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_delay_field_smoke tests/delay_field_smoke.cpp)
+target_link_libraries(s3g_delay_field_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_delay_field_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
@@ -426,6 +456,7 @@ endif()
 if(BUILD_TESTING)
   set(S3G_NON_NIM_CORE_SMOKE_TARGETS
     s3g_dsp_smoke
+    s3g_format_upscale_smoke
     s3g_crcltr_smoke
     s3g_breakbeat_slicer_smoke
     s3g_sample_player_smoke
@@ -436,6 +467,9 @@ if(BUILD_TESTING)
     s3g_sample_grains_smoke
     s3g_sample_rings_smoke
     s3g_voice_output_allocator_smoke
+    s3g_fixed_bus_ring_renderer_smoke
+    s3g_iterate_delay_smoke
+    s3g_delay_field_smoke
     s3g_feedback_shift_smoke
     s3g_processor_fissure_smoke
     s3g_crcltr_external_memory_smoke
@@ -885,6 +919,21 @@ if(S3G_BUILD_CLAP_PLUGIN)
   target_include_directories(s3g_crcltr_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
   target_link_libraries(s3g_crcltr_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
 
+  add_executable(s3g_delay_field_clap_smoke tests/delay_field_clap_smoke.cpp)
+  target_include_directories(s3g_delay_field_clap_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_delay_field_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+
+  add_executable(s3g_format_upscale_clap_smoke
+    tests/format_upscale_clap_smoke.cpp)
+  target_include_directories(s3g_format_upscale_clap_smoke PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR})
+  target_link_libraries(s3g_format_upscale_clap_smoke PRIVATE
+    s3g_dsp ${CMAKE_DL_LIBS})
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_format_upscale_clap_smoke PRIVATE
+      -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+  endif()
+
   add_executable(s3g_no_input_mixer_clap_smoke
     tests/no_input_mixer_clap_smoke.cpp)
   target_include_directories(s3g_no_input_mixer_clap_smoke PRIVATE
@@ -1117,6 +1166,23 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_delay_processor)
   add_subdirectory(plugins/clap_mc_to_stereo_autogain)
   add_subdirectory(plugins/clap_mc_to_quad_autogain)
+  add_subdirectory(plugins/clap_format_upscale)
+  if(BUILD_TESTING)
+    add_test(NAME s3g_format_upscale_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_format_upscale_clap_smoke>
+        $<TARGET_FILE:s3g_format_upscale_clap>)
+    set_tests_properties(s3g_format_upscale_clap_smoke PROPERTIES
+      LABELS "non_nim;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_format_upscale_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_format_upscale_clap>
+          org.s3g.s3g-dsp.format-upscale-64
+          1120 720 "s3g Output Format Upscale 64" responsive)
+      set_tests_properties(s3g_format_upscale_gui_smoke PROPERTIES
+        LABELS "non_nim;clap;gui" TIMEOUT 120)
+    endif()
+  endif()
   add_subdirectory(plugins/clap_ambi_effect_displacement)
   add_subdirectory(plugins/clap_ambi_point_encoder)
   add_subdirectory(plugins/clap_ambi_cloud_encoder)
@@ -1511,13 +1577,21 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_spectral_spray)
   add_subdirectory(plugins/clap_8ch_spectral_spray)
   add_subdirectory(plugins/clap_spectral_topology_processor)
-  add_subdirectory(plugins/clap_shard_scatter)
+  add_subdirectory(plugins/clap_delay_field)
   add_subdirectory(plugins/clap_psd_raw_field)
-  add_subdirectory(plugins/clap_orbit_delay)
-  add_subdirectory(plugins/clap_cascade_taps)
   add_subdirectory(plugins/clap_crcltr)
 
   if(BUILD_TESTING)
+    add_test(NAME s3g_delay_field_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_delay_field_clap_smoke>
+        $<TARGET_FILE:s3g_delay_field_clap>)
+    set_tests_properties(s3g_delay_field_clap_smoke PROPERTIES TIMEOUT 90)
+
+    add_test(NAME s3g_crcltr_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_crcltr_clap_smoke>
+        $<TARGET_FILE:s3g_crcltr_clap>)
+    set_tests_properties(s3g_crcltr_clap_smoke PROPERTIES TIMEOUT 90)
+
     set(S3G_V050_STATE_FIXTURE_ROOT
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/clap-state/v0.5.0-pre)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -2802,18 +2876,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_spray_clap> org.s3g.s3g-dsp.spectral-spray 760 376 "s3g Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_spectral_spray_clap> org.s3g.s3g-dsp.8ch-spectral-spray 760 376 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_shard_scatter_clap> org.s3g.s3g-dsp.shard-scatter 760 376 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_orbit_delay_clap> org.s3g.s3g-dsp.orbit-delay 760 376 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_cascade_taps_clap> org.s3g.s3g-dsp.cascade-taps 760 376 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_crcltr_clap> org.s3g.s3g-dsp.crcltr 760 376 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_delay_field_clap> org.s3g.s3g-dsp.delay-field 760 520 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_crcltr_clap> org.s3g.s3g-dsp.crcltr 760 660 "s3g Sample Circulator 2" responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
         s3g_spectral_spray_clap
         s3g_8ch_spectral_spray_clap
-        s3g_shard_scatter_clap
-        s3g_orbit_delay_clap
-        s3g_cascade_taps_clap
+        s3g_delay_field_clap
         s3g_crcltr_clap
       COMMENT "Rendering and validating every compact Effect-family GUI")
 
@@ -2821,12 +2891,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Output Format Upscale 64" responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sub_crossover_clap> org.s3g.s3g-dsp.sub-crossover 920 560 "s3g Output " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
         s3g_mc_to_stereo_autogain_clap
         s3g_mc_to_quad_autogain_clap
+        s3g_format_upscale_clap
         s3g_sub_crossover_clap
       COMMENT "Rendering and validating every Output-family GUI")
 

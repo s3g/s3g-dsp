@@ -21,11 +21,11 @@ struct CascadeTapsParams {
     float stepMs = 85.0f;
     float decay = 0.78f;
     float damp = 0.25f;
-    float dry = 0.25f;
-    float wet = 0.85f;
-    float gainDb = -2.0f;
-    float stereo = 0.0f;
-    float soft = 0.62f;
+    float dry = 0.12f;
+    float wet = 1.0f;
+    float gainDb = 0.0f;
+    float stereo = 1.0f;
+    float soft = 0.35f;
 };
 
 class CascadeTaps {
@@ -40,8 +40,6 @@ public:
         phase_ = 0.0f;
         smooth_ = params_;
         writeSmooth_ = 0.0f;
-        prevInput_ = 0.0f;
-        transientEnv_ = 0.0f;
         lp_.fill(0.0f);
         out_.fill(0.0f);
         ready_ = true;
@@ -55,14 +53,21 @@ public:
         phase_ = 0.0f;
         smooth_ = params_;
         writeSmooth_ = 0.0f;
-        prevInput_ = 0.0f;
-        transientEnv_ = 0.0f;
         lp_.fill(0.0f);
         out_.fill(0.0f);
     }
 
     void setParams(const CascadeTapsParams& params) { params_ = sanitize(params); }
     CascadeTapsParams params() const { return params_; }
+    void setOutputChannels(uint32_t channels)
+    {
+        channels = std::clamp<uint32_t>(channels, 2u, kCascadeTapsChannels);
+        if (channels == outputChannels_) return;
+        outputChannels_ = channels;
+        lp_.fill(0.0f);
+        out_.fill(0.0f);
+    }
+    uint32_t outputChannels() const { return outputChannels_; }
     bool ready() const { return ready_; }
 
     void process(const float* left, const float* right, float* const* output, uint32_t frames)
@@ -75,27 +80,40 @@ public:
             phase_ -= std::floor(phase_);
             const float inL = left ? left[i] : 0.0f;
             const float inR = right ? right[i] : inL;
-            const float src = (inL + inR * smooth_.stereo) / (1.0f + smooth_.stereo);
-            updateTransientSuppressor(src);
+            const float src = (inL + inR * smooth_.stereo)
+                / std::sqrt(1.0f + smooth_.stereo * smooth_.stereo);
             writeSmooth_ += (src - writeSmooth_) * inputSmoothingCoef();
-            buffer_[writePos_] = softLimit(writeSmooth_ * transientInputTrim());
-            float start = smooth_.pos - 1.0f + phase_ * static_cast<float>(kCascadeTapsChannels);
+            buffer_[writePos_] = softLimit(writeSmooth_);
+            float start = smooth_.pos - 1.0f + phase_ * static_cast<float>(outputChannels_);
             start = wrapRing(start);
             const bool forward = smooth_.direction >= 0.0f;
-            for (uint32_t ch = 0; ch < kCascadeTapsChannels; ++ch) {
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) {
                 float f = static_cast<float>(ch) - start;
-                if (f < 0.0f) f += static_cast<float>(kCascadeTapsChannels);
+                if (f < 0.0f) f += static_cast<float>(outputChannels_);
                 float r = start - static_cast<float>(ch);
-                if (r < 0.0f) r += static_cast<float>(kCascadeTapsChannels);
+                if (r < 0.0f) r += static_cast<float>(outputChannels_);
                 const float order = forward ? f : r;
-                const float delay = clamp((effectiveBaseMs() + effectiveStepMs() * order) * static_cast<float>(sampleRate_) * 0.001f, 1.0f, static_cast<float>(bufferSize_ - 2u));
-                const float tap = readDelaySoft(delay) * std::pow(effectiveDecay() + 0.000001f, order) * tapWindow(order) * transientWetTrim() * relationWetTrim();
-                const float coef = lerp(0.16f, 0.022f, smooth_.damp);
+                const float delay = clamp((smooth_.baseMs
+                    + smooth_.stepMs * order) * static_cast<float>(sampleRate_)
+                    * 0.001f, 1.0f, static_cast<float>(bufferSize_ - 2u));
+                const float directTap = readDelay(delay);
+                const float softenedTap = readDelaySoft(delay);
+                const float tap = lerp(directTap, softenedTap,
+                    smooth_.soft * 0.65f)
+                    * std::pow(smooth_.decay + 0.000001f, order);
+                const float coef = std::max(0.02f, 1.0f - smooth_.damp)
+                    * lerp(1.0f, 0.72f, smooth_.soft);
                 lp_[ch] += (tap - lp_[ch]) * coef;
-                const float drySig = src * smooth_.dry;
-                const float target = (drySig + lp_[ch] * effectiveWet()) * dbToGain(smooth_.gainDb);
+                const float leftDryGain = ringPanGain(ch, start);
+                const float rightDryGain = ringPanGain(ch, wrapRing(start
+                    + 0.5f * smooth_.stereo
+                        * static_cast<float>(outputChannels_)));
+                const float drySig = (inL * leftDryGain
+                    + inR * smooth_.stereo * rightDryGain) * smooth_.dry;
+                const float target = (drySig + lp_[ch] * smooth_.wet)
+                    * dbToGain(smooth_.gainDb);
                 const float next = out_[ch] + (target - out_[ch]) * outputSmoothCoef();
-                out_[ch] = slewLimit(out_[ch], next);
+                out_[ch] = next;
                 output[ch][i] = softLimit(out_[ch]);
             }
             writePos_ = (writePos_ + 1u) % bufferSize_;
@@ -170,91 +188,34 @@ private:
 
     float inputSmoothingCoef() const
     {
-        const float samples = std::max(1.0f, static_cast<float>(sampleRate_ * 0.0032));
+        const float seconds = lerp(0.00005f, 0.0015f, smooth_.soft);
+        const float samples = std::max(1.0f,
+            static_cast<float>(sampleRate_ * seconds));
         return 1.0f - std::exp(-1.0f / samples);
-    }
-
-    void updateTransientSuppressor(float src)
-    {
-        const float diff = std::abs(src - prevInput_);
-        prevInput_ = src;
-        const float drive = clamp((diff - 0.015f) * 9.0f, 0.0f, 1.0f);
-        const float attack = 1.0f - std::exp(-1.0f / std::max(1.0f, static_cast<float>(sampleRate_ * 0.0012)));
-        const float release = 1.0f - std::exp(-1.0f / std::max(1.0f, static_cast<float>(sampleRate_ * 0.055)));
-        const float coef = drive > transientEnv_ ? attack : release;
-        transientEnv_ += (drive - transientEnv_) * coef;
-    }
-
-    float transientInputTrim() const
-    {
-        return 1.0f - 0.18f * transientEnv_;
-    }
-
-    float transientWetTrim() const
-    {
-        return 1.0f - (0.38f + 0.18f * smooth_.soft) * transientEnv_;
-    }
-
-    float effectiveBaseMs() const
-    {
-        return std::max(smooth_.baseMs, lerp(1.0f, 8.0f, smooth_.soft));
-    }
-
-    float effectiveStepMs() const
-    {
-        return std::max(smooth_.stepMs, lerp(1.0f, 22.0f, smooth_.soft));
-    }
-
-    float relationRisk() const
-    {
-        const float spacing = effectiveBaseMs() + effectiveStepMs();
-        const float tightSpacing = 1.0f - clamp((spacing - 10.0f) / 70.0f, 0.0f, 1.0f);
-        const float hotTail = clamp((smooth_.wet - 0.55f) / 0.45f, 0.0f, 1.0f) * clamp((smooth_.decay - 0.68f) / 0.30f, 0.0f, 1.0f);
-        const float sharpDamp = 1.0f - smooth_.damp * 0.75f;
-        return clamp(tightSpacing * hotTail * sharpDamp, 0.0f, 1.0f);
-    }
-
-    float effectiveDecay() const
-    {
-        return std::min(smooth_.decay, lerp(0.98f, 0.90f, smooth_.soft * relationRisk()));
-    }
-
-    float effectiveWet() const
-    {
-        return smooth_.wet * (1.0f - 0.24f * smooth_.soft * relationRisk());
-    }
-
-    float relationWetTrim() const
-    {
-        return 1.0f - 0.18f * smooth_.soft * relationRisk();
     }
 
     float outputSmoothCoef() const
     {
-        return lerp(0.072f, 0.044f, smooth_.soft);
-    }
-
-    float slewLimit(float current, float next) const
-    {
-        const float base = (0.010f + 0.020f * (1.0f - transientEnv_)) * lerp(1.0f, 0.68f, smooth_.soft);
-        const float limit = base * dbToGain(std::min(0.0f, smooth_.gainDb) * 0.35f);
-        return current + clamp(next - current, -limit, limit);
+        return lerp(0.18f, 0.10f, smooth_.soft);
     }
 
     float wrapRing(float v) const
     {
-        const float n = static_cast<float>(kCascadeTapsChannels);
+        const float n = static_cast<float>(outputChannels_);
         v -= std::floor(v / n) * n;
         return v;
     }
 
-    float tapWindow(float order) const
+    float ringPanGain(uint32_t channel, float position) const
     {
-        const float edgeWidth = lerp(1.15f, 3.25f, smooth_.soft);
-        const float end = static_cast<float>(kCascadeTapsChannels);
-        const float edge = std::min(order, end - order);
-        const float x = clamp(edge / edgeWidth, 0.0f, 1.0f);
-        return 0.5f - 0.5f * std::cos(3.14159265359f * x);
+        position = wrapRing(position);
+        const uint32_t first = static_cast<uint32_t>(std::floor(position))
+            % outputChannels_;
+        const uint32_t second = (first + 1u) % outputChannels_;
+        const float amount = position - std::floor(position);
+        if (channel == first) return std::cos(amount * 1.57079632679f);
+        if (channel == second) return std::sin(amount * 1.57079632679f);
+        return 0.0f;
     }
 
     static float softLimit(float value) { return std::tanh(clamp(value, -8.0f, 8.0f)); }
@@ -265,9 +226,8 @@ private:
     uint32_t writePos_ = 0u;
     float phase_ = 0.0f;
     float writeSmooth_ = 0.0f;
-    float prevInput_ = 0.0f;
-    float transientEnv_ = 0.0f;
     bool ready_ = false;
+    uint32_t outputChannels_ = kCascadeTapsChannels;
     CascadeTapsParams params_ {};
     CascadeTapsParams smooth_ {};
     std::vector<float> buffer_;

@@ -5196,8 +5196,10 @@ int main()
             }
         }
     }
-    if (shardStopPeak <= 0.00001f || shardStopPeak > 1.0f || shardStopMaxStep > 0.25f || shardStopTailPeak > 0.015f) {
-        std::cerr << "Shard Scatter stop de-click outside expected range: peak=" << shardStopPeak
+    if (shardStopPeak <= 0.00001f || shardStopPeak > 1.0f
+        || shardStopMaxStep > 0.25f || shardStopTailPeak <= 0.001f
+        || shardStopTailPeak > 1.0f) {
+        std::cerr << "Shard Scatter tail continuity outside expected range: peak=" << shardStopPeak
                   << " step=" << shardStopMaxStep << " tail=" << shardStopTailPeak << "\n";
         return 1;
     }
@@ -5315,8 +5317,10 @@ int main()
             }
         }
     }
-    if (orbitStopPeak <= 0.00001f || orbitStopPeak > 1.0f || orbitStopMaxStep > 0.20f || orbitStopTailPeak > 0.02f) {
-        std::cerr << "Orbit Delay stop de-click outside expected range: peak=" << orbitStopPeak
+    if (orbitStopPeak <= 0.00001f || orbitStopPeak > 1.0f
+        || orbitStopMaxStep > 0.20f || orbitStopTailPeak <= 0.001f
+        || orbitStopTailPeak > 1.0f) {
+        std::cerr << "Orbit Delay tail continuity outside expected range: peak=" << orbitStopPeak
                   << " step=" << orbitStopMaxStep << " tail=" << orbitStopTailPeak << "\n";
         return 1;
     }

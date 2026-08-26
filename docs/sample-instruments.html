@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sample Instruments - s3g-dsp</title>
-    <meta name="description" content="Sample Player, Sample Doubles, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, Sample Slicer, Sample Rings, Effect CRCLTR, and related recorded-audio instrument documentation for s3g-dsp.">
+    <meta name="description" content="Sample Player, Sample Doubles, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, Sample Slicer, Sample Rings, Sample Circulator, and related recorded-audio instrument documentation for s3g-dsp.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,14 +27,14 @@
       <main class="content" id="content">
         <h1>Sample Instruments</h1>
 
-        <p>The Sample family uses loaded or captured audio as an instrument source. <a href="sample-player.html">Sample Player</a> handles one-shots and loops, <a href="sample-doubles.html">Sample Doubles</a> puts two independently positioned copies of one stereo source behind a performance crossfader, <a href="sample-wavesets.html">Sample Wavesets</a> plays zero-crossing groups, <a href="sample-motion.html">Sample Motion</a> combines bounded trajectories with realtime segment events, <a href="sample-lanes.html">Sample Lanes</a> draws one read path across four files, <a href="sample-grains.html">Sample Grains</a> separates that four-file source field from a granular event layer, <a href="sample-slicer.html">Sample Slicer</a> turns as many as four breaks into mapped voices, <a href="effect-crcltr.html">Effect CRCLTR</a> captures incoming stereo audio into two performance loop engines, and <a href="sample-rings.html">Sample Rings</a> moves eight read heads through as many as 32 concentric file-or-input channel rings.</p>
+        <p>The Sample family uses loaded or captured audio as an instrument source. <a href="sample-player.html">Sample Player</a> handles one-shots and loops, <a href="sample-doubles.html">Sample Doubles</a> puts two independently positioned copies of one stereo source behind a performance crossfader, <a href="sample-wavesets.html">Sample Wavesets</a> plays zero-crossing groups, <a href="sample-motion.html">Sample Motion</a> combines bounded trajectories with realtime segment events, <a href="sample-lanes.html">Sample Lanes</a> draws one read path across four files, <a href="sample-grains.html">Sample Grains</a> separates that four-file source field from a granular event layer, <a href="sample-slicer.html">Sample Slicer</a> turns as many as four breaks into mapped voices, <a href="effect-crcltr.html">Sample Circulator</a> captures incoming stereo audio into two performance loop engines, and <a href="sample-rings.html">Sample Rings</a> moves eight read heads through as many as 32 concentric file-or-input channel rings.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose an instrument and set its required output format and REAPER track channel count. Sample Player 16 and Sample Slicer 16 use fixed 16-channel outputs; their 2-channel forms, Sample Doubles, Sample Wavesets 2, Sample Motion 2, Sample Lanes 2, Sample Grains 2, and Effect CRCLTR use an ordinary stereo track. Sample Wavesets 32, Sample Motion 32, Sample Lanes 32, and Sample Grains 32 use fixed 32-channel tracks.</li>
+          <li>Choose an instrument and set its required output format and REAPER track channel count. Sample Player 16 and Sample Slicer 16 use fixed 16-channel outputs; their 2-channel forms, Sample Doubles, Sample Wavesets 2, Sample Motion 2, Sample Lanes 2, Sample Grains 2, and Sample Circulator use an ordinary stereo track. Sample Wavesets 32, Sample Motion 32, Sample Lanes 32, and Sample Grains 32 use fixed 32-channel tracks.</li>
           <li>For Sample Rings, route the eight output lanes to the main speakers, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. For Processor Ambi Grain, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
-          <li>Load the source file or files and confirm that the expected channels appear, or route input into Effect CRCLTR or Sample Rings and record its loop captures.</li>
+          <li>Load the source file or files and confirm that the expected channels appear, or route input into Sample Circulator or Sample Rings and record its loop captures.</li>
           <li>Set the sample window, loop region, direction, pitch, and envelope; define a locus, field, and source trajectory in Sample Motion; draw a four-file lane path in Sample Lanes or Sample Grains; or derive and map slices in Sample Slicer.</li>
           <li>Choose the source-storage policy described below, audition the result through the established output path, and save the project.</li>
         </ol>
@@ -80,7 +80,7 @@
         <h2 id="loop-family">Loop Family</h2>
 
         <ul>
-          <li><a href="effect-crcltr.html">Effect CRCLTR</a>: two captured stereo loops with separate rates, manual or moving crossfade, and a live-source blend.</li>
+          <li><a href="effect-crcltr.html">Sample Circulator</a>: two embedded stereo captures with editable windows, direction and join; Replace, Overdub, and Punch recording; manual or moving crossfade; and a live-source blend.</li>
           <li><a href="sample-rings.html">Sample Rings</a>: four independent file-or-upstream-input slots packed into as many as 32 channel rings, with eight angular clocks and free, paired, quad, or Field8 radial formations.</li>
         </ul>
 
@@ -89,6 +89,8 @@
         <p><a href="processor-ambi-grain.html">Processor Ambi Grain</a> loads 1OA, 2OA, or 3OA <code>ACN/SN3D</code> media. Grain time, direction, rate, and envelope remain shared across all active channels so the encoded image stays coherent.</p>
 
         <h2 id="state">Sample Storage</h2>
+
+        <p>Sample Circulator is input-capture based and always embeds both stereo loops directly in CLAP project state. The saved source sample rate allows duration-preserving restore into a session running at a different rate. Its fixed capture capacity is approximately 32 seconds per loop; unlike the file-based instruments below, it has no Link or Project storage mode.</p>
 
         <p>Sample Player, Sample Doubles, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, and Sample Slicer use the same three-way <code>STORE</code> policy. <code>PROJECT</code>, the default for new instances, copies an unchanged source file in the background to the containing saved REAPER project's effective media directory under <code>s3g Samples</code>, registers that file with the same project, and keeps only a path reference in plug-in state. The effective media directory can be different from the folder containing the <code>.RPP</code>. <code>LINK</code> keeps a reference to the original file without copying it. <code>EMBED</code> writes decoded channel audio directly into CLAP state so the source remains available without any external file.</p>
 
@@ -123,7 +125,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Effect CRCLTR</a>
+          <a href="effect-crcltr.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>

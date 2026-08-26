@@ -3,6 +3,7 @@
 #include "s3g_macro_shred.h"
 #include "s3g_math.h"
 #include "s3g_realtime.h"
+#include "s3g_ring_output_mixdown.h"
 #include "s3g_structural_failure.h"
 
 #include <algorithm>
@@ -95,6 +96,7 @@ public:
         sampleRate_ = std::isfinite(sampleRate)
             ? std::clamp(sampleRate, 8000.0, 768000.0) : 48000.0;
         outputChannels_ = supportedOutputChannels(outputChannels);
+        configureOutputMixdown(outputChannels_);
         const float sr = static_cast<float>(sampleRate_);
         parameterCoefficient_ = onePoleCoefficient(18.0f, sr);
         formCoefficient_ = onePoleCoefficient(4.5f, sr);
@@ -345,6 +347,7 @@ public:
     void setOutputChannels(uint32_t outputChannels)
     {
         outputChannels_ = supportedOutputChannels(outputChannels);
+        configureOutputMixdown(outputChannels_);
     }
 
     void setCutVariation(float amount)
@@ -747,7 +750,7 @@ public:
     {
         if (!output) return;
         outputChannels = supportedOutputChannels(outputChannels);
-        std::fill(output, output + outputChannels, 0.0f);
+        std::array<float, kProcessorFissureMaxOutputs> directOutput {};
         smoothParameters();
         const float fractureEdgeCoefficient = fractureEdgeTarget_
                 > fractureEdgeSmoothed_
@@ -1114,7 +1117,8 @@ public:
             history_[static_cast<std::size_t>(cell) * historyFrames_
                 + historyWrite_] = nextReturns_[cell];
             activity_[cell] += (rms - activity_[cell]) * 0.0025f;
-            renderCell(returned, angle, output, outputChannels);
+            renderCell(returned, angle, directOutput.data(),
+                kProcessorFissureMaxOutputs);
             burstEnvelope_[cell] = flushDenormal(
                 burstEnvelope_[cell] * burstDecay_);
         }
@@ -1129,10 +1133,20 @@ public:
                 ? 0.0f : dbToGain(performed_.outputGainDb))
             * runGain_ * withdrawGain_
             / std::sqrt(static_cast<float>(kProcessorFissureCells) * 0.62f);
-        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
-            const float sample = output[channel] * outputGain;
-            output[channel] = std::isfinite(sample)
+        for (uint32_t channel = 0u;
+             channel < kProcessorFissureMaxOutputs; ++channel) {
+            const float sample = directOutput[channel] * outputGain;
+            directOutput[channel] = std::isfinite(sample)
                 ? transparentLimit(sample) : 0.0f;
+        }
+        configureOutputMixdown(outputChannels);
+        std::array<float, kProcessorFissureMaxOutputs> renderedOutput {};
+        outputMixdown_.processFrame(directOutput.data(),
+            renderedOutput.data());
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            output[channel] = outputChannels < kProcessorFissureMaxOutputs
+                ? transparentLimit(renderedOutput[channel])
+                : renderedOutput[channel];
         }
     }
 
@@ -1464,6 +1478,15 @@ private:
         if (channels <= 2u) return 2u;
         if (channels <= 4u) return 4u;
         return 8u;
+    }
+
+    void configureOutputMixdown(uint32_t channels)
+    {
+        const auto format = channels <= 2u
+            ? RingOutputFormat::StereoRing
+            : (channels <= 4u ? RingOutputFormat::QuadRing
+                              : RingOutputFormat::Direct8);
+        outputMixdown_.configure(format, 0.0f);
     }
 
     static float onePoleCoefficient(float timeMs, float sampleRate)
@@ -2565,6 +2588,7 @@ private:
 
     double sampleRate_ = 48000.0;
     uint32_t outputChannels_ = 2u;
+    RingOutputMixdown outputMixdown_ {};
     uint32_t rng_ = 1979u;
     ProcessorFissureParams target_ {};
     ProcessorFissureParams smoothed_ {};

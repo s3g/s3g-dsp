@@ -1432,18 +1432,31 @@ section "Compact Effect Family"
 compact_effect_sources=(
   plugins/clap_spectral_spray/s3g_spectral_spray_clap.cpp
   plugins/clap_8ch_spectral_spray/s3g_8ch_spectral_spray_clap.cpp
-  plugins/clap_shard_scatter/s3g_shard_scatter_clap.cpp
-  plugins/clap_orbit_delay/s3g_orbit_delay_clap.cpp
-  plugins/clap_cascade_taps/s3g_cascade_taps_clap.cpp
+  plugins/clap_delay_field/s3g_delay_field_clap.cpp
+  plugins/clap_crcltr/s3g_crcltr_clap.cpp
 )
 for file in "${compact_effect_sources[@]}"; do
   if ! rg -q 'kCompactEffectFamilyLayout' "$file" \
       || ! rg -q 'drawCompactEffectTitleBand' "$file" \
       || ! rg -q 'ResponsiveViewport' "$file"; then
     warn "family" "$file" \
-      "Compact Effects must consume the shared 760 x 376 layout, title band, and responsive viewport."
+      "Compact Effects must consume the shared layout, title band, and responsive viewport."
   fi
-  if ! rg -q 'compactEffectOutputPanel' "$file" \
+  if [[ "$file" == *clap_delay_field* ]]; then
+    if ! rg -q 'compactEffectOutputPanel' "$file" \
+        || ! rg -q '@\"FIELD\"' "$file" \
+        || ! rg -q 'kFieldPanel' "$file"; then
+      warn "layout" "$file" \
+        "Delay Field must begin with the shared field/format panel."
+    fi
+  elif [[ "$file" == *clap_crcltr* ]]; then
+    if ! rg -q 'kOutputPanel' "$file" \
+        || ! rg -q '@\"OUTPUT\"' "$file" \
+        || ! rg -q '@\"OUT\"' "$file"; then
+      warn "layout" "$file" \
+        "Sample Circulator must begin with its OUTPUT panel and OUT."
+    fi
+  elif ! rg -q 'compactEffectOutputPanel' "$file" \
       || ! rg -q '@\"OUTPUT\"' "$file" \
       || ! rg -q '@\"OUT\"' "$file"; then
     warn "layout" "$file" \
@@ -1458,9 +1471,8 @@ done
 compact_effect_names=(
   'plugins/clap_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 2'
   'plugins/clap_8ch_spectral_spray/CMakeLists.txt|s3g Effect Spectral Spray 8'
-  'plugins/clap_shard_scatter/CMakeLists.txt|s3g Effect Shard Scatter 16'
-  'plugins/clap_orbit_delay/CMakeLists.txt|s3g Effect Orbit Delay 16'
-  'plugins/clap_cascade_taps/CMakeLists.txt|s3g Effect Cascade Taps 16'
+  'plugins/clap_delay_field/CMakeLists.txt|s3g Effect Delay Field 16'
+  'plugins/clap_crcltr/CMakeLists.txt|s3g Sample Circulator 2'
 )
 for contract in "${compact_effect_names[@]}"; do
   file="${contract%%|*}"
@@ -1600,6 +1612,66 @@ for member in "${output_utility_family[@]}"; do
       "Output Utilities keep final-audition controls first and use shared bounded sliders with double-click defaults."
   fi
 done
+
+section "Output Format Upscale"
+format_upscale_source=plugins/clap_format_upscale/s3g_format_upscale_clap.cpp
+if ! rg -Fq '"s3g Output Format Upscale 64"' "$format_upscale_source" \
+    || ! rg -q 'drawOutputUtilityTitleBand' "$format_upscale_source" \
+    || ! rg -q 'ResponsiveViewport' "$format_upscale_source"; then
+  warn "family" "$format_upscale_source" \
+    "Format Upscale keeps its Output host name, shared title band, and responsive viewport."
+fi
+if ! rg -Fq '@"CONNECTION MATRIX — INPUT ROWS / OUTPUT COLUMNS"' "$format_upscale_source" \
+    || ! rg -Fq '@"SELECTED CROSSPOINT"' "$format_upscale_source" \
+    || ! rg -q 'targetAnchorGain' "$format_upscale_source" \
+    || ! rg -q 'targetExtensionGain' "$format_upscale_source" \
+    || ! rg -q 'processorTrackWidth' "$format_upscale_source" \
+    || ! rg -q 'matrixCellAtPoint' "$format_upscale_source" \
+    || ! rg -q 'matrixGeometry' "$format_upscale_source" \
+    || ! rg -q 'beginManualRoutesFromCurrent' "$format_upscale_source" \
+    || ! rg -q 'manualWeight' "$format_upscale_source" \
+    || ! rg -q 'updateSelectedWeight' "$format_upscale_source" \
+    || ! rg -q 'applyRowShape' "$format_upscale_source" \
+    || ! rg -q 'rightMouseDown' "$format_upscale_source" \
+    || ! rg -q 'outputLabelStride' "$format_upscale_source" \
+    || ! rg -q 'inputLabelStride' "$format_upscale_source" \
+    || ! rg -q 'tierSize' "$format_upscale_source" \
+    || ! rg -q 'formatMenuGeometry' "$format_upscale_source" \
+    || ! rg -q 'drawSideFormatControl' "$format_upscale_source" \
+    || ! rg -q 'drawSideAutoModeControl' "$format_upscale_source" \
+    || ! rg -q 'drawUnfoldedLayoutPage' "$format_upscale_source" \
+    || ! rg -q 'candidateIsClear' "$format_upscale_source" \
+    || ! rg -q 'horizontalExtent' "$format_upscale_source" \
+    || ! rg -q 'kTierRingDegreeLabelGutter' "$format_upscale_source" \
+    || ! rg -q '\[contour closePath\]' "$format_upscale_source" \
+    || ! rg -q 'openLayoutPopup' "$format_upscale_source" \
+    || ! rg -q 'dockLayoutPopup' "$format_upscale_source" \
+    || ! rg -q '_layoutOrigami' "$format_upscale_source" \
+    || ! rg -q 'formatUpscaleSpeakerHeight' "$format_upscale_source" \
+    || ! rg -q 'viewSelectorRect' "$format_upscale_source" \
+    || ! rg -q 'formatEditButtonRect' "$format_upscale_source" \
+    || ! rg -q 'sideAutoActionRect' "$format_upscale_source" \
+    || ! rg -q 'sideNormalizationRect' "$format_upscale_source" \
+    || ! rg -q 'layoutPopupActionRect' "$format_upscale_source" \
+    || ! rg -q 'applyColumnShape' "$format_upscale_source" \
+    || ! rg -q '_matrixWeightAdjusting' "$format_upscale_source" \
+    || ! rg -Fq '@"ROW NORM"' "$format_upscale_source" \
+    || ! rg -Fq '@"COL NORM"' "$format_upscale_source" \
+    || ! rg -Fq '@"DUAL LIMIT"' "$format_upscale_source" \
+    || ! rg -Fq '@"CLICK POINT = FOCUS"' "$format_upscale_source" \
+    || ! rg -Fq '@"TIER RINGS"' "$format_upscale_source" \
+    || ! rg -Fq '@"AED FLAT"' "$format_upscale_source" \
+    || ! rg -Fq '@"POP OUT"' "$format_upscale_source" \
+    || ! rg -Fq '@"DOCK"' "$format_upscale_source" \
+    || ! rg -Fq '@"AUTO MODE"' "$format_upscale_source" \
+    || ! rg -Fq '"G DELAY"' "$format_upscale_source" \
+    || ! rg -Fq '"G DECOR"' "$format_upscale_source" \
+    || ! rg -Fq '@"CUSTOM INPUT — AED / XYZ"' "$format_upscale_source" \
+    || ! rg -Fq '@"OUTPUT TREATMENT"' "$format_upscale_source" \
+    || ! rg -q 'sliderDoubleClickDefault' "$format_upscale_source"; then
+  warn "layout" "$format_upscale_source" \
+    "Format Upscale centers a weighted format-sized matrix, keeps only the Matrix/Tier Rings/AED Flat view selector in the title strip, moves format, edit, automap, clear, and normalization tools to the right rail, collision-spaces large-array labels, provides in-cell weighting plus row/column shaping, offers point-focused shape-preserving overhead tier contours with an exact unfilled AED fallback, uses tier/AED/XYZ labeling, and retains standard slider geometry/reset behavior."
+fi
 
 section "Ambi Imprint"
 imprint_source=plugins/clap_ambi_imprint/s3g_ambi_imprint_clap.cpp

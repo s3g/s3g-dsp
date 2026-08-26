@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Monitoring / Fold-down</h1>
 
-        <p>Monitoring tools audition or inspect wide multichannel tracks without changing the source routing model. Use a fold-down for an ordinary stereo or quad monitor path and a passthrough meter when the original channel layout must remain available downstream.</p>
+        <p>Monitoring and format tools audition, inspect, or adapt ordinary multichannel tracks without converting them to ambisonics. Use a fold-down for a narrower stereo or quad monitor path, Format Upscale for a larger direct speaker format, and a passthrough meter when the original channel layout must remain available downstream.</p>
 
         <p>For a format-first overview that also covers ambisonic Stereo and Head decoders, see <a href="stereo-listening.html">Listening on a Stereo System</a>.</p>
 
@@ -46,6 +46,10 @@
           <li><a href="output-autogain-stereo.html">Output Autogain Stereo</a>: accepts as many as 128 input channels and produces a true stereo output with automatic energy management and 3D placement controls.</li>
           <li><a href="output-autogain-quad.html">Output Autogain Quad</a>: produces <code>L</code>, <code>R</code>, <code>RB</code>, and <code>LB</code> quad output from a wide source track.</li>
         </ul>
+
+        <h2 id="format-expansion">Format Expansion</h2>
+
+        <p><a href="format-upscale.html">Output Format Upscale 64</a> adapts a named input format to an equal or larger named output using a weighted input/output matrix with channel roles, AED coordinates, and elevation-tier labels on its axes. It is the non-ambisonic counterpart to fold-down: a deterministic channel distributor rather than a sound-field encoder.</p>
 
         <h2 id="metering">Metering</h2>
 
@@ -81,6 +85,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#fold-down">Fold-down Plugins</a>
+          <a href="#format-expansion">Format Expansion</a>
           <a href="#metering">Metering</a>
           <a href="#host-routing">Host Routing</a>
         </div>

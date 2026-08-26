@@ -19,13 +19,13 @@ struct OrbitDelayParams {
     float rotate = 0.03f;
     float width = 1.2f;
     float focus = 1.5f;
-    float gainDb = -3.5f;
-    float stereo = 0.0f;
+    float gainDb = 0.0f;
+    float stereo = 1.0f;
     float delayMs = 180.0f;
     float feedback = 0.35f;
     float orbit = 1.0f;
     float damp = 0.35f;
-    float wet = 0.55f;
+    float wet = 0.72f;
 };
 
 class OrbitDelay {
@@ -39,7 +39,6 @@ public:
         writePos_ = 0u;
         phase_ = 0.0f;
         silenceSamples_ = 0u;
-        stopFade_ = 1.0f;
         writeSmooth_ = 0.0f;
         smooth_ = params_;
         lp_.fill(0.0f);
@@ -54,7 +53,6 @@ public:
         writePos_ = 0u;
         phase_ = 0.0f;
         silenceSamples_ = 0u;
-        stopFade_ = 1.0f;
         writeSmooth_ = 0.0f;
         smooth_ = params_;
         lp_.fill(0.0f);
@@ -63,7 +61,17 @@ public:
 
     void setParams(const OrbitDelayParams& params) { params_ = sanitize(params); }
     OrbitDelayParams params() const { return params_; }
+    void setOutputChannels(uint32_t channels)
+    {
+        channels = std::clamp<uint32_t>(channels, 2u, kOrbitDelayChannels);
+        if (channels == outputChannels_) return;
+        outputChannels_ = channels;
+        lp_.fill(0.0f);
+        out_.fill(0.0f);
+    }
+    uint32_t outputChannels() const { return outputChannels_; }
     bool ready() const { return ready_; }
+    void setExternalDirect(bool external) { externalDirect_ = external; }
 
     void process(const float* left, const float* right, float* const* output, uint32_t frames)
     {
@@ -75,12 +83,13 @@ public:
             phase_ -= std::floor(phase_);
             const float inL = left ? left[i] : 0.0f;
             const float inR = right ? right[i] : inL;
-            const float src = (inL + inR * smooth_.stereo) / (1.0f + smooth_.stereo);
-            updateStopFade(src);
+            const float src = (inL + inR * smooth_.stereo)
+                / std::sqrt(1.0f + smooth_.stereo * smooth_.stereo);
+            updateSilenceCounter(src);
             const float writeSrc = smoothedInputForBuffer(src);
             const float srcL = inL;
             const float srcR = inR * smooth_.stereo;
-            const float nchan = static_cast<float>(kOrbitDelayChannels);
+            const float nchan = static_cast<float>(outputChannels_);
             float centre = smooth_.pos - 1.0f + phase_ * nchan;
             centre = wrapRing(centre);
             const float halfWidth = smooth_.width * 0.5f * smooth_.stereo;
@@ -93,7 +102,7 @@ public:
             float sumR = 0.000001f;
             std::array<float, kOrbitDelayChannels> gL {};
             std::array<float, kOrbitDelayChannels> gR {};
-            for (uint32_t ch = 0; ch < kOrbitDelayChannels; ++ch) {
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) {
                 const float dL = ringDistance(static_cast<float>(ch), cL);
                 const float dR = ringDistance(static_cast<float>(ch), cR);
                 gL[ch] = std::pow(std::max(1.0f - dL / radius, 0.0f), smooth_.focus);
@@ -103,24 +112,28 @@ public:
             }
             const float nL = dbToGain(smooth_.gainDb) / std::sqrt(sumL);
             const float nR = dbToGain(smooth_.gainDb) / std::sqrt(sumR);
-            for (uint32_t ch = 0; ch < kOrbitDelayChannels; ++ch) dry[ch] = srcL * gL[ch] * nL + srcR * gR[ch] * nR;
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) dry[ch] = srcL * gL[ch] * nL + srcR * gR[ch] * nR;
 
             std::array<float, kOrbitDelayChannels> echo {};
-            for (uint32_t ch = 0; ch < kOrbitDelayChannels; ++ch) {
-                const float ratio = kDelayRatios[ch];
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) {
+                const uint32_t ratioIndex = ch * (kOrbitDelayChannels - 1u)
+                    / (outputChannels_ - 1u);
+                const float ratio = kDelayRatios[ratioIndex];
                 const float delay = clamp(smooth_.delayMs * ratio * static_cast<float>(sampleRate_) * 0.001f, 1.0f, static_cast<float>(bufferSize_ - 2u));
                 echo[ch] = readDelay(ch, delay);
                 const float coef = 1.0f - smooth_.damp;
                 lp_[ch] += (echo[ch] - lp_[ch]) * coef;
             }
-            for (uint32_t ch = 0; ch < kOrbitDelayChannels; ++ch) {
-                const uint32_t prev = ch == 0u ? kOrbitDelayChannels - 1u : ch - 1u;
-                const uint32_t next = (ch + 1u) % kOrbitDelayChannels;
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) {
+                const uint32_t prev = ch == 0u ? outputChannels_ - 1u : ch - 1u;
+                const uint32_t next = (ch + 1u) % outputChannels_;
                 const float fbSource = smooth_.orbit >= 0.0f ? lp_[prev] : lp_[next];
-                const float fb = fbSource * (0.78f * smooth_.feedback * smooth_.feedback);
-                buffers_[ch][writePos_] = softLimit(writeSrc * 0.35f + fb);
-                const float wetSig = lp_[ch] * dbToGain(smooth_.gainDb) * stopFade_;
-                const float target = lerp(dry[ch], wetSig, smooth_.wet);
+                const float fb = fbSource * (0.82f * smooth_.feedback);
+                buffers_[ch][writePos_] = softLimit(writeSrc * 0.62f + fb);
+                const float wetSig = lp_[ch] * dbToGain(smooth_.gainDb);
+                const float target = externalDirect_
+                    ? wetSig * smooth_.wet
+                    : lerp(dry[ch], wetSig, smooth_.wet);
                 out_[ch] += (target - out_[ch]) * 0.18f;
                 output[ch][i] = softLimit(out_[ch]);
             }
@@ -192,29 +205,23 @@ private:
         return writeSmooth_;
     }
 
-    void updateStopFade(float src)
+    void updateSilenceCounter(float src)
     {
         const bool active = std::abs(src) > 0.00001f;
         if (active) silenceSamples_ = 0u;
         else silenceSamples_ = std::min<uint32_t>(silenceSamples_ + 1u, static_cast<uint32_t>(sampleRate_));
-
-        const uint32_t holdSamples = static_cast<uint32_t>(sampleRate_ * 0.012);
-        const float target = silenceSamples_ > holdSamples ? 0.0f : 1.0f;
-        const float ms = target > stopFade_ ? 10.0f : 95.0f;
-        const float samples = std::max(1.0f, static_cast<float>(sampleRate_ * ms * 0.001));
-        stopFade_ += (target - stopFade_) * (1.0f - std::exp(-1.0f / samples));
     }
 
     float wrapRing(float v) const
     {
-        const float n = static_cast<float>(kOrbitDelayChannels);
+        const float n = static_cast<float>(outputChannels_);
         v -= std::floor(v / n) * n;
         return v;
     }
 
     float ringDistance(float a, float b) const
     {
-        const float n = static_cast<float>(kOrbitDelayChannels);
+        const float n = static_cast<float>(outputChannels_);
         const float d = std::abs(a - b);
         return std::min(d, n - d);
     }
@@ -227,9 +234,10 @@ private:
     uint32_t writePos_ = 0u;
     float phase_ = 0.0f;
     uint32_t silenceSamples_ = 0u;
-    float stopFade_ = 1.0f;
     float writeSmooth_ = 0.0f;
     bool ready_ = false;
+    bool externalDirect_ = false;
+    uint32_t outputChannels_ = kOrbitDelayChannels;
     OrbitDelayParams params_ {};
     OrbitDelayParams smooth_ {};
     std::vector<std::vector<float>> buffers_;

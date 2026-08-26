@@ -202,7 +202,12 @@ s3g_effect_spectral_spray_2ch.clap	org.s3g.s3g-dsp.spectral-spray	s3g_effect_spe
 s3g_effect_spectral_spray_8ch.clap	org.s3g.s3g-dsp.8ch-spectral-spray	s3g_effect_spectral_spray_8.clap
 s3g_processor_spectral_8ch.clap	org.s3g.s3g-dsp.spectral-topology-processor	s3g_processor_spectral_8.clap
 s3g_processor_spectral_24ch.clap	org.s3g.s3g-dsp.spectral-topology-processor-24ch	s3g_processor_spectral_24.clap
-s3g_effect_shard_scatter.clap	org.s3g.s3g-dsp.shard-scatter	s3g_effect_shard_scatter_16.clap
-s3g_effect_orbit_delay.clap	org.s3g.s3g-dsp.orbit-delay	s3g_effect_orbit_delay_16.clap
-s3g_effect_cascade_taps.clap	org.s3g.s3g-dsp.cascade-taps	s3g_effect_cascade_taps_16.clap
-s3g_effect_crcltr.clap	org.s3g.s3g-dsp.crcltr	s3g_effect_crcltr_2.clap
+s3g_effect_shard_scatter.clap	org.s3g.s3g-dsp.shard-scatter	retired
+s3g_effect_shard_scatter_16.clap	org.s3g.s3g-dsp.shard-scatter	retired
+s3g_effect_orbit_delay.clap	org.s3g.s3g-dsp.orbit-delay	retired
+s3g_effect_orbit_delay_16.clap	org.s3g.s3g-dsp.orbit-delay	retired
+s3g_effect_cascade_taps.clap	org.s3g.s3g-dsp.cascade-taps	retired
+s3g_effect_cascade_taps_16.clap	org.s3g.s3g-dsp.cascade-taps	retired
+s3g_effect_crcltr.clap	org.s3g.s3g-dsp.crcltr	s3g_sample_circulator_2.clap
+s3g_effect_crcltr_2.clap	org.s3g.s3g-dsp.crcltr	s3g_sample_circulator_2.clap
+s3g_utility_format_upscale_64.clap	org.s3g.s3g-dsp.format-upscale-64	s3g_output_format_upscale_64.clap

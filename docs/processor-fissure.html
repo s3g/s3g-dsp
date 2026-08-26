@@ -103,7 +103,7 @@
           <li><code>GRAB</code> records as much as eight seconds of the fourteen composition macros, Cut Contrast, all four fracture-puck coordinates, eligible gate states, cuts, and cell strikes at a 200 Hz control rate. <code>REPEAT</code> re-performs that trajectory; it does not read a captured audio buffer.</li>
           <li>Eight Macro Shred circuit types form the nonlinear bodies. Object hardness participates in circuit assignment and distortion character, independently of matrix topology.</li>
           <li>Per-cell energy observers reduce persistent excess inside the network. A final transparent ceiling is reserved for last-stage protection.</li>
-          <li>The renderer places every cell on a ring. Stereo uses equal-power left/right projection; Quad and 8 Direct use equal-power interpolation between adjacent ring outputs.</li>
+          <li>The renderer first places every cell on the complete eight-lane ring with equal-power interpolation between adjacent outputs. Stereo and Quad then apply a power-normalized fold of those same eight rendered lanes; they are not reduced-width versions of the cell renderer.</li>
         </ol>
 
         <p>The renderer does not feed back into the material system. With the same seed, automation, MIDI, and action sequence, switching output mode therefore preserves the internal composition before projection.</p>
@@ -170,7 +170,7 @@
             <tr><td>LOOSE RATTLE</td><td>Runs an independent fast clock with short collision clusters and emphasizes dry middle/high modal impulses rather than changing Box Impact density.</td></tr>
             <tr><td>SPRING WIRE</td><td>Runs an independent sparse pluck clock, retunes and lengthens the high modal family, and excites a second coupled object with opposing polarity for audible twang.</td></tr>
             <tr><td>INPUT</td><td>Applies −60 to +24 dB before the stereo excitation reaches the cell network.</td></tr>
-            <tr><td>OUTPUT</td><td>Applies −60 to +6 dB after ring projection and before the final transparent ceiling.</td></tr>
+            <tr><td>OUTPUT</td><td>Applies −60 to +6 dB to the completed eight-lane field before output-format folding. A final transparent ceiling catches post-fold peaks.</td></tr>
             <tr><td>SIZE</td><td>Moves the selected object's oscillator and modal register. Larger objects are lower and heavier; smaller objects are higher and tighter.</td></tr>
             <tr><td>DECAY</td><td>Changes the selected object's modal ring time, remembered toughness, and nonlinear feedback persistence.</td></tr>
             <tr><td>HARDNESS</td><td>Moves impact energy toward upper modes and changes failure stiffness, spectral edge, and nonlinear circuit character.</td></tr>
@@ -221,13 +221,13 @@
         <table class="readout-table">
           <thead><tr><th>Mode</th><th>Active channels on 8-channel bus</th><th>Use</th></tr></thead>
           <tbody>
-            <tr><td>STEREO</td><td>1–2; channels 3–8 silent</td><td>Two-speaker work, headphones, recording, and compact downstream processing.</td></tr>
-            <tr><td>QUAD</td><td>1–4; channels 5–8 silent</td><td>Direct quad performance while keeping one stable plug-in and project bus.</td></tr>
+            <tr><td>STEREO</td><td>1–2; channels 3–8 silent</td><td>Power-normalized fold of the completed eight-lane field for two-speaker work, headphones, recording, and compact downstream processing.</td></tr>
+            <tr><td>QUAD</td><td>1–4; channels 5–8 silent</td><td>Power-normalized fold of the completed eight-lane field for quad performance while keeping one stable plug-in and project bus.</td></tr>
             <tr><td>8 DIRECT</td><td>1–8</td><td>One ordinary output lane per nominal cell position, with adjacent interpolation during movement.</td></tr>
           </tbody>
         </table>
 
-        <p>Processor Fissure always advertises one eight-channel ordinary-audio bus, not an ambisonic signal. Output Mode changes how many leading channels are active and never changes the host port layout. This makes scenes, automation, and saved projects portable among Stereo, Quad, and eight-channel listening without replacing the plug-in.</p>
+        <p>Processor Fissure always advertises one eight-channel ordinary-audio bus, not an ambisonic signal. Output Mode changes how many leading channels are active and never changes the host port layout. Stereo and Quad receive contributions from every rendered lane before outputs above the selected width are cleared. This makes scenes, automation, and saved projects portable among Stereo, Quad, and eight-channel listening without replacing the plug-in.</p>
 
         <h2 id="safety">Safety and Reproducibility</h2>
 

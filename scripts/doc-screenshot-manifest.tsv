@@ -7,6 +7,7 @@ macro-shred-8ch	macro-shred
 macro-fracture-8ch	macro-fracture
 mc-to-stereo-autogain	mc-to-stereo-autogain
 mc-to-quad-autogain	mc-to-quad-autogain
+format-upscale-64	format-upscale
 multichannel-meter-64	multichannel-meter
 layout-panner	layout-panner
 dbap-panner	panner-dbap
@@ -100,9 +101,7 @@ macro-delay-8ch	macro-delay
 macro-pitch-24ch	macro-pitch
 8ch-spectral-spray	spectral-spray
 buffer-processor	buffer-processor
-shard-scatter	shard-scatter
-orbit-delay	orbit-delay
-cascade-taps	cascade-taps
+delay-field	delay-field
 group-matrix	group-matrix
 node-bus-mixer	node-bus-mixer
 sub-crossover	sub-crossover

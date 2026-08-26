@@ -61,6 +61,44 @@ RenderStats render(s3g::ProcessorFissure& processor, uint32_t channels,
     return stats;
 }
 
+float referenceOutputLimit(float value)
+{
+    const float magnitude = std::abs(value);
+    if (magnitude <= 0.82f) return value;
+    const float limited = 0.82f + 0.18f
+        * std::tanh((magnitude - 0.82f) / 0.18f);
+    return std::copysign(std::min(1.0f, limited), value);
+}
+
+bool verifiesTrueOutputFold(uint32_t outputChannels,
+    s3g::RingOutputFormat format)
+{
+    s3g::ProcessorFissure direct;
+    s3g::ProcessorFissure folded;
+    direct.prepare(48000.0, s3g::kProcessorFissureMaxOutputs);
+    folded.prepare(48000.0, outputChannels);
+    s3g::RingOutputMixdown reference;
+    reference.configure(format, 0.0f);
+    std::array<float, s3g::kProcessorFissureMaxOutputs> directOutput {};
+    std::array<float, s3g::kProcessorFissureMaxOutputs> foldedOutput {};
+    std::array<float, s3g::kProcessorFissureMaxOutputs> expected {};
+    double energy = 0.0;
+    double difference = 0.0;
+    for (uint32_t frame = 0u; frame < 16384u; ++frame) {
+        direct.processFrame(nullptr, directOutput.data(),
+            s3g::kProcessorFissureMaxOutputs);
+        folded.processFrame(nullptr, foldedOutput.data(), outputChannels);
+        reference.processFrame(directOutput.data(), expected.data());
+        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            const float wanted = referenceOutputLimit(expected[channel]);
+            energy += static_cast<double>(wanted) * wanted;
+            difference += std::abs(static_cast<double>(
+                foldedOutput[channel] - wanted));
+        }
+    }
+    return energy > 1.0e-7 && difference < 1.0e-5;
+}
+
 InputCouplingStats measureInputCoupling(s3g::ProcessorFissure& dry,
     s3g::ProcessorFissure& live, uint32_t frames)
 {
@@ -214,6 +252,12 @@ int main()
                     - widthProcessors[2].cellActivity(cell)) < 1.0e-7f,
             "renderer width changed the internal eight-cell composition");
     }
+    ok &= check(verifiesTrueOutputFold(2u,
+            s3g::RingOutputFormat::StereoRing),
+        "Stereo output was not a true fold of the completed eight-lane field");
+    ok &= check(verifiesTrueOutputFold(4u,
+            s3g::RingOutputFormat::QuadRing),
+        "Quad output was not a true fold of the completed eight-lane field");
 
     s3g::ProcessorFissure deterministicA;
     s3g::ProcessorFissure deterministicB;

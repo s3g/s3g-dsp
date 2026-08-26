@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Distributed-output Effects - s3g-dsp</title>
-    <meta name="description" content="Discrete multichannel scatter, orbit, and tap effect documentation for s3g-dsp.">
+    <title>Effect Delay Field 16 - s3g-dsp</title>
+    <meta name="description" content="Stereo-input Delay Field documentation for Shard, Orbit, Cascade, and Iterate processing in stereo, quad, 8-channel, and 16-channel output formats.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -25,60 +25,64 @@
 
     <div class="page-shell">
       <main class="content" id="content">
-        <h1>Distributed-output Effects</h1>
+        <h1>Effect Delay Field 16</h1>
 
-        <p>Distributed-output effects accept a stereo source and generate sixteen discrete output lanes. They create multichannel time and event structures without encoding the result as an ambisonic field.</p>
+        <p><code>s3g Effect Delay Field 16</code> consolidates the former Shard Scatter, Orbit Delay, and Cascade Taps plugins with a new Iterate model. It accepts stereo input and publishes one stable sixteen-channel host port while its format layer activates stereo, quad, eight, or sixteen ordinary output lanes.</p>
+
+        <p>Changing the model uses a 50 ms equal-power handoff. Every model always generates its complete sixteen-lane delay field. Format then performs an energy-preserving ring fold to sixteen, eight, four, or two outputs; it never replaces the model with a reduced-lane version. The direct stereo source is injected once after the fold instead of being copied into all sixteen lanes, so Direct and Wet remain meaningfully comparable in every format. Inactive host lanes remain exactly silent.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/delay-field.png" aria-label="Open high-resolution Delay Field GUI screenshot">
+              <img src="assets/plugin-guis/delay-field.png" alt="Delay Field model and format menus, Shard parameter panels, and sixteen delayed-lane activity meters" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Delay Field uses fully written control labels, menus for model, format, and Iterate traversal, toggles for binary choices, and a delayed-only sixteen-lane activity display below the model panels.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Insert Shard Scatter, Orbit Delay, or Cascade Taps on a track with at least sixteen channels, then route the stereo source to the plugin input bus.</li>
-          <li>Route the sixteen discrete outputs to a direct panner, bus mixer, fold-down, or matching speaker destination, then begin playback. Another effect may precede that destination when its build matches the sixteen-channel bus.</li>
-          <li>Set the effect's grain, delay, or tap structure while monitoring activity across all sixteen lanes.</li>
-          <li>Shape motion, density, timing, and regeneration without treating the output as an ambisonic field.</li>
-          <li>Verify the REAPER output pins and downstream levels before automating the distribution.</li>
+          <li>Insert Delay Field on a track with sixteen channels and route the source to the plugin's stereo input.</li>
+          <li>Route the active lanes to the intended speakers, a direct panner, or a fold-down monitor and begin playback. Another effect may precede that destination when its build matches the sixteen-channel host bus.</li>
+          <li>Choose Shard, Orbit, Cascade, or Iterate with <code>Model</code>.</li>
+          <li>Choose <code>Stereo Ring</code>, <code>Quad Ring</code>, <code>8ch Ring</code>, or <code>16ch Direct</code> with <code>Format</code>.</li>
+          <li>Use <code>Out Rotate</code> for an equal-power fractional rotation around the active ring.</li>
+          <li>Use the sixteen activity meters to confirm that the complete delay field is running, then compare the <code>IN</code> and <code>FOLDED OUT</code> readouts. Leave host lanes above the selected active width disconnected.</li>
         </ol>
 
-        <h2 id="plugins">Plugins</h2>
+        <h2 id="models">Models</h2>
 
         <ul>
-          <li><strong>Shard Scatter</strong>: cuts a live stereo buffer into grain-like shards and distributes those events across sixteen outputs.</li>
-          <li><strong>Orbit Delay</strong>: turns stereo input into a sixteen-output orbiting delay cloud with transport-stop de-click behavior.</li>
-          <li><strong>Cascade Taps</strong>: builds a sixteen-output stepped tap ring with a soft handoff control for changing cascade structure.</li>
+          <li><strong>Shard</strong> cuts a live buffer into grain-like fragments and distributes the overlapping reads around the active ring. Captured fragments continue after the input stops instead of being gated before their Guard and Scatter times arrive.</li>
+          <li><strong>Orbit</strong> builds a circulating feedback-delay cloud. Position, Spread, Width, Focus, and Rotation shape its lane energy, while the feedback ring continues naturally after a transient input.</li>
+          <li><strong>Cascade</strong> places a full-level first delayed copy at Position, then advances by Delay Step around the ring in the chosen Direction. Decay alone establishes the ordered falloff; Smoothing rounds interpolation and control movement without suppressing the first tap.</li>
+          <li><strong>Iterate</strong> repeatedly reads a recent stereo window with randomized timing, pitch, and amplitude. Sequential, reverse, palindrome, random, and random-cycle traversal assign each event to the active outputs.</li>
         </ul>
 
-        <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/shard-scatter.png" aria-label="Open high-resolution Shard Scatter GUI screenshot">
-                <img src="assets/plugin-guis/shard-scatter.png" alt="Shard Scatter controls for distributing live stereo shards across sixteen output lanes" loading="lazy" decoding="async">
-              </button>
-            </div>
-            <figcaption>Shard Scatter distributing live stereo shards across sixteen output lanes.</figcaption>
-        </figure>
-        <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/orbit-delay.png" aria-label="Open high-resolution Orbit Delay GUI screenshot">
-                <img src="assets/plugin-guis/orbit-delay.png" alt="Orbit Delay controls for distributing an orbiting delay cloud across sixteen output lanes" loading="lazy" decoding="async">
-              </button>
-            </div>
-            <figcaption>Orbit Delay distributing an orbiting delay cloud across sixteen output lanes.</figcaption>
-        </figure>
-        <figure>
-            <div class="doc-graphic">
-              <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/cascade-taps.png" aria-label="Open high-resolution Cascade Taps GUI screenshot">
-                <img src="assets/plugin-guis/cascade-taps.png" alt="Cascade Taps controls for arranging a stepped tap ring across sixteen output lanes" loading="lazy" decoding="async">
-              </button>
-            </div>
-            <figcaption>Cascade Taps arranging a stepped tap ring across sixteen output lanes.</figcaption>
-        </figure>
+        <h2 id="iterate">Iterate Lineage</h2>
+
+        <p>Iterate adapts an offline multichannel iterative lineage documented in the central <a href="references.html#sample-motion">References</a> to realtime stereo input. Its repetitions can vary delay, pitch, amplitude, and multichannel destination independently. It maintains a bounded rolling history, launches overlapping windowed voices, and uses Random Cycle traversal to visit every destination once before reshuffling. Stereo Events can retain two-channel events; Split Stereo places their sides in opposing lane banks.</p>
+
+        <h2 id="formats">Output Formats</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Format</th><th>Active lanes</th><th>Use</th></tr></thead>
+          <tbody>
+            <tr><td>16ch Direct</td><td>1–16</td><td>Full discrete field and the default for compatible sixteen-channel sessions.</td></tr>
+            <tr><td>8ch Ring</td><td>1–8</td><td>Energy-preserving fold of all sixteen delayed lanes to an eight-speaker ring.</td></tr>
+            <tr><td>Quad Ring</td><td>1–4</td><td>Energy-preserving fold of all sixteen delayed lanes to a clockwise quad layout.</td></tr>
+            <tr><td>Stereo Ring</td><td>1–2</td><td>Energy-preserving fold of all sixteen delayed lanes to ordinary left/right monitoring, with direct L/R added once at unity-oriented level.</td></tr>
+          </tbody>
+        </table>
 
         <h2 id="routing">Routing</h2>
 
-        <p>Set the REAPER track to at least sixteen channels and confirm the plugin pin mapping before auditioning. The first two track channels feed the input bus; the effect publishes sixteen discrete outputs for downstream routing, mixing, or direct speaker work.</p>
+        <p>Set the REAPER track to sixteen channels and confirm the plugin pin mapping before auditioning. The first two track channels feed the input bus. The output port always remains sixteen channels so Format automation does not renegotiate the host bus; lanes above the active width are cleared to zero on every block. In Stereo Ring mode, outputs 1–2 contain contributions from every one of the sixteen internal delayed lanes plus the single direct L/R path. The activity meters show delayed lanes only, making it possible to distinguish an active field from direct passthrough.</p>
 
         <h2 id="format-note">Discrete, Not Ambisonic</h2>
 
-        <p>These outputs are ordinary lanes. Use <a href="direct-panning.html">Direct Panning</a> or <a href="bus-mixing-routing.html">Bus Mixing / Routing</a> to place or combine them. Do not send them directly to an ambisonic decoder unless they have first passed through an <a href="ambisonic-encoders.html">Ambisonic Encoder</a>.</p>
+        <p>Delay Field's outputs are ordinary lanes. Use <a href="direct-panning.html">Direct Panning</a> or <a href="bus-mixing-routing.html">Bus Mixing / Routing</a> to place or combine them. Do not send them directly to an ambisonic decoder unless they have first passed through an <a href="ambisonic-encoders.html">Ambisonic Encoder</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="spectral-buffer-processors.html">
@@ -107,12 +111,14 @@
           <a href="topology-processors.html">Topology</a>
           <a href="macro-processors.html">Macro</a>
           <a href="spectral-buffer-processors.html">Spectral / Buffer</a>
-          <a href="distributed-output-processors.html">Distributed Output</a>
+          <a href="distributed-output-processors.html">Delay Field</a>
         </div>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
-          <a href="#plugins">Plugins</a>
+          <a href="#models">Models</a>
+          <a href="#iterate">Iterate Lineage</a>
+          <a href="#formats">Output Formats</a>
           <a href="#routing">Routing</a>
           <a href="#format-note">Discrete, Not Ambisonic</a>
         </div>

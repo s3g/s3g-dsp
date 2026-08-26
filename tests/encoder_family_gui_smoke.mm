@@ -43,6 +43,8 @@
 - (BOOL)runDocumentationMutationFill;
 - (BOOL)loadDocumentationSample;
 - (void)setDocumentationPage:(NSUInteger)page;
+- (void)setDocumentationLayoutPage:(BOOL)layout;
+- (void)setDocumentationLayoutOrigami:(BOOL)origami;
 - (void)setViewPreset:(int)mode;
 - (NSPoint)projectWorldPointX:(double)x y:(double)y z:(double)z;
 - (NSPoint)projectGroundPointX:(double)x y:(double)y;
@@ -3495,6 +3497,8 @@ int main(int argc, char** argv)
                 pluginId, "org.s3g.s3g-dsp.sample-player-16") == 0;
         const bool sampleDoubles = std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.sample-doubles") == 0;
+        const bool sampleCirculator = std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.crcltr") == 0;
         if (ok && (samplePlayer || sampleDoubles)
             && documentationCapture) {
             failureStage = sampleDoubles
@@ -3521,6 +3525,125 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && sampleCirculator && !documentationCapture) {
+            failureStage = "Sample Circulator waveform marker drag";
+            hostContext.deferParamFlush = true;
+            hostContext.paramFlushRequested = false;
+            const NSPoint startMarker = NSMakePoint(120.0, 88.0);
+            const NSPoint movedStart = NSMakePoint(252.0, 88.0);
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, startMarker)];
+            [document mouseDragged:mouseEvent(
+                NSEventTypeLeftMouseDragged, movedStart)];
+            [document mouseUp:mouseEvent(
+                NSEventTypeLeftMouseUp, movedStart)];
+
+            const NSPoint endMarker = NSMakePoint(648.0, 88.0);
+            const NSPoint movedEnd = NSMakePoint(516.0, 88.0);
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, endMarker)];
+            [document mouseDragged:mouseEvent(
+                NSEventTypeLeftMouseDragged, movedEnd)];
+            [document mouseUp:mouseEvent(
+                NSEventTypeLeftMouseUp, movedEnd)];
+
+            const NSPoint crossfadeHead = NSMakePoint(72.0, 117.0);
+            const NSPoint movedCrossfade = NSMakePoint(72.0, 140.5);
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, crossfadeHead)];
+            [document mouseDragged:mouseEvent(
+                NSEventTypeLeftMouseDragged, movedCrossfade)];
+            [document mouseUp:mouseEvent(
+                NSEventTypeLeftMouseUp, movedCrossfade)];
+
+            // Expanded nine-item menus open upward inside the compact canvas.
+            const NSPoint motionMenu = NSMakePoint(550.0, 560.0);
+            const NSPoint squareItem = NSMakePoint(550.0, 545.0);
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, motionMenu)];
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, squareItem)];
+            const NSPoint shapeMenu = NSMakePoint(550.0, 586.0);
+            const NSPoint cutItem = NSMakePoint(550.0, 571.0);
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, shapeMenu)];
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, cutItem)];
+
+            const NSPoint clearAButton = NSMakePoint(180.0, 512.0);
+            const NSPoint clearBButton = NSMakePoint(300.0, 512.0);
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, clearAButton)];
+            [document mouseUp:mouseEvent(
+                NSEventTypeLeftMouseUp, clearAButton)];
+            [document mouseDown:mouseEvent(
+                NSEventTypeLeftMouseDown, clearBButton)];
+            [document mouseUp:mouseEvent(
+                NSEventTypeLeftMouseUp, clearBButton)];
+
+            CapturedOutputEvents captured {};
+            captured.events.ctx = &captured;
+            captured.events.try_push = captureOutputEvent;
+            hostContext.deferParamFlush = false;
+            if (params->flush)
+                params->flush(plugin, nullptr, &captured.events);
+            hostContext.paramFlushRequested = false;
+
+            double loopStart = 0.0;
+            double loopEnd = 0.0;
+            double crossfade = 0.0;
+            double crossfadeMotion = 0.0;
+            double crossfadeShape = 0.0;
+            bool startBegin = false;
+            bool startValue = false;
+            bool startEnd = false;
+            bool crossfadeBegin = false;
+            bool crossfadeValue = false;
+            bool crossfadeEnd = false;
+            uint32_t clearAEvents = 0u;
+            uint32_t clearBEvents = 0u;
+            for (const auto& event : captured.values) {
+                if (event.paramId == 16u) {
+                    if (event.type == CLAP_EVENT_PARAM_GESTURE_BEGIN)
+                        startBegin = true;
+                    else if (event.type == CLAP_EVENT_PARAM_VALUE
+                        && startBegin) startValue = true;
+                    else if (event.type == CLAP_EVENT_PARAM_GESTURE_END
+                        && startValue) startEnd = true;
+                } else if (event.paramId == 4u) {
+                    if (event.type == CLAP_EVENT_PARAM_GESTURE_BEGIN)
+                        crossfadeBegin = true;
+                    else if (event.type == CLAP_EVENT_PARAM_VALUE
+                        && crossfadeBegin) crossfadeValue = true;
+                    else if (event.type == CLAP_EVENT_PARAM_GESTURE_END
+                        && crossfadeValue) crossfadeEnd = true;
+                } else if (event.paramId == 24u || event.paramId == 25u) {
+                    uint32_t& clearEvents = event.paramId == 24u
+                        ? clearAEvents : clearBEvents;
+                    if (event.type == CLAP_EVENT_PARAM_GESTURE_BEGIN)
+                        clearEvents |= 1u;
+                    else if (event.type == CLAP_EVENT_PARAM_VALUE
+                        && event.value >= 0.5) clearEvents |= 2u;
+                    else if (event.type == CLAP_EVENT_PARAM_VALUE
+                        && event.value < 0.5) clearEvents |= 4u;
+                    else if (event.type == CLAP_EVENT_PARAM_GESTURE_END)
+                        clearEvents |= 8u;
+                }
+            }
+            ok = params->get_value(plugin, 16u, &loopStart)
+                && params->get_value(plugin, 17u, &loopEnd)
+                && params->get_value(plugin, 4u, &crossfade)
+                && params->get_value(plugin, 3u, &crossfadeMotion)
+                && params->get_value(plugin, 23u, &crossfadeShape)
+                && std::abs(loopStart - 0.25) < 0.015
+                && std::abs(loopEnd - 0.75) < 0.015
+                && std::abs(crossfade - 0.75) < 0.015
+                && crossfadeMotion == 8.0 && crossfadeShape == 8.0
+                && loopEnd > loopStart
+                && startBegin && startValue && startEnd
+                && crossfadeBegin && crossfadeValue && crossfadeEnd
+                && clearAEvents == 15u && clearBEvents == 15u;
+        }
         if (ok && sampleGrains && !documentationCapture) {
             failureStage = "Sample Grains edition-specific parameters";
             const bool hasChannelMode = hasParameterNamed(params, plugin,
@@ -12564,6 +12687,433 @@ int main(int argc, char** argv)
                 }
             } @catch (NSException*) {
                 ok = false;
+            }
+        }
+        if (ok && !documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.format-upscale-64") == 0) {
+            failureStage = "Format Upscale weighted matrix interaction";
+            // Open the fitted two-column input-format menu and retain Stereo.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 140.0))];
+            [document mouseMoved:mouseEvent(NSEventTypeMouseMoved,
+                NSMakePoint(450.0, 116.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(450.0, 116.0))];
+            // AUTO MODE is a direct recipe selector. Choosing CROSS applies
+            // the automatic matrix immediately rather than leaving a drawn
+            // matrix active with a latent mode choice.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 238.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(895.0, 300.0))];
+            const uint32_t autoMode = [[document valueForKey:
+                @"autoModeValue"] unsignedIntValue];
+            const bool automaticRoutes = ![[document valueForKey:
+                @"manualRoutesActive"] boolValue];
+            // In Auto Map, the same shape buttons are global row recipes and
+            // do not force the matrix into manual editing.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(922.0, 488.0))];
+            const uint32_t autoRowShape = [[document valueForKey:
+                @"autoRowShapeValue"] unsignedIntValue];
+            const bool automaticAfterShape = ![[document valueForKey:
+                @"manualRoutesActive"] boolValue];
+            // TIER FILL is the eighth recipe in the balanced two-column menu.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 238.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1040.0, 320.0))];
+            const uint32_t tierFillMode = [[document valueForKey:
+                @"autoModeValue"] unsignedIntValue];
+            // Restore CROSS for the remaining interaction sequence.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 238.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(895.0, 300.0))];
+            // Start with an empty editable matrix, then paint three adjacent
+            // output crosspoints in the first input row with one drag.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1045.0, 220.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(368.0, 354.0))];
+            [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,
+                NSMakePoint(420.0, 354.0))];
+            [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,
+                NSMakePoint(472.0, 354.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(472.0, 354.0))];
+            const bool manualRoutes = [[document valueForKey:
+                @"manualRoutesActive"] boolValue];
+            const bool directConnection = [[document valueForKey:
+                @"manualRouteZeroToZero"] boolValue];
+            const bool adjacentConnection = [[document valueForKey:
+                @"manualRouteZeroToOne"] boolValue];
+            const bool thirdConnection = [[document valueForKey:
+                @"manualRouteZeroToTwo"] boolValue];
+            // A right click deletes exactly the targeted crosspoint.
+            [document rightMouseDown:mouseEvent(NSEventTypeRightMouseDown,
+                NSMakePoint(472.0, 354.0))];
+            const bool rightClickDeleted = ![[document valueForKey:
+                @"manualRouteZeroToTwo"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(472.0, 354.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(472.0, 354.0))];
+            // CENTER shapes the three active destinations as 50 / 100 / 50.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(922.0, 488.0))];
+            const double shapedLeft = [[document valueForKey:
+                @"manualWeightZeroToZero"] doubleValue];
+            const double shapedCenter = [[document valueForKey:
+                @"manualWeightZeroToOne"] doubleValue];
+            const double shapedRight = [[document valueForKey:
+                @"manualWeightZeroToTwo"] doubleValue];
+            // A vertical drag that remains in one cell edits that
+            // crosspoint's weight instead of painting another connection.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(368.0, 354.0))];
+            [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,
+                NSMakePoint(368.0, 367.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(368.0, 367.0))];
+            const double cellDraggedWeight = [[document valueForKey:
+                @"manualWeightZeroToZero"] doubleValue];
+            // Select the first crosspoint, then set its explicit weight to
+            // the midpoint of the standard S3G processor slider track.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(368.0, 354.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(368.0, 354.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(975.0, 406.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(975.0, 406.0))];
+            const double selectedWeight = [[document valueForKey:
+                @"selectedManualWeight"] doubleValue];
+            // Add a second contributor to O1, switch the shared shaping
+            // controls to the selected column, and shape both input weights.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(368.0, 406.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(368.0, 406.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1020.0, 464.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(922.0, 488.0))];
+            const bool columnShapeSelected = [[document valueForKey:
+                @"shapeColumn"] boolValue];
+            const double columnShapeFirst = [[document valueForKey:
+                @"manualWeightZeroToZero"] doubleValue];
+            const double columnShapeSecond = [[document valueForKey:
+                @"manualWeightOneToZero"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(969.0, 441.0))];
+            const uint32_t columnNormalization = [[document valueForKey:
+                @"normalizationValue"] unsignedIntValue];
+            const double normalizedColumnPower = [[document valueForKey:
+                @"selectedColumnPower"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1032.0, 441.0))];
+            const uint32_t dualNormalization = [[document valueForKey:
+                @"normalizationValue"] unsignedIntValue];
+            const double dualColumnPower = [[document valueForKey:
+                @"selectedColumnPower"] doubleValue];
+            // EDIT IN exposes the compact custom coordinate editor; adjust
+            // its azimuth with the same full-length slider convention.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(968.0, 97.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 380.0))];
+            [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,
+                NSMakePoint(950.0, 380.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(950.0, 380.0))];
+            const int designMap = [[document valueForKey:@"designMap"] intValue];
+            const double customAzimuth = [[document valueForKey:
+                @"selectedCustomAzimuth"] doubleValue];
+            const double customElevation = [[document valueForKey:
+                @"selectedCustomElevation"] doubleValue];
+            NSTextField* azField = [document valueForKey:@"azField"];
+            NSTextField* elField = [document valueForKey:@"elField"];
+            NSTextField* distField = [document valueForKey:@"distField"];
+            const bool fieldsVisible = ![azField isHidden]
+                && ![elField isHidden] && ![distField isHidden];
+            const bool fieldsPopulated = [[azField stringValue] length] > 0u
+                && [[elField stringValue] length] > 0u
+                && [[distField stringValue] length] > 0u;
+            // The second page presents the same live routes as unfolded
+            // speaker manifolds. POP OUT leaves the main view on the matrix;
+            // DOCK in the detached view returns the layout page to the host.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(961.0, 58.0))];
+            const uint32_t openedLayoutPage = [[document valueForKey:
+                @"layoutPage"] unsignedIntValue];
+            const double inputProjectionWidth = [[document valueForKey:
+                @"layoutInputProjectionWidth"] doubleValue];
+            const double outputProjectionWidth = [[document valueForKey:
+                @"layoutOutputProjectionWidth"] doubleValue];
+            const double inputAzimuthSpan = [[document valueForKey:
+                @"layoutInputAzimuthNinetySpan"] doubleValue];
+            const double outputAzimuthSpan = [[document valueForKey:
+                @"layoutOutputAzimuthNinetySpan"] doubleValue];
+            const double inputElevationSpan = [[document valueForKey:
+                @"layoutInputElevationSpan"] doubleValue];
+            const double outputElevationSpan = [[document valueForKey:
+                @"layoutOutputElevationSpan"] doubleValue];
+            const bool origamiDefault = [[document valueForKey:
+                @"layoutOrigami"] boolValue];
+            const double tierOneRadius = [[document valueForKey:
+                @"layoutDefaultTierOneRadius"] doubleValue];
+            const double tierTwoRadius = [[document valueForKey:
+                @"layoutDefaultTierTwoRadius"] doubleValue];
+            const double tierThreeRadius = [[document valueForKey:
+                @"layoutDefaultTierThreeRadius"] doubleValue];
+            const double firstOutputX = [[document valueForKey:
+                @"layoutFirstOutputPointX"] doubleValue];
+            const double firstOutputY = [[document valueForKey:
+                @"layoutFirstOutputPointY"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(firstOutputX, firstOutputY))];
+            const bool outputPointFocused = [[document valueForKey:
+                @"layoutSelectionIsOutput"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1052.0, 58.0))];
+            const bool aedFlatSelected = ![[document valueForKey:
+                @"layoutOrigami"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(961.0, 58.0))];
+            const bool origamiRestored = [[document valueForKey:
+                @"layoutOrigami"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1029.0, 103.0))];
+            const bool popupOpened = [[document valueForKey:
+                @"layoutPopupVisible"] boolValue];
+            NSView* layoutPopup = [document valueForKey:@"layoutPopupView"];
+            if (layoutPopup) {
+                NSEvent* dockEvent = [NSEvent
+                    mouseEventWithType:NSEventTypeLeftMouseDown
+                    location:[layoutPopup convertPoint:
+                        NSMakePoint(1029.0, 103.0) toView:nil]
+                    modifierFlags:0 timestamp:0.0
+                    windowNumber:[[layoutPopup window] windowNumber]
+                    context:nil eventNumber:0 clickCount:1 pressure:1.0];
+                [layoutPopup mouseDown:dockEvent];
+            }
+            const bool popupDocked = ![[document valueForKey:
+                @"layoutPopupVisible"] boolValue];
+            const uint32_t dockedLayoutPage = [[document valueForKey:
+                @"layoutPage"] unsignedIntValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(870.0, 58.0))];
+            const uint32_t returnedMatrixPage = [[document valueForKey:
+                @"layoutPage"] unsignedIntValue];
+            // Exercise the adaptive 64 × 64 view. Choose the output first so
+            // the temporary input/output pair is never a fold-down.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 188.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(450.0, 376.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 140.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(450.0, 376.0))];
+            const uint32_t largeInputs = [[document valueForKey:
+                @"activeInputCount"] unsignedIntValue];
+            const uint32_t largeOutputs = [[document valueForKey:
+                @"activeOutputCount"] unsignedIntValue];
+            const double largeCell = [[document valueForKey:
+                @"matrixCellSize"] doubleValue];
+            const uint32_t largeLabelStride = [[document valueForKey:
+                @"matrixOutputLabelStride"] unsignedIntValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(961.0, 58.0))];
+            [document displayIfNeeded];
+            NSData* largeLayoutRender = [document dataWithPDFInsideRect:
+                [document bounds]];
+            const bool largeLayoutRendered = [[document valueForKey:
+                    @"layoutPage"] unsignedIntValue] == 1u
+                && largeLayoutRender && [largeLayoutRender length] > 0u;
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(870.0, 58.0))];
+            // Cube 41 includes a physical zenith. In Tier Rings that speaker
+            // must occupy the exact center of the overhead plan.
+            [document performSelector:
+                @selector(loadDocumentationCube41Layout)];
+            [document displayIfNeeded];
+            const double zenithRadius = [[document valueForKey:
+                @"layoutOutputZenithRadius"] doubleValue];
+            const double cubeFrontEdgeDeviation = [[document valueForKey:
+                @"layoutCubeFrontEdgeDeviation"] doubleValue];
+            const uint32_t cubeLabelCount = [[document valueForKey:
+                @"layoutOutputLabelCount"] unsignedIntValue];
+            ok = autoMode == 2u
+                && automaticRoutes
+                && autoRowShape == 1u
+                && automaticAfterShape
+                && tierFillMode == 7u
+                && manualRoutes
+                && directConnection
+                && adjacentConnection
+                && thirdConnection
+                && rightClickDeleted
+                && std::abs(shapedLeft - 0.5) < 0.001
+                && std::abs(shapedCenter - 1.0) < 0.001
+                && std::abs(shapedRight - 0.5) < 0.001
+                && cellDraggedWeight > 0.20
+                && cellDraggedWeight < 0.30
+                && std::abs(selectedWeight - 0.5) < 0.02
+                && columnShapeSelected
+                && std::abs(columnShapeFirst - 0.5) < 0.001
+                && std::abs(columnShapeSecond - 0.5) < 0.001
+                && columnNormalization == 1u
+                && std::abs(normalizedColumnPower - 1.0) < 0.001
+                && dualNormalization == 2u
+                && dualColumnPower <= 1.0001
+                && designMap == 0
+                && customAzimuth > 90.0
+                && std::abs(customElevation) < 1.0
+                && fieldsVisible
+                && fieldsPopulated
+                && openedLayoutPage == 1u
+                && std::abs(inputProjectionWidth - outputProjectionWidth)
+                    < 0.001
+                && std::abs(inputAzimuthSpan - outputAzimuthSpan) < 0.001
+                && inputAzimuthSpan < 0.0
+                && outputAzimuthSpan < 0.0
+                && std::abs(inputElevationSpan - outputElevationSpan) < 0.001
+                && origamiDefault
+                && tierOneRadius > tierTwoRadius
+                && tierTwoRadius > tierThreeRadius
+                && outputPointFocused
+                && aedFlatSelected
+                && origamiRestored
+                && popupOpened
+                && popupDocked
+                && dockedLayoutPage == 1u
+                && returnedMatrixPage == 0u
+                && largeInputs == 64u
+                && largeOutputs == 64u
+                && largeCell >= 6.0
+                && largeLabelStride >= 4u
+                && largeLayoutRendered
+                && std::abs(zenithRadius) < 0.001
+                && cubeFrontEdgeDeviation < 0.01
+                && cubeLabelCount == 41u;
+            if (!ok) {
+                std::cerr << "Format Upscale interaction values: design "
+                    << designMap << ", auto " << autoMode << "/"
+                    << automaticRoutes << "/shape " << autoRowShape << "/"
+                    << automaticAfterShape << "/tier " << tierFillMode
+                    << ", route " << manualRoutes << "/"
+                    << directConnection << "/" << adjacentConnection
+                    << "/" << thirdConnection
+                    << ", deleted " << rightClickDeleted
+                    << ", shape " << shapedLeft << "/"
+                    << shapedCenter << "/" << shapedRight
+                    << ", cell/slider weight " << cellDraggedWeight << "/"
+                    << selectedWeight << ", column shape "
+                    << columnShapeSelected << "/" << columnShapeFirst << "/"
+                    << columnShapeSecond << ", norm "
+                    << columnNormalization << "/" << normalizedColumnPower
+                    << " dual " << dualNormalization << "/"
+                    << dualColumnPower
+                    << ", AED " << customAzimuth
+                    << "/" << customElevation
+                    << ", fields " << fieldsVisible << "/"
+                    << fieldsPopulated << ", layout "
+                    << openedLayoutPage << " scales "
+                    << inputProjectionWidth << "/" << outputProjectionWidth
+                    << " A" << inputAzimuthSpan << "/" << outputAzimuthSpan
+                    << " E" << inputElevationSpan << "/"
+                    << outputElevationSpan << " projections "
+                    << origamiDefault << " tiers " << tierOneRadius << "/"
+                    << tierTwoRadius << "/" << tierThreeRadius
+                    << "/focus " << outputPointFocused
+                    << "/" << aedFlatSelected << "/"
+                    << origamiRestored << "/" << popupOpened << "/"
+                    << popupDocked << "/" << dockedLayoutPage << "/"
+                    << returnedMatrixPage << ", large " << largeInputs
+                    << "x" << largeOutputs << " cell " << largeCell
+                    << " stride " << largeLabelStride
+                    << " layout " << largeLayoutRendered
+                    << " zenith " << zenithRadius
+                    << " cube edge/labels " << cubeFrontEdgeDeviation
+                    << "/" << cubeLabelCount << '\n';
+            }
+        }
+        if (ok && documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.format-upscale-64") == 0) {
+            failureStage = "documentation Format Upscale height manifold";
+            ok = [document respondsToSelector:
+                @selector(loadDocumentationThreeTierLayout)];
+            if (ok) [document performSelector:
+                @selector(loadDocumentationThreeTierLayout)];
+            [document setNeedsDisplay:YES];
+            [document displayIfNeeded];
+            const char* captureDirectory = std::getenv(
+                "S3G_GUI_SMOKE_PDF_DIR");
+            if (ok && captureDirectory && captureDirectory[0]) {
+                ok = [document respondsToSelector:
+                    @selector(setDocumentationLayoutPage:)];
+                if (ok) {
+                    [(id)document setDocumentationLayoutPage:YES];
+                    [(id)document setDocumentationLayoutOrigami:YES];
+                    [document displayIfNeeded];
+                    NSData* layoutRender = [document dataWithPDFInsideRect:
+                        [document bounds]];
+                    NSString* directory = [NSString
+                        stringWithUTF8String:captureDirectory];
+                    NSString* layoutFile = [[NSString
+                        stringWithUTF8String:pluginId]
+                        stringByAppendingString:@".layout.pdf"];
+                    ok = layoutRender && [layoutRender length] > 0u
+                        && [layoutRender writeToFile:
+                            [directory stringByAppendingPathComponent:
+                                layoutFile]
+                            atomically:YES];
+                    if (ok) {
+                        [(id)document setDocumentationLayoutOrigami:NO];
+                        [document displayIfNeeded];
+                        NSData* flatRender = [document dataWithPDFInsideRect:
+                            [document bounds]];
+                        NSString* flatFile = [[NSString
+                            stringWithUTF8String:pluginId]
+                            stringByAppendingString:@".aed-flat.pdf"];
+                        ok = flatRender && [flatRender length] > 0u
+                            && [flatRender writeToFile:
+                                [directory stringByAppendingPathComponent:
+                                    flatFile]
+                                atomically:YES];
+                    }
+                    if (ok) {
+                        ok = [document respondsToSelector:
+                            @selector(loadDocumentationCube41Layout)];
+                    }
+                    if (ok) {
+                        [(id)document setDocumentationLayoutOrigami:YES];
+                        [document performSelector:
+                            @selector(loadDocumentationCube41Layout)];
+                        [document displayIfNeeded];
+                        NSData* cubeRender = [document dataWithPDFInsideRect:
+                            [document bounds]];
+                        NSString* cubeFile = [[NSString
+                            stringWithUTF8String:pluginId]
+                            stringByAppendingString:@".cube41.pdf"];
+                        ok = cubeRender && [cubeRender length] > 0u
+                            && [cubeRender writeToFile:
+                                [directory stringByAppendingPathComponent:
+                                    cubeFile]
+                                atomically:YES];
+                    }
+                    if (ok) {
+                        [document performSelector:
+                            @selector(loadDocumentationThreeTierLayout)];
+                    }
+                    [(id)document setDocumentationLayoutPage:NO];
+                    [document displayIfNeeded];
+                }
             }
         }
         if (ok) failureStage = "render";

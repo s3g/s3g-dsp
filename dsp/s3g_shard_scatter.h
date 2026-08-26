@@ -26,8 +26,8 @@ struct ShardScatterParams {
     float freeze = 0.0f;
     float dry = 0.08f;
     float wet = 0.9f;
-    float gainDb = -2.5f;
-    float stereo = 0.0f;
+    float gainDb = 0.0f;
+    float stereo = 1.0f;
 };
 
 class ShardScatter {
@@ -43,11 +43,11 @@ public:
         phase_ = 0.0f;
         boot_ = 0u;
         silenceSamples_ = 0u;
-        stopFade_ = 1.0f;
         writeSmooth_ = 0.0f;
         smooth_ = params_;
         for (uint32_t ch = 0; ch < kShardScatterChannels; ++ch) {
-            shard_[ch].phase = static_cast<float>(ch) / static_cast<float>(kShardScatterChannels);
+            shard_[ch].phase = static_cast<float>(ch)
+                / static_cast<float>(outputChannels_);
             shard_[ch].anchor = std::min<float>(static_cast<float>(bufferSize_ - 1u), 12000.0f + static_cast<float>(ch) * 3000.0f);
             shard_[ch].seed = kInitialSeeds[ch];
             shard_[ch].out = 0.0f;
@@ -64,11 +64,11 @@ public:
         phase_ = 0.0f;
         boot_ = 0u;
         silenceSamples_ = 0u;
-        stopFade_ = 1.0f;
         writeSmooth_ = 0.0f;
         smooth_ = params_;
         for (uint32_t ch = 0; ch < kShardScatterChannels; ++ch) {
-            shard_[ch].phase = static_cast<float>(ch) / static_cast<float>(kShardScatterChannels);
+            shard_[ch].phase = static_cast<float>(ch)
+                / static_cast<float>(outputChannels_);
             shard_[ch].anchor = std::min<float>(static_cast<float>(bufferSize_ - 1u), 12000.0f + static_cast<float>(ch) * 3000.0f);
             shard_[ch].seed = kInitialSeeds[ch];
             shard_[ch].out = 0.0f;
@@ -81,7 +81,18 @@ public:
     }
 
     ShardScatterParams params() const { return params_; }
-    uint32_t outputChannels() const { return kShardScatterChannels; }
+    void setOutputChannels(uint32_t channels)
+    {
+        channels = std::clamp<uint32_t>(channels, 2u, kShardScatterChannels);
+        if (channels == outputChannels_) return;
+        outputChannels_ = channels;
+        for (uint32_t ch = 0u; ch < outputChannels_; ++ch) {
+            shard_[ch].phase = static_cast<float>(ch)
+                / static_cast<float>(outputChannels_);
+            shard_[ch].out = 0.0f;
+        }
+    }
+    uint32_t outputChannels() const { return outputChannels_; }
     bool ready() const { return ready_; }
 
     void process(const float* left, const float* right, float* const* output, uint32_t frames)
@@ -92,8 +103,9 @@ public:
             updateSmoothing();
             const float inL = left ? left[i] : 0.0f;
             const float inR = right ? right[i] : inL;
-            const float src = (inL + inR * smooth_.stereo) / (1.0f + smooth_.stereo);
-            updateStopFade(src);
+            const float src = (inL + inR * smooth_.stereo)
+                / std::sqrt(1.0f + smooth_.stereo * smooth_.stereo);
+            updateSilenceCounter(src);
             const float writeSrc = smoothedInputForBuffer(src);
             writeInput(writeSrc);
             phase_ += smooth_.rotate / static_cast<float>(sampleRate_);
@@ -108,18 +120,23 @@ public:
             const float scatterGuard = lowDensityScatterGuard();
 
             std::array<float, kShardScatterChannels> grains {};
-            for (uint32_t ch = 0; ch < kShardScatterChannels; ++ch) {
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) {
                 stepShard(ch, incBase, grainSamps, guardSamps, scatterSamps);
                 grains[ch] = readShard(ch, grainSamps) * fillFade;
             }
 
             const float bleed = clamp(smooth_.width, 0.0f, 1.0f) * 0.5f;
             const float norm = dbToGain(smooth_.gainDb) / (1.0f + bleed * 2.0f + 0.000001f);
-            const float drySig = src * smooth_.dry;
-            for (uint32_t ch = 0; ch < kShardScatterChannels; ++ch) {
-                const uint32_t prev = ch == 0u ? kShardScatterChannels - 1u : ch - 1u;
-                const uint32_t next = (ch + 1u) % kShardScatterChannels;
-                const float wetSig = (grains[ch] + (grains[prev] + grains[next]) * bleed) * smooth_.wet * norm * bootFade * stopFade_;
+            const uint32_t rightLane = outputChannels_ / 2u;
+            for (uint32_t ch = 0; ch < outputChannels_; ++ch) {
+                const uint32_t prev = ch == 0u ? outputChannels_ - 1u : ch - 1u;
+                const uint32_t next = (ch + 1u) % outputChannels_;
+                const float drySig = ((ch == 0u ? inL : 0.0f)
+                    + (ch == rightLane ? inR * smooth_.stereo : 0.0f))
+                    * smooth_.dry;
+                const float wetSig = (grains[ch]
+                    + (grains[prev] + grains[next]) * bleed)
+                    * smooth_.wet * norm * bootFade;
                 const float target = drySig + wetSig;
                 const float outCoef = lerp(0.2f, 0.065f, scatterGuard);
                 shard_[ch].out += (target - shard_[ch].out) * outCoef;
@@ -231,17 +248,11 @@ private:
         return writeSmooth_;
     }
 
-    void updateStopFade(float src)
+    void updateSilenceCounter(float src)
     {
         const bool active = std::abs(src) > 0.00001f;
         if (active) silenceSamples_ = 0u;
         else silenceSamples_ = std::min<uint32_t>(silenceSamples_ + 1u, static_cast<uint32_t>(sampleRate_));
-
-        const uint32_t holdSamples = static_cast<uint32_t>(sampleRate_ * 0.018);
-        const float target = silenceSamples_ > holdSamples ? 0.0f : 1.0f;
-        const float ms = target > stopFade_ ? 12.0f : 85.0f;
-        const float samples = std::max(1.0f, static_cast<float>(sampleRate_ * ms * 0.001));
-        stopFade_ += (target - stopFade_) * (1.0f - std::exp(-1.0f / samples));
     }
 
     void stepShard(uint32_t ch, float incBase, float grainSamps, float guardSamps, float scatterSamps)
@@ -330,9 +341,9 @@ private:
     float phase_ = 0.0f;
     uint32_t boot_ = 0u;
     uint32_t silenceSamples_ = 0u;
-    float stopFade_ = 1.0f;
     float writeSmooth_ = 0.0f;
     bool ready_ = false;
+    uint32_t outputChannels_ = kShardScatterChannels;
     ShardScatterParams params_ {};
     ShardScatterParams smooth_ {};
     std::vector<float> buffer_;
