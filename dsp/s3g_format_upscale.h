@@ -15,6 +15,7 @@ constexpr uint32_t kFormatUpscaleMaxChannels = 64u;
 constexpr uint32_t kFormatUpscaleLayoutCount = 42u;
 constexpr float kFormatUpscaleMaxDelayMs = 50.0f;
 constexpr float kFormatUpscaleTierHeightTolerance = 0.015f;
+constexpr float kFormatUpscaleMidSideWidth = 0.75f;
 
 enum class FormatUpscaleLayout : uint32_t {
     Mono = 0u,
@@ -76,6 +77,7 @@ enum class FormatUpscalePlacement : uint32_t {
     Nearest,
     Span,
     TierFill,
+    MidSideSpread,
 };
 
 enum class FormatUpscaleRowShape : uint32_t {
@@ -241,6 +243,7 @@ inline const char* formatUpscalePlacementName(FormatUpscalePlacement placement)
     case FormatUpscalePlacement::Nearest: return "Nearest";
     case FormatUpscalePlacement::Span: return "Span";
     case FormatUpscalePlacement::TierFill: return "Tier fill";
+    case FormatUpscalePlacement::MidSideSpread: return "M/S spread";
     default: return "Same side";
     }
 }
@@ -593,7 +596,7 @@ inline FormatUpscaleParams sanitizeFormatUpscaleParams(FormatUpscaleParams p)
         static_cast<uint32_t>(FormatUpscaleBasis::Side)));
     p.placement = static_cast<FormatUpscalePlacement>(std::min<uint32_t>(
         static_cast<uint32_t>(p.placement),
-        static_cast<uint32_t>(FormatUpscalePlacement::TierFill)));
+        static_cast<uint32_t>(FormatUpscalePlacement::MidSideSpread)));
     p.origin = static_cast<FormatUpscaleOrigin>(std::min<uint32_t>(
         static_cast<uint32_t>(p.origin),
         static_cast<uint32_t>(FormatUpscaleOrigin::Remap)));
@@ -692,7 +695,8 @@ public:
     {
         return input < kFormatUpscaleMaxChannels
                 && output < kFormatUpscaleMaxChannels
-            ? manualWeights_[matrixIndex(input, output)] > 0.000001f : false;
+            ? std::abs(manualWeights_[matrixIndex(input, output)])
+                > 0.000001f : false;
     }
 
     float manualWeight(uint32_t input, uint32_t output) const
@@ -728,9 +732,9 @@ public:
     {
         for (uint32_t index = 0u; index < manualWeights_.size(); ++index) {
             const float weight = std::isfinite(weights[index])
-                ? formatUpscaleClamp(weights[index], 0.0f, 1.0f) : 0.0f;
+                ? formatUpscaleClamp(weights[index], -1.0f, 1.0f) : 0.0f;
             manualWeights_[index] = weight;
-            manualRoutes_[index] = weight > 0.000001f ? 1u : 0u;
+            manualRoutes_[index] = std::abs(weight) > 0.000001f ? 1u : 0u;
         }
         manualRoutesActive_ = active;
         rebuildTargets();
@@ -743,11 +747,12 @@ public:
             for (uint32_t output = 0u; output < kFormatUpscaleMaxChannels;
                  ++output) {
                 const uint32_t index = matrixIndex(input, output);
-                const float weight = std::abs(
-                    targetAnchor_[index] + targetExtension_[index]);
+                const float weight = targetAnchor_[index]
+                    + targetExtension_[index];
                 manualWeights_[index] = formatUpscaleClamp(
-                    weight, 0.0f, 1.0f);
-                manualRoutes_[index] = weight > 0.000001f ? 1u : 0u;
+                    weight, -1.0f, 1.0f);
+                manualRoutes_[index] = std::abs(weight) > 0.000001f
+                    ? 1u : 0u;
             }
         }
         manualRoutesActive_ = true;
@@ -771,8 +776,9 @@ public:
         manualRoutesActive_ = true;
         const uint32_t index = matrixIndex(input, output);
         manualWeights_[index] = std::isfinite(weight)
-            ? formatUpscaleClamp(weight, 0.0f, 1.0f) : 0.0f;
-        manualRoutes_[index] = manualWeights_[index] > 0.000001f ? 1u : 0u;
+            ? formatUpscaleClamp(weight, -1.0f, 1.0f) : 0.0f;
+        manualRoutes_[index] = std::abs(manualWeights_[index]) > 0.000001f
+            ? 1u : 0u;
         rebuildTargets();
     }
 
@@ -1016,6 +1022,7 @@ private:
         case FormatUpscalePlacement::Nearest:
         case FormatUpscalePlacement::Span:
         case FormatUpscalePlacement::TierFill:
+        case FormatUpscalePlacement::MidSideSpread:
         case FormatUpscalePlacement::Match:
         default:
             break;
@@ -1229,6 +1236,199 @@ private:
         }
     }
 
+    float automaticShapeWeight(float distance, float minimumDistance,
+        float maximumDistance) const
+    {
+        const float distanceRange = maximumDistance - minimumDistance;
+        const float position = distanceRange > 0.0001f
+            ? (distance - minimumDistance) / distanceRange : 0.0f;
+        if (autoRowShape_ == FormatUpscaleRowShape::Center)
+            return 1.0f - 0.5f * position;
+        if (autoRowShape_ == FormatUpscaleRowShape::Edges)
+            return 0.5f + 0.5f * position;
+        if (autoRowShape_ == FormatUpscaleRowShape::Taper)
+            return std::max(0.25f, std::cos(
+                formatUpscaleClamp(distance, 0.0f, 180.0f)
+                * 3.14159265358979323846f / 360.0f));
+        return 1.0f;
+    }
+
+    void applyAutomaticRowShape(uint32_t source)
+    {
+        if (autoRowShape_ == FormatUpscaleRowShape::Flat
+            || source >= inputLayout_.count) return;
+        float minimumDistance = 1000000.0f;
+        float maximumDistance = 0.0f;
+        for (uint32_t output = 0u; output < outputLayout_.count; ++output) {
+            const uint32_t index = matrixIndex(source, output);
+            if (std::abs(targetAnchor_[index]) < 0.000001f
+                && std::abs(targetExtension_[index]) < 0.000001f)
+                continue;
+            const float distance = speakerDistance(
+                inputLayout_.speakers[source],
+                outputLayout_.speakers[output]);
+            minimumDistance = std::min(minimumDistance, distance);
+            maximumDistance = std::max(maximumDistance, distance);
+        }
+        for (uint32_t output = 0u; output < outputLayout_.count; ++output) {
+            const uint32_t index = matrixIndex(source, output);
+            if (std::abs(targetAnchor_[index]) < 0.000001f
+                && std::abs(targetExtension_[index]) < 0.000001f)
+                continue;
+            const float distance = speakerDistance(
+                inputLayout_.speakers[source],
+                outputLayout_.speakers[output]);
+            const float weight = automaticShapeWeight(
+                distance, minimumDistance, maximumDistance);
+            targetAnchor_[index] *= weight;
+            targetExtension_[index] *= weight;
+        }
+    }
+
+    void buildMidSideSpread()
+    {
+        constexpr float invSqrt2 = 0.7071067811865475f;
+        constexpr float degreesToRadians =
+            3.14159265358979323846f / 180.0f;
+        std::array<bool, kFormatUpscaleMaxChannels> assignedInputs {};
+
+        for (uint32_t source = 0u; source < inputLayout_.count; ++source) {
+            if (assignedInputs[source]) continue;
+            const uint32_t mirror = findMirrorInput(source);
+            const bool mirroredPair = mirror < inputLayout_.count
+                && mirror != source
+                && !assignedInputs[mirror]
+                && findMirrorInput(mirror) == source;
+
+            if (mirroredPair) {
+                const uint32_t left = speakerSide(
+                        inputLayout_.speakers[source]) > 0
+                    ? source : mirror;
+                const uint32_t right = left == source ? mirror : source;
+                assignedInputs[source] = true;
+                assignedInputs[mirror] = true;
+                std::array<float, kFormatUpscaleMaxChannels> midWeights {};
+                std::array<float, kFormatUpscaleMaxChannels> sideWeights {};
+                std::array<float, kFormatUpscaleMaxChannels> distances {};
+                float minimumDistance = 1000000.0f;
+                float maximumDistance = 0.0f;
+                for (uint32_t output = 0u; output < outputLayout_.count;
+                     ++output) {
+                    const auto& speaker = outputLayout_.speakers[output];
+                    const float lateral = std::abs(std::sin(
+                            speaker.azimuthDeg * degreesToRadians))
+                        * std::max(0.0f, std::cos(
+                            speaker.elevationDeg * degreesToRadians));
+                    const float side = kFormatUpscaleMidSideWidth * lateral;
+                    const float mid = std::sqrt(std::max(
+                        0.0f, 1.0f - side * side));
+                    midWeights[output] = mid;
+                    sideWeights[output] = static_cast<float>(
+                        speakerSide(speaker)) * side;
+                    distances[output] = 0.5f * (
+                        speakerDistance(inputLayout_.speakers[left], speaker)
+                        + speakerDistance(
+                            inputLayout_.speakers[right], speaker));
+                    minimumDistance = std::min(
+                        minimumDistance, distances[output]);
+                    maximumDistance = std::max(
+                        maximumDistance, distances[output]);
+                }
+
+                // Shape a pair in M/S space so L/R receive the same envelope.
+                // Balance the positive and negative lateral Side lobes against
+                // Mid without introducing Side on centerline outputs. Both
+                // decoded input rows can then share one normalization scale,
+                // even for an asymmetric custom output.
+                float midPower = 0.0f;
+                float positiveMidSide = 0.0f;
+                float negativeMidSide = 0.0f;
+                for (uint32_t output = 0u; output < outputLayout_.count;
+                     ++output) {
+                    const float shape = automaticShapeWeight(
+                        distances[output], minimumDistance, maximumDistance);
+                    midWeights[output] *= shape;
+                    sideWeights[output] *= shape;
+                    midPower += midWeights[output] * midWeights[output];
+                    const float product = midWeights[output]
+                        * sideWeights[output];
+                    if (product > 0.0f) positiveMidSide += product;
+                    else negativeMidSide -= product;
+                }
+                if (positiveMidSide > 0.000001f
+                    && negativeMidSide > 0.000001f) {
+                    const float positiveScale = positiveMidSide
+                            > negativeMidSide
+                        ? negativeMidSide / positiveMidSide : 1.0f;
+                    const float negativeScale = negativeMidSide
+                            > positiveMidSide
+                        ? positiveMidSide / negativeMidSide : 1.0f;
+                    for (uint32_t output = 0u;
+                         output < outputLayout_.count; ++output) {
+                        sideWeights[output] *= sideWeights[output] > 0.0f
+                            ? positiveScale : negativeScale;
+                    }
+                } else {
+                    sideWeights.fill(0.0f);
+                }
+                float sidePower = 0.0f;
+                for (uint32_t output = 0u; output < outputLayout_.count;
+                     ++output)
+                    sidePower += sideWeights[output] * sideWeights[output];
+                const float pairPower = midPower + sidePower;
+                const float scale = pairPower > 0.000001f
+                    ? std::sqrt(2.0f / pairPower) : 1.0f;
+                for (uint32_t output = 0u; output < outputLayout_.count;
+                     ++output) {
+                    const float mid = midWeights[output] * scale;
+                    const float side = sideWeights[output] * scale;
+                    targetExtension_[matrixIndex(left, output)] =
+                        (mid + side) * invSqrt2;
+                    targetExtension_[matrixIndex(right, output)] =
+                        (mid - side) * invSqrt2;
+                }
+                continue;
+            }
+
+            // Centerline and otherwise unpaired inputs follow the Mid contour:
+            // strongest on the centerline and at height, lighter at the sides.
+            assignedInputs[source] = true;
+            for (uint32_t output = 0u; output < outputLayout_.count; ++output) {
+                const auto& speaker = outputLayout_.speakers[output];
+                const float lateral = std::abs(std::sin(
+                        speaker.azimuthDeg * degreesToRadians))
+                    * std::max(0.0f, std::cos(
+                        speaker.elevationDeg * degreesToRadians));
+                const float side = kFormatUpscaleMidSideWidth * lateral;
+                targetExtension_[matrixIndex(source, output)] =
+                    std::sqrt(std::max(0.0f, 1.0f - side * side));
+            }
+            applyAutomaticRowShape(source);
+        }
+    }
+
+    void normalizeInputRows()
+    {
+        for (uint32_t input = 0u; input < inputLayout_.count; ++input) {
+            float power = 0.0f;
+            for (uint32_t output = 0u; output < outputLayout_.count;
+                 ++output) {
+                const uint32_t index = matrixIndex(input, output);
+                const float gain = targetAnchor_[index]
+                    + targetExtension_[index];
+                power += gain * gain;
+            }
+            if (power < 0.000001f) continue;
+            const float scale = 1.0f / std::sqrt(power);
+            for (uint32_t output = 0u; output < outputLayout_.count;
+                 ++output) {
+                const uint32_t index = matrixIndex(input, output);
+                targetAnchor_[index] *= scale;
+                targetExtension_[index] *= scale;
+            }
+        }
+    }
+
     void rebuildTargets()
     {
         inputLayout_ = resolveLayout(params_.inputLayout, true);
@@ -1238,24 +1438,30 @@ private:
 
         if (manualRoutesActive_) {
             for (uint32_t input = 0u; input < inputLayout_.count; ++input) {
-                float weightPower = 0.0f;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output) {
-                    const float weight = manualWeights_[
-                        matrixIndex(input, output)];
-                    weightPower += weight * weight;
-                }
-                if (weightPower < 0.000001f) continue;
-                const float scale = normalization_
-                        == FormatUpscaleNormalization::Column
-                    ? 1.0f : 1.0f / std::sqrt(weightPower);
                 for (uint32_t output = 0u; output < outputLayout_.count;
                      ++output) {
                     const uint32_t index = matrixIndex(input, output);
-                    if (manualWeights_[index] > 0.000001f)
-                        targetExtension_[index] = manualWeights_[index] * scale;
+                    if (std::abs(manualWeights_[index]) > 0.000001f)
+                        targetExtension_[index] = manualWeights_[index];
                 }
             }
+            if (normalization_ != FormatUpscaleNormalization::Column)
+                normalizeInputRows();
+            if (normalization_ == FormatUpscaleNormalization::Column)
+                normalizeOutputColumns(false);
+            else if (normalization_ == FormatUpscaleNormalization::DualLimit)
+                normalizeOutputColumns(true);
+            rebuildActiveRoutes();
+            return;
+        }
+
+        if (params_.placement == FormatUpscalePlacement::MidSideSpread) {
+            // M/S Spread is a complete signed matrix recipe. It deliberately
+            // bypasses anchor/copy semantics so the visible matrix is the
+            // exact audible map and every available output tier participates.
+            buildMidSideSpread();
+            if (normalization_ != FormatUpscaleNormalization::Column)
+                normalizeInputRows();
             if (normalization_ == FormatUpscaleNormalization::Column)
                 normalizeOutputColumns(false);
             else if (normalization_ == FormatUpscaleNormalization::DualLimit)
@@ -1312,46 +1518,7 @@ private:
                 targetExtension_[matrixIndex(source, output)] =
                     extensionRaw[matrixIndex(source, output)] * extensionScale;
 
-            if (autoRowShape_ != FormatUpscaleRowShape::Flat) {
-                float minimumDistance = 1000000.0f;
-                float maximumDistance = 0.0f;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output) {
-                    const uint32_t index = matrixIndex(source, output);
-                    if (std::abs(targetAnchor_[index]) < 0.000001f
-                        && std::abs(targetExtension_[index]) < 0.000001f)
-                        continue;
-                    const float distance = speakerDistance(
-                        inputLayout_.speakers[source],
-                        outputLayout_.speakers[output]);
-                    minimumDistance = std::min(minimumDistance, distance);
-                    maximumDistance = std::max(maximumDistance, distance);
-                }
-                const float distanceRange = maximumDistance - minimumDistance;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output) {
-                    const uint32_t index = matrixIndex(source, output);
-                    if (std::abs(targetAnchor_[index]) < 0.000001f
-                        && std::abs(targetExtension_[index]) < 0.000001f)
-                        continue;
-                    const float distance = speakerDistance(
-                        inputLayout_.speakers[source],
-                        outputLayout_.speakers[output]);
-                    const float position = distanceRange > 0.0001f
-                        ? (distance - minimumDistance) / distanceRange : 0.0f;
-                    float weight = 1.0f;
-                    if (autoRowShape_ == FormatUpscaleRowShape::Center)
-                        weight = 1.0f - 0.5f * position;
-                    else if (autoRowShape_ == FormatUpscaleRowShape::Edges)
-                        weight = 0.5f + 0.5f * position;
-                    else if (autoRowShape_ == FormatUpscaleRowShape::Taper)
-                        weight = std::max(0.25f, std::cos(
-                            formatUpscaleClamp(distance, 0.0f, 180.0f)
-                            * 3.14159265358979323846f / 360.0f));
-                    targetAnchor_[index] *= weight;
-                    targetExtension_[index] *= weight;
-                }
-            }
+            applyAutomaticRowShape(source);
 
             if (params_.origin != FormatUpscaleOrigin::Keep) {
                 float power = 0.0f;

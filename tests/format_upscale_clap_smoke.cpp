@@ -283,7 +283,7 @@ int main(int argc, char** argv)
         }
         if (info.id == 4u) {
             foundPlacement = std::strcmp(info.name, "Placement") == 0
-                && info.max_value == 7.0;
+                && info.max_value == 8.0;
         }
         if (info.id == 14u)
             foundAutoRowShape = std::strcmp(info.name, "Auto Row Shape") == 0
@@ -297,6 +297,15 @@ int main(int argc, char** argv)
             && foundAutoRowShape && foundNormalization
             && foundExpandedLayoutRange,
         "format parameters were not published");
+    char midSideText[64] {};
+    double parsedMidSide = -1.0;
+    ok &= check(params->value_to_text(plugin, 4u, 8.0,
+                midSideText, sizeof(midSideText))
+            && std::strcmp(midSideText, "M/S spread") == 0
+            && params->text_to_value(plugin, 4u, midSideText,
+                &parsedMidSide)
+            && parsedMidSide == 8.0,
+        "M/S spread was not published as an automatable placement option");
     ok &= check(plugin->activate(plugin, 48000.0, 1u, kFrames)
             && plugin->start_processing(plugin),
         "plug-in activation failed");
@@ -307,6 +316,18 @@ int main(int argc, char** argv)
     ok &= check(energy[0] > 0.01 && energy[1] > 0.01
             && energy[2] > 0.01 && energy[3] > 0.01,
         "default route did not energize all quad outputs");
+
+    Events midSideChange;
+    midSideChange.add(4u, 8.0);  // M/S spread.
+    midSideChange.add(12u, 1.0); // Fast route smoothing for the smoke.
+    ok &= check(processBlocks(plugin, &midSideChange, 2u, 4u, energy),
+        "M/S spread processing failed");
+    double midSidePlacement = -1.0;
+    ok &= check(params->get_value(plugin, 4u, &midSidePlacement)
+            && midSidePlacement == 8.0
+            && energy[0] > 0.001 && energy[1] > 0.001
+            && energy[2] > 0.001 && energy[3] > 0.001,
+        "M/S spread did not remain selected or reach the quad outputs");
 
     Events change;
     change.add(2u, 6.0);  // Octophonic ring.
@@ -368,7 +389,8 @@ int main(int argc, char** argv)
     for (uint32_t input = 0u; input < 3u; ++input) {
         for (uint32_t tier = 0u; tier < 3u; ++tier)
             customState.manualWeights[input * kChannels + tier * 3u + input]
-                = tier == 1u ? 0.5f : 1.0f;
+                = input == 0u && tier == 0u
+                    ? -1.0f : (tier == 1u ? 0.5f : 1.0f);
     }
     MemoryState customMemory;
     customMemory.bytes.resize(sizeof(customState));
@@ -386,6 +408,19 @@ int main(int argc, char** argv)
     ok &= check(params->get_value(plugin, 15u, &normalization)
             && normalization == 0.0,
         "version-4 state did not retain row normalization compatibility");
+    MemoryState signedRoundtripMemory;
+    clap_ostream_t signedRoundtripOutput {
+        &signedRoundtripMemory, stateWrite };
+    ok &= check(state->save(plugin, &signedRoundtripOutput)
+            && signedRoundtripMemory.bytes.size()
+                == sizeof(FormatUpscaleSavedStateV6),
+        "signed matrix state did not save");
+    FormatUpscaleSavedStateV6 signedRoundtrip {};
+    if (signedRoundtripMemory.bytes.size() == sizeof(signedRoundtrip))
+        std::memcpy(&signedRoundtrip, signedRoundtripMemory.bytes.data(),
+            sizeof(signedRoundtrip));
+    ok &= check(signedRoundtrip.manualWeights[0u] == -1.0f,
+        "state recall did not preserve negative matrix polarity");
     ok &= check(processBlocks(plugin, nullptr, 12u, 9u, energy),
         "state-restored 3-to-9 drawn-route processing failed");
     activeWithEnergy = 0u;

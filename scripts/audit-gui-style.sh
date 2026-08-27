@@ -1639,6 +1639,8 @@ if ! rg -Fq '@"CONNECTION MATRIX — INPUT ROWS / OUTPUT COLUMNS"' "$format_upsc
     || ! rg -q 'formatMenuGeometry' "$format_upscale_source" \
     || ! rg -q 'drawSideFormatControl' "$format_upscale_source" \
     || ! rg -q 'drawSideAutoModeControl' "$format_upscale_source" \
+    || ! rg -q 'MidSideSpread' "$format_upscale_source" \
+    || ! rg -q 'EDITABLE M/S MATRIX' "$format_upscale_source" \
     || ! rg -q 'drawUnfoldedLayoutPage' "$format_upscale_source" \
     || ! rg -q 'candidateIsClear' "$format_upscale_source" \
     || ! rg -q 'horizontalExtent' "$format_upscale_source" \
@@ -1670,7 +1672,7 @@ if ! rg -Fq '@"CONNECTION MATRIX — INPUT ROWS / OUTPUT COLUMNS"' "$format_upsc
     || ! rg -Fq '@"OUTPUT TREATMENT"' "$format_upscale_source" \
     || ! rg -q 'sliderDoubleClickDefault' "$format_upscale_source"; then
   warn "layout" "$format_upscale_source" \
-    "Format Upscale centers a weighted format-sized matrix, keeps only the Matrix/Tier Rings/AED Flat view selector in the title strip, moves format, edit, automap, clear, and normalization tools to the right rail, collision-spaces large-array labels, provides in-cell weighting plus row/column shaping, offers point-focused shape-preserving overhead tier contours with an exact unfilled AED fallback, uses tier/AED/XYZ labeling, and retains standard slider geometry/reset behavior."
+    "Format Upscale centers a signed weighted format-sized matrix with M/S Spread, keeps only the Matrix/Tier Rings/AED Flat view selector in the title strip, moves format, edit, automap, clear, and normalization tools to the right rail, collision-spaces large-array labels, provides polarity-preserving in-cell weighting plus row/column shaping, offers point-focused shape-preserving overhead tier contours with an exact unfilled AED fallback, uses tier/AED/XYZ labeling, and retains standard slider geometry/reset behavior."
 fi
 
 section "Ambi Imprint"

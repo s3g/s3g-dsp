@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <utility>
@@ -512,6 +513,77 @@ int main()
         "dual-safe normalization did not limit an overloaded column");
     upscale->setNormalization(s3g::FormatUpscaleNormalization::Row);
     upscale->useAutomaticRoutes();
+
+    s3g::FormatUpscaleLayoutData midSideOutput {};
+    midSideOutput.count = 5u;
+    s3g::formatUpscaleSetSpeaker(midSideOutput, 0u, 0.0f, 0.0f,
+        s3g::FormatUpscaleRole::Center);
+    s3g::formatUpscaleSetSpeaker(midSideOutput, 1u, 90.0f, 0.0f,
+        s3g::FormatUpscaleRole::LeftSurround);
+    s3g::formatUpscaleSetSpeaker(midSideOutput, 2u, -90.0f, 0.0f,
+        s3g::FormatUpscaleRole::RightSurround);
+    s3g::formatUpscaleSetSpeaker(midSideOutput, 3u, 90.0f, 60.0f,
+        s3g::FormatUpscaleRole::TopLeftFront);
+    s3g::formatUpscaleSetSpeaker(midSideOutput, 4u, -90.0f, 60.0f,
+        s3g::FormatUpscaleRole::TopRightFront);
+    upscale->setCustomOutputLayout(midSideOutput);
+    params.inputLayout = s3g::FormatUpscaleLayout::Stereo;
+    params.outputLayout = s3g::FormatUpscaleLayout::Custom;
+    params.basis = s3g::FormatUpscaleBasis::Direct;
+    params.placement = s3g::FormatUpscalePlacement::MidSideSpread;
+    params.smoothingMs = 1.0f;
+    params.decorrelationPercent = 0.0f;
+    params.delayMs = 0.0f;
+    upscale->setParams(params);
+    upscale->reset();
+    const float msCenterRight = upscale->targetExtensionGain(0u, 0u);
+    const float msCenterLeft = upscale->targetExtensionGain(1u, 0u);
+    const float msLeftFromRight = upscale->targetExtensionGain(0u, 1u);
+    const float msLeftFromLeft = upscale->targetExtensionGain(1u, 1u);
+    const float msRightFromRight = upscale->targetExtensionGain(0u, 2u);
+    const float msRightFromLeft = upscale->targetExtensionGain(1u, 2u);
+    const float msHeightFromRight = upscale->targetExtensionGain(0u, 3u);
+    const float msHeightFromLeft = upscale->targetExtensionGain(1u, 3u);
+    ok &= check(std::strcmp(s3g::formatUpscalePlacementName(
+                    s3g::FormatUpscalePlacement::MidSideSpread),
+                    "M/S spread") == 0
+            && near(msCenterRight, msCenterLeft)
+            && msLeftFromLeft > 0.0f && msLeftFromRight < 0.0f
+            && msRightFromRight > 0.0f && msRightFromLeft < 0.0f,
+        "M/S spread did not create a centered Mid and opposing lateral Side map");
+    ok &= check((msLeftFromLeft - msLeftFromRight)
+                > (msHeightFromLeft - msHeightFromRight)
+            && near(routePower(*upscale, 0u), 1.0f)
+            && near(routePower(*upscale, 1u), 1.0f),
+        "M/S spread did not reduce Side with elevation or normalize its rows");
+    input.fill(0.0f);
+    input[0u] = 1.0f;
+    input[1u] = 1.0f;
+    upscale->processFrame(input.data(), 2u, output.data(), 5u);
+    ok &= check(output[0u] > 0.0f
+            && near(output[1u], output[2u])
+            && near(output[3u], output[4u]),
+        "M/S spread did not collapse a mono-compatible input symmetrically");
+    upscale->beginManualRoutesFromCurrent();
+    ok &= check(upscale->manualWeight(0u, 1u) < 0.0f
+            && upscale->targetExtensionGain(0u, 1u) < 0.0f,
+        "capturing the M/S matrix did not preserve negative Side polarity");
+    upscale->setManualWeight(0u, 1u, -0.5f);
+    ok &= check(upscale->manualRoute(0u, 1u)
+            && near(upscale->manualWeight(0u, 1u), -0.5f)
+            && upscale->targetExtensionGain(0u, 1u) < 0.0f,
+        "editing an M/S matrix weight did not retain its signed polarity");
+    upscale->useAutomaticRoutes();
+    auto asymmetricMidSideOutput = midSideOutput;
+    asymmetricMidSideOutput.count = 6u;
+    s3g::formatUpscaleSetSpeaker(asymmetricMidSideOutput, 5u,
+        45.0f, 20.0f, s3g::FormatUpscaleRole::Left);
+    upscale->setCustomOutputLayout(asymmetricMidSideOutput);
+    ok &= check(near(upscale->targetExtensionGain(0u, 0u),
+                upscale->targetExtensionGain(1u, 0u))
+            && near(routePower(*upscale, 0u), 1.0f)
+            && near(routePower(*upscale, 1u), 1.0f),
+        "M/S spread did not retain a common pair scale on an asymmetric array");
 
     params.inputLayout = s3g::FormatUpscaleLayout::Stereo;
     params.outputLayout = s3g::FormatUpscaleLayout::Quad;

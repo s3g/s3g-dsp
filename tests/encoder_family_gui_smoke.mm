@@ -12719,13 +12719,22 @@ int main(int argc, char** argv)
                 @"autoRowShapeValue"] unsignedIntValue];
             const bool automaticAfterShape = ![[document valueForKey:
                 @"manualRoutesActive"] boolValue];
-            // TIER FILL is the eighth recipe in the balanced two-column menu.
+            // TIER FILL and M/S SPREAD are the final two recipes in the
+            // balanced two-column menu.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 238.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1040.0, 300.0))];
+            const uint32_t tierFillMode = [[document valueForKey:
+                @"autoModeValue"] unsignedIntValue];
             [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
                 NSMakePoint(950.0, 238.0))];
             [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
                 NSMakePoint(1040.0, 320.0))];
-            const uint32_t tierFillMode = [[document valueForKey:
+            const uint32_t midSideMode = [[document valueForKey:
                 @"autoModeValue"] unsignedIntValue];
+            const bool midSideAutomatic = ![[document valueForKey:
+                @"manualRoutesActive"] boolValue];
             // Restore CROSS for the remaining interaction sequence.
             [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
                 NSMakePoint(950.0, 238.0))];
@@ -12952,6 +12961,8 @@ int main(int argc, char** argv)
                 && autoRowShape == 1u
                 && automaticAfterShape
                 && tierFillMode == 7u
+                && midSideMode == 8u
+                && midSideAutomatic
                 && manualRoutes
                 && directConnection
                 && adjacentConnection
@@ -13005,6 +13016,7 @@ int main(int argc, char** argv)
                     << designMap << ", auto " << autoMode << "/"
                     << automaticRoutes << "/shape " << autoRowShape << "/"
                     << automaticAfterShape << "/tier " << tierFillMode
+                    << "/ms " << midSideMode << "/" << midSideAutomatic
                     << ", route " << manualRoutes << "/"
                     << directConnection << "/" << adjacentConnection
                     << "/" << thirdConnection
@@ -13085,6 +13097,25 @@ int main(int argc, char** argv)
                             && [flatRender writeToFile:
                                 [directory stringByAppendingPathComponent:
                                     flatFile]
+                                atomically:YES];
+                    }
+                    if (ok) {
+                        ok = [document respondsToSelector:
+                            @selector(loadDocumentationMidSideLayout)];
+                    }
+                    if (ok) {
+                        [document performSelector:
+                            @selector(loadDocumentationMidSideLayout)];
+                        [document displayIfNeeded];
+                        NSData* midSideRender = [document dataWithPDFInsideRect:
+                            [document bounds]];
+                        NSString* midSideFile = [[NSString
+                            stringWithUTF8String:pluginId]
+                            stringByAppendingString:@".mid-side.pdf"];
+                        ok = midSideRender && [midSideRender length] > 0u
+                            && [midSideRender writeToFile:
+                                [directory stringByAppendingPathComponent:
+                                    midSideFile]
                                 atomically:YES];
                     }
                     if (ok) {

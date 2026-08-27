@@ -65,7 +65,7 @@ constexpr ParamDef kParamDefs[] {
     { kParamOutputLayout, "Output Format", "OUT", "Format", 0.0,
         static_cast<double>(s3g::kFormatUpscaleLayoutCount - 1u), 3.0, true },
     { kParamBasis, "Content Basis", "BASIS", "Method", 0.0, 2.0, 0.0, true },
-    { kParamPlacement, "Placement", "AUTO", "Method", 0.0, 7.0, 1.0, true },
+    { kParamPlacement, "Placement", "AUTO", "Method", 0.0, 8.0, 1.0, true },
     { kParamOrigin, "Origin Policy", "ORIGIN", "Format", 0.0, 2.0, 1.0, true },
     { kParamAmount, "Upscale Amount", "AMOUNT", "Format", 0.0, 100.0, 100.0, false },
     { kParamCopies, "Copies", "COPIES", "Method", 1.0,
@@ -451,7 +451,7 @@ const char* menuValueName(clap_id id, uint32_t value)
             static_cast<s3g::FormatUpscaleBasis>(std::min<uint32_t>(value, 2u)));
     case kParamPlacement:
         return s3g::formatUpscalePlacementName(
-            static_cast<s3g::FormatUpscalePlacement>(std::min<uint32_t>(value, 7u)));
+            static_cast<s3g::FormatUpscalePlacement>(std::min<uint32_t>(value, 8u)));
     case kParamOrigin:
         return s3g::formatUpscaleOriginName(
             static_cast<s3g::FormatUpscaleOrigin>(std::min<uint32_t>(value, 2u)));
@@ -498,7 +498,7 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         || id == kParamAutoRowShape || id == kParamNormalization) {
         const uint32_t count = id == kParamInputLayout || id == kParamOutputLayout
             ? s3g::kFormatUpscaleLayoutCount
-            : (id == kParamPlacement ? 8u
+            : (id == kParamPlacement ? 9u
                 : (id == kParamAutoRowShape ? 4u : 3u));
         for (uint32_t index = 0u; index < count; ++index) {
             if (std::strcmp(display, menuValueName(id, index)) == 0) {
@@ -1027,7 +1027,7 @@ uint32_t menuCountForParam(clap_id id)
 {
     if (id == kParamInputLayout || id == kParamOutputLayout)
         return s3g::kFormatUpscaleLayoutCount;
-    if (id == kParamPlacement) return 8u;
+    if (id == kParamPlacement) return 9u;
     if (id == kParamBasis || id == kParamOrigin) return 3u;
     return 0u;
 }
@@ -1599,6 +1599,42 @@ enum : NSInteger {
     _designMap = -1;
     _selectedInput = 0u;
     _selectedOutput = 0u;
+    _selectionIsOutput = false;
+    [self updateCustomValueFields];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)loadDocumentationMidSideLayout
+{
+    if (!_plugin) return;
+    s3g::FormatUpscaleLayoutData output {};
+    output.count = 6u;
+    s3g::formatUpscaleSetSpeaker(output, 0u, 0.0f, 0.0f,
+        s3g::FormatUpscaleRole::Center);
+    s3g::formatUpscaleSetSpeaker(output, 1u, 90.0f, 0.0f,
+        s3g::FormatUpscaleRole::LeftSurround);
+    s3g::formatUpscaleSetSpeaker(output, 2u, -90.0f, 0.0f,
+        s3g::FormatUpscaleRole::RightSurround);
+    s3g::formatUpscaleSetSpeaker(output, 3u, 90.0f, 55.0f,
+        s3g::FormatUpscaleRole::TopLeftFront);
+    s3g::formatUpscaleSetSpeaker(output, 4u, -90.0f, 55.0f,
+        s3g::FormatUpscaleRole::TopRightFront);
+    s3g::formatUpscaleSetSpeaker(output, 5u, 0.0f, 90.0f,
+        s3g::FormatUpscaleRole::Center);
+    _plugin->dsp.setCustomOutputLayout(output);
+    _plugin->params.inputLayout = s3g::FormatUpscaleLayout::Stereo;
+    _plugin->params.outputLayout = s3g::FormatUpscaleLayout::Custom;
+    _plugin->params.basis = s3g::FormatUpscaleBasis::Direct;
+    _plugin->params.placement =
+        s3g::FormatUpscalePlacement::MidSideSpread;
+    _plugin->autoRowShape = s3g::FormatUpscaleRowShape::Flat;
+    _plugin->normalization = s3g::FormatUpscaleNormalization::DualLimit;
+    applyParams(*_plugin);
+    _plugin->dsp.useAutomaticRoutes();
+    _page = 0u;
+    _designMap = -1;
+    _selectedInput = 0u;
+    _selectedOutput = 1u;
     _selectionIsOutput = false;
     [self updateCustomValueFields];
     [self setNeedsDisplay:YES];
@@ -2823,7 +2859,7 @@ enum : NSInteger {
                 geometry.cell * 0.13, 0.8, 4.0);
             if (connected) {
                 const float displayWeight = _plugin->dsp.manualRoutesActive()
-                    ? _plugin->dsp.manualWeight(input, output)
+                    ? std::abs(_plugin->dsp.manualWeight(input, output))
                     : std::min(1.0f, std::abs(gain));
                 const CGFloat minimumActive = std::max<CGFloat>(
                     1.2, geometry.cell * 0.24);
@@ -2857,7 +2893,8 @@ enum : NSInteger {
         selectedContributorCount,
         selectedContributorCount == 1u ? "" : "S"];
     const float selectedWeight = _plugin->dsp.manualRoutesActive()
-        ? _plugin->dsp.manualWeight(_selectedInput, _selectedOutput)
+        ? std::abs(_plugin->dsp.manualWeight(
+            _selectedInput, _selectedOutput))
         : std::min(1.0f, std::abs(
             _plugin->dsp.targetAnchorGain(_selectedInput, _selectedOutput)
             + _plugin->dsp.targetExtensionGain(
@@ -2865,19 +2902,85 @@ enum : NSInteger {
     const float selectedGain = _plugin->dsp.targetAnchorGain(
             _selectedInput, _selectedOutput)
         + _plugin->dsp.targetExtensionGain(_selectedInput, _selectedOutput);
-    NSString* equation = [NSString stringWithFormat:
-        @"WEIGHT %.0f%%   •   APPLIED g %.3f   •   ROW Σg² %.3f   •   COLUMN Σg² %.3f   •   %s",
-        static_cast<double>(selectedWeight * 100.0f),
-        static_cast<double>(selectedGain), static_cast<double>(selectedPower),
-        static_cast<double>(selectedColumnPower),
-        s3g::formatUpscaleNormalizationName(_plugin->normalization)];
-    NSString* routeMode = _plugin->dsp.manualRoutesActive()
-        ? @"EDITABLE MATRIX"
-        : [NSString stringWithFormat:@"AUTO: %s / %s / BASE %u TARGET%s",
+    NSString* equation = nil;
+    const bool midSideRecipe = _plugin->params.placement
+        == s3g::FormatUpscalePlacement::MidSideSpread;
+    if (midSideRecipe) {
+        auto sideOf = [](const s3g::FormatUpscaleSpeaker& speaker) {
+            if (speaker.azimuthDeg < -5.0f) return -1;
+            if (speaker.azimuthDeg > 5.0f) return 1;
+            return 0;
+        };
+        const int selectedSide = sideOf(
+            inputLayout.speakers[_selectedInput]);
+        uint32_t mirror = _selectedInput;
+        float bestScore = 1000000.0f;
+        for (uint32_t candidate = 0u; candidate < inputCount; ++candidate) {
+            if (candidate == _selectedInput
+                || sideOf(inputLayout.speakers[candidate])
+                    != -selectedSide) continue;
+            const float score = s3g::formatUpscaleAngularDistance(
+                    inputLayout.speakers[candidate].azimuthDeg,
+                    -inputLayout.speakers[_selectedInput].azimuthDeg)
+                + std::abs(inputLayout.speakers[candidate].elevationDeg
+                    - inputLayout.speakers[_selectedInput].elevationDeg)
+                    * 1.35f;
+            if (score < bestScore) {
+                bestScore = score;
+                mirror = candidate;
+            }
+        }
+        if (selectedSide != 0 && mirror != _selectedInput) {
+            const uint32_t left = selectedSide > 0
+                ? _selectedInput : mirror;
+            const uint32_t right = left == _selectedInput
+                ? mirror : _selectedInput;
+            const float leftGain = _plugin->dsp.targetAnchorGain(
+                    left, _selectedOutput)
+                + _plugin->dsp.targetExtensionGain(left, _selectedOutput);
+            const float rightGain = _plugin->dsp.targetAnchorGain(
+                    right, _selectedOutput)
+                + _plugin->dsp.targetExtensionGain(right, _selectedOutput);
+            constexpr float invSqrt2 = 0.7071067811865475f;
+            const float midGain = (leftGain + rightGain) * invSqrt2;
+            const float sideGain = (leftGain - rightGain) * invSqrt2;
+            equation = [NSString stringWithFormat:
+                @"WEIGHT %.0f%%   •   APPLIED g %+.3f   •   O%u = %+.3f M %+.3f S   •   ROW Σg² %.3f   COL Σg² %.3f",
+                static_cast<double>(selectedWeight * 100.0f),
+                static_cast<double>(selectedGain), _selectedOutput + 1u,
+                static_cast<double>(midGain),
+                static_cast<double>(sideGain),
+                static_cast<double>(selectedPower),
+                static_cast<double>(selectedColumnPower)];
+        }
+    }
+    if (!equation) {
+        equation = [NSString stringWithFormat:
+            @"WEIGHT %.0f%%   •   APPLIED g %.3f   •   ROW Σg² %.3f   •   COLUMN Σg² %.3f   •   %s",
+            static_cast<double>(selectedWeight * 100.0f),
+            static_cast<double>(selectedGain),
+            static_cast<double>(selectedPower),
+            static_cast<double>(selectedColumnPower),
+            s3g::formatUpscaleNormalizationName(_plugin->normalization)];
+    }
+    NSString* routeMode = nil;
+    if (_plugin->dsp.manualRoutesActive()) {
+        routeMode = midSideRecipe
+            ? @"EDITABLE M/S MATRIX   •   MAGENTA = NEGATIVE SIDE POLARITY"
+            : @"EDITABLE MATRIX";
+    } else if (midSideRecipe) {
+        routeMode = [NSString stringWithFormat:
+            @"AUTO: M/S SPREAD / WIDTH %.0f%% / %s / ALL OUTPUT TIERS",
+            static_cast<double>(s3g::kFormatUpscaleMidSideWidth * 100.0f),
+            s3g::formatUpscaleRowShapeName(_plugin->autoRowShape)];
+    } else {
+        routeMode = [NSString stringWithFormat:
+            @"AUTO: %s / %s / BASE %u TARGET%s",
             s3g::formatUpscalePlacementName(_plugin->params.placement),
             s3g::formatUpscaleRowShapeName(_plugin->autoRowShape),
             _plugin->params.copies,
             _plugin->params.copies == 1u ? "" : "S"];
+    }
     NSString* weightEdit = geometry.cell >= 10.0
         ? @"DRAG ↑↓ IN CELL = WEIGHT"
         : @"DIST WEIGHT SLIDER = WEIGHT";
@@ -2948,7 +3051,8 @@ enum : NSInteger {
         kSelectedPanelRect.origin.y + 96.0) withAttributes:valueAttrs];
 
     float weight = _plugin->dsp.manualRoutesActive()
-        ? _plugin->dsp.manualWeight(_selectedInput, _selectedOutput)
+        ? std::abs(_plugin->dsp.manualWeight(
+            _selectedInput, _selectedOutput))
         : std::min(1.0f, std::abs(
             _plugin->dsp.targetAnchorGain(_selectedInput, _selectedOutput)
             + _plugin->dsp.targetExtensionGain(
@@ -3850,12 +3954,16 @@ enum : NSInteger {
 {
     if (!_plugin) return;
     const NSRect hit = selectedWeightHitRect();
-    const float weight = static_cast<float>(std::clamp<CGFloat>(
+    const float magnitude = static_cast<float>(std::clamp<CGFloat>(
         (point.x - hit.origin.x) / std::max<CGFloat>(20.0, hit.size.width),
         0.0, 1.0));
     if (!_plugin->dsp.manualRoutesActive())
         _plugin->dsp.beginManualRoutesFromCurrent();
-    _plugin->dsp.setManualWeight(_selectedInput, _selectedOutput, weight);
+    const float current = _plugin->dsp.manualWeight(
+        _selectedInput, _selectedOutput);
+    const float polarity = current < 0.0f ? -1.0f : 1.0f;
+    _plugin->dsp.setManualWeight(
+        _selectedInput, _selectedOutput, polarity * magnitude);
     [self setNeedsDisplay:YES];
 }
 
@@ -3905,8 +4013,10 @@ enum : NSInteger {
             const float angle = std::acos(dot);
             weight = std::max(0.25f, std::cos(angle * 0.5f));
         }
-        _plugin->dsp.setManualWeight(
-            _selectedInput, connected[rank], weight);
+        const float current = _plugin->dsp.manualWeight(
+            _selectedInput, connected[rank]);
+        _plugin->dsp.setManualWeight(_selectedInput, connected[rank],
+            (current < 0.0f ? -1.0f : 1.0f) * weight);
     }
     [self setNeedsDisplay:YES];
 }
@@ -3953,8 +4063,10 @@ enum : NSInteger {
             const float angle = std::acos(dot);
             weight = std::max(0.25f, std::cos(angle * 0.5f));
         }
-        _plugin->dsp.setManualWeight(
-            connected[rank], _selectedOutput, weight);
+        const float current = _plugin->dsp.manualWeight(
+            connected[rank], _selectedOutput);
+        _plugin->dsp.setManualWeight(connected[rank], _selectedOutput,
+            (current < 0.0f ? -1.0f : 1.0f) * weight);
     }
     [self setNeedsDisplay:YES];
 }
@@ -4383,14 +4495,17 @@ enum : NSInteger {
             _matrixWeightAdjusting = YES;
         }
         if (_matrixWeightAdjusting) {
-            const float weight = static_cast<float>(std::clamp<CGFloat>(
-                _matrixDragStartWeight
+            const float polarity = _matrixDragStartWeight < 0.0f
+                ? -1.0f : 1.0f;
+            const float magnitude = static_cast<float>(std::clamp<CGFloat>(
+                std::abs(_matrixDragStartWeight)
                     + (_matrixDragOrigin.y - point.y)
                         / std::max<CGFloat>(12.0, geometry.cell),
                 0.0, 1.0));
             _plugin->dsp.setManualWeight(
                 static_cast<uint32_t>(_matrixPaintInput),
-                static_cast<uint32_t>(_matrixPaintOutput), weight);
+                static_cast<uint32_t>(_matrixPaintOutput),
+                polarity * magnitude);
             _selectedInput = static_cast<uint32_t>(_matrixPaintInput);
             _selectedOutput = static_cast<uint32_t>(_matrixPaintOutput);
             [self setNeedsDisplay:YES];
