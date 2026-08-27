@@ -153,14 +153,9 @@
           </tbody>
         </table>
 
-        <h2 id="state">Automation, Storage, and Compatibility</h2>
+        <h2 id="storage">Storage and Recall</h2>
 
-        <ul>
-          <li>Both editions publish 46 automatable controls, including twelve independent lane-timing values and the seven Lanes 32 routing values. The stereo editor keeps routing hidden because its audio port is fixed to two channels.</li>
-          <li>The breakpoint path, selected settings, four source references, and the requested storage policy are saved in plug-in state. Earlier constant Manual Lane sessions remain compatible until a breakpoint is added.</li>
-          <li><code>PROJECT</code> copies sources into the saved REAPER project's media path, <code>LINK</code> retains their original locations, and <code>EMBED</code> stores decoded floating-point PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a>.</li>
-          <li>Project copies use verified content-hash names. Reloading an unchanged source, including one already in project media, reuses the existing file rather than creating another copy. In an unsaved project the request remains pending until the host supplies a project media path.</li>
-        </ul>
+        <p>The breakpoint path, instrument settings, and four source references return with the project. <code>PROJECT</code> copies sources into the saved REAPER project's media directory and reuses unchanged files already collected there; <code>LINK</code> retains their original locations; <code>EMBED</code> stores decoded audio with the project. See <a href="sample-instruments.html#state">Sample Storage</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-motion.html"><span>Previous</span>Sample Motion</a>
@@ -179,7 +174,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -193,7 +188,7 @@
           <a href="#voices">Polyphony and MIDI</a>
           <a href="#routing">Lanes 32 Routing</a>
           <a href="#presets">Factory Presets</a>
-          <a href="#state">Automation and State</a>
+          <a href="#storage">Storage and Recall</a>
         </div>
       </aside>
     </div>

@@ -99,20 +99,13 @@
 
         <p>Loop Crossfade is a percentage of the resolved loop span and is bounded so a playable loop body remains. It applies to Forward Loop and Reverse Loop; ping-pong modes reverse continuously at their endpoints and do not wrap. Loop Start, Loop End, and Loop Crossfade changes update active loop voices through a 5 ms click-safe transition. Start and Length remain fixed for each triggered voice.</p>
 
-        <p>The filter offers Off, Low Pass, Band Pass, High Pass, and Notch types. Cutoff is frequency-scaled from 20 Hz to 20 kHz, Resonance raises the response around cutoff, and bipolar Env Amount moves cutoff by as much as six octaves from the proportional amplitude envelope. Off is the compatibility default for restored projects.</p>
+        <p>The filter offers Off, Low Pass, Band Pass, High Pass, and Notch types. Cutoff is frequency-scaled from 20 Hz to 20 kHz, Resonance raises the response around cutoff, and bipolar Env Amount moves cutoff by as much as six octaves from the proportional amplitude envelope.</p>
 
-        <h2 id="routing">Routing and State</h2>
+        <h2 id="output-storage">Output and Storage</h2>
 
-        <ul>
-          <li>Input: one CLAP note/MIDI port and file loading through the editor.</li>
-          <li>MIDI Receive: Omni by default, or Channel 1 through Channel 16. The filter applies equally to the stereo and 16-channel versions.</li>
-          <li>Sample Player 2 output: one fixed stereo port; mono is presented on both stereo lanes.</li>
-          <li>Sample Player 16 output: one fixed 16-channel port; unused lanes remain silent.</li>
-          <li>Pan is exclusive to Sample Player 2, where it places mono sources across stereo or balances a stereo source.</li>
-          <li>Sample Player 16 does not expose Pan. Every source lane maps directly to its matching output lane without stereo balancing or mono duplication; unused output lanes remain silent.</li>
-          <li><code>KILL ALL</code> is a momentary, unsaved panic action. It clears every active voice and held-note state without unloading the sample or changing any controls; the next note starts normally.</li>
-          <li><code>STORE PROJECT</code> is the new-instance default and copies the source to the saved REAPER project's media directory under <code>s3g Samples</code>. <code>LINK</code> retains the original path; <code>EMBED</code> stores decoded PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a> for portability, undo-size, unsaved-project, and Save As behavior.</li>
-        </ul>
+        <p>Sample Player 2 has a fixed stereo output; mono sources appear on both channels and Pan places them in the stereo field. Sample Player 16 maps source lanes directly to its fixed 16-channel output and leaves unused lanes silent. Both editions receive MIDI on Omni or a selected channel from 1–16.</p>
+
+        <p><code>KILL ALL</code> clears active voices without unloading the sample. New instances use <code>STORE PROJECT</code>; choose <code>LINK</code> to keep the original path or <code>EMBED</code> for self-contained decoded audio. See <a href="sample-instruments.html#state">Sample Storage</a> for the portability and file-size tradeoffs.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-instruments.html"><span>Previous</span>Sample Instruments</a>
@@ -131,7 +124,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -141,7 +134,7 @@
           <a href="#playback">Playback Modes</a>
           <a href="#trigger-voice">Trigger / Voice</a>
           <a href="#waveform-filter">Waveform / Filter</a>
-          <a href="#routing">Routing and State</a>
+          <a href="#output-storage">Output and Storage</a>
         </div>
       </aside>
     </div>

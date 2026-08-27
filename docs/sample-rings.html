@@ -35,7 +35,7 @@
               <img src="assets/plugin-guis/sample-rings.png" alt="Sample Rings 8 interface with four populated stereo sources forming eight concentric waveform rings, eight labeled H1 through H8 read heads spread across radius and loop phase in Field 8 formation, radial and angular controls, selected H1 effective cross-ring read details, Slot D timing controls, and Stereo Ring output controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Live Sample Rings interface from the current four-source project state. Field 8 formation spreads H1–H8 across the concentric source field while the selected H1 panel exposes its effective R5-to-R7 cross-ring read.</figcaption>
+          <figcaption>Live Sample Rings interface with four populated sources. Field 8 formation spreads H1–H8 across the concentric source field while the selected H1 panel exposes its effective R5-to-R7 cross-ring read.</figcaption>
         </figure>
 
         <h2 id="workflow">Workflow</h2>
@@ -74,7 +74,7 @@
           <tbody>
             <tr><td>Project</td><td>Copies each loaded file into the saved REAPER project's <code>s3g Samples</code> media directory and saves a project-relative locator. Content hashing reuses an existing verified copy when the same unchanged file is loaded again; files already inside project media are reused in place.</td></tr>
             <tr><td>Link</td><td>Keeps the original external file path and writes no audio payload for a file-backed slot.</td></tr>
-            <tr><td>Embed</td><td>Stores decoded floating-point audio for every populated slot in CLAP state, subject to the shared one-gigabyte safety cap.</td></tr>
+            <tr><td>Embed</td><td>Stores decoded floating-point audio for every populated slot inside the project, subject to the shared one-gigabyte safety cap.</td></tr>
           </tbody>
         </table>
 
@@ -164,18 +164,8 @@
 
         <p><code>8 Direct</code> preserves all eight matrix outputs. <code>Quad Ring</code> and <code>Stereo Ring</code> project the eight lanes into a four- or two-channel ring while retaining the fixed eight-channel host port; unused outputs are silent. Rotate turns the ring before projection.</p>
 
-        <h2 id="state">State and Retirement</h2>
-
-        <ul>
-          <li>All 91 controls, the Project/Link/Embed selection, four source locators, per-head Manual values, and the four source slots are saved in CLAP state. Mute and Solo operate the saved, automatable Head Mask.</li>
-          <li>Project is the default. Its content-addressed, verified copy reuses identical media instead of creating duplicates and registers the result with the exact owning REAPER project for copy-media Save As operations.</li>
-          <li>Recorded slots have no external file and are always embedded as decoded floating-point PCM, so saving the host project preserves captures. Embedded state size is approximately channels × frames × four bytes.</li>
-          <li>Processor Loop, Processor Multi Loop, and the provisional Sample Loop Matrix identity have been retired. Sample Rings uses a new plug-in identifier; replace those effects in existing host sessions.</li>
-          <li>The storage-aware engine uses state version 6. Manually imported version 5 development state migrates file references to Link while retaining pathless captures as embedded audio.</li>
-        </ul>
-
         <nav class="page-nav" aria-label="Page navigation">
-          <a class="page-nav-link" href="effect-crcltr.html"><span>Previous</span>Sample Circulator</a>
+          <a class="page-nav-link" href="sample-circulator.html"><span>Previous</span>Sample Circulator</a>
           <a class="page-nav-link next" href="voice-instruments.html"><span>Next</span>Voice / Language Instruments</a>
         </nav>
       </main>
@@ -191,7 +181,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -206,7 +196,6 @@
           <a href="#formations">Head Formations</a>
           <a href="#heads">Eight-Head Motion</a>
           <a href="#midi-output">MIDI and Output</a>
-          <a href="#state">State and Retirement</a>
         </div>
       </aside>
     </div>

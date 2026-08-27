@@ -72,7 +72,7 @@
           </tbody>
         </table>
 
-        <p>Motion is therefore not always back and forth: Hover, Mirror, and Round Trip are periodic returns, Zigzag deliberately alternates portions, Drunk may choose either direction, and Forward, Reverse, and Moving Loop remain one-way. In the default Normal basis, Speed is a ratio of ordinary source playback. A one-second move at <code>1x</code> consumes about one second of source time even when Field or source duration changes. Hertz retains direct cycle-rate control and is selected automatically when a version-1 state is migrated.</p>
+        <p>Motion is therefore not always back and forth: Hover, Mirror, and Round Trip are periodic returns, Zigzag deliberately alternates portions, Drunk may choose either direction, and Forward, Reverse, and Moving Loop remain one-way. In the default Normal basis, Speed is a ratio of ordinary source playback. A one-second move at <code>1x</code> consumes about one second of source time even when Field or source duration changes. Hertz retains direct cycle-rate control.</p>
 
         <p>MIDI pitch multiplies motion speed around Root: a note one octave above Root moves twice as quickly, while Tune and Fine Tune offset every voice. In Poly mode as many as sixteen notes keep independent phases, seeded paths, and output assignments. Mono replaces the current voice. Legato changes note and speed while preserving motion, packet, outer-envelope, amplitude, and output phases.</p>
 
@@ -131,7 +131,7 @@
 
         <h2 id="midi">Tracker, MIDI, and Automation</h2>
 
-        <p>Sample Motion 2 exposes 36 CLAP parameters; Sample Motion 32 exposes 42, adding four allocator parameters plus Route On and Avoid Adjacent. All can be automated or sequenced from <a href="s3g-tracker.html">s3g Tracker</a>. MIDI Receive defaults to Omni and can be restricted to channels 1–16. The selected channel also accepts these direct controls:</p>
+        <p>Both editions make their controls available to host automation and <a href="s3g-tracker.html">s3g Tracker</a>; Sample Motion 32 adds its allocator controls, Route On, and Avoid Adjacent. MIDI Receive defaults to Omni and can be restricted to channels 1–16. The selected channel also accepts these direct controls:</p>
 
         <table class="readout-table">
           <thead><tr><th>CC</th><th>Control</th></tr></thead>
@@ -144,17 +144,9 @@
           </tbody>
         </table>
 
-        <h2 id="routing-state">Routing and State</h2>
+        <h2 id="storage">Storage and Recall</h2>
 
-        <ul>
-          <li>Input: one MIDI/note port; no audio input.</li>
-          <li>Output: Sample Motion 2 has one fixed stereo audio port. Sample Motion 32 has one fixed 32-channel port.</li>
-          <li>32-channel allocation: 2–32 active channels; mono or stereo-pair destinations; adjacent or split-bank pair maps; sequential, reverse sequential, palindrome, random, or no-repeat random-cycle order. Route On chooses a retained note assignment, reassignment at each trajectory turn, or a captured assignment for each segment event. Avoid Adjacent prevents Random and Random Cycle from choosing the same or a neighboring destination when the active width permits it.</li>
-          <li>Source: one decoded mono or stereo file.</li>
-          <li>State: all parameters, requested storage policy, preserved source reference, and decoded channel audio in <code>EMBED</code> mode or as the safety fallback for a pathless asset, up to the plug-in's one-gibibyte safety limit.</li>
-        </ul>
-
-        <p><code>PROJECT</code> copies the unchanged source in the background to the saved REAPER project's media directory under <code>s3g Samples</code>; <code>LINK</code> retains its original location; <code>EMBED</code> adds decoded 32-bit floating-point PCM to plug-in state. The editor reports referenced file bytes or the decoded <code>STATE</code> cost. A pending Project request in an unsaved or unsupported project keeps the current playable source and unresolved reference intact; a decoded asset with no usable locator remains embedded as a safety fallback. Large embedded state can also be captured in host undo snapshots—including FX bypass or chain edits—so Project is preferred for normal work.</p>
+        <p><code>PROJECT</code> copies the source into the saved REAPER project's <code>s3g Samples</code> directory, <code>LINK</code> retains its original location, and <code>EMBED</code> stores decoded audio with the project. A source without a reusable file path remains embedded so the project can still recall it. See <a href="sample-instruments.html#state">Sample Storage</a> for the shared policy.</p>
 
         <p>Related source material and inspiration are listed in <a href="references.html#sample-motion">References</a>.</p>
 
@@ -175,7 +167,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -189,7 +181,7 @@
           <a href="#editor-presets">Editor and Presets</a>
           <a href="#voices">Voices and Triggers</a>
           <a href="#midi">Tracker, MIDI, and Automation</a>
-          <a href="#routing-state">Routing and State</a>
+          <a href="#storage">Storage and Recall</a>
         </div>
       </aside>
     </div>

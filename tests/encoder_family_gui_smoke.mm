@@ -12375,7 +12375,8 @@ int main(int argc, char** argv)
                     "org.s3g.s3g-dsp.sample-wavesets") == 0
                 || sampleMotion);
         const bool documentationLiveSignal = documentationCapture
-            && (documentationObjectDecoder
+            && (documentationSpeakerDecoder
+                || documentationObjectDecoder
                 || documentationAdaptiveDecoder
                 || documentationStereoDecoder
                 || documentationHeadDecoder

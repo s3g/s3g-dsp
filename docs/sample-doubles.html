@@ -43,7 +43,7 @@
         <ol>
           <li>Press <code>LOAD SAMPLE</code> or drop a mono or stereo audio file on the waveform. Choose <code>STORE PROJECT</code> (the new-instance default), <code>STORE LINK</code>, or <code>STORE EMBED</code> as described in <a href="sample-instruments.html#state">Sample Storage</a>.</li>
           <li>Route its fixed stereo output to the intended speakers or monitor path.</li>
-          <li>After loading, inspect the BPM readout. A confident, unambiguous estimate is applied automatically; a less certain result is shown as a suggestion. Use <code>1/2</code>, <code>AUTO</code>, or <code>x2</code> to resolve octave choices, or edit <code>SAMPLE BPM</code> directly. After a manual BPM edit, <code>AUTO</code> restores the retained analyzed value. If the current sample has no retained result—for example after project recall—<code>AUTO</code> re-analyzes it on the loader worker and applies a valid result. This source tempo defines beat distances inside the file; it does not force the instrument to follow host tempo.</li>
+          <li>After loading, inspect the BPM readout. A confident, unambiguous estimate is applied automatically; a less certain result is shown as a suggestion. Use <code>1/2</code>, <code>AUTO</code>, or <code>x2</code> to resolve octave choices, or edit <code>SAMPLE BPM</code> directly. After a manual BPM edit, <code>AUTO</code> restores the retained analyzed value. If the current sample has no retained result—for example after project recall—<code>AUTO</code> re-analyzes it in the background and applies a valid result. This source tempo defines beat distances inside the file; it does not force the instrument to follow host tempo.</li>
           <li>Set <code>SPEED</code>. Its default of -7 semitones lowers the playback rate, pitch, and duration together; positive values raise them together.</li>
           <li>Drag the waveform's <code>S</code> and <code>E</code> handles to select a region. Choose <code>ON</code> from the <code>LOOP</code> menu when the two copies should remain inside it.</li>
           <li>Press <code>RESTART</code>. Deck A starts at S and Deck B starts at Deck A plus <code>B OFFSET</code>, measured in source beats.</li>
@@ -124,18 +124,11 @@
 
         <p>The stepped and gradual settings let identical repeating material begin together, separate through a small rate difference, pass through intermediate relationships, and reunite. Doubles keeps that process performable by adding explicit Sync and Phase Step commands alongside the continuous B Drift control.</p>
 
-        <h2 id="routing-state">Routing and State</h2>
+        <h2 id="storage">Storage and Recall</h2>
 
-        <ul>
-          <li>Input: one CLAP note/MIDI command port and file loading through the editor.</li>
-          <li>Output: one fixed stereo port. Mono files are presented on both lanes; stereo channel order is preserved.</li>
-          <li>MIDI Receive: Omni by default, or Channel 1 through Channel 16.</li>
-          <li>State: all seventeen parameters, both normalized cue points and validity, requested storage policy, preserved source reference, and—in <code>EMBED</code> mode—up to 1 GiB of decoded mono or stereo PCM. Version-one twelve-parameter, version-two sixteen-parameter, and version-three cue-state projects remain readable. Versions one and two begin without cue markers; every older version receives the 150 ms Cue Preroll default.</li>
-          <li>BPM analysis runs only on the sample-loader worker. Project recall restores the saved source BPM exactly. Because an analyzed candidate is not serialized, pressing <code>AUTO</code> after recall starts a non-blocking rescan; changing files while it runs invalidates the stale result.</li>
-          <li>The audio engine keeps one immutable source asset and two positions; it does not duplicate the decoded audio in memory or include an internal recording stage.</li>
-        </ul>
+        <p>Doubles has a fixed stereo output, presents mono files on both channels, preserves stereo channel order, and receives MIDI on Omni or a selected channel from 1–16.</p>
 
-        <p><code>PROJECT</code> copies the unchanged source in the background into the saved REAPER project's effective media directory under <code>s3g Samples</code>. <code>LINK</code> keeps the original path. <code>EMBED</code> is self-contained but stores decoded 32-bit floating-point PCM, which can be much larger than the disk file and can enlarge host undo snapshots created by FX bypass or chain edits. A Project request remains pending without a saved/supported project and does not discard the current source or unresolved path.</p>
+        <p><code>PROJECT</code> copies the source into the saved REAPER project's <code>s3g Samples</code> directory, <code>LINK</code> keeps the original path, and <code>EMBED</code> stores self-contained decoded audio. Project recall restores the saved BPM and cue points; if no analyzed BPM candidate is available, pressing <code>AUTO</code> starts a new analysis. See <a href="sample-instruments.html#state">Sample Storage</a> for the shared tradeoffs.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-player.html"><span>Previous</span>Sample Player</a>
@@ -154,7 +147,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -166,7 +159,7 @@
           <a href="#tracker">Tracker Commands</a>
           <a href="#continuous-midi">Continuous MIDI</a>
           <a href="#settings">Factory Presets</a>
-          <a href="#routing-state">Routing and State</a>
+          <a href="#storage">Storage and Recall</a>
         </div>
       </aside>
     </div>

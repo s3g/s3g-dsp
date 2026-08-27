@@ -149,7 +149,7 @@
           </tbody>
         </table>
 
-        <p>All 25 Wavesets 2 controls are CLAP-automatable. Wavesets 32 adds Output Order, Voice Output, Stereo Pair Map, and Output Count for 29 parameters. Parameter automation is preferable when exact stepped menu values or reproducible range positions are required.</p>
+        <p>All Wavesets controls are available to host automation. Wavesets 32 adds Output Order, Voice Output, Stereo Pair Map, and Output Count. Automation is preferable when exact stepped menu values or reproducible range positions are required.</p>
 
         <h2 id="presets">Factory Presets</h2>
 
@@ -171,18 +171,11 @@
           </tbody>
         </table>
 
-        <h2 id="routing-state">Routing and State</h2>
+        <h2 id="storage">Storage and Recall</h2>
 
-        <ul>
-          <li>Input: one CLAP note/MIDI port plus file loading and drag-and-drop in the editor.</li>
-          <li>Wavesets 2 output: one fixed stereo port. “2” identifies this channel count rather than a number of decks or voices.</li>
-          <li>Wavesets 32 output: one fixed 32-channel host port. The active 2–32-channel routing width is saved and automatable; unused physical lanes remain silent.</li>
-          <li>State: all 25 or 29 parameters, requested storage policy, preserved source reference, and—in <code>EMBED</code> mode—up to 1 GiB of decoded mono or stereo PCM.</li>
-          <li>Analysis and file decoding run away from the audio callback. Audio rendering uses immutable per-channel and summed crossing maps.</li>
-          <li>On macOS, each voice cursor uses the persistent compositor trajectory established for Sample Doubles. The waveform playhead is a continuous source-transport indicator that begins exactly at Start and spans every displayed channel lane. The bounded scope follows the newest-triggered voice, compares its ordered source group with the processed result per channel, preserves measured cycle proportions, and reports note, group, cycle, repeat, phase, Depth, and view scale. The 30 Hz AppKit timer services the scope and static feedback, not visible waveform-playhead movement.</li>
-        </ul>
+        <p>Wavesets 2 has a fixed stereo output. Wavesets 32 keeps a fixed 32-channel host port while its saved <code>OUTPUTS</code> setting selects 2–32 active lanes; the remainder stay silent.</p>
 
-        <p><code>PROJECT</code> copies the unchanged source in the background into the saved REAPER project's effective media directory under <code>s3g Samples</code>; <code>LINK</code> retains the original path; <code>EMBED</code> adds decoded 32-bit floating-point PCM to plug-in state. A pending Project request in an unsaved or unsupported project keeps the source and unresolved reference intact. Because hosts can snapshot complete state for undo during FX bypass or chain edits, large embedded sources may cause pauses even when audio processing itself is light.</p>
+        <p><code>PROJECT</code> copies the source into the saved REAPER project's <code>s3g Samples</code> directory, <code>LINK</code> retains the original path, and <code>EMBED</code> stores decoded audio with the project. See <a href="sample-instruments.html#state">Sample Storage</a> for portability, unsaved-project behavior, and the size cost of embedded audio.</p>
 
         <p>Related source material and inspiration are listed in <a href="references.html#wavesets">References</a>.</p>
 
@@ -203,7 +196,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -217,7 +210,7 @@
           <a href="#wavesets">Waveset Playback</a>
           <a href="#tracker">Tracker and Automation</a>
           <a href="#presets">Factory Presets</a>
-          <a href="#routing-state">Routing and State</a>
+          <a href="#storage">Storage and Recall</a>
         </div>
       </aside>
     </div>

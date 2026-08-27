@@ -174,15 +174,9 @@
           </tbody>
         </table>
 
-        <h2 id="state">Automation and Storage</h2>
+        <h2 id="storage">Storage and Recall</h2>
 
-        <ul>
-          <li>Grains 2 publishes 47 automatable controls, including Channel Mode, Stereo Link, Mono Spread, and the shared grain-variation controls. It does not publish the Grains 32 allocator controls.</li>
-          <li>Grains 32 publishes 50 automatable controls, including six routing controls and the shared grain-variation controls. It does not publish the three stereo-only controls.</li>
-          <li>Version 0.4 intentionally replaces the earlier Grains parameter and state schema. Loop Join, Manual Lane, Jump Slew, Alloc Clock, and the twelve inherited per-lane Speed/Stretch/Nudge controls are absent rather than retained as hidden automation.</li>
-          <li>The Manual breakpoint path is the sole manual lane representation. With no edited path points it begins as a centered two-point path.</li>
-          <li><code>PROJECT</code> copies sources into the saved REAPER project's media path, <code>LINK</code> retains their original locations, and <code>EMBED</code> stores decoded floating-point PCM in plug-in state. See <a href="sample-instruments.html#state">Sample Storage</a>.</li>
-        </ul>
+        <p>The Manual breakpoint path, grain settings, routing choices, and source references return with the project. <code>PROJECT</code> copies sources into the saved REAPER project's media directory, <code>LINK</code> retains their original locations, and <code>EMBED</code> stores decoded audio with the project. See <a href="sample-instruments.html#state">Sample Storage</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-lanes.html"><span>Previous</span>Sample Lanes</a>
@@ -201,7 +195,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -216,7 +210,7 @@
           <a href="#voices">Scan Rate and MIDI</a>
           <a href="#routing">Grains 32 Routing</a>
           <a href="#presets">Factory Presets</a>
-          <a href="#state">Automation and State</a>
+          <a href="#storage">Storage and Recall</a>
         </div>
       </aside>
     </div>

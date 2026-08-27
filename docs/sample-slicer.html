@@ -55,7 +55,7 @@
 
         <h2 id="loading">Loading and Project Audio</h2>
 
-        <p>Audio decoding and transient analysis run after a user-initiated load. Replacing or clearing a slot cancels stale work, so an older decode cannot overwrite the newer selection. Long filenames are shortened in the mixer while the complete path remains part of project state.</p>
+        <p>Audio decoding and transient analysis run after a user-initiated load. Replacing or clearing a slot cancels stale work, so an older decode cannot overwrite the newer selection. Long filenames are shortened in the mixer while the complete path is retained for project recall.</p>
 
         <p><code>PROJECT</code> copies unchanged break files in the background to the saved REAPER project's effective media directory under <code>s3g Samples</code>. <code>LINK</code> keeps the original locations. <code>EMBED</code> stores decoded audio while preserving every source channel; a single instance can embed up to 1 GiB, and later slots remain path-referenced if the bank exceeds that bound. Long paths and missing sources remain preserved for later recovery.</p>
 
@@ -100,7 +100,7 @@
 
         <p>Each mutation renders outside the audio callback, captures as much as two seconds of processor tail, and is mapped automatically. A shared multichannel gain reduction is applied only when a rendered slice would exceed 0 dBFS, so no generated slice exceeds that peak ceiling while quieter slices and channel relationships remain unchanged. Occupied and currently building slots are locked and never overwritten. Select a slot and use <code>CLEAR</code> to make it available to the next fill pass. <code>PLAY THROUGH</code> walks the selected break's mapped slices in order through the normal playback path, so per-slice gain, pitch, pan, direction, launch behavior, and processing are heard; the Mutate waveform shows a live cursor and note flag while it runs. Generated audio has no original path: <code>PROJECT</code> writes it as lossless project media under <code>s3g Samples</code>, while <code>EMBED</code> keeps its decoded PCM in state. The chosen source remains unchanged.</p>
 
-        <p><code>EXPORT WAV…</code> runs the same background render without consuming a break slot or changing project state. The save panel writes an atomic 32-bit floating-point WAV at the current host sample rate. Mono and stereo material exports as stereo so pan is retained; wider material keeps its original channel count and channel order, up to sixteen channels.</p>
+        <p><code>EXPORT WAV…</code> runs the same background render without consuming a break slot or changing the loaded bank. The save panel writes an atomic 32-bit floating-point WAV at the current host sample rate. Mono and stereo material exports as stereo so pan is retained; wider material keeps its original channel count and channel order, up to sixteen channels.</p>
 
         <figure>
           <div class="doc-graphic">
@@ -137,22 +137,15 @@
 
         <p>The Break Bus can link detection across all channels, adjacent pairs, or independent lanes. <code>FIELD SAFE</code> retains linked dynamics, snap, and linear tilt while bypassing nonlinear stages, allowing encoded or other phase-related multichannel material to keep its channel relationships.</p>
 
-        <h2 id="routing-state">Routing and State</h2>
+        <h2 id="output-storage">Output and Storage</h2>
 
-        <ul>
-          <li>Input: one CLAP note/MIDI port and file loading through the editor.</li>
-          <li><code>Sample Slicer 2</code> output: one fixed stereo port.</li>
-          <li><code>Sample Slicer 16</code> output: one fixed 16-channel port; unused channels remain silent.</li>
-          <li>State: requested bank storage policy, preserved break references, embedded PCM only when required by that policy, generated mutation references or PCM, selected mutation operation, contextual mode, treatment selections and next seed, slices, maps, envelopes, trigger/retrigger/voice/pitch/sync behavior, source BPM, loop crossfade, glide, inserts, mixer, AUX, and output controls.</li>
-        </ul>
+        <p>Sample Slicer 2 has a fixed stereo output. Sample Slicer 16 preserves source lanes in order on a fixed 16-channel port and leaves unused channels silent; it can carry discrete or compatible encoded material but does not itself create an ambisonic encoding.</p>
 
-        <p>The editor reports referenced file bytes or decoded <code>STATE</code> size. Embedded PCM can be much larger than compressed break files, and REAPER may snapshot complete state for undo when bypassing an FX or changing its chain. Use <code>PROJECT</code> to keep routine state small. Its registered media follows REAPER only when Save As uses a copy-media option; an ordinary Save As does not copy the bank automatically. An unsaved or unsupported project leaves Project collection pending without losing playable audio or unresolved paths.</p>
-
-        <p>The 16-channel variant preserves source lanes in order and does not claim an ambisonic encoding. It can carry quad, octal, arbitrary discrete, or compatible encoded material when the surrounding routing is configured accordingly.</p>
+        <p><code>PROJECT</code> is recommended for routine work and collects source and generated audio in the saved REAPER project. <code>LINK</code> keeps original paths, while <code>EMBED</code> stores decoded audio with the project. When using REAPER Save As, select a copy-media option if collected files should follow the new project. See <a href="sample-instruments.html#state">Sample Storage</a>.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-grains.html"><span>Previous</span>Sample Grains</a>
-          <a class="page-nav-link next" href="effect-crcltr.html"><span>Next</span>Sample Circulator</a>
+          <a class="page-nav-link next" href="sample-circulator.html"><span>Next</span>Sample Circulator</a>
         </nav>
       </main>
 
@@ -167,7 +160,7 @@
           <a href="sample-lanes.html">Sample Lanes</a>
           <a href="sample-grains.html">Sample Grains</a>
           <a href="sample-slicer.html">Sample Slicer</a>
-          <a href="effect-crcltr.html">Sample Circulator</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
           <a href="sample-rings.html">Sample Rings</a>
           <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
         </div>
@@ -179,7 +172,7 @@
           <a href="#playback">Playback and Slice Behavior</a>
           <a href="#mutate">Mutate</a>
           <a href="#mixer">Mixer, Inserts, and Break Bus</a>
-          <a href="#routing-state">Routing and State</a>
+          <a href="#output-storage">Output and Storage</a>
         </div>
       </aside>
     </div>
