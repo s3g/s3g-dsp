@@ -1178,7 +1178,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_format_upscale_clap>
           org.s3g.s3g-dsp.format-upscale-64
-          1120 720 "s3g Output Format Upscale 64" responsive)
+          1120 720 "s3g Matrix Upmix 64" responsive)
       set_tests_properties(s3g_format_upscale_gui_smoke PROPERTIES
         LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
@@ -2891,7 +2891,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Output Format Upscale 64" responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Matrix Upmix 64" responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sub_crossover_clap> org.s3g.s3g-dsp.sub-crossover 920 560 "s3g Output " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke

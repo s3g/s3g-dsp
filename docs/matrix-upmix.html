@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Matrix Upmix 64 - s3g-dsp</title>
+    <meta name="description" content="Route stereo, quad, octophonic, and other multichannel formats to larger speaker arrays with an editable gain matrix.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Matrix Upmix 64</h1>
+
+        <p><code>s3g Matrix Upmix 64</code> distributes an existing stereo or multichannel mix across an equal or larger speaker format. Each matrix cell controls how much of one input reaches one output, so the complete routing remains visible and editable.</p>
+
+        <p>Use it for straightforward jobs such as Stereo → Quad, Quad → Octophonic, or Octophonic → Double Ring 32. It does not synthesize new sources or decode Ambisonics; it routes and weights the channels you already have.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/format-upscale.png" aria-label="Open high-resolution Matrix Upmix GUI screenshot">
+              <img src="assets/plugin-guis/format-upscale.png" alt="Matrix Upmix exact positive input by output matrix with setup, auto fill, selected crosspoint, and output controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Inputs run down the left and outputs run across the top. Each marker is one connection, and a larger marker means more gain.</figcaption>
+        </figure>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/format-upscale.layout.png" aria-label="Open high-resolution Matrix Upmix Tier Rings screenshot">
+              <img src="assets/plugin-guis/format-upscale.layout.png" alt="Matrix Upmix Tier Rings input and output overhead plans with nested height contours" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption><code>LAYOUT</code> opens Tier Rings, where the input and output speaker positions can be checked side by side.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Set the host track and plug-in pins to 64 channels.</li>
+          <li>Choose the source under <code>IN FORMAT</code> and the speaker array under <code>OUT FORMAT</code>. The output format must have at least as many channels as the input.</li>
+          <li>Choose a starting map from <code>PRESET</code>, or use <code>AUTO FILL</code> for other format combinations.</li>
+          <li>Click matrix cells to add or select connections. Drag vertically inside a cell, or use <code>GAIN</code> in the Selected section, to set its level. Right-click a cell to delete it.</li>
+          <li>Use <code>LAYOUT</code> to confirm that channel numbers and speaker positions match the destination system.</li>
+          <li>Set <code>OUTPUT GAIN</code> for suitable headroom, then route the active outputs to the corresponding speakers or monitor path.</li>
+        </ol>
+
+        <h2 id="presets">Presets</h2>
+
+        <p>A factory preset chooses the input format, output format, and all required matrix connections. You can edit any preset after loading it.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Preset group</th><th>Result</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Stereo → Quad Repeat</td><td>Copies Left to the left front and rear, and Right to the right front and rear.</td></tr>
+            <tr><td>Stereo → Quad Cross</td><td>Keeps the front pair in place and sends each rear speaker the opposite stereo channel.</td></tr>
+            <tr><td>Stereo → Quad Difference</td><td>Keeps Left and Right in front and places stereo difference signals in the rear pair. Purple cells show the fixed opposite-polarity routes used by this preset.</td></tr>
+            <tr><td>Stereo → 5.0 / 7.0 Spread</td><td>Spreads the stereo pair across front, center, side, and rear positions.</td></tr>
+            <tr><td>Quad → Octophonic / Ring 12 / Ring 16</td><td>Assigns each Quad channel an equal, adjacent group of output speakers in spatial order.</td></tr>
+            <tr><td>Quad → Double Ring 16</td><td>Assigns every Quad channel two speakers on each height ring.</td></tr>
+            <tr><td>Octophonic → Ring 16 / Ring 32</td><td>Expands each Octophonic channel to an equal group of nearby output speakers.</td></tr>
+            <tr><td>Octophonic → Double Ring 16 / 32</td><td>Distributes every Octophonic channel evenly across both height rings.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The Quad and Octophonic ring presets use every output once and divide the outputs evenly between inputs. Connections stay in adjacent spatial groups instead of crossing around the ring.</p>
+
+        <h2 id="auto-fill">Auto Fill</h2>
+
+        <p>Use Auto Fill when there is no factory preset for the selected formats. Choose a recipe, adjust its options, and press <code>APPLY</code>. The generated connections can then be edited like any other matrix cells.</p>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Recipe</th><th>Generated distribution</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Repeat</td><td>Repeats the complete input order across additional outputs. Only complete rounds are used, keeping the number of connections equal for every input.</td></tr>
+            <tr><td>Spatial Match</td><td>Prefers nearby outputs on the same side of the speaker layout.</td></tr>
+            <tr><td>Cross</td><td>Prefers outputs on the opposite side for the added connections.</td></tr>
+            <tr><td>All Tiers</td><td>Uses every output and distributes connections across all available height tiers.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>ROUTES / INPUT</code> sets the desired number of connections for Spatial Match and Cross. Repeat uses <code>REPEAT ROUNDS</code>. <code>WEIGHT SHAPE</code> can keep the gains Flat or emphasize the Center, Edges, or a gradual Taper within each generated group.</p>
+
+        <h2 id="controls">Editing the Matrix</h2>
+
+        <table class="readout-table">
+          <thead>
+            <tr><th>Control</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Matrix cell</td><td>Click to add or select a connection. Drag vertically to change its gain. Right-click to delete it. Larger markers indicate higher gain.</td></tr>
+            <tr><td>Selected Gain</td><td>Sets the selected connection from 0–100%. <code>DELETE</code> removes it. The input and output labels show the selected channel roles and coordinates.</td></tr>
+            <tr><td>Normalize Inputs</td><td>Balances each input’s total distribution while preserving the relative weights within that row. Use this after adding more destinations to some inputs than others.</td></tr>
+            <tr><td>Limit Outputs</td><td>Turns down output columns whose combined coefficient power is above unity. Amber marks under an output label identify an overloaded column.</td></tr>
+            <tr><td>Output Gain</td><td>Applies final gain to all active outputs without changing the matrix.</td></tr>
+            <tr><td>Clear</td><td>Removes all connections while keeping the selected formats and custom speaker coordinates.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="gain">Understanding Gain</h2>
+
+        <p>Each percentage belongs to one connection. It is not a shared 100% budget for the row or column. A 100% cell sends that input to that output at unity gain, so three 100% cells in one row are three unity-gain copies. Their displayed total is 300%, but each route is still valid.</p>
+
+        <ul>
+          <li><code>100%</code> = 1.000 = 0 dB</li>
+          <li><code>70.7%</code> = 0.707 ≈ −3.0 dB</li>
+          <li><code>57.7%</code> = 0.577 ≈ −4.8 dB</li>
+          <li><code>50%</code> = 0.500 ≈ −6.0 dB</li>
+          <li><code>25%</code> = 0.250 ≈ −12.0 dB</li>
+        </ul>
+
+        <p>For an equal-power fan-out, use 70.7% for two destinations, 57.7% for three, 50% for four, or 35.4% for eight. <code>NORMALIZE INPUTS</code> calculates this balance for every active row while preserving any intentional differences between its cells.</p>
+
+        <p>Several inputs can also meet in one output column. Their audio is summed, so the result may become louder or clip. <code>LIMIT OUTPUTS</code> reduces heavily loaded columns, but it is not a peak limiter: closely related signals can still add together strongly. Use <code>OUTPUT GAIN</code> to leave final headroom.</p>
+
+        <p><code>NORMALIZE INPUTS</code> manages how each source is spread; <code>LIMIT OUTPUTS</code> manages how several sources meet at one destination. Both commands update the visible cell values.</p>
+
+        <h2 id="formats">Formats and Speaker Coordinates</h2>
+
+        <p>The format menus include common surround and height formats, rings and double rings through 64 channels, Cube, LPAC, Dodecahedron, Icosahedron, Dome, SRST, Sphere, and Custom AED layouts.</p>
+
+        <p>AED means azimuth, elevation, and distance. In the s3g coordinate view, front is 0°, listener-left is +90°, listener-right is −90°, and rear is ±180°. Press <code>EDIT IN</code> or <code>EDIT OUT</code> to make a custom layout, choose its channel count, and enter the coordinates for each numbered speaker. The node numbers define the channel order.</p>
+
+        <h2 id="layout-view">Tier Rings Layout</h2>
+
+        <p>Tier Rings shows the input and output layouts from above. The lowest speaker tier is the outer shape, higher tiers move inward, and a directly overhead speaker appears in the center. Circular, rectangular, and irregular tiers keep their general shape.</p>
+
+        <p>Click an input node to select its matrix row or an output node to select its column. The nodes on the opposite side change color and size to show the selected channel’s connections and gains. <code>POP OUT</code> keeps the layout visible in a separate window; <code>DOCK</code> returns it to the main plug-in window.</p>
+
+        <h2 id="large-arrays">Large Arrays and Recall</h2>
+
+        <p>For large arrays, the matrix reduces the number of visible labels to prevent overlap; every crosspoint remains available. Selecting a cell or a Tier Rings node identifies the exact input and output.</p>
+
+        <p><code>SAVE</code> stores the complete matrix, formats, gains, and custom speaker coordinates. <code>LOAD</code> recalls a saved setup. The host session also stores the current plug-in state.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="output-autogain-quad.html">
+            <span>Previous</span>
+            Output Autogain Quad
+          </a>
+          <a class="page-nav-link next" href="analyzer-meter.html">
+            <span>Next</span>
+            Analyzer Meter 64
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Multichannel</h2>
+          <a href="multichannel.html">Overview</a>
+          <a href="multichannel-effects.html">Effects</a>
+          <a href="monitoring-fold-down.html">Monitoring / Fold-down</a>
+          <a href="direct-panning.html">Direct Panning</a>
+          <a href="bus-mixing-routing.html">Bus Mixing / Routing</a>
+          <a href="speaker-array-utilities.html">Speaker-array Utilities</a>
+        </div>
+        <div class="toc-section">
+          <h2>Monitoring Pages</h2>
+          <a href="output-autogain-stereo.html">Output Autogain Stereo</a>
+          <a href="output-autogain-quad.html">Output Autogain Quad</a>
+          <a href="matrix-upmix.html">Matrix Upmix 64</a>
+          <a href="analyzer-meter.html">Analyzer Meter 64</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#presets">Presets</a>
+          <a href="#auto-fill">Auto Fill</a>
+          <a href="#controls">Editing the Matrix</a>
+          <a href="#gain">Understanding Gain</a>
+          <a href="#formats">Formats and Coordinates</a>
+          <a href="#layout-view">Tier Rings Layout</a>
+          <a href="#large-arrays">Large Arrays and Recall</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

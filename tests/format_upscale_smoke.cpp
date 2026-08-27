@@ -262,9 +262,12 @@ int main()
         params.placement = mode;
         upscale->setParams(params);
         upscale->useAutomaticRoutes();
+        const bool exhaustive = mode
+            == s3g::FormatUpscalePlacement::TierFill;
         std::array<uint32_t, 9u> destinationOwners {};
         for (uint32_t source = 0u; source < 3u; ++source) {
             std::array<uint32_t, 3u> tierDestinations {};
+            uint32_t routeCount = 0u;
             for (uint32_t tier = 0u; tier < 3u; ++tier) {
                 for (uint32_t offset = 0u; offset < 3u; ++offset) {
                     const uint32_t outputIndex = tier * 3u + offset;
@@ -274,32 +277,81 @@ int main()
                     if (std::abs(gain) > 0.0001f) {
                         ++tierDestinations[tier];
                         ++destinationOwners[outputIndex];
+                        ++routeCount;
                     }
                 }
             }
-            const bool tierCoverage = tierDestinations[0u] == 1u
-                && tierDestinations[1u] == 1u
-                && tierDestinations[2u] == 1u
+            const bool expectedCoverage = exhaustive
+                ? tierDestinations[0u] == 1u
+                    && tierDestinations[1u] == 1u
+                    && tierDestinations[2u] == 1u
+                    && routeCount == 3u
+                : routeCount == 1u;
+            const bool routeContract = expectedCoverage
                 && near(routePower(*upscale, source), 1.0f);
-            if (!tierCoverage)
+            if (!routeContract)
                 std::cerr << "Auto mode "
                     << s3g::formatUpscalePlacementName(mode) << " source "
                     << source << " tier destinations "
                     << tierDestinations[0u] << "/"
                     << tierDestinations[1u] << "/"
-                    << tierDestinations[2u] << '\n';
-            ok &= check(tierCoverage,
-                "an auto-map mode did not distribute each input evenly across every available tier");
+                    << tierDestinations[2u] << " total " << routeCount
+                    << '\n';
+            ok &= check(routeContract,
+                "an auto-map mode did not honor its route-count contract");
         }
+        uint32_t usedOutputs = 0u;
         for (uint32_t outputIndex = 0u; outputIndex < 9u; ++outputIndex) {
-            if (destinationOwners[outputIndex] != 1u)
+            if (destinationOwners[outputIndex] > 0u) ++usedOutputs;
+            if (destinationOwners[outputIndex] > 1u)
                 std::cerr << "Auto mode "
                     << s3g::formatUpscalePlacementName(mode) << " output "
                     << outputIndex << " owners "
                     << destinationOwners[outputIndex] << '\n';
-            ok &= check(destinationOwners[outputIndex] == 1u,
-                "an auto-map mode did not distribute sources evenly within an available tier");
+            ok &= check(destinationOwners[outputIndex] <= 1u,
+                "an auto-map mode reused an output before coverage required it");
         }
+        ok &= check(usedOutputs == (exhaustive ? 9u : 3u),
+            exhaustive
+                ? "all-tiers mode did not cover the complete output array"
+                : "an ordinary auto-map recipe silently exceeded copies=1");
+    }
+
+    // Repeat is a channel-order cycle. Copies is the number of complete,
+    // equal rounds and is clamped before a partial round can make row counts
+    // uneven.
+    params.placement = s3g::FormatUpscalePlacement::Interleave;
+    for (uint32_t copies = 1u; copies <= 4u; ++copies) {
+        params.copies = copies;
+        upscale->setParams(params);
+        upscale->useAutomaticRoutes();
+        const uint32_t expected = std::min<uint32_t>(copies, 3u);
+        std::array<uint32_t, 9u> repeatOwners {};
+        for (uint32_t source = 0u; source < 3u; ++source) {
+            uint32_t routes = 0u;
+            for (uint32_t outputIndex = 0u; outputIndex < 9u;
+                 ++outputIndex) {
+                const float gain = upscale->targetAnchorGain(
+                        source, outputIndex)
+                    + upscale->targetExtensionGain(source, outputIndex);
+                if (std::abs(gain) <= 0.0001f) continue;
+                ++routes;
+                ++repeatOwners[outputIndex];
+                ok &= check(outputIndex % 3u == source,
+                    "repeat left its source's channel-order cycle");
+            }
+            ok &= check(routes == expected
+                    && near(routePower(*upscale, source), 1.0f),
+                "repeat did not create an equal number of routes per input");
+        }
+        uint32_t used = 0u;
+        for (const uint32_t owners : repeatOwners) {
+            if (owners > 0u) ++used;
+            ok &= check(owners <= 1u,
+                "repeat assigned more than one input to an output");
+        }
+        ok &= check(used == expected * 3u,
+            "repeat output coverage did not match its complete rounds");
     }
     params.placement = s3g::FormatUpscalePlacement::Interleave;
     params.copies = 3u;
@@ -514,100 +566,36 @@ int main()
     upscale->setNormalization(s3g::FormatUpscaleNormalization::Row);
     upscale->useAutomaticRoutes();
 
-    s3g::FormatUpscaleLayoutData midSideOutput {};
-    midSideOutput.count = 5u;
-    s3g::formatUpscaleSetSpeaker(midSideOutput, 0u, 0.0f, 0.0f,
-        s3g::FormatUpscaleRole::Center);
-    s3g::formatUpscaleSetSpeaker(midSideOutput, 1u, 90.0f, 0.0f,
-        s3g::FormatUpscaleRole::LeftSurround);
-    s3g::formatUpscaleSetSpeaker(midSideOutput, 2u, -90.0f, 0.0f,
-        s3g::FormatUpscaleRole::RightSurround);
-    s3g::formatUpscaleSetSpeaker(midSideOutput, 3u, 90.0f, 60.0f,
-        s3g::FormatUpscaleRole::TopLeftFront);
-    s3g::formatUpscaleSetSpeaker(midSideOutput, 4u, -90.0f, 60.0f,
-        s3g::FormatUpscaleRole::TopRightFront);
-    upscale->setCustomOutputLayout(midSideOutput);
     params.inputLayout = s3g::FormatUpscaleLayout::Stereo;
-    params.outputLayout = s3g::FormatUpscaleLayout::Custom;
-    params.basis = s3g::FormatUpscaleBasis::Direct;
+    params.outputLayout = s3g::FormatUpscaleLayout::Quad;
+    params.basis = s3g::FormatUpscaleBasis::Side;
     params.placement = s3g::FormatUpscalePlacement::MidSideSpread;
     params.smoothingMs = 1.0f;
     params.decorrelationPercent = 0.0f;
     params.delayMs = 0.0f;
     upscale->setParams(params);
     upscale->reset();
-    const float msCenterRight = upscale->targetExtensionGain(0u, 0u);
-    const float msCenterLeft = upscale->targetExtensionGain(1u, 0u);
-    const float msLeftFromRight = upscale->targetExtensionGain(0u, 1u);
-    const float msLeftFromLeft = upscale->targetExtensionGain(1u, 1u);
-    const float msRightFromRight = upscale->targetExtensionGain(0u, 2u);
-    const float msRightFromLeft = upscale->targetExtensionGain(1u, 2u);
-    const float msHeightFromRight = upscale->targetExtensionGain(0u, 3u);
-    const float msHeightFromLeft = upscale->targetExtensionGain(1u, 3u);
-    ok &= check(std::strcmp(s3g::formatUpscalePlacementName(
-                    s3g::FormatUpscalePlacement::MidSideSpread),
-                    "M/S spread") == 0
-            && near(msCenterRight, msCenterLeft)
-            && msLeftFromLeft > 0.0f && msLeftFromRight < 0.0f
-            && msRightFromRight > 0.0f && msRightFromLeft < 0.0f,
-        "M/S spread did not create a centered Mid and opposing lateral Side map");
-    ok &= check((msLeftFromLeft - msLeftFromRight)
-                > (msHeightFromLeft - msHeightFromRight)
-            && near(routePower(*upscale, 0u), 1.0f)
-            && near(routePower(*upscale, 1u), 1.0f),
-        "M/S spread did not reduce Side with elevation or normalize its rows");
-    input.fill(0.0f);
-    input[0u] = 1.0f;
-    input[1u] = 1.0f;
-    upscale->processFrame(input.data(), 2u, output.data(), 5u);
-    ok &= check(output[0u] > 0.0f
-            && near(output[1u], output[2u])
-            && near(output[3u], output[4u]),
-        "M/S spread did not collapse a mono-compatible input symmetrically");
+    ok &= check(upscale->params().basis
+                == s3g::FormatUpscaleBasis::Direct
+            && upscale->params().placement
+                == s3g::FormatUpscalePlacement::TierFill,
+        "legacy polarity modes were not folded into the positive matrix model");
+    for (uint32_t inputIndex = 0u; inputIndex < upscale->activeInputs(); ++inputIndex)
+        for (uint32_t outputIndex = 0u;
+             outputIndex < upscale->activeOutputs(); ++outputIndex)
+            ok &= check(upscale->targetAnchorGain(inputIndex, outputIndex)
+                        >= 0.0f
+                    && upscale->targetExtensionGain(inputIndex, outputIndex)
+                        >= 0.0f,
+                "automatic matrix generated a negative coefficient");
     upscale->beginManualRoutesFromCurrent();
-    ok &= check(upscale->manualWeight(0u, 1u) < 0.0f
-            && upscale->targetExtensionGain(0u, 1u) < 0.0f,
-        "capturing the M/S matrix did not preserve negative Side polarity");
-    upscale->setManualWeight(0u, 1u, -0.5f);
+    upscale->setManualWeight(0u, 1u, 1.5f);
     ok &= check(upscale->manualRoute(0u, 1u)
-            && near(upscale->manualWeight(0u, 1u), -0.5f)
-            && upscale->targetExtensionGain(0u, 1u) < 0.0f,
-        "editing an M/S matrix weight did not retain its signed polarity");
-    upscale->useAutomaticRoutes();
-    auto asymmetricMidSideOutput = midSideOutput;
-    asymmetricMidSideOutput.count = 6u;
-    s3g::formatUpscaleSetSpeaker(asymmetricMidSideOutput, 5u,
-        45.0f, 20.0f, s3g::FormatUpscaleRole::Left);
-    upscale->setCustomOutputLayout(asymmetricMidSideOutput);
-    ok &= check(near(upscale->targetExtensionGain(0u, 0u),
-                upscale->targetExtensionGain(1u, 0u))
-            && near(routePower(*upscale, 0u), 1.0f)
-            && near(routePower(*upscale, 1u), 1.0f),
-        "M/S spread did not retain a common pair scale on an asymmetric array");
-
-    params.inputLayout = s3g::FormatUpscaleLayout::Stereo;
-    params.outputLayout = s3g::FormatUpscaleLayout::Quad;
-    params.basis = s3g::FormatUpscaleBasis::Side;
-    params.placement = s3g::FormatUpscalePlacement::SameSide;
-    params.origin = s3g::FormatUpscaleOrigin::Keep;
-    params.decorrelationPercent = 0.0f;
-    params.delayMs = 0.0f;
-    upscale->setParams(params);
-    upscale->reset();
-    ok &= check(upscale->targetExtensionGain(0u, 2u) > 0.0f
-            && upscale->targetExtensionGain(1u, 2u) < 0.0f
-            && upscale->targetExtensionGain(1u, 3u) > 0.0f
-            && upscale->targetExtensionGain(0u, 3u) < 0.0f,
-        "side basis did not form opposing difference routes");
-    input.fill(0.0f);
-    input[0] = 1.0f;
-    input[1] = 1.0f;
-    upscale->processFrame(input.data(), 2u, output.data(), 64u);
-    ok &= check(std::abs(output[2]) < 0.0002f
-            && std::abs(output[3]) < 0.0002f,
-        "mono-compatible stereo leaked through the side extension");
+            && near(upscale->manualWeight(0u, 1u), 1.0f),
+        "manual coefficient was not clamped to the positive unit range");
 
     params.basis = s3g::FormatUpscaleBasis::Direct;
+    params.placement = s3g::FormatUpscalePlacement::SameSide;
     params.decorrelationPercent = 35.0f;
     params.delayMs = 8.0f;
     upscale->setParams(params);

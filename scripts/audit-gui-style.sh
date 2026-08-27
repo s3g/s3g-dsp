@@ -1613,25 +1613,28 @@ for member in "${output_utility_family[@]}"; do
   fi
 done
 
-section "Output Format Upscale"
+section "Matrix Upmix"
 format_upscale_source=plugins/clap_format_upscale/s3g_format_upscale_clap.cpp
-if ! rg -Fq '"s3g Output Format Upscale 64"' "$format_upscale_source" \
+if ! rg -Fq '"s3g Matrix Upmix 64"' "$format_upscale_source" \
     || ! rg -q 'drawOutputUtilityTitleBand' "$format_upscale_source" \
     || ! rg -q 'ResponsiveViewport' "$format_upscale_source"; then
   warn "family" "$format_upscale_source" \
-    "Format Upscale keeps its Output host name, shared title band, and responsive viewport."
+    "Matrix Upmix keeps its Output-family host name, shared title band, and responsive viewport."
 fi
 if ! rg -Fq '@"CONNECTION MATRIX — INPUT ROWS / OUTPUT COLUMNS"' "$format_upscale_source" \
     || ! rg -Fq '@"SELECTED CROSSPOINT"' "$format_upscale_source" \
-    || ! rg -q 'targetAnchorGain' "$format_upscale_source" \
-    || ! rg -q 'targetExtensionGain' "$format_upscale_source" \
     || ! rg -q 'processorTrackWidth' "$format_upscale_source" \
     || ! rg -q 'matrixCellAtPoint' "$format_upscale_source" \
     || ! rg -q 'matrixGeometry' "$format_upscale_source" \
     || ! rg -q 'beginManualRoutesFromCurrent' "$format_upscale_source" \
     || ! rg -q 'manualWeight' "$format_upscale_source" \
     || ! rg -q 'updateSelectedWeight' "$format_upscale_source" \
-    || ! rg -q 'applyRowShape' "$format_upscale_source" \
+    || ! rg -q 'setExactManualMatrix' "$format_upscale_source" \
+    || ! rg -q 'applyAutoFill' "$format_upscale_source" \
+    || ! rg -q 'normalizeExactInputRows' "$format_upscale_source" \
+    || ! rg -q 'limitExactOutputColumns' "$format_upscale_source" \
+    || ! rg -q 'applyMatrixPreset' "$format_upscale_source" \
+    || ! rg -q 'StereoQuadDifference' "$format_upscale_source" \
     || ! rg -q 'rightMouseDown' "$format_upscale_source" \
     || ! rg -q 'outputLabelStride' "$format_upscale_source" \
     || ! rg -q 'inputLabelStride' "$format_upscale_source" \
@@ -1639,8 +1642,6 @@ if ! rg -Fq '@"CONNECTION MATRIX — INPUT ROWS / OUTPUT COLUMNS"' "$format_upsc
     || ! rg -q 'formatMenuGeometry' "$format_upscale_source" \
     || ! rg -q 'drawSideFormatControl' "$format_upscale_source" \
     || ! rg -q 'drawSideAutoModeControl' "$format_upscale_source" \
-    || ! rg -q 'MidSideSpread' "$format_upscale_source" \
-    || ! rg -q 'EDITABLE M/S MATRIX' "$format_upscale_source" \
     || ! rg -q 'drawUnfoldedLayoutPage' "$format_upscale_source" \
     || ! rg -q 'candidateIsClear' "$format_upscale_source" \
     || ! rg -q 'horizontalExtent' "$format_upscale_source" \
@@ -1653,26 +1654,26 @@ if ! rg -Fq '@"CONNECTION MATRIX — INPUT ROWS / OUTPUT COLUMNS"' "$format_upsc
     || ! rg -q 'viewSelectorRect' "$format_upscale_source" \
     || ! rg -q 'formatEditButtonRect' "$format_upscale_source" \
     || ! rg -q 'sideAutoActionRect' "$format_upscale_source" \
-    || ! rg -q 'sideNormalizationRect' "$format_upscale_source" \
     || ! rg -q 'layoutPopupActionRect' "$format_upscale_source" \
-    || ! rg -q 'applyColumnShape' "$format_upscale_source" \
     || ! rg -q '_matrixWeightAdjusting' "$format_upscale_source" \
-    || ! rg -Fq '@"ROW NORM"' "$format_upscale_source" \
-    || ! rg -Fq '@"COL NORM"' "$format_upscale_source" \
-    || ! rg -Fq '@"DUAL LIMIT"' "$format_upscale_source" \
-    || ! rg -Fq '@"CLICK POINT = FOCUS"' "$format_upscale_source" \
-    || ! rg -Fq '@"TIER RINGS"' "$format_upscale_source" \
-    || ! rg -Fq '@"AED FLAT"' "$format_upscale_source" \
+    || ! rg -Fq '@"NORMALIZE INPUTS"' "$format_upscale_source" \
+    || ! rg -Fq '@"LIMIT OUTPUTS"' "$format_upscale_source" \
+    || ! rg -Fq '@"DELETE"' "$format_upscale_source" \
+    || ! rg -Fq 'CLICK POINT = FOCUS' "$format_upscale_source" \
+    || ! rg -Fq 'TIER RINGS' "$format_upscale_source" \
     || ! rg -Fq '@"POP OUT"' "$format_upscale_source" \
     || ! rg -Fq '@"DOCK"' "$format_upscale_source" \
-    || ! rg -Fq '@"AUTO MODE"' "$format_upscale_source" \
-    || ! rg -Fq '"G DELAY"' "$format_upscale_source" \
-    || ! rg -Fq '"G DECOR"' "$format_upscale_source" \
+    || ! rg -Fq '@"AUTO FILL"' "$format_upscale_source" \
+    || ! rg -q 'kUiFactoryPreset' "$format_upscale_source" \
+    || ! rg -Fq 'outputUtilityTitleBand(canvas).presetMenu' "$format_upscale_source" \
+    || ! rg -q 'QuadDoubleRing16' "$format_upscale_source" \
+    || ! rg -q 'OctophonicDoubleRing32' "$format_upscale_source" \
+    || ! rg -Fq '"OUTPUTS / INPUT"' "$format_upscale_source" \
     || ! rg -Fq '@"CUSTOM INPUT — AED / XYZ"' "$format_upscale_source" \
-    || ! rg -Fq '@"OUTPUT TREATMENT"' "$format_upscale_source" \
+    || ! rg -Fq '@"OUTPUT"' "$format_upscale_source" \
     || ! rg -q 'sliderDoubleClickDefault' "$format_upscale_source"; then
   warn "layout" "$format_upscale_source" \
-    "Format Upscale centers a signed weighted format-sized matrix with M/S Spread, keeps only the Matrix/Tier Rings/AED Flat view selector in the title strip, moves format, edit, automap, clear, and normalization tools to the right rail, collision-spaces large-array labels, provides polarity-preserving in-cell weighting plus row/column shaping, offers point-focused shape-preserving overhead tier contours with an exact unfilled AED fallback, uses tier/AED/XYZ labeling, and retains standard slider geometry/reset behavior."
+    "Matrix Upmix centers an exact positive-gain format-sized matrix, keeps Matrix/Layout in the title strip, places known Stereo/Quad/Octophonic strategies in the shared PRESET menu beside LOAD/SAVE, contains inverse polarity inside a named stereo-difference strategy, exposes optional Auto Fill plus unipolar editing and explicit input normalization/output limiting, collision-spaces large-array labels, and retains the point-focused Tier Rings layout and standard slider behavior."
 fi
 
 section "Ambi Imprint"

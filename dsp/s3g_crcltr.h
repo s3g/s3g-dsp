@@ -503,6 +503,49 @@ public:
         return true;
     }
 
+    // File-backed clients can fill a loop incrementally on the audio thread.
+    // Keeping recordedFrames at zero until finishLoopImport() means playback
+    // can never observe a partially replaced loop, while bounded chunk writes
+    // avoid copying a long sample in one callback.
+    bool beginLoopImport(uint32_t index)
+    {
+        if (!prepared_ || index >= loops_.size()) return false;
+        clearLoop(index);
+        return true;
+    }
+
+    bool writeLoopImport(uint32_t index, uint32_t destinationFrame,
+                         const float* left, const float* right,
+                         uint32_t frames)
+    {
+        if (!prepared_ || index >= loops_.size() || !left || !right
+            || frames == 0u || destinationFrame > loopCapacityFrames_
+            || frames > loopCapacityFrames_ - destinationFrame) return false;
+        auto& loop = loops_[index];
+        for (uint32_t frame = 0u; frame < frames; ++frame) {
+            loop.left[destinationFrame + frame] = finiteOrZero(left[frame]);
+            loop.right[destinationFrame + frame] = finiteOrZero(right[frame]);
+        }
+        return true;
+    }
+
+    bool finishLoopImport(uint32_t index, uint32_t frames)
+    {
+        if (!prepared_ || index >= loops_.size() || frames < 2u
+            || frames > loopCapacityFrames_) return false;
+        auto& loop = loops_[index];
+        loop.recordedFrames = frames;
+        loop.writePosition = 0u;
+        loop.preRollFrames = 0u;
+        loop.phase = 0.0;
+        loop.armed = false;
+        loop.capturing = false;
+        loop.windowTransitionRemaining = 0u;
+        loop.windowTransitionTotal = 0u;
+        applyRequestedLoopWindow(index);
+        return true;
+    }
+
 private:
     static constexpr float kPi = 3.14159265358979323846f;
     static constexpr float kHalfPi = 1.57079632679489661923f;

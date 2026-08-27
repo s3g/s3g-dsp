@@ -3499,11 +3499,12 @@ int main(int argc, char** argv)
                 pluginId, "org.s3g.s3g-dsp.sample-doubles") == 0;
         const bool sampleCirculator = std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.crcltr") == 0;
-        if (ok && (samplePlayer || sampleDoubles)
+        if (ok && (samplePlayer || sampleDoubles || sampleCirculator)
             && documentationCapture) {
-            failureStage = sampleDoubles
-                ? "Sample Doubles documentation sample"
-                : "Sample Player documentation sample";
+            failureStage = sampleCirculator
+                ? "Sample Circulator documentation sample"
+                : sampleDoubles ? "Sample Doubles documentation sample"
+                                : "Sample Player documentation sample";
             @try {
                 ok = [document respondsToSelector:
                         @selector(loadDocumentationSample)]
@@ -12692,6 +12693,426 @@ int main(int argc, char** argv)
         if (ok && !documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.format-upscale-64") == 0) {
+            failureStage = "Matrix Upmix stereo-derived matrix interaction";
+
+            // Factory strategies live in the shared title PRESET menu. Verify
+            // that the regular Quad and Octophonic expansions use every
+            // destination once and retain unit coefficient power per input.
+            constexpr uint32_t quadPresetIndices[4] { 6u, 7u, 8u, 9u };
+            constexpr uint32_t quadPresetOutputs[4] { 8u, 12u, 16u, 16u };
+            bool quadPresetsEven = true;
+            bool quadPresetsOrdered = true;
+            uint32_t quadExpansionPreset = 0u;
+            uint32_t quadExpansionInputs = 0u;
+            uint32_t quadExpansionOutputs = 0u;
+            uint32_t quadExpansionConnections = 0u;
+            uint32_t quadExpansionMinimum = 0u;
+            uint32_t quadExpansionMaximum = 0u;
+            uint32_t quadExpansionTierCount = 0u;
+            uint32_t quadExpansionTierMinimum = 0u;
+            uint32_t quadExpansionTierMaximum = 0u;
+            double quadExpansionPower = 0.0;
+            for (uint32_t index = 0u; index < 4u; ++index) {
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    NSMakePoint(477.0, 20.0))];
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                    NSMakePoint(500.0, 42.0
+                        + static_cast<double>(quadPresetIndices[index])
+                            * 20.0))];
+                quadExpansionPreset = [[document valueForKey:
+                    @"matrixPresetValue"] unsignedIntValue];
+                quadExpansionInputs = [[document valueForKey:
+                    @"activeInputCount"] unsignedIntValue];
+                quadExpansionOutputs = [[document valueForKey:
+                    @"activeOutputCount"] unsignedIntValue];
+                quadExpansionConnections = [[document valueForKey:
+                    @"matrixConnectionCount"] unsignedIntValue];
+                quadExpansionMinimum = [[document valueForKey:
+                    @"minimumInputConnectionCount"] unsignedIntValue];
+                quadExpansionMaximum = [[document valueForKey:
+                    @"maximumInputConnectionCount"] unsignedIntValue];
+                quadExpansionTierCount = [[document valueForKey:
+                    @"activeOutputTierCount"] unsignedIntValue];
+                quadExpansionTierMinimum = [[document valueForKey:
+                    @"minimumInputTierConnectionCount"] unsignedIntValue];
+                quadExpansionTierMaximum = [[document valueForKey:
+                    @"maximumInputTierConnectionCount"] unsignedIntValue];
+                quadExpansionPower = [[document valueForKey:
+                    @"selectedInputPower"] doubleValue];
+                quadPresetsOrdered = quadPresetsOrdered
+                    && [[document valueForKey:
+                        @"matrixUsesOrderedTierGroups"] boolValue];
+                const uint32_t expectedPerInput = quadPresetOutputs[index] / 4u;
+                const uint32_t expectedPerTier = quadPresetOutputs[index]
+                    / (4u * std::max<uint32_t>(1u,
+                        quadExpansionTierCount));
+                quadPresetsEven = quadPresetsEven
+                    && quadExpansionPreset == quadPresetIndices[index]
+                    && quadExpansionInputs == 4u
+                    && quadExpansionOutputs == quadPresetOutputs[index]
+                    && quadExpansionConnections == quadPresetOutputs[index]
+                    && quadExpansionMinimum == expectedPerInput
+                    && quadExpansionMaximum == expectedPerInput
+                    && quadExpansionTierMinimum == expectedPerTier
+                    && quadExpansionTierMaximum == expectedPerTier
+                    && std::abs(quadExpansionPower - 1.0) < 0.001;
+            }
+
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(477.0, 20.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(500.0, 302.0))];
+            const uint32_t octoExpansionPreset = [[document valueForKey:
+                @"matrixPresetValue"] unsignedIntValue];
+            const uint32_t octoExpansionInputs = [[document valueForKey:
+                @"activeInputCount"] unsignedIntValue];
+            const uint32_t octoExpansionOutputs = [[document valueForKey:
+                @"activeOutputCount"] unsignedIntValue];
+            const uint32_t octoExpansionConnections = [[document valueForKey:
+                @"matrixConnectionCount"] unsignedIntValue];
+            const uint32_t octoExpansionMinimum = [[document valueForKey:
+                @"minimumInputConnectionCount"] unsignedIntValue];
+            const uint32_t octoExpansionMaximum = [[document valueForKey:
+                @"maximumInputConnectionCount"] unsignedIntValue];
+            const uint32_t octoExpansionTierCount = [[document valueForKey:
+                @"activeOutputTierCount"] unsignedIntValue];
+            const uint32_t octoExpansionTierMinimum = [[document valueForKey:
+                @"minimumInputTierConnectionCount"] unsignedIntValue];
+            const uint32_t octoExpansionTierMaximum = [[document valueForKey:
+                @"maximumInputTierConnectionCount"] unsignedIntValue];
+            const double octoExpansionPower = [[document valueForKey:
+                @"selectedInputPower"] doubleValue];
+            const bool octoExpansionOrdered = [[document valueForKey:
+                @"matrixUsesOrderedTierGroups"] boolValue];
+
+            // Choose the contained stereo-difference strategy. It is the only
+            // preset allowed to generate inverse polarity.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(477.0, 20.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(500.0, 102.0))];
+            const uint32_t matrixPreset = [[document valueForKey:
+                @"matrixPresetValue"] unsignedIntValue];
+            const uint32_t presetInputs = [[document valueForKey:
+                @"activeInputCount"] unsignedIntValue];
+            const uint32_t presetOutputs = [[document valueForKey:
+                @"activeOutputCount"] unsignedIntValue];
+            const double differenceRightFront = [[document valueForKey:
+                @"manualWeightZeroToOne"] doubleValue];
+            const double differenceLeftFront = [[document valueForKey:
+                @"manualWeightOneToZero"] doubleValue];
+            const double differenceRightRear = [[document valueForKey:
+                @"manualWeightZeroToTwo"] doubleValue];
+            const double differenceLeftIntoRightRear = [[document valueForKey:
+                @"manualWeightOneToTwo"] doubleValue];
+            const double differenceRightIntoLeftRear = [[document valueForKey:
+                @"manualWeightZeroToThree"] doubleValue];
+            const uint32_t exactNormalization = [[document valueForKey:
+                @"normalizationValue"] unsignedIntValue];
+
+            // A derived inverse cell can be removed, but there is no general
+            // Invert command for creating one.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(472.0, 406.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(472.0, 406.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(880.0, 535.0))];
+            const double deletedDerived = [[document valueForKey:
+                @"selectedManualWeight"] doubleValue];
+            const bool editedPresetReadsCustom = [[[document valueForKey:
+                @"titlePresetValue"] description]
+                isEqualToString:@"CUSTOM"];
+
+            // Ordinary cell editing is unipolar. The midpoint is +50%, and
+            // the far right creates an intentionally overloaded column.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(368.0, 354.0))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(368.0, 354.0))];
+            const double weightStart = [[document valueForKey:
+                @"selectedWeightTrackStartX"] doubleValue];
+            const double weightEnd = [[document valueForKey:
+                @"selectedWeightTrackEndX"] doubleValue];
+            const double weightY = [[document valueForKey:
+                @"selectedWeightTrackY"] doubleValue];
+            const double selectedPanelHeight = [[document valueForKey:
+                @"selectedPanelHeight"] doubleValue];
+            const double selectedDeleteY = [[document valueForKey:
+                @"selectedDeleteY"] doubleValue];
+            const double selectedLevelY = [[document valueForKey:
+                @"selectedLevelY"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(weightStart + (weightEnd - weightStart) * 0.5,
+                    weightY))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(weightStart + (weightEnd - weightStart) * 0.5,
+                    weightY))];
+            const double unipolarHalf = [[document valueForKey:
+                @"selectedManualWeight"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(weightEnd - 1.0, weightY))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint(weightEnd - 1.0, weightY))];
+            const double overloadedColumn = [[document valueForKey:
+                @"selectedColumnPower"] doubleValue];
+
+            // Level operations alter the visible coefficients directly.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1010.0, 578.0))];
+            const double limitedColumn = [[document valueForKey:
+                @"selectedColumnPower"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(880.0, 578.0))];
+            const double normalizedInput = [[document valueForKey:
+                @"selectedInputPower"] doubleValue];
+
+            // Repeat exposes complete channel-order rounds: Stereo to Quad
+            // has exactly two possible rounds and previews all four outputs.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 279.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(700.0, 263.0))];
+            const uint32_t repeatMaximum = [[document valueForKey:
+                @"autoCopiesMaximum"] unsignedIntValue];
+            const uint32_t repeatPreview = [[document valueForKey:
+                @"autoCopiesPreviewOutputCount"] unsignedIntValue];
+            const bool repeatInteractive = [[document valueForKey:
+                @"autoCopiesInteractive"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(984.0, 237.0))];
+            const uint32_t repeatConnections = [[document valueForKey:
+                @"matrixConnectionCount"] unsignedIntValue];
+            const uint32_t repeatMinimum = [[document valueForKey:
+                @"minimumInputConnectionCount"] unsignedIntValue];
+            const uint32_t repeatMaximumRow = [[document valueForKey:
+                @"maximumInputConnectionCount"] unsignedIntValue];
+
+            // All Tiers owns complete-array coverage, so its route-count
+            // slider becomes a fixed coverage readout.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 279.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(700.0, 323.0))];
+            const uint32_t allTiersPreview = [[document valueForKey:
+                @"autoCopiesPreviewOutputCount"] unsignedIntValue];
+            const bool allTiersInteractive = [[document valueForKey:
+                @"autoCopiesInteractive"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 368.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(700.0, 372.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(984.0, 237.0))];
+            const uint32_t allTiersMode = [[document valueForKey:
+                @"autoModeValue"] unsignedIntValue];
+            const uint32_t centerShape = [[document valueForKey:
+                @"autoRowShapeValue"] unsignedIntValue];
+            const uint32_t allTiersStoredCopies = [[document valueForKey:
+                @"autoCopiesValue"] unsignedIntValue];
+            const bool autoFillBaked = [[document valueForKey:
+                @"manualRoutesActive"] boolValue]
+                && [[document valueForKey:@"normalizationValue"]
+                    unsignedIntValue] == 3u;
+
+            // The only secondary view is the Tier Rings layout.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1047.0, 58.0))];
+            const uint32_t openedLayoutPage = [[document valueForKey:
+                @"layoutPage"] unsignedIntValue];
+            const bool tierRingsOnly = [[document valueForKey:
+                @"layoutOrigami"] boolValue];
+            const double firstOutputX = [[document valueForKey:
+                @"layoutFirstOutputPointX"] doubleValue];
+            const double firstOutputY = [[document valueForKey:
+                @"layoutFirstOutputPointY"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(firstOutputX, firstOutputY))];
+            const bool outputPointFocused = [[document valueForKey:
+                @"layoutSelectionIsOutput"] boolValue];
+            const double secondOutputX = [[document valueForKey:
+                @"layoutSecondOutputPointX"] doubleValue];
+            const double secondOutputY = [[document valueForKey:
+                @"layoutSecondOutputPointY"] doubleValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(secondOutputX + 17.0, secondOutputY))];
+            const bool outputEdgeTargetFocused = [[document valueForKey:
+                    @"layoutSelectionIsOutput"] boolValue]
+                && [[document valueForKey:@"layoutSelectedOutputIndex"]
+                    unsignedIntValue] == 1u;
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1029.0, 103.0))];
+            const bool popupOpened = [[document valueForKey:
+                @"layoutPopupVisible"] boolValue];
+            NSView* layoutPopup = [document valueForKey:@"layoutPopupView"];
+            if (layoutPopup) {
+                NSEvent* dockEvent = [NSEvent
+                    mouseEventWithType:NSEventTypeLeftMouseDown
+                    location:[layoutPopup convertPoint:
+                        NSMakePoint(1029.0, 103.0) toView:nil]
+                    modifierFlags:0 timestamp:0.0
+                    windowNumber:[[layoutPopup window] windowNumber]
+                    context:nil eventNumber:0 clickCount:1 pressure:1.0];
+                [layoutPopup mouseDown:dockEvent];
+            }
+            const bool popupDocked = ![[document valueForKey:
+                @"layoutPopupVisible"] boolValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(946.0, 58.0))];
+            const uint32_t returnedMatrixPage = [[document valueForKey:
+                @"layoutPage"] unsignedIntValue];
+
+            // Retain adaptive 64 × 64 rendering and Tier Rings coverage.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 188.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(450.0, 376.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(950.0, 140.0))];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(450.0, 376.0))];
+            const uint32_t largeInputs = [[document valueForKey:
+                @"activeInputCount"] unsignedIntValue];
+            const uint32_t largeOutputs = [[document valueForKey:
+                @"activeOutputCount"] unsignedIntValue];
+            const double largeCell = [[document valueForKey:
+                @"matrixCellSize"] doubleValue];
+            const uint32_t largeLabelStride = [[document valueForKey:
+                @"matrixOutputLabelStride"] unsignedIntValue];
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(1047.0, 58.0))];
+            [document displayIfNeeded];
+            NSData* largeLayoutRender = [document dataWithPDFInsideRect:
+                [document bounds]];
+            const bool largeLayoutRendered = [[document valueForKey:
+                    @"layoutPage"] unsignedIntValue] == 1u
+                && largeLayoutRender && [largeLayoutRender length] > 0u;
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(946.0, 58.0))];
+
+            [document performSelector:@selector(loadDocumentationCube41Layout)];
+            [document displayIfNeeded];
+            const double zenithRadius = [[document valueForKey:
+                @"layoutOutputZenithRadius"] doubleValue];
+            const double cubeFrontEdgeDeviation = [[document valueForKey:
+                @"layoutCubeFrontEdgeDeviation"] doubleValue];
+            const uint32_t cubeLabelCount = [[document valueForKey:
+                @"layoutOutputLabelCount"] unsignedIntValue];
+
+            ok = quadPresetsEven && quadPresetsOrdered
+                && quadExpansionPreset == 9u
+                && quadExpansionInputs == 4u
+                && quadExpansionOutputs == 16u
+                && quadExpansionConnections == 16u
+                && quadExpansionMinimum == 4u
+                && quadExpansionMaximum == 4u
+                && quadExpansionTierCount == 2u
+                && quadExpansionTierMinimum == 2u
+                && quadExpansionTierMaximum == 2u
+                && std::abs(quadExpansionPower - 1.0) < 0.001
+                && octoExpansionPreset == 13u
+                && octoExpansionInputs == 8u
+                && octoExpansionOutputs == 32u
+                && octoExpansionConnections == 32u
+                && octoExpansionMinimum == 4u
+                && octoExpansionMaximum == 4u
+                && octoExpansionTierCount == 2u
+                && octoExpansionTierMinimum == 2u
+                && octoExpansionTierMaximum == 2u
+                && octoExpansionOrdered
+                && std::abs(octoExpansionPower - 1.0) < 0.001
+                && matrixPreset == 3u
+                && presetInputs == 2u && presetOutputs == 4u
+                && std::abs(differenceRightFront - 0.70710678) < 0.001
+                && std::abs(differenceLeftFront - 0.70710678) < 0.001
+                && std::abs(differenceRightRear - 0.5) < 0.001
+                && std::abs(differenceLeftIntoRightRear + 0.5) < 0.001
+                && std::abs(differenceRightIntoLeftRear + 0.5) < 0.001
+                && exactNormalization == 3u
+                && std::abs(deletedDerived) < 0.001
+                && editedPresetReadsCustom
+                && selectedPanelHeight >= 190.0
+                && weightEnd - weightStart >= 80.0
+                && selectedDeleteY - weightY >= 30.0
+                && selectedLevelY - selectedDeleteY >= 30.0
+                && std::abs(unipolarHalf - 0.5) < 0.02
+                && overloadedColumn > 1.4
+                && limitedColumn <= 1.0001
+                && std::abs(normalizedInput - 1.0) < 0.001
+                && repeatMaximum == 2u && repeatPreview == 4u
+                && repeatInteractive && repeatConnections == 4u
+                && repeatMinimum == 2u && repeatMaximumRow == 2u
+                && allTiersPreview == 4u && !allTiersInteractive
+                && allTiersMode == 7u && centerShape == 1u
+                && allTiersStoredCopies == 1u
+                && autoFillBaked
+                && openedLayoutPage == 1u && tierRingsOnly
+                && outputPointFocused && outputEdgeTargetFocused
+                && popupOpened && popupDocked
+                && returnedMatrixPage == 0u
+                && largeInputs == 64u && largeOutputs == 64u
+                && largeCell >= 6.0 && largeLabelStride >= 4u
+                && largeLayoutRendered
+                && std::abs(zenithRadius) < 0.001
+                && cubeFrontEdgeDeviation < 0.01
+                && cubeLabelCount == 41u;
+            if (!ok) {
+                std::cerr << "Matrix Upmix interaction values: expansions "
+                    << quadExpansionPreset << " " << quadExpansionInputs
+                    << "x" << quadExpansionOutputs << "/"
+                    << quadExpansionConnections << "/"
+                    << quadExpansionMinimum << "-" << quadExpansionMaximum
+                    << "/T" << quadExpansionTierCount << ":"
+                    << quadExpansionTierMinimum << "-"
+                    << quadExpansionTierMaximum
+                    << "/" << quadExpansionPower << "/"
+                    << quadPresetsEven << "/" << quadPresetsOrdered
+                    << " and " << octoExpansionPreset
+                    << " " << octoExpansionInputs << "x"
+                    << octoExpansionOutputs << "/"
+                    << octoExpansionConnections << "/"
+                    << octoExpansionMinimum << "-" << octoExpansionMaximum
+                    << "/T" << octoExpansionTierCount << ":"
+                    << octoExpansionTierMinimum << "-"
+                    << octoExpansionTierMaximum
+                    << "/" << octoExpansionOrdered << "/"
+                    << octoExpansionPower << " preset "
+                    << matrixPreset << " " << presetInputs << "x"
+                    << presetOutputs << " difference "
+                    << differenceRightFront << "/"
+                    << differenceLeftFront << "/" << differenceRightRear
+                    << "/" << differenceLeftIntoRightRear << "/"
+                    << differenceRightIntoLeftRear << " exact "
+                    << exactNormalization << " delete " << deletedDerived
+                    << "/" << editedPresetReadsCustom
+                    << " geometry " << selectedPanelHeight << "/"
+                    << weightStart << "-" << weightEnd << "@" << weightY
+                    << "/" << selectedDeleteY << "/" << selectedLevelY
+                    << " unipolar " << unipolarHalf
+                    << " level " << overloadedColumn
+                    << "/" << limitedColumn << "/" << normalizedInput
+                    << " repeat " << repeatMaximum << "/" << repeatPreview
+                    << "/" << repeatInteractive << "/"
+                    << repeatConnections << "/" << repeatMinimum << "-"
+                    << repeatMaximumRow << " autofill " << allTiersPreview
+                    << "/" << allTiersInteractive << "/"
+                    << allTiersMode << "/" << centerShape
+                    << "/" << allTiersStoredCopies << "/"
+                    << autoFillBaked << " layout "
+                    << openedLayoutPage << "/" << tierRingsOnly << "/"
+                    << outputPointFocused << "/" << outputEdgeTargetFocused
+                    << "/" << popupOpened << "/" << popupDocked << "/"
+                    << returnedMatrixPage << " large " << largeInputs << "x"
+                    << largeOutputs << "/" << largeCell << "/"
+                    << largeLabelStride << "/" << largeLayoutRendered
+                    << " cube " << zenithRadius << "/"
+                    << cubeFrontEdgeDeviation << "/" << cubeLabelCount
+                    << '\n';
+            }
+        }
+        if (false && ok && !documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.format-upscale-64") == 0) {
             failureStage = "Format Upscale weighted matrix interaction";
             // Open the fitted two-column input-format menu and retain Stereo.
             [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
@@ -13100,39 +13521,6 @@ int main(int argc, char** argv)
                             [directory stringByAppendingPathComponent:
                                 layoutFile]
                             atomically:YES];
-                    if (ok) {
-                        [(id)document setDocumentationLayoutOrigami:NO];
-                        [document displayIfNeeded];
-                        NSData* flatRender = [document dataWithPDFInsideRect:
-                            [document bounds]];
-                        NSString* flatFile = [[NSString
-                            stringWithUTF8String:pluginId]
-                            stringByAppendingString:@".aed-flat.pdf"];
-                        ok = flatRender && [flatRender length] > 0u
-                            && [flatRender writeToFile:
-                                [directory stringByAppendingPathComponent:
-                                    flatFile]
-                                atomically:YES];
-                    }
-                    if (ok) {
-                        ok = [document respondsToSelector:
-                            @selector(loadDocumentationMidSideLayout)];
-                    }
-                    if (ok) {
-                        [document performSelector:
-                            @selector(loadDocumentationMidSideLayout)];
-                        [document displayIfNeeded];
-                        NSData* midSideRender = [document dataWithPDFInsideRect:
-                            [document bounds]];
-                        NSString* midSideFile = [[NSString
-                            stringWithUTF8String:pluginId]
-                            stringByAppendingString:@".mid-side.pdf"];
-                        ok = midSideRender && [midSideRender length] > 0u
-                            && [midSideRender writeToFile:
-                                [directory stringByAppendingPathComponent:
-                                    midSideFile]
-                                atomically:YES];
-                    }
                     if (ok) {
                         ok = [document respondsToSelector:
                             @selector(loadDocumentationCube41Layout)];

@@ -307,7 +307,7 @@ DOC_SEQUENCE = [
     "monitoring-fold-down.html",
     "output-autogain-stereo.html",
     "output-autogain-quad.html",
-    "format-upscale.html",
+    "matrix-upmix.html",
     "analyzer-meter.html",
     "direct-panning.html",
     "panner-layout.html",

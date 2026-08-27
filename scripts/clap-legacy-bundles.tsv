@@ -210,4 +210,5 @@ s3g_effect_cascade_taps.clap	org.s3g.s3g-dsp.cascade-taps	retired
 s3g_effect_cascade_taps_16.clap	org.s3g.s3g-dsp.cascade-taps	retired
 s3g_effect_crcltr.clap	org.s3g.s3g-dsp.crcltr	s3g_sample_circulator_2.clap
 s3g_effect_crcltr_2.clap	org.s3g.s3g-dsp.crcltr	s3g_sample_circulator_2.clap
-s3g_utility_format_upscale_64.clap	org.s3g.s3g-dsp.format-upscale-64	s3g_output_format_upscale_64.clap
+s3g_utility_format_upscale_64.clap	org.s3g.s3g-dsp.format-upscale-64	s3g_matrix_upmix_64.clap
+s3g_output_format_upscale_64.clap	org.s3g.s3g-dsp.format-upscale-64	s3g_matrix_upmix_64.clap

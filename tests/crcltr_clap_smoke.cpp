@@ -32,6 +32,15 @@ std::filesystem::path resolveBinary(const std::filesystem::path& supplied)
     return {};
 }
 
+bool hasFeature(const clap_plugin_descriptor_t* descriptor,
+                const char* feature)
+{
+    if (!descriptor || !descriptor->features || !feature) return false;
+    for (const char* const* item = descriptor->features; *item; ++item)
+        if (std::strcmp(*item, feature) == 0) return true;
+    return false;
+}
+
 struct EventList {
     std::vector<clap_event_param_value_t> events;
     clap_input_events_t interface {
@@ -245,6 +254,14 @@ int main(int argc, char** argv)
 
     const auto* factory = ok ? static_cast<const clap_plugin_factory_t*>(
         entry->get_factory(CLAP_PLUGIN_FACTORY_ID)) : nullptr;
+    const auto* descriptor = factory
+        ? factory->get_plugin_descriptor(factory, 0u) : nullptr;
+    ok = ok && descriptor
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_INSTRUMENT)
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_SAMPLER)
+        && hasFeature(descriptor, CLAP_PLUGIN_FEATURE_STEREO);
+    checkpoint("CLAPi feature tags");
     const clap_plugin_t* plugin = factory ? factory->create_plugin(
         factory, &host, "org.s3g.s3g-dsp.crcltr") : nullptr;
     ok = ok && plugin && plugin->init(plugin);

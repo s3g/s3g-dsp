@@ -3,7 +3,7 @@ clap_delay_processor/s3g_8ch_delay_processor.clap	s3g_processor_delay_8.clap	org
 clap_delay_processor/s3g_24ch_delay_processor.clap	s3g_processor_delay_24.clap	org.s3g.s3g-dsp.delay-processor-24ch	s3g Processor Delay 24
 clap_mc_to_stereo_autogain/s3g_mc_to_stereo_autogain.clap	s3g_output_autogain_stereo_2.clap	org.s3g.s3g-dsp.mc-to-stereo-autogain	s3g Output Autogain Stereo 2
 clap_mc_to_quad_autogain/s3g_mc_to_quad_autogain.clap	s3g_output_autogain_quad_4.clap	org.s3g.s3g-dsp.mc-to-quad-autogain	s3g Output Autogain Quad 4
-clap_format_upscale/s3g_format_upscale.clap	s3g_output_format_upscale_64.clap	org.s3g.s3g-dsp.format-upscale-64	s3g Output Format Upscale 64
+clap_format_upscale/s3g_format_upscale.clap	s3g_matrix_upmix_64.clap	org.s3g.s3g-dsp.format-upscale-64	s3g Matrix Upmix 64
 clap_ambi_point_encoder/s3g_ambi_point_encoder.clap	s3g_ambi_encoder_point_64.clap	org.s3g.s3g-dsp.ambi-point-encoder-64	s3g Ambi Encoder Point 64
 clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap	s3g_ambi_encoder_cloud_64.clap	org.s3g.s3g-dsp.ambi-cloud-encoder-64	s3g Ambi Encoder Cloud 64
 clap_ambi_cartography_encoder/s3g_ambi_cartography_encoder.clap	s3g_ambi_encoder_cartography_64.clap	org.s3g.s3g-dsp.ambi-cartography-encoder-64	s3g Ambi Encoder Cartography 64

@@ -15,7 +15,6 @@ constexpr uint32_t kFormatUpscaleMaxChannels = 64u;
 constexpr uint32_t kFormatUpscaleLayoutCount = 42u;
 constexpr float kFormatUpscaleMaxDelayMs = 50.0f;
 constexpr float kFormatUpscaleTierHeightTolerance = 0.015f;
-constexpr float kFormatUpscaleMidSideWidth = 0.75f;
 
 enum class FormatUpscaleLayout : uint32_t {
     Mono = 0u,
@@ -91,6 +90,7 @@ enum class FormatUpscaleNormalization : uint32_t {
     Row = 0u,
     Column,
     DualLimit,
+    Exact,
 };
 
 enum class FormatUpscaleOrigin : uint32_t {
@@ -243,7 +243,7 @@ inline const char* formatUpscalePlacementName(FormatUpscalePlacement placement)
     case FormatUpscalePlacement::Nearest: return "Nearest";
     case FormatUpscalePlacement::Span: return "Span";
     case FormatUpscalePlacement::TierFill: return "Tier fill";
-    case FormatUpscalePlacement::MidSideSpread: return "M/S spread";
+    case FormatUpscalePlacement::MidSideSpread: return "Tier fill";
     default: return "Same side";
     }
 }
@@ -265,6 +265,7 @@ inline const char* formatUpscaleNormalizationName(
     switch (normalization) {
     case FormatUpscaleNormalization::Column: return "Column";
     case FormatUpscaleNormalization::DualLimit: return "Dual limit";
+    case FormatUpscaleNormalization::Exact: return "Exact";
     case FormatUpscaleNormalization::Row:
     default: return "Row";
     }
@@ -591,12 +592,13 @@ inline FormatUpscaleParams sanitizeFormatUpscaleParams(FormatUpscaleParams p)
         && formatUpscaleLayoutChannels(p.outputLayout)
             < formatUpscaleLayoutChannels(p.inputLayout))
         p.outputLayout = p.inputLayout;
-    p.basis = static_cast<FormatUpscaleBasis>(std::min<uint32_t>(
-        static_cast<uint32_t>(p.basis),
-        static_cast<uint32_t>(FormatUpscaleBasis::Side)));
+    // Matrix Upmix is deliberately a positive-gain direct matrix. Retain the
+    // historical enum values for state compatibility, but fold them into the
+    // direct model when parameters are sanitized.
+    p.basis = FormatUpscaleBasis::Direct;
     p.placement = static_cast<FormatUpscalePlacement>(std::min<uint32_t>(
         static_cast<uint32_t>(p.placement),
-        static_cast<uint32_t>(FormatUpscalePlacement::MidSideSpread)));
+        static_cast<uint32_t>(FormatUpscalePlacement::TierFill)));
     p.origin = static_cast<FormatUpscaleOrigin>(std::min<uint32_t>(
         static_cast<uint32_t>(p.origin),
         static_cast<uint32_t>(FormatUpscaleOrigin::Remap)));
@@ -676,7 +678,7 @@ public:
     {
         const auto sanitized = static_cast<FormatUpscaleNormalization>(
             std::min<uint32_t>(static_cast<uint32_t>(normalization),
-                static_cast<uint32_t>(FormatUpscaleNormalization::DualLimit)));
+                static_cast<uint32_t>(FormatUpscaleNormalization::Exact)));
         if (normalization_ == sanitized) return;
         normalization_ = sanitized;
         rebuildTargets();
@@ -959,28 +961,6 @@ private:
         return best;
     }
 
-    uint32_t findMirrorInput(uint32_t source) const
-    {
-        const auto& speaker = inputLayout_.speakers[source];
-        if (speakerSide(speaker) == 0) return source;
-        uint32_t best = source;
-        float bestScore = 1000000.0f;
-        for (uint32_t candidate = 0u; candidate < inputLayout_.count;
-             ++candidate) {
-            if (candidate == source) continue;
-            const auto& other = inputLayout_.speakers[candidate];
-            if (speakerSide(other) != -speakerSide(speaker)) continue;
-            const float score = formatUpscaleAngularDistance(
-                    other.azimuthDeg, -speaker.azimuthDeg)
-                + std::abs(other.elevationDeg - speaker.elevationDeg) * 1.35f;
-            if (score < bestScore) {
-                bestScore = score;
-                best = candidate;
-            }
-        }
-        return best;
-    }
-
     float candidateScore(uint32_t source, uint32_t output,
         uint32_t copyIndex) const
     {
@@ -1039,7 +1019,6 @@ private:
         placement.fill(0.0f);
 
         std::array<float, kFormatUpscaleMaxChannels> tierHeights {};
-        std::array<uint32_t, kFormatUpscaleMaxChannels> tierCounts {};
         std::array<uint32_t, kFormatUpscaleMaxChannels> outputTiers {};
         uint32_t tierCount = 0u;
         for (uint32_t output = 0u; output < outputLayout_.count; ++output) {
@@ -1055,20 +1034,25 @@ private:
                 ++tierCount;
             }
             outputTiers[output] = tier;
-            ++tierCounts[tier];
         }
-        bool evenTierDistribution = tierCount > 1u;
-        for (uint32_t tier = 0u; tier < tierCount; ++tier)
-            evenTierDistribution = evenTierDistribution
-                && tierCounts[tier] >= inputLayout_.count;
         const bool tierFill = params_.placement
             == FormatUpscalePlacement::TierFill;
         const bool fillTiers = tierFill && tierCount > 1u;
+        // Ordinary recipes must honor Copies exactly. Tier seeding used to
+        // raise that count silently whenever every tier had enough speakers,
+        // which made Repeat's Outputs/Input control appear unpredictable.
+        // Complete height and array coverage now belongs only to Tier Fill.
+        const uint32_t repeatMaximum = std::max<uint32_t>(1u,
+            outputLayout_.count
+                / std::max<uint32_t>(1u, inputLayout_.count));
+        const uint32_t effectiveCopies = params_.placement
+                == FormatUpscalePlacement::Interleave
+            ? std::min(params_.copies, repeatMaximum)
+            : params_.copies;
         const uint32_t baseRequested =
             params_.placement == FormatUpscalePlacement::Match
-                ? 0u : (params_.copies > 0u ? params_.copies - 1u : 0u);
-        const uint32_t tierRequested = (evenTierDistribution || fillTiers)
-            ? tierCount - 1u : 0u;
+                ? 0u : (effectiveCopies > 0u ? effectiveCopies - 1u : 0u);
+        const uint32_t tierRequested = fillTiers ? tierCount - 1u : 0u;
         const uint32_t requested = std::max(baseRequested, tierRequested);
         if (requested == 0u && !tierFill) return;
 
@@ -1110,7 +1094,7 @@ private:
         // for all sources, destinations remain unique. Tier Fill deliberately
         // permits sharing on sparse tiers and balances that sharing by column
         // occupancy before considering AED distance.
-        if (evenTierDistribution || fillTiers) {
+        if (fillTiers) {
             for (uint32_t source = 0u; source < inputLayout_.count; ++source) {
                 if (anchors[source] >= outputLayout_.count) continue;
                 const uint32_t anchorTier = outputTiers[anchors[source]];
@@ -1220,20 +1204,8 @@ private:
         kFormatUpscaleMaxChannels * kFormatUpscaleMaxChannels>& basis) const
     {
         basis.fill(0.0f);
-        constexpr float invSqrt2 = 0.7071067811865475f;
-        for (uint32_t lane = 0u; lane < inputLayout_.count; ++lane) {
-            const uint32_t mirror = findMirrorInput(lane);
-            if (params_.basis == FormatUpscaleBasis::Direct
-                || mirror == lane) {
-                if (params_.basis != FormatUpscaleBasis::Side || mirror != lane)
-                    basis[matrixIndex(lane, lane)] = 1.0f;
-                continue;
-            }
-            basis[matrixIndex(lane, lane)] = invSqrt2;
-            basis[matrixIndex(mirror, lane)] =
-                params_.basis == FormatUpscaleBasis::Mid
-                ? invSqrt2 : -invSqrt2;
-        }
+        for (uint32_t lane = 0u; lane < inputLayout_.count; ++lane)
+            basis[matrixIndex(lane, lane)] = 1.0f;
     }
 
     float automaticShapeWeight(float distance, float minimumDistance,
@@ -1285,128 +1257,6 @@ private:
         }
     }
 
-    void buildMidSideSpread()
-    {
-        constexpr float invSqrt2 = 0.7071067811865475f;
-        constexpr float degreesToRadians =
-            3.14159265358979323846f / 180.0f;
-        std::array<bool, kFormatUpscaleMaxChannels> assignedInputs {};
-
-        for (uint32_t source = 0u; source < inputLayout_.count; ++source) {
-            if (assignedInputs[source]) continue;
-            const uint32_t mirror = findMirrorInput(source);
-            const bool mirroredPair = mirror < inputLayout_.count
-                && mirror != source
-                && !assignedInputs[mirror]
-                && findMirrorInput(mirror) == source;
-
-            if (mirroredPair) {
-                const uint32_t left = speakerSide(
-                        inputLayout_.speakers[source]) > 0
-                    ? source : mirror;
-                const uint32_t right = left == source ? mirror : source;
-                assignedInputs[source] = true;
-                assignedInputs[mirror] = true;
-                std::array<float, kFormatUpscaleMaxChannels> midWeights {};
-                std::array<float, kFormatUpscaleMaxChannels> sideWeights {};
-                std::array<float, kFormatUpscaleMaxChannels> distances {};
-                float minimumDistance = 1000000.0f;
-                float maximumDistance = 0.0f;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output) {
-                    const auto& speaker = outputLayout_.speakers[output];
-                    const float lateral = std::abs(std::sin(
-                            speaker.azimuthDeg * degreesToRadians))
-                        * std::max(0.0f, std::cos(
-                            speaker.elevationDeg * degreesToRadians));
-                    const float side = kFormatUpscaleMidSideWidth * lateral;
-                    const float mid = std::sqrt(std::max(
-                        0.0f, 1.0f - side * side));
-                    midWeights[output] = mid;
-                    sideWeights[output] = static_cast<float>(
-                        speakerSide(speaker)) * side;
-                    distances[output] = 0.5f * (
-                        speakerDistance(inputLayout_.speakers[left], speaker)
-                        + speakerDistance(
-                            inputLayout_.speakers[right], speaker));
-                    minimumDistance = std::min(
-                        minimumDistance, distances[output]);
-                    maximumDistance = std::max(
-                        maximumDistance, distances[output]);
-                }
-
-                // Shape a pair in M/S space so L/R receive the same envelope.
-                // Balance the positive and negative lateral Side lobes against
-                // Mid without introducing Side on centerline outputs. Both
-                // decoded input rows can then share one normalization scale,
-                // even for an asymmetric custom output.
-                float midPower = 0.0f;
-                float positiveMidSide = 0.0f;
-                float negativeMidSide = 0.0f;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output) {
-                    const float shape = automaticShapeWeight(
-                        distances[output], minimumDistance, maximumDistance);
-                    midWeights[output] *= shape;
-                    sideWeights[output] *= shape;
-                    midPower += midWeights[output] * midWeights[output];
-                    const float product = midWeights[output]
-                        * sideWeights[output];
-                    if (product > 0.0f) positiveMidSide += product;
-                    else negativeMidSide -= product;
-                }
-                if (positiveMidSide > 0.000001f
-                    && negativeMidSide > 0.000001f) {
-                    const float positiveScale = positiveMidSide
-                            > negativeMidSide
-                        ? negativeMidSide / positiveMidSide : 1.0f;
-                    const float negativeScale = negativeMidSide
-                            > positiveMidSide
-                        ? positiveMidSide / negativeMidSide : 1.0f;
-                    for (uint32_t output = 0u;
-                         output < outputLayout_.count; ++output) {
-                        sideWeights[output] *= sideWeights[output] > 0.0f
-                            ? positiveScale : negativeScale;
-                    }
-                } else {
-                    sideWeights.fill(0.0f);
-                }
-                float sidePower = 0.0f;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output)
-                    sidePower += sideWeights[output] * sideWeights[output];
-                const float pairPower = midPower + sidePower;
-                const float scale = pairPower > 0.000001f
-                    ? std::sqrt(2.0f / pairPower) : 1.0f;
-                for (uint32_t output = 0u; output < outputLayout_.count;
-                     ++output) {
-                    const float mid = midWeights[output] * scale;
-                    const float side = sideWeights[output] * scale;
-                    targetExtension_[matrixIndex(left, output)] =
-                        (mid + side) * invSqrt2;
-                    targetExtension_[matrixIndex(right, output)] =
-                        (mid - side) * invSqrt2;
-                }
-                continue;
-            }
-
-            // Centerline and otherwise unpaired inputs follow the Mid contour:
-            // strongest on the centerline and at height, lighter at the sides.
-            assignedInputs[source] = true;
-            for (uint32_t output = 0u; output < outputLayout_.count; ++output) {
-                const auto& speaker = outputLayout_.speakers[output];
-                const float lateral = std::abs(std::sin(
-                        speaker.azimuthDeg * degreesToRadians))
-                    * std::max(0.0f, std::cos(
-                        speaker.elevationDeg * degreesToRadians));
-                const float side = kFormatUpscaleMidSideWidth * lateral;
-                targetExtension_[matrixIndex(source, output)] =
-                    std::sqrt(std::max(0.0f, 1.0f - side * side));
-            }
-            applyAutomaticRowShape(source);
-        }
-    }
-
     void normalizeInputRows()
     {
         for (uint32_t input = 0u; input < inputLayout_.count; ++input) {
@@ -1429,6 +1279,17 @@ private:
         }
     }
 
+    void applyNormalization()
+    {
+        if (normalization_ == FormatUpscaleNormalization::Row
+            || normalization_ == FormatUpscaleNormalization::DualLimit)
+            normalizeInputRows();
+        if (normalization_ == FormatUpscaleNormalization::Column)
+            normalizeOutputColumns(false);
+        else if (normalization_ == FormatUpscaleNormalization::DualLimit)
+            normalizeOutputColumns(true);
+    }
+
     void rebuildTargets()
     {
         inputLayout_ = resolveLayout(params_.inputLayout, true);
@@ -1445,27 +1306,7 @@ private:
                         targetExtension_[index] = manualWeights_[index];
                 }
             }
-            if (normalization_ != FormatUpscaleNormalization::Column)
-                normalizeInputRows();
-            if (normalization_ == FormatUpscaleNormalization::Column)
-                normalizeOutputColumns(false);
-            else if (normalization_ == FormatUpscaleNormalization::DualLimit)
-                normalizeOutputColumns(true);
-            rebuildActiveRoutes();
-            return;
-        }
-
-        if (params_.placement == FormatUpscalePlacement::MidSideSpread) {
-            // M/S Spread is a complete signed matrix recipe. It deliberately
-            // bypasses anchor/copy semantics so the visible matrix is the
-            // exact audible map and every available output tier participates.
-            buildMidSideSpread();
-            if (normalization_ != FormatUpscaleNormalization::Column)
-                normalizeInputRows();
-            if (normalization_ == FormatUpscaleNormalization::Column)
-                normalizeOutputColumns(false);
-            else if (normalization_ == FormatUpscaleNormalization::DualLimit)
-                normalizeOutputColumns(true);
+            applyNormalization();
             rebuildActiveRoutes();
             return;
         }
@@ -1474,7 +1315,14 @@ private:
         std::array<uint32_t, kFormatUpscaleMaxChannels> anchors {};
         anchors.fill(kFormatUpscaleMaxChannels);
         for (uint32_t source = 0u; source < inputLayout_.count; ++source) {
-            const uint32_t output = findAnchor(source, anchorOutputs);
+            // Repeat is an ordinal channel-cycle operation: I1 starts at O1,
+            // I2 at O2, and later rounds advance by the input count. Spatial
+            // role matching here could move an anchor out of its cycle and
+            // make a requested round impossible.
+            const uint32_t output = params_.placement
+                    == FormatUpscalePlacement::Interleave
+                && source < outputLayout_.count
+                ? source : findAnchor(source, anchorOutputs);
             if (output < outputLayout_.count) {
                 anchors[source] = output;
                 anchorOutputs[output] = true;

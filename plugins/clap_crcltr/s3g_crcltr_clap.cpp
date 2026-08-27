@@ -10,6 +10,7 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#import <AVFoundation/AVFoundation.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #endif
@@ -18,10 +19,18 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <filesystem>
+#include <limits>
+#include <memory>
+#include <mutex>
 #include <new>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -31,6 +40,9 @@ constexpr uint32_t kStateVersion = 3u;
 constexpr uint32_t kGuiWidth = 760u;
 constexpr uint32_t kGuiHeight = 660u;
 constexpr uint32_t kLoopWaveformBins = 256u;
+constexpr uint32_t kLoopImportQueueCapacity = 32u;
+constexpr uint32_t kMinimumLoopImportFramesPerBlock = 8192u;
+constexpr uint32_t kMaximumLoopImportFramesPerBlock = 65536u;
 
 constexpr uint8_t kMidiCaptureHold = 36u;
 constexpr uint8_t kMidiPlayPause = 37u;
@@ -176,10 +188,59 @@ struct SavedStateHeader {
     uint32_t loopFrames[2] { 0u, 0u };
 };
 
+enum class LoopSourceKind : uint8_t {
+    Empty = 0u,
+    Embedded = 1u,
+    File = 2u,
+    Loading = 3u,
+};
+
+struct ImportedLoopAudio {
+    double sampleRate = 0.0;
+    std::vector<float> left;
+    std::vector<float> right;
+    std::string name;
+    bool truncated = false;
+
+    bool valid() const noexcept
+    {
+        return std::isfinite(sampleRate) && sampleRate > 1.0
+            && left.size() >= 2u && left.size() == right.size()
+            && left.size() <= std::numeric_limits<uint32_t>::max();
+    }
+};
+
+struct LoopImportCommand {
+    uint32_t loop = 0u;
+    uint64_t generation = 0u;
+    std::shared_ptr<const ImportedLoopAudio> audio;
+    uint32_t copiedFrames = 0u;
+    bool begun = false;
+    bool committed = false;
+};
+
+#if defined(__APPLE__)
+struct LoopLoadRequest {
+    uint32_t loop = 0u;
+    uint64_t generation = 0u;
+    double destinationSampleRate = 48000.0;
+    uint32_t destinationCapacity = 0u;
+    std::string path;
+};
+
+struct LoopLoadResult {
+    uint32_t loop = 0u;
+    uint64_t generation = 0u;
+    std::shared_ptr<const ImportedLoopAudio> audio;
+    std::string error;
+};
+#endif
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
+    const clap_host_state_t* hostState = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0u;
     s3g::CrcltrParams params {};
@@ -221,11 +282,29 @@ struct Plugin {
     std::array<WaveformBuilder, 2u> waveformBuilders {};
     std::atomic<uint32_t> waveformRebuildMask { 3u };
     std::atomic<uint32_t> loopClearRequestMask { 0u };
+    std::array<std::atomic<uint8_t>, 2u> loopSourceKinds {};
+    std::array<std::atomic<uint64_t>, 2u> loopImportGenerations {};
+    std::atomic<uint32_t> loopLoadPendingMask { 0u };
+    std::atomic<uint32_t> loopLoadErrorMask { 0u };
+    s3g::clap_gui::SpscEventQueue<LoopImportCommand*,
+        kLoopImportQueueCapacity> loopImportQueue {};
+    s3g::clap_gui::SpscEventQueue<LoopImportCommand*,
+        kLoopImportQueueCapacity> retiredLoopImportQueue {};
+    std::array<LoopImportCommand*, 2u> activeLoopImports {};
+    std::array<std::shared_ptr<const ImportedLoopAudio>, 2u>
+        controlLoadedAudio {};
     bool prepared = false;
     double pendingAudioSampleRate = 0.0;
     std::array<uint32_t, 2u> pendingLoopFrames {};
     std::array<std::vector<float>, 4u> pendingLoopAudio;
 #if defined(__APPLE__)
+    std::mutex loaderMutex;
+    std::condition_variable loaderCondition;
+    std::deque<LoopLoadRequest> loadRequests;
+    std::deque<LoopLoadResult> loadResults;
+    std::thread loaderThread;
+    bool loaderStopping = false;
+    std::array<std::string, 2u> loopLoadStatuses {{ "EMPTY", "EMPTY" }};
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -282,6 +361,22 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         break;
     case kRecordParamId:
         plugin.params.record = value >= 0.5;
+        if (plugin.params.record && !recordWasHigh) {
+            const uint32_t target = static_cast<uint32_t>(
+                plugin.params.recordTarget);
+            for (uint32_t loop = 0u; loop < 2u; ++loop) {
+                if (target != 1u && target != loop * 2u) continue;
+                plugin.loopImportGenerations[loop].fetch_add(
+                    1u, std::memory_order_acq_rel);
+                plugin.loopSourceKinds[loop].store(
+                    static_cast<uint8_t>(LoopSourceKind::Embedded),
+                    std::memory_order_release);
+                plugin.loopLoadPendingMask.fetch_and(~(1u << loop),
+                    std::memory_order_acq_rel);
+                plugin.loopLoadErrorMask.fetch_and(~(1u << loop),
+                    std::memory_order_acq_rel);
+            }
+        }
         break;
     case kRecordTargetParamId:
         plugin.params.recordTarget = static_cast<s3g::CrcltrRecordTarget>(
@@ -343,8 +438,18 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     case kClearLoopAParamId:
     case kClearLoopBParamId:
         if (value >= 0.5) {
+            const uint32_t loop = id == kClearLoopAParamId ? 0u : 1u;
+            plugin.loopImportGenerations[loop].fetch_add(
+                1u, std::memory_order_acq_rel);
+            plugin.loopSourceKinds[loop].store(
+                static_cast<uint8_t>(LoopSourceKind::Empty),
+                std::memory_order_release);
+            plugin.loopLoadPendingMask.fetch_and(~(1u << loop),
+                std::memory_order_acq_rel);
+            plugin.loopLoadErrorMask.fetch_and(~(1u << loop),
+                std::memory_order_acq_rel);
             plugin.loopClearRequestMask.fetch_or(
-                id == kClearLoopAParamId ? 1u : 2u,
+                1u << loop,
                 std::memory_order_release);
         }
         return;
@@ -513,6 +618,39 @@ void continueWaveformRebuild(Plugin& plugin, uint32_t loop,
     }
 }
 
+void publishImportedWaveform(Plugin& plugin, uint32_t loop,
+                             const ImportedLoopAudio& audio)
+{
+    if (loop >= plugin.loopWaveforms.size() || !audio.valid()) return;
+    auto& publication = plugin.loopWaveforms[loop];
+    const uint32_t frames = static_cast<uint32_t>(audio.left.size());
+    const uint32_t bins = std::min<uint32_t>(kLoopWaveformBins, frames);
+    publication.validBins.store(0u, std::memory_order_release);
+    publication.frames.store(frames, std::memory_order_relaxed);
+    publication.bins.store(bins, std::memory_order_release);
+    for (uint32_t bin = 0u; bin < bins; ++bin) {
+        const uint32_t begin = static_cast<uint32_t>(
+            (static_cast<uint64_t>(bin) * frames) / bins);
+        const uint32_t end = std::max<uint32_t>(begin + 1u,
+            static_cast<uint32_t>((static_cast<uint64_t>(bin + 1u)
+                * frames) / bins));
+        for (uint32_t channel = 0u; channel < 2u; ++channel) {
+            const auto& samples = channel == 0u ? audio.left : audio.right;
+            float minimum = samples[begin];
+            float maximum = samples[begin];
+            for (uint32_t frame = begin + 1u; frame < end; ++frame) {
+                minimum = std::min(minimum, samples[frame]);
+                maximum = std::max(maximum, samples[frame]);
+            }
+            publication.minimum[channel][bin].store(minimum,
+                std::memory_order_relaxed);
+            publication.maximum[channel][bin].store(maximum,
+                std::memory_order_relaxed);
+        }
+        publication.validBins.store(bin + 1u, std::memory_order_release);
+    }
+}
+
 void serviceWaveformPublication(Plugin& plugin)
 {
     const uint32_t rebuildMask = plugin.waveformRebuildMask.exchange(
@@ -554,14 +692,160 @@ void serviceLoopClearRequests(Plugin& plugin)
         std::memory_order_release);
 }
 
+void markStateDirty(Plugin& plugin)
+{
+    if (plugin.hostState && plugin.hostState->mark_dirty)
+        plugin.hostState->mark_dirty(plugin.host);
+}
+
+bool retireLoopImport(Plugin& plugin, LoopImportCommand* command) noexcept
+{
+    if (!command || !plugin.retiredLoopImportQueue.push(command))
+        return false;
+    if (plugin.host && plugin.host->request_callback)
+        plugin.host->request_callback(plugin.host);
+    return true;
+}
+
+void serviceLoopImports(Plugin& plugin) noexcept
+{
+    for (uint32_t loop = 0u; loop < 2u; ++loop) {
+        auto*& active = plugin.activeLoopImports[loop];
+        if (active && active->generation
+                != plugin.loopImportGenerations[loop].load(
+                    std::memory_order_acquire)) {
+            if (retireLoopImport(plugin, active)) active = nullptr;
+        }
+    }
+
+    LoopImportCommand* queued = nullptr;
+    while (plugin.loopImportQueue.peek(queued)) {
+        if (!queued || queued->loop >= 2u) {
+            if (queued && !retireLoopImport(plugin, queued)) break;
+            plugin.loopImportQueue.pop();
+            continue;
+        }
+        const uint32_t loop = queued->loop;
+        if (plugin.activeLoopImports[loop]) break;
+        if (queued->generation != plugin.loopImportGenerations[loop].load(
+                std::memory_order_acquire)) {
+            if (!retireLoopImport(plugin, queued)) break;
+            plugin.loopImportQueue.pop();
+            continue;
+        }
+        plugin.activeLoopImports[loop] = queued;
+        plugin.loopImportQueue.pop();
+        queued->begun = plugin.dsp.beginLoopImport(loop);
+        if (!queued->begun) {
+            if (retireLoopImport(plugin, queued))
+                plugin.activeLoopImports[loop] = nullptr;
+            continue;
+        }
+        plugin.loopSourceKinds[loop].store(
+            static_cast<uint8_t>(LoopSourceKind::Loading),
+            std::memory_order_release);
+    }
+
+    for (uint32_t loop = 0u; loop < 2u; ++loop) {
+        auto*& active = plugin.activeLoopImports[loop];
+        if (!active || !active->begun || !active->audio
+            || !active->audio->valid()) continue;
+        const uint32_t total = static_cast<uint32_t>(
+            active->audio->left.size());
+        const uint32_t remaining = total - active->copiedFrames;
+        const uint32_t importBudget = std::clamp<uint32_t>(
+            plugin.maxFrames > kMaximumLoopImportFramesPerBlock / 64u
+                ? kMaximumLoopImportFramesPerBlock : plugin.maxFrames * 64u,
+            kMinimumLoopImportFramesPerBlock,
+            kMaximumLoopImportFramesPerBlock);
+        const uint32_t chunk = std::min<uint32_t>(
+            remaining, importBudget);
+        if (chunk > 0u && !plugin.dsp.writeLoopImport(loop,
+                active->copiedFrames,
+                active->audio->left.data() + active->copiedFrames,
+                active->audio->right.data() + active->copiedFrames,
+                chunk)) {
+            active->generation = 0u;
+            continue;
+        }
+        active->copiedFrames += chunk;
+        if (active->copiedFrames < total) continue;
+        active->committed = plugin.dsp.finishLoopImport(loop, total);
+        if (active->committed) {
+            plugin.loopSourceKinds[loop].store(
+                static_cast<uint8_t>(LoopSourceKind::File),
+                std::memory_order_release);
+            plugin.waveformRebuildMask.fetch_or(1u << loop,
+                std::memory_order_release);
+        }
+        if (retireLoopImport(plugin, active)) active = nullptr;
+    }
+}
+
+void serviceRetiredLoopImports(Plugin& plugin)
+{
+    LoopImportCommand* command = nullptr;
+    while (plugin.retiredLoopImportQueue.peek(command)) {
+#if defined(__APPLE__)
+        if (command && command->loop < 2u
+            && command->generation == plugin.loopImportGenerations[
+                command->loop].load(std::memory_order_acquire)) {
+            if (command->committed && command->audio) {
+                plugin.loopLoadStatuses[command->loop]
+                    = command->audio->name
+                    + (command->audio->truncated ? " / 32S MAX" : " / READY");
+                plugin.loopLoadPendingMask.fetch_and(
+                    ~(1u << command->loop), std::memory_order_acq_rel);
+                plugin.loopLoadErrorMask.fetch_and(
+                    ~(1u << command->loop), std::memory_order_acq_rel);
+            } else {
+                plugin.loopLoadStatuses[command->loop] = "LOAD FAILED";
+                plugin.loopLoadPendingMask.fetch_and(
+                    ~(1u << command->loop), std::memory_order_acq_rel);
+                plugin.loopLoadErrorMask.fetch_or(1u << command->loop,
+                    std::memory_order_acq_rel);
+            }
+        }
+#endif
+        delete command;
+        plugin.retiredLoopImportQueue.pop();
+    }
+}
+
+void discardLoopImports(Plugin& plugin)
+{
+    LoopImportCommand* command = nullptr;
+    while (plugin.loopImportQueue.peek(command)) {
+        delete command;
+        plugin.loopImportQueue.pop();
+    }
+    serviceRetiredLoopImports(plugin);
+    for (auto*& active : plugin.activeLoopImports) {
+        delete active;
+        active = nullptr;
+    }
+}
+
+#if defined(__APPLE__)
+bool startLoopLoader(Plugin& plugin);
+void stopLoopLoader(Plugin& plugin);
+void serviceLoopLoadResults(Plugin& plugin);
+#endif
+
 bool init(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
     if (p->host && p->host->get_extension) {
         p->hostParams = static_cast<const clap_host_params_t*>(
             p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+        p->hostState = static_cast<const clap_host_state_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_STATE));
     }
+#if defined(__APPLE__)
+    return startLoopLoader(*p);
+#else
     return true;
+#endif
 }
 
 #if defined(__APPLE__)
@@ -572,7 +856,9 @@ void destroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
     guiDestroy(plugin);
+    stopLoopLoader(*self(plugin));
 #endif
+    discardLoopImports(*self(plugin));
     delete self(plugin);
 }
 
@@ -582,6 +868,22 @@ bool snapshotLoops(Plugin& plugin)
     try {
         plugin.pendingAudioSampleRate = plugin.dsp.sampleRate();
         for (uint32_t loop = 0u; loop < 2u; ++loop) {
+            const auto sourceKind = static_cast<LoopSourceKind>(
+                plugin.loopSourceKinds[loop].load(
+                    std::memory_order_acquire));
+            const auto& loadingAudio = plugin.controlLoadedAudio[loop];
+            if (sourceKind == LoopSourceKind::Loading && loadingAudio
+                && loadingAudio->valid()
+                && std::abs(loadingAudio->sampleRate
+                    - plugin.pendingAudioSampleRate) < 0.5) {
+                const uint32_t frames = static_cast<uint32_t>(
+                    loadingAudio->left.size());
+                plugin.pendingLoopFrames[loop] = frames;
+                plugin.pendingLoopAudio[loop * 2u] = loadingAudio->left;
+                plugin.pendingLoopAudio[loop * 2u + 1u]
+                    = loadingAudio->right;
+                continue;
+            }
             const uint32_t frames = plugin.dsp.recordedFrames(loop);
             plugin.pendingLoopFrames[loop] = frames;
             auto& left = plugin.pendingLoopAudio[loop * 2u];
@@ -750,6 +1052,8 @@ clap_process_status process(const clap_plugin_t* plugin,
     auto* p = self(plugin);
     if (processInfo->audio_outputs_count == 0u) return CLAP_PROCESS_CONTINUE;
     serviceGuiParamEvents(*p, processInfo->out_events);
+    serviceLoopClearRequests(*p);
+    serviceLoopImports(*p);
 
     const auto* input = processInfo->audio_inputs_count > 0u
         ? &processInfo->audio_inputs[0] : nullptr;
@@ -822,7 +1126,14 @@ clap_process_status process(const clap_plugin_t* plugin,
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+#if defined(__APPLE__)
+    serviceLoopLoadResults(*p);
+#endif
+    serviceRetiredLoopImports(*p);
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool) { return 1u; }
 
@@ -1263,6 +1574,19 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!stream || !stream->read) return false;
     auto* p = self(plugin);
     p->loopClearRequestMask.store(0u, std::memory_order_release);
+    p->loopLoadPendingMask.store(0u, std::memory_order_release);
+    p->loopLoadErrorMask.store(0u, std::memory_order_release);
+    for (uint32_t loop = 0u; loop < 2u; ++loop) {
+        p->loopImportGenerations[loop].fetch_add(
+            1u, std::memory_order_acq_rel);
+        p->loopSourceKinds[loop].store(
+            static_cast<uint8_t>(LoopSourceKind::Empty),
+            std::memory_order_release);
+        p->controlLoadedAudio[loop].reset();
+#if defined(__APPLE__)
+        p->loopLoadStatuses[loop] = "EMPTY";
+#endif
+    }
     uint32_t version = 0u;
     if (!readAll(stream, &version, sizeof(version))) return false;
     if (version == 1u) {
@@ -1363,6 +1687,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                     || !readAll(stream,
                         p->pendingLoopAudio[loop * 2u + 1u].data(), bytes)))
                 return false;
+            if (frames > 0u) {
+                p->loopSourceKinds[loop].store(
+                    static_cast<uint8_t>(LoopSourceKind::Embedded),
+                    std::memory_order_release);
+#if defined(__APPLE__)
+                p->loopLoadStatuses[loop] = "PROJECT LOOP";
+#endif
+            }
         }
     } catch (...) {
         return false;
@@ -1377,6 +1709,315 @@ const clap_plugin_state_t stateExtension {
     stateSave,
     stateLoad,
 };
+
+#if defined(__APPLE__)
+
+std::string loopSourceName(const std::string& path)
+{
+    const std::string name = std::filesystem::path(path).filename().string();
+    return name.empty() ? "SAMPLE" : name;
+}
+
+bool decodeLoopSample(const LoopLoadRequest& request,
+                      std::shared_ptr<const ImportedLoopAudio>& audioOut,
+                      std::string& error)
+{
+    @autoreleasepool {
+        NSString* path = [NSString stringWithUTF8String:request.path.c_str()];
+        NSError* nsError = nil;
+        AVAudioFile* file = path ? [[AVAudioFile alloc]
+            initForReading:[NSURL fileURLWithPath:path] error:&nsError] : nil;
+        if (!file) {
+            error = "COULD NOT OPEN SAMPLE";
+            return false;
+        }
+        AVAudioFormat* format = [file processingFormat];
+        const AVAudioChannelCount channels = [format channelCount];
+        const AVAudioFramePosition fileFrameCount = [file length];
+        const double sourceSampleRate = [format sampleRate];
+        if (channels < 1u || channels > 2u || fileFrameCount < 1
+            || !std::isfinite(sourceSampleRate) || sourceSampleRate <= 1.0
+            || !std::isfinite(request.destinationSampleRate)
+            || request.destinationSampleRate <= 1.0
+            || request.destinationCapacity < 2u) {
+            [file release];
+            error = "USE A VALID MONO OR STEREO SAMPLE";
+            return false;
+        }
+        const uint64_t maximumSourceFrames = std::max<uint64_t>(2u,
+            static_cast<uint64_t>(std::ceil(sourceSampleRate
+                * static_cast<double>(s3g::kCrcltrMaximumRecordSeconds)))
+                + 1u);
+        const uint64_t sourceFrames64 = std::min<uint64_t>(
+            static_cast<uint64_t>(fileFrameCount), maximumSourceFrames);
+        if (sourceFrames64 > std::numeric_limits<AVAudioFrameCount>::max()) {
+            [file release];
+            error = "SAMPLE IS TOO LONG";
+            return false;
+        }
+        const AVAudioFrameCount sourceCapacity = static_cast<
+            AVAudioFrameCount>(sourceFrames64);
+        AVAudioPCMBuffer* buffer = [[AVAudioPCMBuffer alloc]
+            initWithPCMFormat:format frameCapacity:sourceCapacity];
+        if (!buffer || ![file readIntoBuffer:buffer error:&nsError]
+            || [buffer frameLength] == 0u || ![buffer floatChannelData]) {
+            [buffer release];
+            [file release];
+            error = "SAMPLE DECODE FAILED";
+            return false;
+        }
+        const uint32_t decodedFrames = [buffer frameLength];
+        const double scale = request.destinationSampleRate / sourceSampleRate;
+        const uint64_t desiredFrames = std::max<uint64_t>(2u,
+            static_cast<uint64_t>(std::llround(
+                static_cast<double>(decodedFrames) * scale)));
+        const uint32_t destinationFrames = static_cast<uint32_t>(
+            std::min<uint64_t>(request.destinationCapacity, desiredFrames));
+        try {
+            auto audio = std::make_shared<ImportedLoopAudio>();
+            audio->sampleRate = request.destinationSampleRate;
+            audio->left.resize(destinationFrames);
+            audio->right.resize(destinationFrames);
+            audio->name = loopSourceName(request.path);
+            audio->truncated = static_cast<uint64_t>(fileFrameCount)
+                    > sourceFrames64
+                || desiredFrames > request.destinationCapacity;
+            const float* sourceLeft = [buffer floatChannelData][0u];
+            const float* sourceRight = channels > 1u
+                ? [buffer floatChannelData][1u] : sourceLeft;
+            for (uint32_t frame = 0u; frame < destinationFrames; ++frame) {
+                const double sourcePosition = std::min(
+                    static_cast<double>(decodedFrames - 1u),
+                    static_cast<double>(frame) / scale);
+                const uint32_t first = static_cast<uint32_t>(sourcePosition);
+                const uint32_t second = std::min<uint32_t>(
+                    decodedFrames - 1u, first + 1u);
+                const float amount = static_cast<float>(sourcePosition
+                    - std::floor(sourcePosition));
+                const float left = sourceLeft[first]
+                    + (sourceLeft[second] - sourceLeft[first]) * amount;
+                const float right = sourceRight[first]
+                    + (sourceRight[second] - sourceRight[first]) * amount;
+                audio->left[frame] = std::isfinite(left) ? left : 0.0f;
+                audio->right[frame] = std::isfinite(right) ? right : 0.0f;
+            }
+            if (!audio->valid()) {
+                [buffer release];
+                [file release];
+                error = "DECODED SAMPLE IS INVALID";
+                return false;
+            }
+            audioOut = std::move(audio);
+        } catch (...) {
+            [buffer release];
+            [file release];
+            error = "SAMPLE DECODE RAN OUT OF MEMORY";
+            return false;
+        }
+        [buffer release];
+        [file release];
+        error.clear();
+        return true;
+    }
+}
+
+bool startLoopLoader(Plugin& plugin)
+{
+    try {
+        plugin.loaderThread = std::thread([&plugin] {
+            for (;;) {
+                LoopLoadRequest request;
+                {
+                    std::unique_lock<std::mutex> lock(plugin.loaderMutex);
+                    plugin.loaderCondition.wait(lock, [&plugin] {
+                        return plugin.loaderStopping
+                            || !plugin.loadRequests.empty();
+                    });
+                    if (plugin.loaderStopping) return;
+                    request = std::move(plugin.loadRequests.front());
+                    plugin.loadRequests.pop_front();
+                }
+                LoopLoadResult result;
+                result.loop = request.loop;
+                result.generation = request.generation;
+                try {
+                    (void)decodeLoopSample(request, result.audio,
+                        result.error);
+                } catch (...) {
+                    result.error = "SAMPLE DECODE FAILED";
+                }
+                {
+                    std::lock_guard<std::mutex> lock(plugin.loaderMutex);
+                    if (plugin.loaderStopping) return;
+                    plugin.loadResults.push_back(std::move(result));
+                }
+                if (plugin.host && plugin.host->request_callback)
+                    plugin.host->request_callback(plugin.host);
+            }
+        });
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+void stopLoopLoader(Plugin& plugin)
+{
+    {
+        std::lock_guard<std::mutex> lock(plugin.loaderMutex);
+        plugin.loaderStopping = true;
+        plugin.loadRequests.clear();
+    }
+    plugin.loaderCondition.notify_all();
+    if (plugin.loaderThread.joinable()) plugin.loaderThread.join();
+    std::lock_guard<std::mutex> lock(plugin.loaderMutex);
+    plugin.loadResults.clear();
+}
+
+bool installDecodedLoop(Plugin& plugin, uint32_t loop, uint64_t generation,
+                        std::shared_ptr<const ImportedLoopAudio> audio)
+{
+    if (loop >= 2u || !audio || !audio->valid()
+        || generation != plugin.loopImportGenerations[loop].load(
+            std::memory_order_acquire)) return false;
+    applyParam(plugin, kRecordParamId, 0.0);
+    plugin.controlLoadedAudio[loop] = audio;
+    if (!plugin.prepared) {
+        try {
+            plugin.pendingAudioSampleRate = audio->sampleRate;
+            plugin.pendingLoopFrames[loop] = static_cast<uint32_t>(
+                audio->left.size());
+            plugin.pendingLoopAudio[loop * 2u] = audio->left;
+            plugin.pendingLoopAudio[loop * 2u + 1u] = audio->right;
+        } catch (...) {
+            plugin.loopLoadStatuses[loop] = "LOAD RAN OUT OF MEMORY";
+            return false;
+        }
+        plugin.loopSourceKinds[loop].store(
+            static_cast<uint8_t>(LoopSourceKind::File),
+            std::memory_order_release);
+        publishImportedWaveform(plugin, loop, *audio);
+        plugin.loopLoadStatuses[loop] = audio->name
+            + (audio->truncated ? " / 32S MAX" : " / READY");
+        plugin.loopLoadPendingMask.fetch_and(~(1u << loop),
+            std::memory_order_acq_rel);
+        plugin.loopLoadErrorMask.fetch_and(~(1u << loop),
+            std::memory_order_acq_rel);
+    } else if (!plugin.processing.load(std::memory_order_acquire)) {
+        if (!plugin.dsp.restoreLoop(loop, audio->left.data(),
+                audio->right.data(), static_cast<uint32_t>(audio->left.size()),
+                audio->sampleRate)) {
+            plugin.loopLoadStatuses[loop] = "LOAD INSTALL FAILED";
+            return false;
+        }
+        plugin.loopSourceKinds[loop].store(
+            static_cast<uint8_t>(LoopSourceKind::File),
+            std::memory_order_release);
+        beginWaveformRebuild(plugin, loop);
+        while (plugin.waveformBuilders[loop].rebuilding)
+            continueWaveformRebuild(plugin, loop, 65536u);
+        plugin.loopLoadStatuses[loop] = audio->name
+            + (audio->truncated ? " / 32S MAX" : " / READY");
+        plugin.loopLoadPendingMask.fetch_and(~(1u << loop),
+            std::memory_order_acq_rel);
+        plugin.loopLoadErrorMask.fetch_and(~(1u << loop),
+            std::memory_order_acq_rel);
+    } else {
+        if (std::abs(audio->sampleRate - plugin.dsp.sampleRate()) >= 0.5) {
+            plugin.loopLoadStatuses[loop] = "RATE CHANGED / LOAD AGAIN";
+            return false;
+        }
+        auto* command = new (std::nothrow) LoopImportCommand();
+        if (!command) {
+            plugin.loopLoadStatuses[loop] = "LOAD RAN OUT OF MEMORY";
+            return false;
+        }
+        command->loop = loop;
+        command->generation = generation;
+        command->audio = std::move(audio);
+        if (!plugin.loopImportQueue.push(command)) {
+            delete command;
+            plugin.loopLoadStatuses[loop] = "LOAD QUEUE FULL";
+            return false;
+        }
+        plugin.loopSourceKinds[loop].store(
+            static_cast<uint8_t>(LoopSourceKind::Loading),
+            std::memory_order_release);
+        plugin.loopLoadStatuses[loop] = "INSTALLING SAMPLE";
+        if (plugin.host && plugin.host->request_process)
+            plugin.host->request_process(plugin.host);
+    }
+    markStateDirty(plugin);
+    return true;
+}
+
+void serviceLoopLoadResults(Plugin& plugin)
+{
+    serviceRetiredLoopImports(plugin);
+    std::deque<LoopLoadResult> results;
+    {
+        std::lock_guard<std::mutex> lock(plugin.loaderMutex);
+        results.swap(plugin.loadResults);
+    }
+    for (auto& result : results) {
+        if (result.loop >= 2u || result.generation
+                != plugin.loopImportGenerations[result.loop].load(
+                    std::memory_order_acquire)) continue;
+        if (!result.audio) {
+            plugin.loopLoadStatuses[result.loop] = result.error.empty()
+                ? "LOAD FAILED" : result.error;
+            plugin.loopLoadPendingMask.fetch_and(~(1u << result.loop),
+                std::memory_order_acq_rel);
+            plugin.loopLoadErrorMask.fetch_or(1u << result.loop,
+                std::memory_order_acq_rel);
+            continue;
+        }
+        if (!installDecodedLoop(plugin, result.loop, result.generation,
+                std::move(result.audio))) {
+            plugin.loopLoadPendingMask.fetch_and(~(1u << result.loop),
+                std::memory_order_acq_rel);
+            plugin.loopLoadErrorMask.fetch_or(1u << result.loop,
+                std::memory_order_acq_rel);
+        }
+    }
+}
+
+void queueLoopLoad(Plugin& plugin, uint32_t loop, std::string path)
+{
+    if (loop >= 2u || path.empty()) return;
+    applyParam(plugin, kRecordParamId, 0.0);
+    const uint64_t generation = plugin.loopImportGenerations[loop].fetch_add(
+        1u, std::memory_order_acq_rel) + 1u;
+    const double destinationSampleRate = plugin.prepared
+        ? plugin.dsp.sampleRate()
+        : plugin.pendingAudioSampleRate > 1.0
+            ? plugin.pendingAudioSampleRate : plugin.sampleRate;
+    LoopLoadRequest request;
+    request.loop = loop;
+    request.generation = generation;
+    request.destinationSampleRate = destinationSampleRate;
+    request.destinationCapacity = s3g::Crcltr::requiredLoopCapacity(
+        destinationSampleRate);
+    request.path = std::move(path);
+    const std::string name = loopSourceName(request.path);
+    {
+        std::lock_guard<std::mutex> lock(plugin.loaderMutex);
+        plugin.loadRequests.erase(std::remove_if(
+            plugin.loadRequests.begin(), plugin.loadRequests.end(),
+            [loop](const LoopLoadRequest& queued) {
+                return queued.loop == loop;
+            }), plugin.loadRequests.end());
+        plugin.loadRequests.push_back(std::move(request));
+    }
+    plugin.loopLoadStatuses[loop] = "LOADING " + name;
+    plugin.loopLoadPendingMask.fetch_or(1u << loop,
+        std::memory_order_acq_rel);
+    plugin.loopLoadErrorMask.fetch_and(~(1u << loop),
+        std::memory_order_acq_rel);
+    plugin.loaderCondition.notify_one();
+}
+
+#endif
 
 } // namespace
 
@@ -1475,6 +2116,14 @@ NSRect crcltrClearButtonRect(uint32_t loop)
         s3g::gui_layout::rowY(kCapturePanel, 5u) - 1.0, width, 15.0);
 }
 
+NSRect crcltrLoadButtonRect(uint32_t loop)
+{
+    constexpr CGFloat width = 62.0;
+    constexpr CGFloat gap = 6.0;
+    return NSMakeRect(602.0 + static_cast<CGFloat>(loop) * (width + gap),
+        45.0, width, 15.0);
+}
+
 uint32_t crcltrMenuItemCount(int paramId)
 {
     if (paramId == static_cast<int>(kCrossfadeModeParamId)
@@ -1503,6 +2152,8 @@ uint32_t crcltrMenuItemCount(int paramId)
 - (void)updateSlider:(NSPoint)point;
 - (void)updateWaveMarker:(NSPoint)point;
 - (void)updateCrossfadeGraph:(NSPoint)point;
+- (void)loadLoop:(uint32_t)loop;
+- (BOOL)loadDocumentationSample;
 - (void)drawLoopWaveforms:(const s3g::clap_gui::Style&)style
     labels:(NSDictionary*)labels values:(NSDictionary*)values;
 @end
@@ -1523,6 +2174,7 @@ uint32_t crcltrMenuItemCount(int paramId)
         _menuOrigin = NSZeroPoint;
         _timer = nil;
         std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "INIT");
+        [self registerForDraggedTypes:@[ NSPasteboardTypeFileURL ]];
     }
     return self;
 }
@@ -1584,6 +2236,10 @@ uint32_t crcltrMenuItemCount(int paramId)
 - (void)refresh:(NSTimer*)timer
 {
     (void)timer;
+    if (_plugin) {
+        auto& plugin = *static_cast<Plugin*>(_plugin);
+        serviceLoopLoadResults(plugin);
+    }
     if (![self isHidden] && _plugin
         && s3g::clap_support::hostAppIsActive()) {
         [self setNeedsDisplay:YES];
@@ -1643,7 +2299,7 @@ uint32_t crcltrMenuItemCount(int paramId)
     s3g::clap_gui::drawPanelFrame(kCrcltrWaveformPanel.x,
         kCrcltrWaveformPanel.y, kCrcltrWaveformPanel.width,
         kCrcltrWaveformPanel.height, style);
-    s3g::clap_gui::drawPanelHeader(@"CAPTURED STEREO LOOPS", true,
+    s3g::clap_gui::drawPanelHeader(@"STEREO LOOP SOURCES", true,
         kCrcltrWaveformPanel.x, kCrcltrWaveformPanel.y,
         kCrcltrWaveformPanel.width,
         s3g::gui_layout::kStandardMetrics.headerHeight, labels, style);
@@ -1798,12 +2454,23 @@ uint32_t crcltrMenuItemCount(int paramId)
                     == s3g::CrcltrRecordTarget::Loop1)
                 || (loop == 1u && p->params.recordTarget
                     == s3g::CrcltrRecordTarget::Loop2));
+        const auto sourceKind = static_cast<LoopSourceKind>(
+            p->loopSourceKinds[loop].load(std::memory_order_acquire));
+        const bool loadPending = (p->loopLoadPendingMask.load(
+            std::memory_order_acquire) & (1u << loop)) != 0u;
+        const bool loadError = (p->loopLoadErrorMask.load(
+            std::memory_order_acquire) & (1u << loop)) != 0u;
         NSString* status = recordTargeted ? @"RECORDING"
+            : loadPending || sourceKind == LoopSourceKind::Loading
+                ? @"LOADING"
+            : loadError ? @"LOAD ERROR"
             : frameCount == 0u ? @"EMPTY"
             : windowPending ? @"NEXT WRAP"
             : validBins < bins ? @"ANALYZING"
-            : [NSString stringWithFormat:@"%.0f%% %.2fs",
-                gains[loop] * 100.0f, seconds];
+            : sourceKind == LoopSourceKind::File
+                ? [NSString stringWithFormat:@"FILE %.2fs", seconds]
+                : [NSString stringWithFormat:@"%.0f%% %.2fs",
+                    gains[loop] * 100.0f, seconds];
         [status drawAtPoint:NSMakePoint(660.0, laneY + 17.0)
             withAttributes:values];
     }
@@ -1921,6 +2588,15 @@ uint32_t crcltrMenuItemCount(int paramId)
         titleBand, style);
 
     [self drawLoopWaveforms:style labels:labels values:values];
+
+    s3g::clap_gui::drawHeaderActionButton(crcltrLoadButtonRect(0u),
+        crcltrLoadButtonRect(0u), @"LOAD A",
+        s3g::clap_gui::textAttrs(s3g::clap_gui::color(0x5f91a8), 10.0),
+        style);
+    s3g::clap_gui::drawHeaderActionButton(crcltrLoadButtonRect(1u),
+        crcltrLoadButtonRect(1u), @"LOAD B",
+        s3g::clap_gui::textAttrs(s3g::clap_gui::color(0xb1845f), 10.0),
+        style);
 
     const auto drawPanel = [&](NSString* title,
                                const s3g::gui_layout::Panel& panel) {
@@ -2189,11 +2865,95 @@ uint32_t crcltrMenuItemCount(int paramId)
     [self setNeedsDisplay:YES];
 }
 
+- (void)loadLoop:(uint32_t)loop
+{
+    if (!_plugin || loop >= 2u) return;
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    [panel setCanChooseFiles:YES];
+    [panel setCanChooseDirectories:NO];
+    [panel setAllowsMultipleSelection:NO];
+    [panel setTitle:loop == 0u ? @"Load Loop A" : @"Load Loop B"];
+    if ([panel runModal] != NSModalResponseOK || ![panel URL]) return;
+    const char* path = [[[panel URL] path] fileSystemRepresentation];
+    if (!path) return;
+    queueLoopLoad(*static_cast<Plugin*>(_plugin), loop, path);
+    [self setNeedsDisplay:YES];
+}
+
+- (BOOL)loadDocumentationSample
+{
+    if (!_plugin) return NO;
+    const char* path = std::getenv("S3G_GUI_DOCUMENTATION_SAMPLE_PATH");
+    if (!path || !path[0]) return NO;
+    auto& plugin = *static_cast<Plugin*>(_plugin);
+    const double destinationSampleRate = plugin.prepared
+        ? plugin.dsp.sampleRate() : plugin.sampleRate;
+    LoopLoadRequest request;
+    request.destinationSampleRate = destinationSampleRate;
+    request.destinationCapacity = s3g::Crcltr::requiredLoopCapacity(
+        destinationSampleRate);
+    request.path = path;
+    std::shared_ptr<const ImportedLoopAudio> audio;
+    std::string error;
+    if (!decodeLoopSample(request, audio, error) || !audio) return NO;
+    bool loaded = true;
+    for (uint32_t loop = 0u; loop < 2u; ++loop) {
+        const uint64_t generation = plugin.loopImportGenerations[loop]
+            .fetch_add(1u, std::memory_order_acq_rel) + 1u;
+        loaded = installDecodedLoop(plugin, loop, generation, audio) && loaded;
+    }
+    applyParam(plugin, kBlendParamId, 1.0);
+    [self setNeedsDisplay:YES];
+    [self displayIfNeeded];
+    return loaded ? YES : NO;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
+{
+    return [[sender draggingPasteboard] canReadObjectForClasses:
+        @[ [NSURL class] ] options:@{
+            NSPasteboardURLReadingFileURLsOnlyKey: @YES }]
+        ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender
+{
+    if (!_plugin) return NO;
+    NSArray<NSURL*>* urls = [[sender draggingPasteboard]
+        readObjectsForClasses:@[ [NSURL class] ] options:@{
+            NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+    if (urls.count == 0u) return NO;
+    auto& plugin = *static_cast<Plugin*>(_plugin);
+    if (urls.count >= 2u) {
+        for (uint32_t loop = 0u; loop < 2u; ++loop) {
+            const char* path = [[urls[loop] path] fileSystemRepresentation];
+            if (path) queueLoopLoad(plugin, loop, path);
+        }
+    } else {
+        const NSPoint point = [self convertPoint:[sender draggingLocation]
+            fromView:nil];
+        const uint32_t loop = point.y >= kCrcltrWaveContentY
+                + kCrcltrWaveLaneHeight
+            ? 1u : 0u;
+        const char* path = [[urls[0u] path] fileSystemRepresentation];
+        if (!path) return NO;
+        queueLoopLoad(plugin, loop, path);
+    }
+    [self setNeedsDisplay:YES];
+    return YES;
+}
+
 - (void)mouseDown:(NSEvent*)event
 {
     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
     if (!p) return;
+
+    for (uint32_t loop = 0u; loop < 2u; ++loop) {
+        if (!NSPointInRect(point, crcltrLoadButtonRect(loop))) continue;
+        [self loadLoop:loop];
+        return;
+    }
 
     const auto titleBand = s3g::gui_layout::compactEffectTitleBand(
         kCrcltrCanvas);
@@ -2547,6 +3307,8 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 
 const char* const features[] {
     CLAP_PLUGIN_FEATURE_AUDIO_EFFECT,
+    CLAP_PLUGIN_FEATURE_INSTRUMENT,
+    CLAP_PLUGIN_FEATURE_SAMPLER,
     CLAP_PLUGIN_FEATURE_STEREO,
     nullptr,
 };
@@ -2559,8 +3321,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/crcltr",
     "",
     "",
-    "0.3.0",
-    "Persistent stereo dual-loop instrument founded on the CRCLTR DSP core.",
+    "0.4.0",
+    "File-or-capture stereo dual-loop sampler founded on the CRCLTR DSP core.",
     features,
 };
 

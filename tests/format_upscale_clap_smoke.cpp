@@ -119,6 +119,17 @@ struct FormatUpscaleSavedStateV6 {
     uint32_t normalization = 2u;
 };
 
+struct FormatUpscaleSavedStateV7 {
+    uint32_t version = 7u;
+    s3g::FormatUpscaleParams params {};
+    s3g::FormatUpscaleLayoutData customInput {};
+    s3g::FormatUpscaleLayoutData customOutput {};
+    uint32_t manualRoutesActive = 0u;
+    std::array<float, kChannels * kChannels> manualWeights {};
+    uint32_t autoRowShape = 0u;
+    uint32_t normalization = 3u;
+};
+
 int64_t stateWrite(const clap_ostream_t* stream,
     const void* source, uint64_t requested)
 {
@@ -221,7 +232,7 @@ int main(int argc, char** argv)
         "CLAP entry initialization failed");
     clap_host_t host {};
     host.clap_version = CLAP_VERSION_INIT;
-    host.name = "Format Upscale smoke";
+    host.name = "Matrix Upmix smoke";
     host.vendor = "s3g";
     host.url = "https://github.com/s3g/s3g-dsp";
     host.version = "1";
@@ -238,7 +249,7 @@ int main(int argc, char** argv)
         ? factory->get_plugin_descriptor(factory, 0u) : nullptr;
     ok &= check(descriptor && descriptor->name
             && std::strcmp(descriptor->name,
-                "s3g Output Format Upscale 64") == 0,
+                "s3g Matrix Upmix 64") == 0,
         "host name is outside the Output family");
     const clap_plugin_t* plugin = factory ? factory->create_plugin(factory,
         &host, "org.s3g.s3g-dsp.format-upscale-64") : nullptr;
@@ -283,7 +294,7 @@ int main(int argc, char** argv)
         }
         if (info.id == 4u) {
             foundPlacement = std::strcmp(info.name, "Placement") == 0
-                && info.max_value == 8.0;
+                && info.max_value == 7.0;
         }
         if (info.id == 14u)
             foundAutoRowShape = std::strcmp(info.name, "Auto Row Shape") == 0
@@ -291,21 +302,12 @@ int main(int argc, char** argv)
         if (info.id == 15u)
             foundNormalization = std::strcmp(
                 info.name, "Matrix Normalization") == 0
-                && info.max_value == 2.0 && info.default_value == 2.0;
+                && info.max_value == 3.0 && info.default_value == 3.0;
     }
     ok &= check(foundInput && foundOutput && foundPlacement
             && foundAutoRowShape && foundNormalization
             && foundExpandedLayoutRange,
         "format parameters were not published");
-    char midSideText[64] {};
-    double parsedMidSide = -1.0;
-    ok &= check(params->value_to_text(plugin, 4u, 8.0,
-                midSideText, sizeof(midSideText))
-            && std::strcmp(midSideText, "M/S spread") == 0
-            && params->text_to_value(plugin, 4u, midSideText,
-                &parsedMidSide)
-            && parsedMidSide == 8.0,
-        "M/S spread was not published as an automatable placement option");
     ok &= check(plugin->activate(plugin, 48000.0, 1u, kFrames)
             && plugin->start_processing(plugin),
         "plug-in activation failed");
@@ -316,18 +318,6 @@ int main(int argc, char** argv)
     ok &= check(energy[0] > 0.01 && energy[1] > 0.01
             && energy[2] > 0.01 && energy[3] > 0.01,
         "default route did not energize all quad outputs");
-
-    Events midSideChange;
-    midSideChange.add(4u, 8.0);  // M/S spread.
-    midSideChange.add(12u, 1.0); // Fast route smoothing for the smoke.
-    ok &= check(processBlocks(plugin, &midSideChange, 2u, 4u, energy),
-        "M/S spread processing failed");
-    double midSidePlacement = -1.0;
-    ok &= check(params->get_value(plugin, 4u, &midSidePlacement)
-            && midSidePlacement == 8.0
-            && energy[0] > 0.001 && energy[1] > 0.001
-            && energy[2] > 0.001 && energy[3] > 0.001,
-        "M/S spread did not remain selected or reach the quad outputs");
 
     Events change;
     change.add(2u, 6.0);  // Octophonic ring.
@@ -347,13 +337,13 @@ int main(int argc, char** argv)
     MemoryState memory;
     clap_ostream_t outputState { &memory, stateWrite };
     ok &= check(state->save(plugin, &outputState)
-            && memory.bytes.size() == sizeof(FormatUpscaleSavedStateV6),
+            && memory.bytes.size() == sizeof(FormatUpscaleSavedStateV7),
         "state save failed");
     uint32_t savedVersion = 0u;
     if (memory.bytes.size() >= sizeof(savedVersion))
         std::memcpy(&savedVersion, memory.bytes.data(), sizeof(savedVersion));
-    ok &= check(savedVersion == 6u,
-        "normalization state did not use version 6");
+    ok &= check(savedVersion == 7u,
+        "exact-matrix state did not use version 7");
     Events restoreChange;
     restoreChange.add(2u, 3.0);
     restoreChange.add(14u, 0.0);
@@ -406,21 +396,21 @@ int main(int argc, char** argv)
             && autoRowShape == 0.0,
         "version-4 state did not default the new row shape safely");
     ok &= check(params->get_value(plugin, 15u, &normalization)
-            && normalization == 0.0,
-        "version-4 state did not retain row normalization compatibility");
-    MemoryState signedRoundtripMemory;
-    clap_ostream_t signedRoundtripOutput {
-        &signedRoundtripMemory, stateWrite };
-    ok &= check(state->save(plugin, &signedRoundtripOutput)
-            && signedRoundtripMemory.bytes.size()
-                == sizeof(FormatUpscaleSavedStateV6),
-        "signed matrix state did not save");
-    FormatUpscaleSavedStateV6 signedRoundtrip {};
-    if (signedRoundtripMemory.bytes.size() == sizeof(signedRoundtrip))
-        std::memcpy(&signedRoundtrip, signedRoundtripMemory.bytes.data(),
-            sizeof(signedRoundtrip));
-    ok &= check(signedRoundtrip.manualWeights[0u] == -1.0f,
-        "state recall did not preserve negative matrix polarity");
+            && normalization == 3.0,
+        "version-4 state was not baked into exact-matrix compatibility");
+    MemoryState positiveRoundtripMemory;
+    clap_ostream_t positiveRoundtripOutput {
+        &positiveRoundtripMemory, stateWrite };
+    ok &= check(state->save(plugin, &positiveRoundtripOutput)
+            && positiveRoundtripMemory.bytes.size()
+                == sizeof(FormatUpscaleSavedStateV7),
+        "positive matrix state did not save");
+    FormatUpscaleSavedStateV7 positiveRoundtrip {};
+    if (positiveRoundtripMemory.bytes.size() == sizeof(positiveRoundtrip))
+        std::memcpy(&positiveRoundtrip, positiveRoundtripMemory.bytes.data(),
+            sizeof(positiveRoundtrip));
+    ok &= check(positiveRoundtrip.manualWeights[0u] == 0.0f,
+        "state recall did not remove a legacy negative coefficient");
     ok &= check(processBlocks(plugin, nullptr, 12u, 9u, energy),
         "state-restored 3-to-9 drawn-route processing failed");
     activeWithEnergy = 0u;

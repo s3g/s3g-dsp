@@ -26,7 +26,7 @@
 namespace {
 
 constexpr uint32_t kChannels = s3g::kFormatUpscaleMaxChannels;
-constexpr uint32_t kStateVersion = 6u;
+constexpr uint32_t kStateVersion = 7u;
 constexpr uint32_t kGuiWidth = 1120u;
 constexpr uint32_t kGuiHeight = 720u;
 
@@ -65,10 +65,10 @@ constexpr ParamDef kParamDefs[] {
     { kParamOutputLayout, "Output Format", "OUT", "Format", 0.0,
         static_cast<double>(s3g::kFormatUpscaleLayoutCount - 1u), 3.0, true },
     { kParamBasis, "Content Basis", "BASIS", "Method", 0.0, 2.0, 0.0, true },
-    { kParamPlacement, "Placement", "AUTO", "Method", 0.0, 8.0, 1.0, true },
+    { kParamPlacement, "Placement", "AUTO", "Method", 0.0, 7.0, 1.0, true },
     { kParamOrigin, "Origin Policy", "ORIGIN", "Format", 0.0, 2.0, 1.0, true },
     { kParamAmount, "Upscale Amount", "AMOUNT", "Format", 0.0, 100.0, 100.0, false },
-    { kParamCopies, "Copies", "COPIES", "Method", 1.0,
+    { kParamCopies, "Outputs per Input", "OUTPUTS / INPUT", "Auto Fill", 1.0,
         static_cast<double>(kChannels), 2.0, true },
     { kParamRotation, "Copy Rotation", "ROT", "Method", -180.0, 180.0, 90.0, false },
     { kParamSpread, "Distribution Spread", "SPREAD", "Method", 0.0, 100.0, 35.0, false },
@@ -80,7 +80,7 @@ constexpr ParamDef kParamDefs[] {
     { kParamAutoRowShape, "Auto Row Shape", "SHAPE", "Method", 0.0,
         3.0, 0.0, true },
     { kParamNormalization, "Matrix Normalization", "NORM", "Matrix", 0.0,
-        2.0, 2.0, true },
+        3.0, 3.0, true },
 };
 
 constexpr uint32_t kParamCount = static_cast<uint32_t>(
@@ -132,6 +132,17 @@ struct SavedStateV5 {
     uint32_t autoRowShape = 0u;
 };
 
+struct SavedStateV6 {
+    uint32_t version = 6u;
+    s3g::FormatUpscaleParams params {};
+    s3g::FormatUpscaleLayoutData customInput {};
+    s3g::FormatUpscaleLayoutData customOutput {};
+    uint32_t manualRoutesActive = 0u;
+    std::array<float, kChannels * kChannels> manualWeights {};
+    uint32_t autoRowShape = 0u;
+    uint32_t normalization = 2u;
+};
+
 struct SavedState {
     uint32_t version = kStateVersion;
     s3g::FormatUpscaleParams params {};
@@ -140,7 +151,7 @@ struct SavedState {
     uint32_t manualRoutesActive = 0u;
     std::array<float, kChannels * kChannels> manualWeights {};
     uint32_t autoRowShape = 0u;
-    uint32_t normalization = 2u;
+    uint32_t normalization = 3u;
 };
 
 struct Plugin {
@@ -151,7 +162,7 @@ struct Plugin {
     s3g::FormatUpscaleRowShape autoRowShape =
         s3g::FormatUpscaleRowShape::Flat;
     s3g::FormatUpscaleNormalization normalization =
-        s3g::FormatUpscaleNormalization::DualLimit;
+        s3g::FormatUpscaleNormalization::Exact;
     s3g::FormatUpscale dsp {};
     std::array<float, kChannels> frameIn {};
     std::array<float, kChannels> frameOut {};
@@ -174,12 +185,28 @@ uint32_t roundedUint(double value)
     return static_cast<uint32_t>(std::max(0.0, std::floor(value + 0.5)));
 }
 
+void constrainManualPolarityToStereo(Plugin& plugin)
+{
+    if (!plugin.dsp.manualRoutesActive()
+        || plugin.params.inputLayout == s3g::FormatUpscaleLayout::Stereo)
+        return;
+    auto weights = plugin.dsp.manualWeights();
+    bool changed = false;
+    for (float& weight : weights) {
+        if (weight >= 0.0f) continue;
+        weight = 0.0f;
+        changed = true;
+    }
+    if (changed) plugin.dsp.setManualWeights(weights, true);
+}
+
 void applyParams(Plugin& plugin)
 {
     plugin.params = s3g::sanitizeFormatUpscaleParams(plugin.params);
     plugin.dsp.setParams(plugin.params);
     plugin.dsp.setAutoRowShape(plugin.autoRowShape);
     plugin.dsp.setNormalization(plugin.normalization);
+    constrainManualPolarityToStereo(plugin);
 }
 
 void setParamValue(Plugin& plugin, clap_id id, double value)
@@ -273,6 +300,237 @@ double getParamValue(const Plugin& plugin, clap_id id)
         return static_cast<uint32_t>(plugin.normalization);
     default: return 0.0;
     }
+}
+
+std::array<float, kChannels * kChannels> audibleMatrix(
+    const Plugin& plugin)
+{
+    std::array<float, kChannels * kChannels> weights {};
+    for (uint32_t input = 0u; input < plugin.dsp.activeInputs(); ++input) {
+        for (uint32_t output = 0u;
+             output < plugin.dsp.activeOutputs(); ++output) {
+            weights[input * kChannels + output] =
+                plugin.dsp.targetAnchorGain(input, output)
+                + plugin.dsp.targetExtensionGain(input, output);
+        }
+    }
+    return weights;
+}
+
+void setExactManualMatrix(Plugin& plugin,
+    const std::array<float, kChannels * kChannels>& weights)
+{
+    plugin.normalization = s3g::FormatUpscaleNormalization::Exact;
+    plugin.dsp.setNormalization(plugin.normalization);
+    plugin.dsp.setManualWeights(weights, true);
+}
+
+void makeCurrentMatrixExact(Plugin& plugin)
+{
+    const auto weights = audibleMatrix(plugin);
+    setExactManualMatrix(plugin, weights);
+}
+
+uint32_t autoFillCopyMaximum(const Plugin& plugin)
+{
+    const uint32_t inputs = std::max<uint32_t>(
+        1u, plugin.dsp.activeInputs());
+    const uint32_t outputs = std::max<uint32_t>(
+        1u, plugin.dsp.activeOutputs());
+    if (plugin.params.placement == s3g::FormatUpscalePlacement::Interleave)
+        return std::max<uint32_t>(1u, outputs / inputs);
+    return outputs;
+}
+
+uint32_t effectiveAutoFillCopies(const Plugin& plugin)
+{
+    return std::clamp<uint32_t>(plugin.params.copies, 1u,
+        autoFillCopyMaximum(plugin));
+}
+
+std::array<uint32_t, 3u> inputTierConnectionStats(const Plugin& plugin)
+{
+    const auto& outputs = plugin.dsp.outputLayout();
+    std::array<float, kChannels> tierHeights {};
+    std::array<uint32_t, kChannels> outputTiers {};
+    uint32_t tierCount = 0u;
+    for (uint32_t output = 0u; output < outputs.count; ++output) {
+        const float height = s3g::formatUpscaleSpeakerHeight(
+            outputs.speakers[output]);
+        uint32_t tier = 0u;
+        while (tier < tierCount
+            && std::abs(tierHeights[tier] - height)
+                >= s3g::kFormatUpscaleTierHeightTolerance)
+            ++tier;
+        if (tier == tierCount) tierHeights[tierCount++] = height;
+        outputTiers[output] = tier;
+    }
+    if (tierCount == 0u || plugin.dsp.activeInputs() == 0u)
+        return { tierCount, 0u, 0u };
+    std::array<uint32_t, kChannels * kChannels> counts {};
+    for (uint32_t input = 0u; input < plugin.dsp.activeInputs(); ++input) {
+        for (uint32_t output = 0u; output < outputs.count; ++output) {
+            const float gain = plugin.dsp.targetAnchorGain(input, output)
+                + plugin.dsp.targetExtensionGain(input, output);
+            if (std::abs(gain) > 0.0001f)
+                ++counts[outputTiers[output] * kChannels + input];
+        }
+    }
+    uint32_t minimum = kChannels;
+    uint32_t maximum = 0u;
+    for (uint32_t tier = 0u; tier < tierCount; ++tier) {
+        for (uint32_t input = 0u; input < plugin.dsp.activeInputs(); ++input) {
+            const uint32_t count = counts[tier * kChannels + input];
+            minimum = std::min(minimum, count);
+            maximum = std::max(maximum, count);
+        }
+    }
+    return { tierCount, minimum, maximum };
+}
+
+bool usesOrderedTierGroups(const Plugin& plugin)
+{
+    const auto& inputs = plugin.dsp.inputLayout();
+    const auto& outputs = plugin.dsp.outputLayout();
+    if (inputs.count == 0u || outputs.count == 0u) return false;
+
+    std::array<float, kChannels> tierHeights {};
+    std::array<uint32_t, kChannels> outputTiers {};
+    std::array<uint32_t, kChannels> tierCounts {};
+    uint32_t tierCount = 0u;
+    for (uint32_t output = 0u; output < outputs.count; ++output) {
+        const float height = s3g::formatUpscaleSpeakerHeight(
+            outputs.speakers[output]);
+        uint32_t tier = 0u;
+        while (tier < tierCount
+            && std::abs(tierHeights[tier] - height)
+                >= s3g::kFormatUpscaleTierHeightTolerance)
+            ++tier;
+        if (tier == tierCount) tierHeights[tierCount++] = height;
+        outputTiers[output] = tier;
+        ++tierCounts[tier];
+    }
+
+    for (uint32_t tier = 0u; tier < tierCount; ++tier) {
+        if (tierCounts[tier] < inputs.count
+            || tierCounts[tier] % inputs.count != 0u)
+            return false;
+        std::array<uint32_t, kChannels> tierOutputs {};
+        uint32_t tierOutputCount = 0u;
+        for (uint32_t output = 0u; output < outputs.count; ++output) {
+            if (outputTiers[output] == tier)
+                tierOutputs[tierOutputCount++] = output;
+        }
+        const uint32_t groupSize = tierOutputCount / inputs.count;
+        std::array<bool, kChannels> inputUsed {};
+        for (uint32_t group = 0u; group < inputs.count; ++group) {
+            uint32_t groupOwner = kChannels;
+            float sumX = 0.0f;
+            float sumY = 0.0f;
+            for (uint32_t offset = 0u; offset < groupSize; ++offset) {
+                const uint32_t output = tierOutputs[
+                    group * groupSize + offset];
+                uint32_t outputOwner = kChannels;
+                for (uint32_t input = 0u; input < inputs.count; ++input) {
+                    const float gain = plugin.dsp.targetAnchorGain(input, output)
+                        + plugin.dsp.targetExtensionGain(input, output);
+                    if (std::abs(gain) <= 0.0001f) continue;
+                    if (outputOwner != kChannels) return false;
+                    outputOwner = input;
+                }
+                if (outputOwner == kChannels) return false;
+                if (groupOwner == kChannels) groupOwner = outputOwner;
+                else if (outputOwner != groupOwner) return false;
+                const float radians = outputs.speakers[output].azimuthDeg
+                    * 3.14159265358979323846f / 180.0f;
+                sumX += std::cos(radians);
+                sumY += std::sin(radians);
+            }
+            if (groupOwner >= inputs.count || inputUsed[groupOwner])
+                return false;
+            inputUsed[groupOwner] = true;
+
+            if (inputs.count <= 4u) {
+                const float centerAzimuth = std::atan2(sumY, sumX)
+                    * 180.0f / 3.14159265358979323846f;
+                const float ownerDistance = s3g::formatUpscaleAngularDistance(
+                    inputs.speakers[groupOwner].azimuthDeg, centerAzimuth);
+                for (uint32_t input = 0u; input < inputs.count; ++input) {
+                    if (s3g::formatUpscaleAngularDistance(
+                            inputs.speakers[input].azimuthDeg, centerAzimuth)
+                        + 0.001f < ownerDistance)
+                        return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+void applyAutoFill(Plugin& plugin)
+{
+    // Auto Fill is a complete, visible matrix recipe and must not inherit
+    // hidden basis/origin state from a factory preset. In particular, Remap at
+    // 100% used to erase the anchor, so "2 outputs/input" yielded one audible
+    // route. Keep the first route and add the requested copies explicitly.
+    plugin.params.basis = s3g::FormatUpscaleBasis::Direct;
+    plugin.params.origin = s3g::FormatUpscaleOrigin::Share;
+    plugin.params.amountPercent = 100.0f;
+    // Repeat is a fixed number of complete channel-order rounds. Clamp away
+    // an incomplete round instead of letting different input rows receive
+    // different counts. All Tiers remains the explicit exhaustive recipe.
+    if (plugin.params.placement == s3g::FormatUpscalePlacement::Interleave)
+        plugin.params.copies = effectiveAutoFillCopies(plugin);
+    else if (plugin.params.placement
+        == s3g::FormatUpscalePlacement::TierFill)
+        plugin.params.copies = 1u;
+    applyParams(plugin);
+    // Recipes are generated with equal input power and output overload
+    // limiting, then baked into the positive-gain matrix. After this operation the
+    // cells are the audible coefficients; no hidden normalization remains.
+    plugin.normalization = s3g::FormatUpscaleNormalization::DualLimit;
+    plugin.dsp.setNormalization(plugin.normalization);
+    plugin.dsp.useAutomaticRoutes();
+    const auto weights = audibleMatrix(plugin);
+    setExactManualMatrix(plugin, weights);
+}
+
+void normalizeExactInputRows(Plugin& plugin)
+{
+    auto weights = audibleMatrix(plugin);
+    const uint32_t inputs = plugin.dsp.activeInputs();
+    const uint32_t outputs = plugin.dsp.activeOutputs();
+    for (uint32_t input = 0u; input < inputs; ++input) {
+        float power = 0.0f;
+        for (uint32_t output = 0u; output < outputs; ++output) {
+            const float gain = weights[input * kChannels + output];
+            power += gain * gain;
+        }
+        if (power < 0.000001f) continue;
+        const float scale = 1.0f / std::sqrt(power);
+        for (uint32_t output = 0u; output < outputs; ++output)
+            weights[input * kChannels + output] *= scale;
+    }
+    setExactManualMatrix(plugin, weights);
+}
+
+void limitExactOutputColumns(Plugin& plugin)
+{
+    auto weights = audibleMatrix(plugin);
+    const uint32_t inputs = plugin.dsp.activeInputs();
+    const uint32_t outputs = plugin.dsp.activeOutputs();
+    for (uint32_t output = 0u; output < outputs; ++output) {
+        float power = 0.0f;
+        for (uint32_t input = 0u; input < inputs; ++input) {
+            const float gain = weights[input * kChannels + output];
+            power += gain * gain;
+        }
+        if (power <= 1.0f) continue;
+        const float scale = 1.0f / std::sqrt(power);
+        for (uint32_t input = 0u; input < inputs; ++input)
+            weights[input * kChannels + output] *= scale;
+    }
+    setExactManualMatrix(plugin, weights);
 }
 
 bool init(const clap_plugin_t*) { return true; }
@@ -401,7 +659,7 @@ bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     if (!info || index != 0u) return false;
     info->id = isInput ? 10u : 20u;
     std::snprintf(info->name, sizeof(info->name), "%s",
-        isInput ? "Format In 64" : "Speaker Out 64");
+        isInput ? "Matrix In 64" : "Speaker Out 64");
     info->flags = CLAP_AUDIO_PORT_IS_MAIN;
     info->channel_count = kChannels;
     info->port_type = CLAP_PORT_SURROUND;
@@ -462,7 +720,7 @@ const char* menuValueName(clap_id id, uint32_t value)
     case kParamNormalization:
         return s3g::formatUpscaleNormalizationName(
             static_cast<s3g::FormatUpscaleNormalization>(
-                std::min<uint32_t>(value, 2u)));
+                std::min<uint32_t>(value, 3u)));
     default:
         return "";
     }
@@ -499,7 +757,8 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
         const uint32_t count = id == kParamInputLayout || id == kParamOutputLayout
             ? s3g::kFormatUpscaleLayoutCount
             : (id == kParamPlacement ? 9u
-                : (id == kParamAutoRowShape ? 4u : 3u));
+                : ((id == kParamAutoRowShape
+                        || id == kParamNormalization) ? 4u : 3u));
         for (uint32_t index = 0u; index < count; ++index) {
             if (std::strcmp(display, menuValueName(id, index)) == 0) {
                 *value = static_cast<double>(index);
@@ -543,7 +802,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!s3g::clap_state::readAll(stream, &version, sizeof(version)))
         return false;
     instance->autoRowShape = s3g::FormatUpscaleRowShape::Flat;
-    instance->normalization = s3g::FormatUpscaleNormalization::Row;
+    instance->normalization = s3g::FormatUpscaleNormalization::Exact;
+    bool migrateLegacyManualMatrix = false;
     if (version == kStateVersion) {
         SavedState state {};
         state.version = version;
@@ -559,7 +819,24 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             std::min<uint32_t>(state.autoRowShape, 3u));
         instance->normalization =
             static_cast<s3g::FormatUpscaleNormalization>(
+                std::min<uint32_t>(state.normalization, 3u));
+    } else if (version == 6u) {
+        SavedStateV6 state {};
+        state.version = version;
+        if (!s3g::clap_state::readAll(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(version),
+                sizeof(state) - sizeof(version))) return false;
+        instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
+        instance->dsp.setCustomInputLayout(state.customInput);
+        instance->dsp.setCustomOutputLayout(state.customOutput);
+        instance->dsp.setManualWeights(state.manualWeights,
+            state.manualRoutesActive != 0u);
+        instance->autoRowShape = static_cast<s3g::FormatUpscaleRowShape>(
+            std::min<uint32_t>(state.autoRowShape, 3u));
+        instance->normalization =
+            static_cast<s3g::FormatUpscaleNormalization>(
                 std::min<uint32_t>(state.normalization, 2u));
+        migrateLegacyManualMatrix = state.manualRoutesActive != 0u;
     } else if (version == 5u) {
         SavedStateV5 state {};
         state.version = version;
@@ -573,6 +850,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             state.manualRoutesActive != 0u);
         instance->autoRowShape = static_cast<s3g::FormatUpscaleRowShape>(
             std::min<uint32_t>(state.autoRowShape, 3u));
+        instance->normalization = s3g::FormatUpscaleNormalization::Row;
+        migrateLegacyManualMatrix = state.manualRoutesActive != 0u;
     } else if (version == 4u) {
         SavedStateV4 state {};
         state.version = version;
@@ -585,6 +864,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance->dsp.setManualWeights(state.manualWeights,
             state.manualRoutesActive != 0u);
         instance->autoRowShape = s3g::FormatUpscaleRowShape::Flat;
+        instance->normalization = s3g::FormatUpscaleNormalization::Row;
+        migrateLegacyManualMatrix = state.manualRoutesActive != 0u;
     } else if (version == 3u) {
         SavedStateV3 state {};
         state.version = version;
@@ -596,6 +877,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance->dsp.setCustomOutputLayout(state.customOutput);
         instance->dsp.setManualRoutes(state.manualRoutes,
             state.manualRoutesActive != 0u);
+        instance->normalization = s3g::FormatUpscaleNormalization::Row;
+        migrateLegacyManualMatrix = state.manualRoutesActive != 0u;
     } else if (version == 2u) {
         SavedStateV2 state {};
         state.version = version;
@@ -618,6 +901,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
     applyParams(*instance);
+    if (migrateLegacyManualMatrix) {
+        std::array<float, kChannels * kChannels> audibleWeights {};
+        for (uint32_t input = 0u; input < instance->dsp.activeInputs(); ++input)
+            for (uint32_t output = 0u;
+                 output < instance->dsp.activeOutputs(); ++output)
+                audibleWeights[input * kChannels + output] =
+                    instance->dsp.targetAnchorGain(input, output)
+                    + instance->dsp.targetExtensionGain(input, output);
+        instance->normalization = s3g::FormatUpscaleNormalization::Exact;
+        instance->dsp.setNormalization(instance->normalization);
+        instance->dsp.setManualWeights(audibleWeights, true);
+    }
     return true;
 }
 
@@ -630,15 +925,17 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 namespace {
 
 constexpr NSRect kFormatPanelRect = {
-    { 824.0, 86.0 }, { 260.0, 175.0 } };
+    { 824.0, 86.0 }, { 260.0, 126.0 } };
+constexpr NSRect kAutoPanelRect = {
+    { 824.0, 226.0 }, { 260.0, 165.0 } };
 constexpr NSRect kMatrixPanelRect = {
     { 18.0, 48.0 }, { 1084.0, 654.0 } };
 constexpr NSRect kSpatialPanelRect = {
     { 686.0, 126.0 }, { 416.0, 320.0 } };
 constexpr NSRect kRightPanelRect = {
-    { 824.0, 275.0 }, { 260.0, 409.0 } };
+    { 824.0, 226.0 }, { 260.0, 458.0 } };
 constexpr NSRect kSelectedPanelRect = {
-    { 824.0, 275.0 }, { 260.0, 232.0 } };
+    { 824.0, 405.0 }, { 260.0, 197.0 } };
 constexpr NSRect kSpatialMapRect = {
     { 696.0, 156.0 }, { 396.0, 280.0 } };
 constexpr NSRect kMatrixAvailableRect = {
@@ -653,6 +950,77 @@ constexpr CGFloat kLayoutProjectionVerticalInset = 42.0;
 constexpr CGFloat kTierRingDegreeLabelGutter = 34.0;
 constexpr CGFloat kLayoutNodeHitRadius = 18.0;
 constexpr float kTierRingZenithElevation = 89.5f;
+constexpr clap_id kUiFactoryPreset = 0xffff0001u;
+constexpr uint32_t kCustomMatrixPreset = 0xffffffffu;
+
+enum class MatrixPreset : uint32_t {
+    Init = 0u,
+    StereoQuadRepeat,
+    StereoQuadCross,
+    StereoQuadDifference,
+    StereoFiveZeroSpread,
+    StereoSevenZeroSpread,
+    QuadOctophonicRing,
+    QuadRing12,
+    QuadRing16,
+    QuadDoubleRing16,
+    OctophonicRing16,
+    OctophonicRing32,
+    OctophonicDoubleRing16,
+    OctophonicDoubleRing32,
+};
+
+constexpr uint32_t kMatrixPresetCount = 14u;
+
+const char* matrixPresetName(uint32_t preset)
+{
+    switch (static_cast<MatrixPreset>(preset)) {
+    case MatrixPreset::Init: return "Init — Stereo → Quad";
+    case MatrixPreset::StereoQuadRepeat: return "Stereo → Quad Repeat";
+    case MatrixPreset::StereoQuadCross: return "Stereo → Quad Cross";
+    case MatrixPreset::StereoQuadDifference: return "Stereo → Quad Difference";
+    case MatrixPreset::StereoFiveZeroSpread: return "Stereo → 5.0 Spread";
+    case MatrixPreset::StereoSevenZeroSpread: return "Stereo → 7.0 Spread";
+    case MatrixPreset::QuadOctophonicRing: return "Quad → Octophonic Ring";
+    case MatrixPreset::QuadRing12: return "Quad → Ring 12";
+    case MatrixPreset::QuadRing16: return "Quad → Ring 16";
+    case MatrixPreset::QuadDoubleRing16: return "Quad → Double Ring 16";
+    case MatrixPreset::OctophonicRing16: return "Octophonic → Ring 16";
+    case MatrixPreset::OctophonicRing32: return "Octophonic → Ring 32";
+    case MatrixPreset::OctophonicDoubleRing16:
+        return "Octophonic → Double Ring 16";
+    case MatrixPreset::OctophonicDoubleRing32:
+        return "Octophonic → Double Ring 32";
+    default: return "Custom / Current";
+    }
+}
+
+constexpr uint32_t kRecipeCount = 4u;
+
+const char* recipeName(uint32_t recipe)
+{
+    constexpr const char* names[kRecipeCount] {
+        "Repeat", "Spatial Match", "Cross", "All Tiers" };
+    return names[std::min<uint32_t>(recipe, kRecipeCount - 1u)];
+}
+
+s3g::FormatUpscalePlacement recipePlacement(uint32_t recipe)
+{
+    constexpr s3g::FormatUpscalePlacement placements[kRecipeCount] {
+        s3g::FormatUpscalePlacement::Interleave,
+        s3g::FormatUpscalePlacement::SameSide,
+        s3g::FormatUpscalePlacement::Cross,
+        s3g::FormatUpscalePlacement::TierFill,
+    };
+    return placements[std::min<uint32_t>(recipe, kRecipeCount - 1u)];
+}
+
+uint32_t recipeIndex(s3g::FormatUpscalePlacement placement)
+{
+    for (uint32_t recipe = 0u; recipe < kRecipeCount; ++recipe)
+        if (recipePlacement(recipe) == placement) return recipe;
+    return placement == s3g::FormatUpscalePlacement::Cross ? 2u : 1u;
+}
 
 NSRect layoutProjectionRect(bool output)
 {
@@ -776,7 +1144,7 @@ constexpr s3g::gui_layout::Panel kDistributionPanel {
 constexpr s3g::gui_layout::Panel kExtensionPanel {
     s3g::gui_layout::PluginClass::OutputUtility,
     s3g::gui_layout::PanelRole::Output,
-    { 824.0, 521.0, 260.0, 163.0 }, 30.0, 25.0, 4u };
+    { 824.0, 616.0, 260.0, 68.0 }, 30.0, 25.0, 1u };
 
 struct FormatUpscaleMatrixGeometry {
     NSRect grid = NSZeroRect;
@@ -850,14 +1218,35 @@ NSRect sideFormatValueRect(bool output)
 
 NSRect sideAutoModeRowRect()
 {
-    return NSMakeRect(kFormatPanelRect.origin.x + 12.0,
-        kFormatPanelRect.origin.y + 125.0,
-        kFormatPanelRect.size.width - 24.0, 42.0);
+    return NSMakeRect(kAutoPanelRect.origin.x + 12.0,
+        kAutoPanelRect.origin.y + 27.0,
+        kAutoPanelRect.size.width - 24.0, 42.0);
 }
 
 NSRect sideAutoModeValueRect()
 {
     const NSRect row = sideAutoModeRowRect();
+    return NSMakeRect(row.origin.x, row.origin.y + 17.0,
+        row.size.width, 19.0);
+}
+
+NSRect autoCopiesRowRect()
+{
+    return NSMakeRect(kAutoPanelRect.origin.x,
+        kAutoPanelRect.origin.y + 68.0,
+        kAutoPanelRect.size.width, 31.0);
+}
+
+NSRect autoShapeRowRect()
+{
+    return NSMakeRect(kAutoPanelRect.origin.x + 12.0,
+        kAutoPanelRect.origin.y + 116.0,
+        kAutoPanelRect.size.width - 24.0, 42.0);
+}
+
+NSRect autoShapeValueRect()
+{
+    const NSRect row = autoShapeRowRect();
     return NSMakeRect(row.origin.x, row.origin.y + 17.0,
         row.size.width, 19.0);
 }
@@ -879,11 +1268,12 @@ NSRect spatialButtonRect(uint32_t button)
 
 NSRect viewSelectorRect(uint32_t view)
 {
-    constexpr CGFloat width = 86.0;
+    constexpr CGFloat width = 96.0;
     constexpr CGFloat gap = 5.0;
     const CGFloat right = NSMaxX(kMatrixPanelRect) - 7.0;
     return NSMakeRect(right - width
-            - static_cast<CGFloat>(2u - view) * (width + gap),
+            - static_cast<CGFloat>(1u - std::min<uint32_t>(view, 1u))
+                * (width + gap),
         kMatrixPanelRect.origin.y + 3.0, width, 15.0);
 }
 
@@ -901,12 +1291,12 @@ NSRect sideAutoActionRect(uint32_t action)
 {
     constexpr CGFloat widths[2] { 70.0, 54.0 };
     constexpr CGFloat gap = 4.0;
-    const NSRect row = sideAutoModeRowRect();
-    const CGFloat right = NSMaxX(row);
+    const CGFloat right = NSMaxX(kAutoPanelRect) - 7.0;
     const CGFloat clearLeft = right - widths[1];
     const CGFloat left = action == 0u
         ? clearLeft - gap - widths[0] : clearLeft;
-    return NSMakeRect(left, row.origin.y, widths[action], 17.0);
+    return NSMakeRect(left, kAutoPanelRect.origin.y + 3.0,
+        widths[action], 17.0);
 }
 
 NSRect sideNormalizationRect(uint32_t normalization)
@@ -1030,7 +1420,9 @@ uint32_t menuCountForParam(clap_id id)
 {
     if (id == kParamInputLayout || id == kParamOutputLayout)
         return s3g::kFormatUpscaleLayoutCount;
-    if (id == kParamPlacement) return 9u;
+    if (id == kUiFactoryPreset) return kMatrixPresetCount;
+    if (id == kParamPlacement) return kRecipeCount;
+    if (id == kParamAutoRowShape) return 4u;
     if (id == kParamBasis || id == kParamOrigin) return 3u;
     return 0u;
 }
@@ -1040,6 +1432,13 @@ NSRect menuRowForParam(clap_id id)
     switch (id) {
     case kParamInputLayout: return compactFormatRowRect(false);
     case kParamOutputLayout: return compactFormatRowRect(true);
+    case kUiFactoryPreset: {
+        constexpr s3g::gui_layout::Canvas canvas {
+            static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight) };
+        return s3g::clap_gui::cocoaRect(
+            s3g::gui_layout::outputUtilityTitleBand(canvas).presetMenu);
+    }
+    case kParamAutoRowShape: return autoShapeRowRect();
     case kParamOrigin: return methodColumnRect(0u);
     case kParamBasis: return methodColumnRect(1u);
     case kParamPlacement: return sideAutoModeRowRect();
@@ -1051,7 +1450,9 @@ NSRect menuValueRectForParam(clap_id id)
 {
     if (id == kParamInputLayout) return sideFormatValueRect(false);
     if (id == kParamOutputLayout) return sideFormatValueRect(true);
+    if (id == kUiFactoryPreset) return menuRowForParam(id);
     if (id == kParamPlacement) return sideAutoModeValueRect();
+    if (id == kParamAutoRowShape) return autoShapeValueRect();
     return valueRect(menuRowForParam(id));
 }
 
@@ -1066,16 +1467,25 @@ struct FormatMenuGeometry {
 FormatMenuGeometry formatMenuGeometry(clap_id id)
 {
     const uint32_t count = menuCountForParam(id);
-    const uint32_t firstCount = (count + 1u) / 2u;
-    const uint32_t secondCount = count - firstCount;
-    const NSRect row = menuRowForParam(id);
-    const NSRect box = menuValueRectForParam(id);
+    if (id == kUiFactoryPreset) {
+        const NSRect anchor = menuRowForParam(id);
+        constexpr CGFloat width = 310.0;
+        constexpr CGFloat itemHeight = 20.0;
+        return {
+            NSMakeRect(anchor.origin.x, NSMaxY(anchor) + 4.0, width,
+                itemHeight * static_cast<CGFloat>(count)),
+            NSZeroRect, count, 0u, itemHeight,
+        };
+    }
     const bool format = id == kParamInputLayout || id == kParamOutputLayout;
-    const CGFloat columnWidth = format ? 230.0 : row.size.width * 0.5;
+    const uint32_t firstCount = format ? (count + 1u) / 2u : count;
+    const uint32_t secondCount = format ? count - firstCount : 0u;
+    const NSRect row = menuRowForParam(id);
+    const CGFloat columnWidth = format ? 230.0 : row.size.width;
     const CGFloat left = format
         ? kFormatPanelRect.origin.x - 8.0 - columnWidth * 2.0
-        : row.origin.x;
-    const CGFloat top = format ? kFormatPanelRect.origin.y : NSMaxY(box) + 3.0;
+        : row.origin.x - columnWidth - 8.0;
+    const CGFloat top = format ? kFormatPanelRect.origin.y : row.origin.y;
     return {
         NSMakeRect(left, top, columnWidth,
             20.0 * static_cast<CGFloat>(firstCount)),
@@ -1087,9 +1497,9 @@ FormatMenuGeometry formatMenuGeometry(clap_id id)
 
 NSRect selectedWeightRowRect()
 {
-    return NSMakeRect(kRightPanelRect.origin.x,
-        kRightPanelRect.origin.y + 118.0,
-        kRightPanelRect.size.width, 31.0);
+    return NSMakeRect(kSelectedPanelRect.origin.x,
+        kSelectedPanelRect.origin.y + 79.0,
+        kSelectedPanelRect.size.width, 31.0);
 }
 
 NSRect selectedWeightHitRect()
@@ -1100,6 +1510,23 @@ NSRect selectedWeightHitRect()
         row.origin.y + 3.0,
         static_cast<CGFloat>(s3g::gui_layout::processorTrackWidth(
         row.size.width)), 20.0);
+}
+
+NSRect crosspointActionRect(uint32_t action)
+{
+    (void)action;
+    return NSMakeRect(kSelectedPanelRect.origin.x + 12.0,
+        kSelectedPanelRect.origin.y + 122.0,
+        kSelectedPanelRect.size.width - 24.0, 17.0);
+}
+
+NSRect levelActionRect(uint32_t action)
+{
+    constexpr CGFloat width = 112.0;
+    constexpr CGFloat gap = 6.0;
+    return NSMakeRect(kSelectedPanelRect.origin.x + 12.0
+            + static_cast<CGFloat>(action) * (width + gap),
+        kSelectedPanelRect.origin.y + 157.0, width, 17.0);
 }
 
 NSRect rowShapeButtonRect(uint32_t action)
@@ -1124,13 +1551,10 @@ NSRect sliderRowForParam(clap_id id)
 {
     switch (id) {
     case kParamAmount: return panelSliderRow(kDistributionPanel, 0u);
-    case kParamCopies: return panelSliderRow(kDistributionPanel, 1u);
+    case kParamCopies: return autoCopiesRowRect();
     case kParamRotation: return panelSliderRow(kDistributionPanel, 2u);
     case kParamSpread: return panelSliderRow(kDistributionPanel, 3u);
-    case kParamDelay: return panelSliderRow(kExtensionPanel, 0u);
-    case kParamDecor: return panelSliderRow(kExtensionPanel, 1u);
-    case kParamSmoothing: return panelSliderRow(kExtensionPanel, 2u);
-    case kParamOutputGain: return panelSliderRow(kExtensionPanel, 3u);
+    case kParamOutputGain: return panelSliderRow(kExtensionPanel, 0u);
     default: return NSZeroRect;
     }
 }
@@ -1142,26 +1566,23 @@ NSRect sliderHitRectForParam(clap_id id)
         return s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(kDistributionPanel, 0u));
     case kParamCopies:
-        return s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(kDistributionPanel, 1u));
+    {
+        const NSRect row = autoCopiesRowRect();
+        return NSMakeRect(static_cast<CGFloat>(
+                s3g::gui_layout::processorControlX(row.origin.x)),
+            row.origin.y + 3.0,
+            static_cast<CGFloat>(s3g::gui_layout::processorTrackWidth(
+                row.size.width)), 20.0);
+    }
     case kParamRotation:
         return s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(kDistributionPanel, 2u));
     case kParamSpread:
         return s3g::clap_gui::cocoaRect(
             s3g::gui_layout::sliderHitRect(kDistributionPanel, 3u));
-    case kParamDelay:
-        return s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(kExtensionPanel, 0u));
-    case kParamDecor:
-        return s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(kExtensionPanel, 1u));
-    case kParamSmoothing:
-        return s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(kExtensionPanel, 2u));
     case kParamOutputGain:
         return s3g::clap_gui::cocoaRect(
-            s3g::gui_layout::sliderHitRect(kExtensionPanel, 3u));
+            s3g::gui_layout::sliderHitRect(kExtensionPanel, 0u));
     default: return NSZeroRect;
     }
 }
@@ -1214,6 +1635,7 @@ enum : NSInteger {
     BOOL _elFieldDirty;
     BOOL _distFieldDirty;
     uint32_t _page;
+    uint32_t _matrixPreset;
     BOOL _layoutOrigami;
     BOOL _layoutPopupChild;
     S3GFormatUpscaleMapView* _layoutPopupOwner;
@@ -1235,6 +1657,8 @@ enum : NSInteger {
 - (void)loadDocumentationCube41Layout;
 - (void)setDocumentationLayoutPage:(BOOL)layout;
 - (void)setDocumentationLayoutOrigami:(BOOL)origami;
+- (void)applyMatrixPreset:(uint32_t)preset;
+- (void)markMatrixCustom;
 @end
 
 @implementation S3GFormatUpscaleMapView
@@ -1277,6 +1701,7 @@ enum : NSInteger {
         _elFieldDirty = NO;
         _distFieldDirty = NO;
         _page = 0u;
+        _matrixPreset = static_cast<uint32_t>(MatrixPreset::Init);
         _layoutOrigami = YES;
         _layoutPopupChild = NO;
         _layoutPopupOwner = nil;
@@ -1351,7 +1776,7 @@ enum : NSInteger {
                 | NSWindowStyleMaskUtilityWindow)
             backing:NSBackingStoreBuffered defer:NO];
         [_layoutPanel setTitle:
-            @"s3g OUTPUT FORMAT UPSCALE 64 — LAYOUT CONNECTIONS"];
+            @"s3g MATRIX UPMIX 64 — TIER RINGS"];
         [_layoutPanel setReleasedWhenClosed:NO];
         // Keep the layout independent from the host window so it can remain
         // visible beside the matrix or on another display.
@@ -1464,9 +1889,16 @@ enum : NSInteger {
     return _designMap == 1 ? _selectedOutput : _selectedInput;
 }
 
+- (void)markMatrixCustom
+{
+    _matrixPreset = kCustomMatrixPreset;
+    std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CUSTOM");
+}
+
 - (void)setEditableLayout:(const s3g::FormatUpscaleLayoutData&)layout
 {
     if (!_plugin || _designMap < 0) return;
+    [self markMatrixCustom];
     if (_designMap == 1)
         _plugin->dsp.setCustomOutputLayout(layout);
     else
@@ -1583,8 +2015,363 @@ enum : NSInteger {
     _selectedInput = 0u;
     _selectedOutput = 0u;
     _selectionIsOutput = false;
+    _matrixPreset = kCustomMatrixPreset;
+    std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+        "CUSTOM 3 x 9");
     [self updateCustomValueFields];
     [self setNeedsDisplay:YES];
+}
+
+- (void)applyMatrixPreset:(uint32_t)preset
+{
+    if (!_plugin || preset >= kMatrixPresetCount) return;
+    const auto selectedPreset = static_cast<MatrixPreset>(preset);
+    auto finishPreset = [&]() {
+        _matrixPreset = preset;
+        std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+            matrixPresetName(preset));
+        _selectedInput = 0u;
+        _selectedOutput = 0u;
+        _selectionIsOutput = false;
+        _designMap = -1;
+        [self updateCustomValueFields];
+        [self setNeedsDisplay:YES];
+    };
+
+    if (selectedPreset == MatrixPreset::Init) {
+        const float outputGain = _plugin->params.outputGainDb;
+        _plugin->params = {};
+        _plugin->params.outputGainDb = outputGain;
+        _plugin->autoRowShape = s3g::FormatUpscaleRowShape::Flat;
+        _plugin->normalization = s3g::FormatUpscaleNormalization::Exact;
+        applyParams(*_plugin);
+        _plugin->dsp.useAutomaticRoutes();
+        finishPreset();
+        return;
+    }
+
+    s3g::FormatUpscaleLayout expansionInput =
+        s3g::FormatUpscaleLayout::Stereo;
+    s3g::FormatUpscaleLayout expansionOutput =
+        s3g::FormatUpscaleLayout::Quad;
+    bool expansionPreset = true;
+    switch (selectedPreset) {
+    case MatrixPreset::QuadOctophonicRing:
+        expansionInput = s3g::FormatUpscaleLayout::Quad;
+        expansionOutput = s3g::FormatUpscaleLayout::OctophonicRing;
+        break;
+    case MatrixPreset::QuadRing12:
+        expansionInput = s3g::FormatUpscaleLayout::Quad;
+        expansionOutput = s3g::FormatUpscaleLayout::Ring12;
+        break;
+    case MatrixPreset::QuadRing16:
+        expansionInput = s3g::FormatUpscaleLayout::Quad;
+        expansionOutput = s3g::FormatUpscaleLayout::Ring16;
+        break;
+    case MatrixPreset::QuadDoubleRing16:
+        expansionInput = s3g::FormatUpscaleLayout::Quad;
+        expansionOutput = s3g::FormatUpscaleLayout::DoubleRing16;
+        break;
+    case MatrixPreset::OctophonicRing16:
+        expansionInput = s3g::FormatUpscaleLayout::OctophonicRing;
+        expansionOutput = s3g::FormatUpscaleLayout::Ring16;
+        break;
+    case MatrixPreset::OctophonicRing32:
+        expansionInput = s3g::FormatUpscaleLayout::OctophonicRing;
+        expansionOutput = s3g::FormatUpscaleLayout::Ring32;
+        break;
+    case MatrixPreset::OctophonicDoubleRing16:
+        expansionInput = s3g::FormatUpscaleLayout::OctophonicRing;
+        expansionOutput = s3g::FormatUpscaleLayout::DoubleRing16;
+        break;
+    case MatrixPreset::OctophonicDoubleRing32:
+        expansionInput = s3g::FormatUpscaleLayout::OctophonicRing;
+        expansionOutput = s3g::FormatUpscaleLayout::DoubleRing32;
+        break;
+    default:
+        expansionPreset = false;
+        break;
+    }
+    if (expansionPreset) {
+        _plugin->params.inputLayout = expansionInput;
+        _plugin->params.outputLayout = expansionOutput;
+        _plugin->params.basis = s3g::FormatUpscaleBasis::Direct;
+        _plugin->params.placement = s3g::FormatUpscalePlacement::Nearest;
+        _plugin->params.origin = s3g::FormatUpscaleOrigin::Remap;
+        _plugin->params.amountPercent = 100.0f;
+        _plugin->params.copies = std::max<uint32_t>(1u,
+            s3g::formatUpscaleLayoutChannels(expansionOutput)
+                / std::max<uint32_t>(1u,
+                    s3g::formatUpscaleLayoutChannels(expansionInput)));
+        _plugin->autoRowShape = s3g::FormatUpscaleRowShape::Flat;
+        _plugin->normalization = s3g::FormatUpscaleNormalization::Exact;
+        applyParams(*_plugin);
+
+        const auto& inputs = _plugin->dsp.inputLayout();
+        const auto& outputs = _plugin->dsp.outputLayout();
+        // Factory expansion maps promise a balanced, spatially ordered fan-out.
+        // Keep ranked AED pairs for layouts that cannot divide into regular
+        // channel-order groups.
+        struct Candidate {
+            float score = 0.0f;
+            uint32_t input = 0u;
+            uint32_t output = 0u;
+        };
+        std::array<Candidate, kChannels * kChannels> candidates {};
+        uint32_t candidateCount = 0u;
+        for (uint32_t input = 0u; input < inputs.count; ++input) {
+            for (uint32_t output = 0u; output < outputs.count; ++output) {
+                candidates[candidateCount++] = {
+                    s3g::formatUpscaleAngularDistance(
+                        inputs.speakers[input].azimuthDeg,
+                        outputs.speakers[output].azimuthDeg)
+                        + std::abs(inputs.speakers[input].elevationDeg
+                            - outputs.speakers[output].elevationDeg) * 0.75f,
+                    input,
+                    output,
+                };
+            }
+        }
+        std::sort(candidates.begin(), candidates.begin() + candidateCount,
+            [](const Candidate& left, const Candidate& right) {
+                if (left.score != right.score) return left.score < right.score;
+                if (left.output != right.output)
+                    return left.output < right.output;
+                return left.input < right.input;
+            });
+
+        // Balance every physical height tier independently. A total row quota
+        // alone can still give an input three lower-ring speakers and only one
+        // upper-ring speaker. Double Ring presets instead promise the same
+        // number of destinations on each ring whenever the tier sizes divide
+        // evenly by the input count.
+        std::array<float, kChannels> tierHeights {};
+        std::array<uint32_t, kChannels> tierCounts {};
+        std::array<uint32_t, kChannels> outputTiers {};
+        uint32_t tierCount = 0u;
+        for (uint32_t output = 0u; output < outputs.count; ++output) {
+            const float height = s3g::formatUpscaleSpeakerHeight(
+                outputs.speakers[output]);
+            uint32_t tier = 0u;
+            while (tier < tierCount
+                && std::abs(tierHeights[tier] - height)
+                    >= s3g::kFormatUpscaleTierHeightTolerance)
+                ++tier;
+            if (tier == tierCount) {
+                tierHeights[tier] = height;
+                ++tierCount;
+            }
+            outputTiers[output] = tier;
+            ++tierCounts[tier];
+        }
+
+        std::array<uint32_t, kChannels> owner {};
+        owner.fill(kChannels);
+        std::array<uint32_t, kChannels> ownedCount {};
+        bool orderedGroups = inputs.count > 0u;
+        for (uint32_t tier = 0u; tier < tierCount; ++tier) {
+            orderedGroups = orderedGroups
+                && tierCounts[tier] >= inputs.count
+                && tierCounts[tier] % inputs.count == 0u;
+        }
+        if (orderedGroups) {
+            // Ring layouts are already stored in cyclic channel order. Split
+            // each tier into equal contiguous groups, then give each group to
+            // the nearest still-unassigned input sector. This retains the
+            // channel-order tradition and prevents quota-balanced but crossed
+            // arrangements such as alternating Quad owners around Ring 12.
+            for (uint32_t tier = 0u; tier < tierCount; ++tier) {
+                std::array<uint32_t, kChannels> tierOutputs {};
+                uint32_t tierOutputCount = 0u;
+                for (uint32_t output = 0u; output < outputs.count; ++output) {
+                    if (outputTiers[output] == tier)
+                        tierOutputs[tierOutputCount++] = output;
+                }
+                const uint32_t groupSize = tierOutputCount / inputs.count;
+                std::array<bool, kChannels> inputUsed {};
+                for (uint32_t group = 0u; group < inputs.count; ++group) {
+                    float sumX = 0.0f;
+                    float sumY = 0.0f;
+                    for (uint32_t offset = 0u; offset < groupSize; ++offset) {
+                        const uint32_t output = tierOutputs[
+                            group * groupSize + offset];
+                        const float radians = outputs.speakers[output]
+                            .azimuthDeg * 3.14159265358979323846f / 180.0f;
+                        sumX += std::cos(radians);
+                        sumY += std::sin(radians);
+                    }
+                    const float centerAzimuth = std::atan2(sumY, sumX)
+                        * 180.0f / 3.14159265358979323846f;
+                    uint32_t nearestInput = kChannels;
+                    float nearestScore = 1000000.0f;
+                    for (uint32_t input = 0u; input < inputs.count; ++input) {
+                        if (inputUsed[input]) continue;
+                        const float score = s3g::formatUpscaleAngularDistance(
+                            inputs.speakers[input].azimuthDeg, centerAzimuth);
+                        if (score < nearestScore) {
+                            nearestScore = score;
+                            nearestInput = input;
+                        }
+                    }
+                    if (nearestInput >= inputs.count) continue;
+                    inputUsed[nearestInput] = true;
+                    for (uint32_t offset = 0u; offset < groupSize; ++offset) {
+                        const uint32_t output = tierOutputs[
+                            group * groupSize + offset];
+                        owner[output] = nearestInput;
+                        ++ownedCount[nearestInput];
+                    }
+                }
+            }
+        } else {
+            std::array<uint32_t, kChannels * kChannels> tierQuota {};
+            std::array<uint32_t, kChannels * kChannels> tierOwnedCount {};
+            for (uint32_t tier = 0u; tier < tierCount; ++tier) {
+                const uint32_t evenShare = tierCounts[tier]
+                    / std::max<uint32_t>(1u, inputs.count);
+                const uint32_t remainder = tierCounts[tier]
+                    % std::max<uint32_t>(1u, inputs.count);
+                for (uint32_t input = 0u; input < inputs.count; ++input) {
+                    tierQuota[tier * kChannels + input] = evenShare
+                        + (input < remainder ? 1u : 0u);
+                }
+            }
+            for (uint32_t index = 0u; index < candidateCount; ++index) {
+                const auto& candidate = candidates[index];
+                const uint32_t tier = outputTiers[candidate.output];
+                const uint32_t tierInput = tier * kChannels + candidate.input;
+                if (owner[candidate.output] != kChannels
+                    || tierOwnedCount[tierInput] >= tierQuota[tierInput])
+                    continue;
+                owner[candidate.output] = candidate.input;
+                ++ownedCount[candidate.input];
+                ++tierOwnedCount[tierInput];
+            }
+            for (uint32_t output = 0u; output < outputs.count; ++output) {
+                if (owner[output] != kChannels) continue;
+                const uint32_t tier = outputTiers[output];
+                for (uint32_t input = 0u; input < inputs.count; ++input) {
+                    const uint32_t tierInput = tier * kChannels + input;
+                    if (tierOwnedCount[tierInput] >= tierQuota[tierInput])
+                        continue;
+                    owner[output] = input;
+                    ++ownedCount[input];
+                    ++tierOwnedCount[tierInput];
+                    break;
+                }
+            }
+        }
+        std::array<float, kChannels * kChannels> weights {};
+        for (uint32_t output = 0u; output < outputs.count; ++output) {
+            const uint32_t input = owner[output];
+            weights[input * kChannels + output] = 1.0f / std::sqrt(
+                static_cast<float>(std::max<uint32_t>(1u,
+                    ownedCount[input])));
+        }
+        setExactManualMatrix(*_plugin, weights);
+        finishPreset();
+        return;
+    }
+
+    _plugin->params.inputLayout = selectedPreset ==
+            MatrixPreset::StereoQuadRepeat
+            || selectedPreset == MatrixPreset::StereoQuadCross
+            || selectedPreset == MatrixPreset::StereoQuadDifference
+            || selectedPreset == MatrixPreset::StereoFiveZeroSpread
+            || selectedPreset == MatrixPreset::StereoSevenZeroSpread
+        ? s3g::FormatUpscaleLayout::Stereo
+        : _plugin->params.inputLayout;
+    if (selectedPreset == MatrixPreset::StereoQuadRepeat
+        || selectedPreset == MatrixPreset::StereoQuadCross
+        || selectedPreset == MatrixPreset::StereoQuadDifference)
+        _plugin->params.outputLayout = s3g::FormatUpscaleLayout::Quad;
+    else if (selectedPreset == MatrixPreset::StereoFiveZeroSpread)
+        _plugin->params.outputLayout = s3g::FormatUpscaleLayout::FiveZero;
+    else if (selectedPreset == MatrixPreset::StereoSevenZeroSpread)
+        _plugin->params.outputLayout = s3g::FormatUpscaleLayout::SevenZero;
+    _plugin->params.basis = s3g::FormatUpscaleBasis::Direct;
+    _plugin->params.placement = s3g::FormatUpscalePlacement::SameSide;
+    _plugin->params.origin = s3g::FormatUpscaleOrigin::Remap;
+    _plugin->params.amountPercent = 100.0f;
+    _plugin->normalization = s3g::FormatUpscaleNormalization::Exact;
+    applyParams(*_plugin);
+
+    const auto& inputLayout = _plugin->dsp.inputLayout();
+    const auto& outputLayout = _plugin->dsp.outputLayout();
+    auto nearest = [](const s3g::FormatUpscaleLayoutData& layout,
+                       float azimuth) {
+        uint32_t best = 0u;
+        float bestScore = 1000000.0f;
+        for (uint32_t index = 0u; index < layout.count; ++index) {
+            const float score = s3g::formatUpscaleAngularDistance(
+                    layout.speakers[index].azimuthDeg, azimuth)
+                + std::abs(layout.speakers[index].elevationDeg) * 1.5f;
+            if (score < bestScore) {
+                bestScore = score;
+                best = index;
+            }
+        }
+        return best;
+    };
+    const uint32_t right = nearest(inputLayout, -30.0f);
+    const uint32_t left = nearest(inputLayout, 30.0f);
+    std::array<float, kChannels * kChannels> weights {};
+    auto set = [&](uint32_t input, uint32_t output, float gain) {
+        weights[input * kChannels + output] = gain;
+    };
+
+    if (selectedPreset == MatrixPreset::StereoQuadRepeat
+        || selectedPreset == MatrixPreset::StereoQuadCross
+        || selectedPreset == MatrixPreset::StereoQuadDifference) {
+        const uint32_t frontLeft = nearest(outputLayout, 45.0f);
+        const uint32_t frontRight = nearest(outputLayout, -45.0f);
+        const uint32_t rearRight = nearest(outputLayout, -135.0f);
+        const uint32_t rearLeft = nearest(outputLayout, 135.0f);
+        if (selectedPreset == MatrixPreset::StereoQuadRepeat) {
+            constexpr float gain = 0.7071067811865475f;
+            set(left, frontLeft, gain);
+            set(left, rearLeft, gain);
+            set(right, frontRight, gain);
+            set(right, rearRight, gain);
+        } else if (selectedPreset == MatrixPreset::StereoQuadCross) {
+            constexpr float gain = 0.7071067811865475f;
+            set(left, frontLeft, gain);
+            set(left, rearRight, gain);
+            set(right, frontRight, gain);
+            set(right, rearLeft, gain);
+        } else {
+            // A contained stereo-derived chain: direct stereo fronts plus
+            // opposed L-R / R-L difference surrounds. Polarity is generated
+            // by this named strategy and is not a general matrix edit mode.
+            constexpr float frontGain = 0.7071067811865475f;
+            constexpr float differenceGain = 0.5f;
+            set(left, frontLeft, frontGain);
+            set(right, frontRight, frontGain);
+            set(right, rearRight, differenceGain);
+            set(left, rearRight, -differenceGain);
+            set(left, rearLeft, differenceGain);
+            set(right, rearLeft, -differenceGain);
+        }
+    } else {
+        const bool seven = selectedPreset
+            == MatrixPreset::StereoSevenZeroSpread;
+        const float frontGain = seven ? 0.6324555320336759f
+                                      : 0.7071067811865475f;
+        const float otherGain = seven ? 0.4472135954999579f : 0.5f;
+        set(right, nearest(outputLayout, -30.0f), frontGain);
+        set(left, nearest(outputLayout, 30.0f), frontGain);
+        set(right, nearest(outputLayout, -110.0f), otherGain);
+        set(left, nearest(outputLayout, 110.0f), otherGain);
+        if (seven) {
+            set(right, nearest(outputLayout, -150.0f), otherGain);
+            set(left, nearest(outputLayout, 150.0f), otherGain);
+        }
+        const uint32_t center = nearest(outputLayout, 0.0f);
+        set(left, center, otherGain);
+        set(right, center, otherGain);
+    }
+    setExactManualMatrix(*_plugin, weights);
+    finishPreset();
 }
 
 - (void)loadDocumentationCube41Layout
@@ -1603,42 +2390,9 @@ enum : NSInteger {
     _selectedInput = 0u;
     _selectedOutput = 0u;
     _selectionIsOutput = false;
-    [self updateCustomValueFields];
-    [self setNeedsDisplay:YES];
-}
-
-- (void)loadDocumentationMidSideLayout
-{
-    if (!_plugin) return;
-    s3g::FormatUpscaleLayoutData output {};
-    output.count = 6u;
-    s3g::formatUpscaleSetSpeaker(output, 0u, 0.0f, 0.0f,
-        s3g::FormatUpscaleRole::Center);
-    s3g::formatUpscaleSetSpeaker(output, 1u, 90.0f, 0.0f,
-        s3g::FormatUpscaleRole::LeftSurround);
-    s3g::formatUpscaleSetSpeaker(output, 2u, -90.0f, 0.0f,
-        s3g::FormatUpscaleRole::RightSurround);
-    s3g::formatUpscaleSetSpeaker(output, 3u, 90.0f, 55.0f,
-        s3g::FormatUpscaleRole::TopLeftFront);
-    s3g::formatUpscaleSetSpeaker(output, 4u, -90.0f, 55.0f,
-        s3g::FormatUpscaleRole::TopRightFront);
-    s3g::formatUpscaleSetSpeaker(output, 5u, 0.0f, 90.0f,
-        s3g::FormatUpscaleRole::Center);
-    _plugin->dsp.setCustomOutputLayout(output);
-    _plugin->params.inputLayout = s3g::FormatUpscaleLayout::Stereo;
-    _plugin->params.outputLayout = s3g::FormatUpscaleLayout::Custom;
-    _plugin->params.basis = s3g::FormatUpscaleBasis::Direct;
-    _plugin->params.placement =
-        s3g::FormatUpscalePlacement::MidSideSpread;
-    _plugin->autoRowShape = s3g::FormatUpscaleRowShape::Flat;
-    _plugin->normalization = s3g::FormatUpscaleNormalization::DualLimit;
-    applyParams(*_plugin);
-    _plugin->dsp.useAutomaticRoutes();
-    _page = 0u;
-    _designMap = -1;
-    _selectedInput = 0u;
-    _selectedOutput = 1u;
-    _selectionIsOutput = false;
+    _matrixPreset = kCustomMatrixPreset;
+    std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+        "CUBE 41 CHECK");
     [self updateCustomValueFields];
     [self setNeedsDisplay:YES];
 }
@@ -1736,6 +2490,11 @@ enum : NSInteger {
     return _plugin ? static_cast<uint32_t>(_plugin->autoRowShape) : 0u;
 }
 
+- (uint32_t)autoCopiesValue
+{
+    return _plugin ? _plugin->params.copies : 0u;
+}
+
 - (BOOL)manualRouteZeroToZero
 {
     return _plugin && _plugin->dsp.manualRoute(0u, 0u);
@@ -1771,6 +2530,26 @@ enum : NSInteger {
     return _plugin ? _plugin->dsp.manualWeight(1u, 0u) : 0.0;
 }
 
+- (double)manualWeightOneToTwo
+{
+    return _plugin ? _plugin->dsp.manualWeight(1u, 2u) : 0.0;
+}
+
+- (double)manualWeightZeroToThree
+{
+    return _plugin ? _plugin->dsp.manualWeight(0u, 3u) : 0.0;
+}
+
+- (uint32_t)matrixPresetValue
+{
+    return _matrixPreset;
+}
+
+- (NSString*)titlePresetValue
+{
+    return [NSString stringWithUTF8String:_titlePresetName];
+}
+
 - (uint32_t)normalizationValue
 {
     return _plugin ? static_cast<uint32_t>(_plugin->normalization) : 0u;
@@ -1786,6 +2565,137 @@ enum : NSInteger {
         power += gain * gain;
     }
     return power;
+}
+
+- (double)selectedInputPower
+{
+    if (!_plugin) return 0.0;
+    float power = 0.0f;
+    for (uint32_t output = 0u; output < _plugin->dsp.activeOutputs(); ++output) {
+        const float gain = _plugin->dsp.targetAnchorGain(_selectedInput, output)
+            + _plugin->dsp.targetExtensionGain(_selectedInput, output);
+        power += gain * gain;
+    }
+    return power;
+}
+
+- (double)selectedWeightTrackStartX
+{
+    return selectedWeightHitRect().origin.x;
+}
+
+- (double)selectedWeightTrackEndX
+{
+    return NSMaxX(selectedWeightHitRect());
+}
+
+- (double)selectedWeightTrackY
+{
+    return NSMidY(selectedWeightHitRect());
+}
+
+- (double)selectedPanelHeight
+{
+    return kSelectedPanelRect.size.height;
+}
+
+- (double)selectedDeleteY
+{
+    return NSMidY(crosspointActionRect(0u));
+}
+
+- (double)selectedLevelY
+{
+    return NSMidY(levelActionRect(0u));
+}
+
+- (uint32_t)matrixConnectionCount
+{
+    if (!_plugin) return 0u;
+    uint32_t count = 0u;
+    for (uint32_t input = 0u; input < _plugin->dsp.activeInputs(); ++input) {
+        for (uint32_t output = 0u;
+             output < _plugin->dsp.activeOutputs(); ++output) {
+            const float gain = _plugin->dsp.targetAnchorGain(input, output)
+                + _plugin->dsp.targetExtensionGain(input, output);
+            if (std::abs(gain) > 0.0001f) ++count;
+        }
+    }
+    return count;
+}
+
+- (uint32_t)minimumInputConnectionCount
+{
+    if (!_plugin || _plugin->dsp.activeInputs() == 0u) return 0u;
+    uint32_t minimum = kChannels;
+    for (uint32_t input = 0u; input < _plugin->dsp.activeInputs(); ++input) {
+        uint32_t count = 0u;
+        for (uint32_t output = 0u;
+             output < _plugin->dsp.activeOutputs(); ++output) {
+            const float gain = _plugin->dsp.targetAnchorGain(input, output)
+                + _plugin->dsp.targetExtensionGain(input, output);
+            if (std::abs(gain) > 0.0001f) ++count;
+        }
+        minimum = std::min(minimum, count);
+    }
+    return minimum;
+}
+
+- (uint32_t)maximumInputConnectionCount
+{
+    if (!_plugin) return 0u;
+    uint32_t maximum = 0u;
+    for (uint32_t input = 0u; input < _plugin->dsp.activeInputs(); ++input) {
+        uint32_t count = 0u;
+        for (uint32_t output = 0u;
+             output < _plugin->dsp.activeOutputs(); ++output) {
+            const float gain = _plugin->dsp.targetAnchorGain(input, output)
+                + _plugin->dsp.targetExtensionGain(input, output);
+            if (std::abs(gain) > 0.0001f) ++count;
+        }
+        maximum = std::max(maximum, count);
+    }
+    return maximum;
+}
+
+- (uint32_t)activeOutputTierCount
+{
+    return _plugin ? inputTierConnectionStats(*_plugin)[0u] : 0u;
+}
+
+- (uint32_t)minimumInputTierConnectionCount
+{
+    return _plugin ? inputTierConnectionStats(*_plugin)[1u] : 0u;
+}
+
+- (uint32_t)maximumInputTierConnectionCount
+{
+    return _plugin ? inputTierConnectionStats(*_plugin)[2u] : 0u;
+}
+
+- (BOOL)matrixUsesOrderedTierGroups
+{
+    return _plugin && usesOrderedTierGroups(*_plugin);
+}
+
+- (uint32_t)autoCopiesMaximum
+{
+    return _plugin ? autoFillCopyMaximum(*_plugin) : 1u;
+}
+
+- (uint32_t)autoCopiesPreviewOutputCount
+{
+    if (!_plugin) return 0u;
+    if (_plugin->params.placement == s3g::FormatUpscalePlacement::TierFill)
+        return _plugin->dsp.activeOutputs();
+    return std::min<uint32_t>(_plugin->dsp.activeOutputs(),
+        effectiveAutoFillCopies(*_plugin) * _plugin->dsp.activeInputs());
+}
+
+- (BOOL)autoCopiesInteractive
+{
+    return _plugin && _plugin->params.placement
+        != s3g::FormatUpscalePlacement::TierFill;
 }
 
 - (BOOL)shapeColumn
@@ -2135,22 +3045,82 @@ enum : NSInteger {
 {
     const NSRect row = sideAutoModeRowRect();
     const NSRect box = sideAutoModeValueRect();
-    [@"AUTO MODE" drawAtPoint:row.origin withAttributes:attrs];
-    NSString* value = [NSString stringWithUTF8String:menuValueName(
-        kParamPlacement, roundedUint(getParamValue(
-            *_plugin, kParamPlacement)))];
+    [@"RECIPE" drawAtPoint:row.origin withAttributes:attrs];
+    NSString* value = [NSString stringWithUTF8String:recipeName(
+        recipeIndex(_plugin->params.placement))];
     s3g::clap_gui::drawMenu(@"", value, box.origin.y + 1.0,
         attrs, valueAttrs, style, box.origin.x, box.origin.x, box.size.width);
+    s3g::clap_gui::drawToolboxHeaderButton(sideAutoActionRect(0u),
+        kAutoPanelRect, @"APPLY", false,
+        attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton(sideAutoActionRect(1u),
+        kAutoPanelRect, @"CLEAR", false,
+        attrs, style);
+    const NSRect copiesRow = autoCopiesRowRect();
+    if (_plugin->params.placement == s3g::FormatUpscalePlacement::TierFill) {
+        NSString* coverage = [NSString stringWithFormat:@"ALL %u",
+            _plugin->dsp.activeOutputs()];
+        [@"COVERAGE (FIXED)" drawAtPoint:NSMakePoint(
+            copiesRow.origin.x, copiesRow.origin.y + 5.0)
+            withAttributes:attrs];
+        const NSSize coverageSize = [coverage sizeWithAttributes:valueAttrs];
+        [coverage drawAtPoint:NSMakePoint(
+            NSMaxX(copiesRow) - 12.0 - coverageSize.width,
+            copiesRow.origin.y + 5.0) withAttributes:valueAttrs];
+        [@"EVERY OUTPUT  •  EVERY HEIGHT TIER" drawAtPoint:NSMakePoint(
+            copiesRow.origin.x + 12.0, copiesRow.origin.y + 25.0)
+            withAttributes:attrs];
+    } else {
+        const uint32_t copies = effectiveAutoFillCopies(*_plugin);
+        const uint32_t maximum = autoFillCopyMaximum(*_plugin);
+        const CGFloat normalized = maximum > 1u
+            ? static_cast<CGFloat>(copies - 1u)
+                / static_cast<CGFloat>(maximum - 1u) : 0.0;
+        NSString* label = _plugin->params.placement
+                == s3g::FormatUpscalePlacement::Interleave
+            ? @"REPEAT ROUNDS" : @"ROUTES / INPUT";
+        NSString* copyValue = nil;
+        if (_plugin->params.placement
+            == s3g::FormatUpscalePlacement::Interleave) {
+            const uint32_t covered = std::min<uint32_t>(
+                _plugin->dsp.activeOutputs(),
+                copies * _plugin->dsp.activeInputs());
+            copyValue = [NSString stringWithFormat:@"%u×", copies];
+            NSString* coverage = [NSString stringWithFormat:
+                @"COMPLETE ROUNDS  •  %u OF %u OUTPUTS",
+                covered, _plugin->dsp.activeOutputs()];
+            [coverage drawAtPoint:NSMakePoint(
+                copiesRow.origin.x + 12.0, copiesRow.origin.y + 25.0)
+                withAttributes:attrs];
+        } else {
+            copyValue = [NSString stringWithFormat:@"%u EACH", copies];
+            NSString* target = [NSString stringWithFormat:
+                @"TARGET  •  %u ROUTES PER INPUT", copies];
+            [target drawAtPoint:NSMakePoint(
+                copiesRow.origin.x + 12.0, copiesRow.origin.y + 25.0)
+                withAttributes:attrs];
+        }
+        s3g::clap_gui::drawProcessorSlider(label, copyValue, normalized,
+            copiesRow.origin.y + 5.0, copiesRow.origin.x,
+            copiesRow.size.width, attrs, valueAttrs, style);
+    }
+    const NSRect shapeRow = autoShapeRowRect();
+    const NSRect shapeBox = autoShapeValueRect();
+    [@"WEIGHT SHAPE" drawAtPoint:shapeRow.origin withAttributes:attrs];
+    NSString* shape = [NSString stringWithUTF8String:
+        s3g::formatUpscaleRowShapeName(_plugin->autoRowShape)];
+    s3g::clap_gui::drawMenu(@"", shape, shapeBox.origin.y + 1.0,
+        attrs, valueAttrs, style, shapeBox.origin.x,
+        shapeBox.origin.x, shapeBox.size.width);
+}
+
+- (void)drawSetupActions:(NSDictionary*)attrs
+    style:(const s3g::clap_gui::Style&)style
+{
     s3g::clap_gui::drawToolboxHeaderButton(formatEditButtonRect(false),
         kFormatPanelRect, @"EDIT IN", _designMap == 0, attrs, style);
     s3g::clap_gui::drawToolboxHeaderButton(formatEditButtonRect(true),
         kFormatPanelRect, @"EDIT OUT", _designMap == 1, attrs, style);
-    s3g::clap_gui::drawToolboxHeaderButton(sideAutoActionRect(0u),
-        kFormatPanelRect, @"AUTO MAP", !_plugin->dsp.manualRoutesActive(),
-        attrs, style);
-    s3g::clap_gui::drawToolboxHeaderButton(sideAutoActionRect(1u),
-        kFormatPanelRect, @"CLEAR", _plugin->dsp.manualRoutesActive(),
-        attrs, style);
 }
 
 - (void)drawSliderControl:(clap_id)param row:(NSRect)row
@@ -2786,6 +3756,21 @@ enum : NSInteger {
                 y - 19.0) withAttributes:valueAttrs];
         tierStart = tierEnd;
     }
+    std::array<float, kChannels> outputPowers {};
+    for (uint32_t output = 0u; output < outputCount; ++output) {
+        for (uint32_t input = 0u; input < inputCount; ++input) {
+            const float gain = _plugin->dsp.targetAnchorGain(input, output)
+                + _plugin->dsp.targetExtensionGain(input, output);
+            outputPowers[output] += gain * gain;
+        }
+        if (outputPowers[output] <= 1.0001f) continue;
+        const CGFloat centerX = geometry.grid.origin.x
+            + (static_cast<CGFloat>(output) + 0.5) * geometry.cell;
+        [s3g::clap_gui::color(0xc49255, 0.95) setFill];
+        NSRectFill(NSMakeRect(centerX - std::min<CGFloat>(5.0,
+                geometry.cell * 0.3), geometry.grid.origin.y - 9.0,
+            std::min<CGFloat>(10.0, geometry.cell * 0.6), 2.0));
+    }
     for (uint32_t output = 0u; output < outputCount; ++output) {
         const bool selected = output == _selectedOutput;
         const bool edge = output == 0u || output + 1u == outputCount;
@@ -2861,11 +3846,13 @@ enum : NSInteger {
     uint32_t selectedContributorCount = 0u;
     float selectedPower = 0.0f;
     float selectedColumnPower = 0.0f;
+    bool hasDerivedPolarity = false;
     for (uint32_t input = 0u; input < inputCount; ++input) {
         for (uint32_t output = 0u; output < outputCount; ++output) {
             const float gain = _plugin->dsp.targetAnchorGain(input, output)
                 + _plugin->dsp.targetExtensionGain(input, output);
             const bool connected = std::abs(gain) > 0.0001f;
+            if (gain < -0.0001f) hasDerivedPolarity = true;
             if (connected) ++connectionCount;
             if (input == _selectedInput) {
                 if (connected) {
@@ -2919,99 +3906,42 @@ enum : NSInteger {
         selectedContributorCount,
         selectedContributorCount == 1u ? "" : "S"];
     const float selectedWeight = _plugin->dsp.manualRoutesActive()
-        ? std::abs(_plugin->dsp.manualWeight(
-            _selectedInput, _selectedOutput))
-        : std::min(1.0f, std::abs(
-            _plugin->dsp.targetAnchorGain(_selectedInput, _selectedOutput)
+        ? _plugin->dsp.manualWeight(_selectedInput, _selectedOutput)
+        : _plugin->dsp.targetAnchorGain(_selectedInput, _selectedOutput)
             + _plugin->dsp.targetExtensionGain(
-                _selectedInput, _selectedOutput)));
+                _selectedInput, _selectedOutput);
     const float selectedGain = _plugin->dsp.targetAnchorGain(
             _selectedInput, _selectedOutput)
         + _plugin->dsp.targetExtensionGain(_selectedInput, _selectedOutput);
-    NSString* equation = nil;
-    const bool midSideRecipe = _plugin->params.placement
-        == s3g::FormatUpscalePlacement::MidSideSpread;
-    if (midSideRecipe) {
-        auto sideOf = [](const s3g::FormatUpscaleSpeaker& speaker) {
-            if (speaker.azimuthDeg < -5.0f) return -1;
-            if (speaker.azimuthDeg > 5.0f) return 1;
-            return 0;
-        };
-        const int selectedSide = sideOf(
-            inputLayout.speakers[_selectedInput]);
-        uint32_t mirror = _selectedInput;
-        float bestScore = 1000000.0f;
-        for (uint32_t candidate = 0u; candidate < inputCount; ++candidate) {
-            if (candidate == _selectedInput
-                || sideOf(inputLayout.speakers[candidate])
-                    != -selectedSide) continue;
-            const float score = s3g::formatUpscaleAngularDistance(
-                    inputLayout.speakers[candidate].azimuthDeg,
-                    -inputLayout.speakers[_selectedInput].azimuthDeg)
-                + std::abs(inputLayout.speakers[candidate].elevationDeg
-                    - inputLayout.speakers[_selectedInput].elevationDeg)
-                    * 1.35f;
-            if (score < bestScore) {
-                bestScore = score;
-                mirror = candidate;
-            }
-        }
-        if (selectedSide != 0 && mirror != _selectedInput) {
-            const uint32_t left = selectedSide > 0
-                ? _selectedInput : mirror;
-            const uint32_t right = left == _selectedInput
-                ? mirror : _selectedInput;
-            const float leftGain = _plugin->dsp.targetAnchorGain(
-                    left, _selectedOutput)
-                + _plugin->dsp.targetExtensionGain(left, _selectedOutput);
-            const float rightGain = _plugin->dsp.targetAnchorGain(
-                    right, _selectedOutput)
-                + _plugin->dsp.targetExtensionGain(right, _selectedOutput);
-            constexpr float invSqrt2 = 0.7071067811865475f;
-            const float midGain = (leftGain + rightGain) * invSqrt2;
-            const float sideGain = (leftGain - rightGain) * invSqrt2;
-            equation = [NSString stringWithFormat:
-                @"WEIGHT %.0f%%   •   APPLIED g %+.3f   •   O%u = %+.3f M %+.3f S   •   ROW Σg² %.3f   COL Σg² %.3f",
-                static_cast<double>(selectedWeight * 100.0f),
-                static_cast<double>(selectedGain), _selectedOutput + 1u,
-                static_cast<double>(midGain),
-                static_cast<double>(sideGain),
-                static_cast<double>(selectedPower),
-                static_cast<double>(selectedColumnPower)];
-        }
+    NSString* equation = [NSString stringWithFormat:
+        @"GAIN %+.0f%%   •   g %+.3f   •   INPUT Σg² %.3f   •   OUTPUT Σg² %.3f%s",
+        static_cast<double>(selectedWeight * 100.0f),
+        static_cast<double>(selectedGain),
+        static_cast<double>(selectedPower),
+        static_cast<double>(selectedColumnPower),
+        selectedColumnPower > 1.0001f ? "   •   OUTPUT OVER" : ""];
+    if (hasDerivedPolarity) {
+        equation = @"STEREO DERIVE   S=(L−R)/√2   •   LR=+0.707S   •   RR=−0.707S   •   FR / FL = −3 dB DIRECT";
     }
-    if (!equation) {
-        equation = [NSString stringWithFormat:
-            @"WEIGHT %.0f%%   •   APPLIED g %.3f   •   ROW Σg² %.3f   •   COLUMN Σg² %.3f   •   %s",
-            static_cast<double>(selectedWeight * 100.0f),
-            static_cast<double>(selectedGain),
-            static_cast<double>(selectedPower),
-            static_cast<double>(selectedColumnPower),
-            s3g::formatUpscaleNormalizationName(_plugin->normalization)];
-    }
-    NSString* routeMode = nil;
-    if (_plugin->dsp.manualRoutesActive()) {
-        routeMode = midSideRecipe
-            ? @"EDITABLE M/S MATRIX   •   MAGENTA = NEGATIVE SIDE POLARITY"
-            : @"EDITABLE MATRIX";
-    } else if (midSideRecipe) {
-        routeMode = [NSString stringWithFormat:
-            @"AUTO: M/S SPREAD / WIDTH %.0f%% / %s / ALL OUTPUT TIERS",
-            static_cast<double>(s3g::kFormatUpscaleMidSideWidth * 100.0f),
-            s3g::formatUpscaleRowShapeName(_plugin->autoRowShape)];
-    } else {
-        routeMode = [NSString stringWithFormat:
+    NSString* displayedPreset = [NSString stringWithUTF8String:
+        matrixPresetName(_matrixPreset)];
+    NSString* routeMode = _plugin->dsp.manualRoutesActive()
+        ? (hasDerivedPolarity
+            ? [NSString stringWithFormat:@"STEREO DIFFERENCE / %@ / PURPLE = DERIVED POLARITY",
+                displayedPreset]
+            : [NSString stringWithFormat:@"EXACT POSITIVE MATRIX / %@",
+                displayedPreset])
+        : [NSString stringWithFormat:
             @"AUTO: %s / %s / BASE %u TARGET%s",
             s3g::formatUpscalePlacementName(_plugin->params.placement),
             s3g::formatUpscaleRowShapeName(_plugin->autoRowShape),
             _plugin->params.copies,
             _plugin->params.copies == 1u ? "" : "S"];
-    }
     NSString* weightEdit = geometry.cell >= 10.0
-        ? @"DRAG ↑↓ IN CELL = WEIGHT"
-        : @"DIST WEIGHT SLIDER = WEIGHT";
+        ? @"DRAG ↑↓ = 0…1"
+        : @"GAIN SLIDER";
     NSString* mode = [NSString stringWithFormat:
-        @"%@   •   %u CONNECTION%s   •   CLICK = SELECT / ADD   •   %@   •   RIGHT-CLICK = ZERO",
+        @"%@   •   %u CELL%s   •   CLICK ADD / SELECT   •   %@   •   RIGHT DELETE",
         routeMode,
         connectionCount, connectionCount == 1u ? "" : "S", weightEdit];
     [selection drawAtPoint:NSMakePoint(kMatrixPanelRect.origin.x + 14.0,
@@ -3021,8 +3951,8 @@ enum : NSInteger {
     [mode drawAtPoint:NSMakePoint(kMatrixPanelRect.origin.x + 14.0,
         NSMaxY(kMatrixPanelRect) - 38.0) withAttributes:valueAttrs];
 
-    NSString* viewNames[3] { @"MATRIX", @"TIER RINGS", @"AED FLAT" };
-    for (uint32_t view = 0u; view < 3u; ++view)
+    NSString* viewNames[2] { @"MATRIX", @"LAYOUT" };
+    for (uint32_t view = 0u; view < 2u; ++view)
         s3g::clap_gui::drawToolboxHeaderButton(viewSelectorRect(view),
             kMatrixPanelRect, viewNames[view], view == 0u, attrs, style);
 }
@@ -3039,100 +3969,50 @@ enum : NSInteger {
         std::max<uint32_t>(1u, outputLayout.count) - 1u);
     const auto& input = inputLayout.speakers[_selectedInput];
     const auto& output = outputLayout.speakers[_selectedOutput];
-    const auto inputDirection = s3g::directionFromAed(
-        input.azimuthDeg, input.elevationDeg);
-    const auto outputDirection = s3g::directionFromAed(
-        output.azimuthDeg, output.elevationDeg);
     const char* inputRole = s3g::formatUpscaleRoleName(input.role);
     const char* outputRole = s3g::formatUpscaleRoleName(output.role);
     NSString* inputAed = [NSString stringWithFormat:
-        @"I%u%s%s   A%+.1f E%+.1f D%.2f", _selectedInput + 1u,
+        @"I%u%s%s   A%+.1f° E%+.1f°", _selectedInput + 1u,
         inputRole[0] ? " " : "", inputRole,
         static_cast<double>(input.azimuthDeg),
-        static_cast<double>(input.elevationDeg),
-        static_cast<double>(input.distance)];
-    NSString* inputXyz = [NSString stringWithFormat:
-        @"XYZ   %+.2f  %+.2f  %+.2f",
-        static_cast<double>(inputDirection.x * input.distance),
-        static_cast<double>(inputDirection.y * input.distance),
-        static_cast<double>(inputDirection.z * input.distance)];
+        static_cast<double>(input.elevationDeg)];
     NSString* outputAed = [NSString stringWithFormat:
-        @"O%u%s%s   A%+.1f E%+.1f D%.2f", _selectedOutput + 1u,
+        @"O%u%s%s   A%+.1f° E%+.1f°", _selectedOutput + 1u,
         outputRole[0] ? " " : "", outputRole,
         static_cast<double>(output.azimuthDeg),
-        static_cast<double>(output.elevationDeg),
-        static_cast<double>(output.distance)];
-    NSString* outputXyz = [NSString stringWithFormat:
-        @"XYZ   %+.2f  %+.2f  %+.2f",
-        static_cast<double>(outputDirection.x * output.distance),
-        static_cast<double>(outputDirection.y * output.distance),
-        static_cast<double>(outputDirection.z * output.distance)];
+        static_cast<double>(output.elevationDeg)];
     [inputAed drawAtPoint:NSMakePoint(kSelectedPanelRect.origin.x + 12.0,
-        kSelectedPanelRect.origin.y + 30.0) withAttributes:valueAttrs];
-    [inputXyz drawAtPoint:NSMakePoint(kSelectedPanelRect.origin.x + 12.0,
-        kSelectedPanelRect.origin.y + 51.0) withAttributes:valueAttrs];
+        kSelectedPanelRect.origin.y + 34.0) withAttributes:valueAttrs];
     [outputAed drawAtPoint:NSMakePoint(kSelectedPanelRect.origin.x + 12.0,
-        kSelectedPanelRect.origin.y + 75.0) withAttributes:valueAttrs];
-    [outputXyz drawAtPoint:NSMakePoint(kSelectedPanelRect.origin.x + 12.0,
-        kSelectedPanelRect.origin.y + 96.0) withAttributes:valueAttrs];
+        kSelectedPanelRect.origin.y + 56.0) withAttributes:valueAttrs];
 
-    float weight = _plugin->dsp.manualRoutesActive()
-        ? std::abs(_plugin->dsp.manualWeight(
-            _selectedInput, _selectedOutput))
-        : std::min(1.0f, std::abs(
-            _plugin->dsp.targetAnchorGain(_selectedInput, _selectedOutput)
+    const float weight = _plugin->dsp.manualRoutesActive()
+        ? _plugin->dsp.manualWeight(_selectedInput, _selectedOutput)
+        : _plugin->dsp.targetAnchorGain(_selectedInput, _selectedOutput)
             + _plugin->dsp.targetExtensionGain(
-                _selectedInput, _selectedOutput)));
-    NSString* weightText = [NSString stringWithFormat:@"%.0f%%",
-        static_cast<double>(weight * 100.0f)];
+                _selectedInput, _selectedOutput);
+    const bool derivedPolarity = weight < 0.0f;
+    NSString* weightText = derivedPolarity
+        ? [NSString stringWithFormat:@"%.0f%%  DERIVED −",
+            static_cast<double>(std::abs(weight) * 100.0f)]
+        : [NSString stringWithFormat:@"%.0f%%",
+            static_cast<double>(weight * 100.0f)];
     const NSRect weightRow = selectedWeightRowRect();
-    s3g::clap_gui::drawProcessorSlider(@"DIST WEIGHT", weightText, weight,
+    s3g::clap_gui::drawProcessorSlider(
+        derivedPolarity ? @"DERIVED GAIN" : @"GAIN", weightText,
+        std::abs(weight),
         weightRow.origin.y + 5.0, weightRow.origin.x, weightRow.size.width,
         attrs, valueAttrs, style);
-    [@"NORM" drawAtPoint:NSMakePoint(kSelectedPanelRect.origin.x + 12.0,
-        kSelectedPanelRect.origin.y + 160.0) withAttributes:attrs];
-    NSString* normalizationNames[3] {
-        @"ROW NORM", @"COL NORM", @"DUAL LIMIT" };
-    for (uint32_t normalization = 0u; normalization < 3u; ++normalization)
-        s3g::clap_gui::drawToolboxHeaderButton(
-            sideNormalizationRect(normalization), kSelectedPanelRect,
-            normalizationNames[normalization],
-            static_cast<uint32_t>(_plugin->normalization) == normalization,
-            attrs, style);
-    [@"SHAPE"
-        drawAtPoint:NSMakePoint(kSelectedPanelRect.origin.x + 12.0,
-            kSelectedPanelRect.origin.y + 184.0)
-        withAttributes:attrs];
-    NSString* rowAxis = [NSString stringWithFormat:@"ROW I%u",
-        _selectedInput + 1u];
-    NSString* columnAxis = [NSString stringWithFormat:@"COLUMN O%u",
-        _selectedOutput + 1u];
-    s3g::clap_gui::drawToolboxHeaderButton(shapeAxisButtonRect(false),
-        kSelectedPanelRect, rowAxis, !_shapeColumn, attrs, style);
-    s3g::clap_gui::drawToolboxHeaderButton(shapeAxisButtonRect(true),
-        kSelectedPanelRect, columnAxis, _shapeColumn, attrs, style);
-    NSString* shapeNames[4] { @"FLAT", @"CENTER", @"EDGES", @"TAPER" };
-    for (uint32_t action = 0u; action < 4u; ++action)
-        s3g::clap_gui::drawToolboxHeaderButton(rowShapeButtonRect(action),
-            kSelectedPanelRect, shapeNames[action],
-            !_shapeColumn && !_plugin->dsp.manualRoutesActive()
-                && static_cast<uint32_t>(_plugin->autoRowShape) == action,
-            attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton(crosspointActionRect(0u),
+        kSelectedPanelRect, @"DELETE", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton(levelActionRect(0u),
+        kSelectedPanelRect, @"NORMALIZE INPUTS", false, attrs, style);
+    s3g::clap_gui::drawToolboxHeaderButton(levelActionRect(1u),
+        kSelectedPanelRect, @"LIMIT OUTPUTS", false, attrs, style);
 
-    const clap_id sliders[4] { kParamDelay, kParamDecor,
-        kParamSmoothing, kParamOutputGain };
-    for (clap_id param : sliders) {
-        [self drawSliderControl:param row:sliderRowForParam(param)
-            attrs:attrs valueAttrs:valueAttrs style:style];
-    }
-    [@"G DELAY / G DECOR = GLOBAL AMOUNTS"
-        drawAtPoint:NSMakePoint(kExtensionPanel.frame.x + 12.0,
-            kExtensionPanel.frame.y + kExtensionPanel.frame.height - 43.0)
-        withAttributes:attrs];
-    [@"OUTPUT-VARIED   •   SMOOTH / GAIN = GLOBAL"
-        drawAtPoint:NSMakePoint(kExtensionPanel.frame.x + 12.0,
-            kExtensionPanel.frame.y + kExtensionPanel.frame.height - 24.0)
-        withAttributes:attrs];
+    [self drawSliderControl:kParamOutputGain
+        row:sliderRowForParam(kParamOutputGain)
+        attrs:attrs valueAttrs:valueAttrs style:style];
 }
 
 - (void)drawUnfoldedLayoutPage:(NSDictionary*)attrs
@@ -3678,7 +4558,7 @@ enum : NSInteger {
             if (std::abs(outputFocus[output].gain) > 0.0001f) ++focusedCount;
     }
     NSString* footer = [NSString stringWithFormat:
-        @"FOCUS %s%u   •   %u OF %u ROUTES   •   CLICK POINT = FOCUS   •   COLOR: GRAY ANCHOR / TEAL EXT / MAGENTA NEG   •   SIZE = |GAIN|",
+        @"FOCUS %s%u   •   %u OF %u ROUTES   •   CLICK POINT = FOCUS   •   GRAY / TEAL = POSITIVE   •   PURPLE = STEREO DIFFERENCE   •   SIZE = |GAIN|",
         _selectionIsOutput ? "O" : "I",
         (_selectionIsOutput ? _selectedOutput : _selectedInput) + 1u,
         focusedCount, connectionCount];
@@ -3691,9 +4571,7 @@ enum : NSInteger {
         s3g::clap_gui::drawToolboxHeaderButton(viewSelectorRect(0u),
             kMatrixPanelRect, @"MATRIX", false, attrs, style);
     s3g::clap_gui::drawToolboxHeaderButton(viewSelectorRect(1u),
-        kMatrixPanelRect, @"TIER RINGS", _layoutOrigami, attrs, style);
-    s3g::clap_gui::drawToolboxHeaderButton(viewSelectorRect(2u),
-        kMatrixPanelRect, @"AED FLAT", !_layoutOrigami, attrs, style);
+        kMatrixPanelRect, @"LAYOUT", true, attrs, style);
     s3g::clap_gui::drawToolboxHeaderButton(layoutPopupActionRect(),
         kLayoutSurfaceRect, _layoutPopupChild ? @"DOCK" : @"POP OUT",
         _layoutPopupChild || (_layoutPanel && [_layoutPanel isVisible]),
@@ -3824,12 +4702,22 @@ enum : NSInteger {
     const uint32_t count = menuCountForParam(_openMenu);
     if (count == 0u) return;
     std::array<NSString*, s3g::kFormatUpscaleLayoutCount> items {};
-    for (uint32_t index = 0u; index < count; ++index)
-        items[index] = [NSString stringWithUTF8String:
-            menuValueName(_openMenu, index)];
+    for (uint32_t index = 0u; index < count; ++index) {
+        const char* name = _openMenu == kUiFactoryPreset
+            ? matrixPresetName(index)
+            : (_openMenu == kParamPlacement
+                ? recipeName(index)
+                : menuValueName(_openMenu, index));
+        items[index] = [NSString stringWithUTF8String:name];
+    }
     const auto menu = formatMenuGeometry(_openMenu);
-    const int selected = static_cast<int>(roundedUint(
-        getParamValue(*_plugin, _openMenu)));
+    const int selected = _openMenu == kUiFactoryPreset
+        ? (_matrixPreset < kMatrixPresetCount
+            ? static_cast<int>(_matrixPreset) : -1)
+        : (_openMenu == kParamPlacement
+            ? static_cast<int>(recipeIndex(_plugin->params.placement))
+            : static_cast<int>(roundedUint(
+                getParamValue(*_plugin, _openMenu))));
     s3g::clap_gui::drawDropdownMenu(menu.first, menu.itemHeight,
         items.data(), menu.firstCount,
         selected < static_cast<int>(menu.firstCount) ? selected : -1,
@@ -3858,29 +4746,28 @@ enum : NSInteger {
     const s3g::gui_layout::Canvas canvas {
         static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight) };
     const auto titleBand = s3g::gui_layout::outputUtilityTitleBand(canvas);
-    NSString* summary = [NSString stringWithFormat:@"%s → %s / %s%s%s",
+    NSString* summary = [NSString stringWithFormat:@"%s → %s / %s%s",
         s3g::formatUpscaleLayoutName(_plugin->params.inputLayout),
         s3g::formatUpscaleLayoutName(_plugin->params.outputLayout),
-        _page == 1u ? "LAYOUT" :
-            (_plugin->dsp.manualRoutesActive() ? "MATRIX" : "AUTO "),
-        _page == 1u ? "" :
-            (_plugin->dsp.manualRoutesActive() ? "" :
-                s3g::formatUpscalePlacementName(_plugin->params.placement)),
+        _page == 1u ? "TIER RINGS" : "MATRIX",
         _layoutPopupChild ? " / DETACHED" : ""];
     const char* presetName = _layoutPopupChild && _layoutPopupOwner
         ? _layoutPopupOwner->_titlePresetName : _titlePresetName;
-    s3g::clap_gui::drawOutputUtilityTitleBand(@"s3g OUTPUT FORMAT UPSCALE 64",
+    s3g::clap_gui::drawOutputUtilityTitleBand(@"s3g MATRIX UPMIX 64",
         [NSString stringWithUTF8String:presetName], summary,
         titleBand, style);
 
     if (_page == 1u) {
         [self drawPanel:kMatrixPanelRect
-            title:_layoutOrigami
-                ? @"LAYOUT MAPPING — TIER RINGS / OVERHEAD PLAN"
-                : @"LAYOUT MAPPING — COMMON FLATTENED AED PROJECTION"
+            title:@"LAYOUT — TIER RINGS / OVERHEAD PLAN"
             attrs:attrs style:style];
         [self drawUnfoldedLayoutPage:attrs
             valueAttrs:valueAttrs style:style];
+        // Layout rendering is intentionally dense; redraw the shared title
+        // band last so no projection annotation can obscure the product name.
+        s3g::clap_gui::drawOutputUtilityTitleBand(@"s3g MATRIX UPMIX 64",
+            [NSString stringWithUTF8String:presetName], summary,
+            titleBand, style);
         return;
     }
 
@@ -3889,12 +4776,16 @@ enum : NSInteger {
         attrs:attrs style:style];
     [self drawMatrixEditor:attrs valueAttrs:valueAttrs style:style];
 
-    [self drawPanel:kFormatPanelRect title:@"FORMATS"
+    [self drawPanel:kFormatPanelRect title:@"SETUP"
         attrs:attrs style:style];
     [self drawSideFormatControl:kParamInputLayout output:false
         attrs:attrs valueAttrs:valueAttrs style:style];
     [self drawSideFormatControl:kParamOutputLayout output:true
         attrs:attrs valueAttrs:valueAttrs style:style];
+    [self drawSetupActions:attrs style:style];
+
+    [self drawPanel:kAutoPanelRect title:@"AUTO FILL"
+        attrs:attrs style:style];
     [self drawSideAutoModeControl:attrs valueAttrs:valueAttrs style:style];
 
     if (_designMap >= 0) {
@@ -3907,7 +4798,7 @@ enum : NSInteger {
         [self drawPanel:kSelectedPanelRect title:@"SELECTED CROSSPOINT"
             attrs:attrs style:style];
         [self drawPanel:cocoaPanelRect(kExtensionPanel)
-            title:@"OUTPUT TREATMENT" attrs:attrs style:style];
+            title:@"OUTPUT" attrs:attrs style:style];
         [self drawConnectionInspector:attrs valueAttrs:valueAttrs style:style];
     }
     [self drawOpenMenu:attrs style:style];
@@ -3925,8 +4816,11 @@ enum : NSInteger {
             row.size.width)));
     const double normalized = std::clamp(
         static_cast<double>((point.x - start) / width), 0.0, 1.0);
-    double value = def->minimum
-        + normalized * (def->maximum - def->minimum);
+    const double minimum = _dragParam == kParamCopies
+        ? 1.0 : def->minimum;
+    const double maximum = _dragParam == kParamCopies
+        ? static_cast<double>(autoFillCopyMaximum(*_plugin)) : def->maximum;
+    double value = minimum + normalized * (maximum - minimum);
     if (def->stepped) value = std::floor(value + 0.5);
     setParamValue(*_plugin, _dragParam, value);
     [self setNeedsDisplay:YES];
@@ -3936,16 +4830,17 @@ enum : NSInteger {
 {
     if (!_plugin) return;
     const NSRect hit = selectedWeightHitRect();
-    const float magnitude = static_cast<float>(std::clamp<CGFloat>(
+    const float normalized = static_cast<float>(std::clamp<CGFloat>(
         (point.x - hit.origin.x) / std::max<CGFloat>(20.0, hit.size.width),
         0.0, 1.0));
     if (!_plugin->dsp.manualRoutesActive())
-        _plugin->dsp.beginManualRoutesFromCurrent();
+        makeCurrentMatrixExact(*_plugin);
     const float current = _plugin->dsp.manualWeight(
         _selectedInput, _selectedOutput);
-    const float polarity = current < 0.0f ? -1.0f : 1.0f;
     _plugin->dsp.setManualWeight(
-        _selectedInput, _selectedOutput, polarity * magnitude);
+        _selectedInput, _selectedOutput,
+        current < 0.0f ? -normalized : normalized);
+    [self markMatrixCustom];
     [self setNeedsDisplay:YES];
 }
 
@@ -4117,13 +5012,30 @@ enum : NSInteger {
     const s3g::gui_layout::Canvas canvas {
         static_cast<double>(kGuiWidth), static_cast<double>(kGuiHeight) };
     const auto titleBand = s3g::gui_layout::outputUtilityTitleBand(canvas);
+    if (NSPointInRect(point,
+            s3g::clap_gui::cocoaRect(titleBand.presetMenu))) {
+        S3GFormatUpscaleMapView* owner = _layoutPopupChild
+            && _layoutPopupOwner ? _layoutPopupOwner : self;
+        owner->_page = 0u;
+        owner->_designMap = -1;
+        owner->_openMenu = kUiFactoryPreset;
+        owner->_hoverMenuItem = -1;
+        [owner setNeedsDisplay:YES];
+        return;
+    }
+    const bool loadingTitlePreset = NSPointInRect(point,
+        s3g::clap_gui::cocoaRect(titleBand.loadButton));
     if (s3g::clap_gui::handleProcessorTitleClick(
-            point, &_plugin->plugin, @"Format Upscale", titleBand,
+            point, &_plugin->plugin, @"Matrix Upmix", titleBand,
             _titlePresetName, sizeof(_titlePresetName), kParamOutputGain)) {
+        if (loadingTitlePreset) _matrixPreset = kCustomMatrixPreset;
+        _openMenu = CLAP_INVALID_ID;
+        _hoverMenuItem = -1;
+        [self updateCustomValueFields];
         [self setNeedsDisplay:YES];
         return;
     }
-    for (uint32_t view = 0u; view < 3u; ++view) {
+    for (uint32_t view = 0u; view < 2u; ++view) {
         if (!NSPointInRect(point, viewSelectorRect(view))) continue;
         if (view == 0u) {
             if (_layoutPopupChild) return;
@@ -4138,7 +5050,7 @@ enum : NSInteger {
             _designMap = -1;
             [self updateCustomValueFields];
         }
-        [self setDocumentationLayoutOrigami:view == 1u];
+        [self setDocumentationLayoutOrigami:YES];
         return;
     }
     if (_page == 1u) {
@@ -4205,15 +5117,24 @@ enum : NSInteger {
                 hit = static_cast<int>(menu.firstCount) + secondHit;
         }
         if (hit >= 0) {
-            setParamValue(*_plugin, _openMenu, static_cast<double>(hit));
-            if (_openMenu == kParamPlacement)
-                _plugin->dsp.useAutomaticRoutes();
-            if ((_openMenu == kParamInputLayout
-                    || _openMenu == kParamOutputLayout)
-                && static_cast<uint32_t>(hit)
+            if (_openMenu == kUiFactoryPreset) {
+                [self applyMatrixPreset:static_cast<uint32_t>(hit)];
+            } else if (_openMenu == kParamPlacement) {
+                setParamValue(*_plugin, kParamPlacement,
+                    static_cast<double>(recipePlacement(
+                        static_cast<uint32_t>(hit))));
+                [self markMatrixCustom];
+            } else {
+                setParamValue(*_plugin, _openMenu,
+                    static_cast<double>(hit));
+            }
+            if (_openMenu == kParamInputLayout
+                || _openMenu == kParamOutputLayout) {
+                if (static_cast<uint32_t>(hit)
                     != static_cast<uint32_t>(
-                        s3g::FormatUpscaleLayout::Custom)) {
-                _designMap = -1;
+                        s3g::FormatUpscaleLayout::Custom))
+                    _designMap = -1;
+                [self markMatrixCustom];
                 [self updateCustomValueFields];
             }
         }
@@ -4240,8 +5161,13 @@ enum : NSInteger {
 
     for (uint32_t action = 0u; action < 2u; ++action) {
         if (!NSPointInRect(point, sideAutoActionRect(action))) continue;
-        if (action == 0u) _plugin->dsp.useAutomaticRoutes();
-        else _plugin->dsp.clearManualRoutes();
+        if (action == 0u) applyAutoFill(*_plugin);
+        else {
+            _plugin->normalization = s3g::FormatUpscaleNormalization::Exact;
+            _plugin->dsp.setNormalization(_plugin->normalization);
+            _plugin->dsp.clearManualRoutes();
+        }
+        [self markMatrixCustom];
         _designMap = -1;
         [self updateCustomValueFields];
         [self setNeedsDisplay:YES];
@@ -4282,21 +5208,8 @@ enum : NSInteger {
         }
     }
 
-    if (_designMap < 0) {
-        for (uint32_t normalization = 0u; normalization < 3u;
-             ++normalization) {
-            if (!NSPointInRect(point,
-                    sideNormalizationRect(normalization)))
-                continue;
-            setParamValue(*_plugin, kParamNormalization,
-                static_cast<double>(normalization));
-            [self setNeedsDisplay:YES];
-            return;
-        }
-    }
-
-    const clap_id menus[3] {
-        kParamInputLayout, kParamOutputLayout, kParamPlacement };
+    const clap_id menus[4] { kParamInputLayout, kParamOutputLayout,
+        kParamPlacement, kParamAutoRowShape };
     for (clap_id param : menus) {
         if (NSPointInRect(point, menuValueRectForParam(param))) {
             _openMenu = param;
@@ -4307,36 +5220,41 @@ enum : NSInteger {
     }
 
     if (_designMap < 0) {
-        if (NSPointInRect(point, shapeAxisButtonRect(false))) {
-            _shapeColumn = NO;
-            _selectionIsOutput = false;
-            [self setNeedsDisplay:YES];
-            return;
+        if (NSPointInRect(point, crosspointActionRect(0u))) {
+                if (!_plugin->dsp.manualRoutesActive())
+                    makeCurrentMatrixExact(*_plugin);
+                _plugin->dsp.setManualWeight(
+                    _selectedInput, _selectedOutput, 0.0f);
+                [self markMatrixCustom];
+                [self setNeedsDisplay:YES];
+                return;
         }
-        if (NSPointInRect(point, shapeAxisButtonRect(true))) {
-            _shapeColumn = YES;
-            _selectionIsOutput = true;
-            [self setNeedsDisplay:YES];
-            return;
-        }
-        for (uint32_t shape = 0u; shape < 4u; ++shape) {
-            if (!NSPointInRect(point, rowShapeButtonRect(shape))) continue;
-            if (_shapeColumn) [self applyColumnShape:shape];
-            else [self applyRowShape:shape];
-            return;
+        for (uint32_t action = 0u; action < 2u; ++action) {
+            if (NSPointInRect(point, levelActionRect(action))) {
+                if (action == 0u) normalizeExactInputRows(*_plugin);
+                else limitExactOutputColumns(*_plugin);
+                [self markMatrixCustom];
+                [self setNeedsDisplay:YES];
+                return;
+            }
         }
         if (NSPointInRect(point, selectedWeightHitRect())) {
             _dragWeight = YES;
             [self updateSelectedWeight:point];
             return;
         }
-        const clap_id sliders[4] { kParamDelay, kParamDecor,
-            kParamSmoothing, kParamOutputGain };
+        const clap_id sliders[2] { kParamCopies, kParamOutputGain };
         for (clap_id param : sliders) {
+            if (param == kParamCopies && _plugin->params.placement
+                == s3g::FormatUpscalePlacement::TierFill)
+                continue;
             if (!NSPointInRect(point, sliderHitRectForParam(param))) continue;
             double defaultValue = 0.0;
             if (s3g::clap_gui::sliderDoubleClickDefault(event,
                     &_plugin->plugin, param, &defaultValue)) {
+                if (param == kParamCopies)
+                    defaultValue = std::min<double>(defaultValue,
+                        autoFillCopyMaximum(*_plugin));
                 setParamValue(*_plugin, param, defaultValue);
             } else {
                 _dragParam = param;
@@ -4383,16 +5301,18 @@ enum : NSInteger {
             || std::abs(_plugin->dsp.targetExtensionGain(
                 matrixInput, matrixOutput)) > 0.0001f;
         if (!_plugin->dsp.manualRoutesActive())
-            _plugin->dsp.beginManualRoutesFromCurrent();
+            makeCurrentMatrixExact(*_plugin);
         _selectedInput = matrixInput;
         _selectedOutput = matrixOutput;
         _selectionIsOutput = false;
+        [self markMatrixCustom];
         if ([event clickCount] >= 2) {
             _plugin->dsp.setManualWeight(matrixInput, matrixOutput,
                 connected ? 0.0f : 1.0f);
         } else {
-            if (!connected)
+            if (!connected) {
                 _plugin->dsp.setManualWeight(matrixInput, matrixOutput, 1.0f);
+            }
             _matrixPainting = YES;
             _matrixPaintConnected = YES;
             _matrixWeightAdjusting = NO;
@@ -4431,8 +5351,9 @@ enum : NSInteger {
         return;
     }
     if (!_plugin->dsp.manualRoutesActive())
-        _plugin->dsp.beginManualRoutesFromCurrent();
+        makeCurrentMatrixExact(*_plugin);
     _plugin->dsp.setManualWeight(input, output, 0.0f);
+    [self markMatrixCustom];
     _selectedInput = input;
     _selectedOutput = output;
     _selectionIsOutput = false;
@@ -4479,17 +5400,16 @@ enum : NSInteger {
             _matrixWeightAdjusting = YES;
         }
         if (_matrixWeightAdjusting) {
-            const float polarity = _matrixDragStartWeight < 0.0f
-                ? -1.0f : 1.0f;
-            const float magnitude = static_cast<float>(std::clamp<CGFloat>(
-                std::abs(_matrixDragStartWeight)
-                    + (_matrixDragOrigin.y - point.y)
-                        / std::max<CGFloat>(12.0, geometry.cell),
-                0.0, 1.0));
+            const float magnitude = static_cast<float>(
+                std::clamp<CGFloat>(std::abs(_matrixDragStartWeight)
+                        + (_matrixDragOrigin.y - point.y)
+                            / std::max<CGFloat>(12.0, geometry.cell),
+                    0.0, 1.0));
             _plugin->dsp.setManualWeight(
                 static_cast<uint32_t>(_matrixPaintInput),
                 static_cast<uint32_t>(_matrixPaintOutput),
-                polarity * magnitude);
+                _matrixDragStartWeight < 0.0f ? -magnitude : magnitude);
+            [self markMatrixCustom];
             _selectedInput = static_cast<uint32_t>(_matrixPaintInput);
             _selectedOutput = static_cast<uint32_t>(_matrixPaintOutput);
             [self setNeedsDisplay:YES];
@@ -4687,13 +5607,13 @@ const char* const features[] {
 const clap_plugin_descriptor_t descriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.format-upscale-64",
-    "s3g Output Format Upscale 64",
+    "s3g Matrix Upmix 64",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
     "0.1.0",
-    "Direct non-ambisonic format upscaler with a format-sized routing matrix.",
+    "Positive-gain matrix with a contained stereo-difference upmix strategy.",
     features
 };
 

@@ -507,6 +507,29 @@ int main()
     ok = ok && clearDsp.recordedFrames(1u) == 0u
         && clearDsp.playbackFrames(1u) == 0u;
 
+    // File clients install long decoded sources in bounded chunks. The loop
+    // remains unavailable until the final commit, so playback cannot expose
+    // a partially copied file.
+    s3g::Crcltr importDsp;
+    std::array<float, 8u> importLeft {{
+        -0.8f, -0.6f, -0.4f, -0.2f, 0.2f, 0.4f, 0.6f, 0.8f,
+    }};
+    std::array<float, 8u> importRight {{
+        0.8f, 0.6f, 0.4f, 0.2f, -0.2f, -0.4f, -0.6f, -0.8f,
+    }};
+    ok = ok && importDsp.prepare(kSampleRate, kBlockFrames)
+        && importDsp.beginLoopImport(0u)
+        && importDsp.writeLoopImport(0u, 0u, importLeft.data(),
+            importRight.data(), 3u)
+        && importDsp.writeLoopImport(0u, 3u, importLeft.data() + 3u,
+            importRight.data() + 3u, 5u)
+        && importDsp.recordedFrames(0u) == 0u
+        && importDsp.finishLoopImport(0u,
+            static_cast<uint32_t>(importLeft.size()))
+        && importDsp.recordedFrames(0u) == importLeft.size()
+        && std::abs(importDsp.loopSample(0u, 0u, 6u) - 0.6f) < 1.0e-6f
+        && std::abs(importDsp.loopSample(0u, 1u, 6u) + 0.6f) < 1.0e-6f;
+
     // The exact same core can run against caller-owned Daisy SDRAM buffers.
     const uint32_t loopCapacity = s3g::Crcltr::requiredLoopCapacity(kSampleRate);
     const uint32_t preRollCapacity = s3g::Crcltr::requiredPreRollCapacity(kSampleRate);
