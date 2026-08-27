@@ -25,8 +25,6 @@
 
 extern "C" const clap_plugin_entry_t s3g_no_input_mixer_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_nim_gesture_embedded_entry;
-extern "C" const clap_plugin_entry_t s3g_mc_to_stereo_autogain_embedded_entry;
-extern "C" const clap_plugin_entry_t s3g_mc_to_quad_autogain_embedded_entry;
 
 namespace {
 
@@ -62,7 +60,7 @@ struct Options {
     std::string jsonPath;
     double durationSeconds = 0.0;
     double warmupSeconds = kDefaultWarmupSeconds;
-    NoInputOutputMode mode = NoInputOutputMode::StereoAutogain;
+    NoInputOutputMode mode = NoInputOutputMode::StereoRing;
 };
 
 struct DiagnosticState {
@@ -110,11 +108,11 @@ bool parseFiniteDouble(const char* text, double& value)
 bool parseMode(const std::string& text, NoInputOutputMode& mode)
 {
     if (text == "stereo") {
-        mode = NoInputOutputMode::StereoAutogain;
+        mode = NoInputOutputMode::StereoRing;
         return true;
     }
     if (text == "quad") {
-        mode = NoInputOutputMode::QuadAutogain;
+        mode = NoInputOutputMode::QuadRing;
         return true;
     }
     if (text == "direct8") {
@@ -220,9 +218,9 @@ const char* jsonBoolean(bool value) { return value ? "true" : "false"; }
 const char* modeName(NoInputOutputMode mode)
 {
     switch (mode) {
-    case NoInputOutputMode::QuadAutogain: return "quad";
+    case NoInputOutputMode::QuadRing: return "quad";
     case NoInputOutputMode::DirectEight: return "direct8";
-    case NoInputOutputMode::StereoAutogain:
+    case NoInputOutputMode::StereoRing:
     default: return "stereo";
     }
 }
@@ -403,8 +401,6 @@ void servicePlugins(DiagnosticState& state)
 {
     state.engine.noInputPlugin().serviceMainThreadCallback();
     state.engine.gesturePlugin().serviceMainThreadCallback();
-    state.engine.stereoPlugin().serviceMainThreadCallback();
-    state.engine.quadPlugin().serviceMainThreadCallback();
     uint8_t status = 0u;
     uint8_t dataOne = 0u;
     uint8_t dataTwo = 0u;
@@ -445,12 +441,6 @@ NoInputMixerStandaloneTelemetrySnapshot difference(
     result.noInputProcessErrorCount = difference(
         finalValue.noInputProcessErrorCount,
         baseline.noInputProcessErrorCount);
-    result.stereoFoldProcessErrorCount = difference(
-        finalValue.stereoFoldProcessErrorCount,
-        baseline.stereoFoldProcessErrorCount);
-    result.quadFoldProcessErrorCount = difference(
-        finalValue.quadFoldProcessErrorCount,
-        baseline.quadFoldProcessErrorCount);
     result.nonFiniteOutputSampleCount = difference(
         finalValue.nonFiniteOutputSampleCount,
         baseline.nonFiniteOutputSampleCount);
@@ -589,10 +579,6 @@ std::string reportJson(const Options& options,
         << engine.gestureProcessErrorCount
         << ",\"no_input_process_error_count\":"
         << engine.noInputProcessErrorCount
-        << ",\"stereo_fold_process_error_count\":"
-        << engine.stereoFoldProcessErrorCount
-        << ",\"quad_fold_process_error_count\":"
-        << engine.quadFoldProcessErrorCount
         << ",\"non_finite_output_sample_count\":"
         << engine.nonFiniteOutputSampleCount
         << ",\"render_failure_count\":" << renderFailures
@@ -604,10 +590,6 @@ std::string reportJson(const Options& options,
         << warmupEngine.gestureProcessErrorCount
         << ",\"no_input_process_error_count\":"
         << warmupEngine.noInputProcessErrorCount
-        << ",\"stereo_fold_process_error_count\":"
-        << warmupEngine.stereoFoldProcessErrorCount
-        << ",\"quad_fold_process_error_count\":"
-        << warmupEngine.quadFoldProcessErrorCount
         << ",\"non_finite_output_sample_count\":"
         << warmupEngine.nonFiniteOutputSampleCount
         << ",\"render_failure_count\":" << warmupRenderFailures
@@ -623,9 +605,7 @@ int runLiveDiagnostic(const Options& options,
 {
     DiagnosticState state;
     if (!state.engine.create(&s3g_no_input_mixer_embedded_entry,
-            &s3g_nim_gesture_embedded_entry,
-            &s3g_mc_to_stereo_autogain_embedded_entry,
-            &s3g_mc_to_quad_autogain_embedded_entry)) {
+            &s3g_nim_gesture_embedded_entry)) {
         std::cerr << "configuration error: could not create embedded CLAP "
                      "processors\n";
         return kConfigurationError;

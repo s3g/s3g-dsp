@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sample Instruments - s3g-dsp</title>
-    <meta name="description" content="Sample Player, Sample Doubles, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, Sample Slicer, Sample Rings, Sample Circulator, and related recorded-audio instrument documentation for s3g-dsp.">
+    <meta name="description" content="Overview of s3g-dsp sample instruments, output formats, basic workflow, and source-storage modes.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -27,80 +27,51 @@
       <main class="content" id="content">
         <h1>Sample Instruments</h1>
 
-        <p>The Sample family uses loaded or captured audio as an instrument source. <a href="sample-player.html">Sample Player</a> handles one-shots and loops, <a href="sample-doubles.html">Sample Doubles</a> puts two independently positioned copies of one stereo source behind a performance crossfader, <a href="sample-wavesets.html">Sample Wavesets</a> plays zero-crossing groups, <a href="sample-motion.html">Sample Motion</a> combines bounded trajectories with realtime segment events, <a href="sample-lanes.html">Sample Lanes</a> draws one read path across four files, <a href="sample-grains.html">Sample Grains</a> separates that four-file source field from a granular event layer, <a href="sample-slicer.html">Sample Slicer</a> turns as many as four breaks into mapped voices, <a href="effect-crcltr.html">Sample Circulator</a> loads or captures two stereo performance loops, and <a href="sample-rings.html">Sample Rings</a> moves eight read heads through as many as 32 concentric file-or-input channel rings.</p>
+        <p>The Sample family turns loaded or captured audio into playable instruments. Choose by the kind of source movement or performance structure you need; each linked guide covers the complete controls, routing, and state behavior.</p>
 
         <h2 id="workflow">Workflow</h2>
 
         <ol>
-          <li>Choose an instrument and set its required output format and REAPER track channel count. Sample Player 16 and Sample Slicer 16 use fixed 16-channel outputs; their 2-channel forms, Sample Doubles, Sample Wavesets 2, Sample Motion 2, Sample Lanes 2, Sample Grains 2, and Sample Circulator use an ordinary stereo track. Sample Wavesets 32, Sample Motion 32, Sample Lanes 32, and Sample Grains 32 use fixed 32-channel tracks.</li>
-          <li>For Sample Rings, route the eight output lanes to the main speakers, a downstream <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a> for fold-down monitoring. For Processor Ambi Grain, follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
-          <li>Load the source file or files and confirm that the expected channels appear, or route input into Sample Circulator or Sample Rings and record its loop captures.</li>
-          <li>Set the sample window, loop region, direction, pitch, and envelope; define a locus, field, and source trajectory in Sample Motion; draw a four-file lane path in Sample Lanes or Sample Grains; or derive and map slices in Sample Slicer.</li>
-          <li>Choose the source-storage policy described below, audition the result through the established output path, and save the project.</li>
+          <li>Insert the required output format—stereo, multichannel, or Ambisonic—and match the REAPER track width to its fixed output.</li>
+          <li>Establish monitoring before loading audio. Route ordinary multichannel outputs to speakers, a <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a>; follow Processor Ambi Grain with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
+          <li>Load the source files, or route live input to Sample Circulator or Sample Rings for capture. Choose the storage policy below for file-backed sources.</li>
+          <li>Use the instrument guide for its source regions, timing, MIDI, processing, and routing controls, then audition and save the project.</li>
         </ol>
 
-        <h2 id="player">One-shots and Loops</h2>
+        <h2 id="choose">Choose an Instrument</h2>
 
-        <p><a href="sample-player.html">Sample Player</a> loads one sample and plays it chromatically as a forward or reverse one-shot, wrapping loop, or ping-pong loop. Rate mode provides conventional pitch-linked playback speed, while Stretch keeps timing independent of MIDI pitch; optional host BPM sync derives timing from the entered Sample BPM. Auto Trigger, Layer Retrigger, Poly voices, Free timing, and Omni MIDI reception preserve the original defaults, with Gate, One Shot, Toggle, Restart, Ignore, Mono, Legato, Glide, Host sync, and single-channel reception available when needed. Direct waveform handles and zoom edit the active and loop regions, and a labeled cursor follows every active voice; adjustable loop crossfade suppresses wrap discontinuities. Tune, Fine Tune, Root Note, a resonant multimode filter, proportional ADSR, gain, and velocity response complete the playback controls. Pan is stereo-only; Sample Player 16 maps source lanes directly to matching output lanes.</p>
-
-        <h2 id="slicer">Break Slicing</h2>
-
-        <p><a href="sample-slicer.html">Sample Slicer</a> loads four breaks, derives equal or transient slices, and maps each break to a consecutive MIDI range. Its stereo and fixed 16-channel variants share the same editor, three-way project-audio storage, proportional envelopes, two inserts per break, four-strip mixer, and processed AUX return.</p>
-
-        <h2 id="doubles">Two-Deck Playback and Timing</h2>
-
-        <p><a href="sample-doubles.html">Sample Doubles</a> loads one mono or stereo file into two independently positioned read heads. Shared varispeed changes pitch and duration together; Deck B can sit at a source-beat offset, drift by a fine speed difference, or move in discrete phase steps. The crossfader, velocity-sensitive Punch and Drag commands, cue triggers, transport commands, and thirteen offset keys are directly sequenceable from <a href="s3g-tracker.html">s3g Tracker</a>.</p>
-
-        <h2 id="wavesets">Waveset Playback and Distribution</h2>
-
-        <p><a href="sample-wavesets.html">Sample Wavesets</a> derives short pseudo-wavecycles from one mono or stereo recording and plays them chromatically through a Sample Player-style range and loop model. Forward, reverse, wrapping, and ping-pong modes combine with Poly, Mono, and Legato voices. Wavesets 2 uses a fixed stereo output. Wavesets 32 assigns each trigger to a mono channel or stereo pair using sequential, palindrome, reverse, random, or no-repeat random-cycle traversal inside a selectable 2–32-channel active width. Both forms share the same group, repeat, stride, ordering, and waveset processing engine.</p>
-
-        <h2 id="motion">Bounded Source Motion and Nested Pulses</h2>
-
-        <p><a href="sample-motion.html">Sample Motion</a> scans a mono or stereo recording inside a locus-centered field. Hover, Mirror, Drunk, Zigzag, Forward/Reverse, Moving Loop, and Round Trip provide eight trajectory shapes at ordinary source-relative or absolute Hertz rates. Continuous, Packets, and Motor expose or gate that motion; Freeze, Iterate, Pulser, Doublets, Bounce, and Routed Iterate retrigger it through a four-lane event layer. Sample Motion 2 is stereo; Sample Motion 32 can assign outputs at each note, trajectory turn, or segment event.</p>
-
-        <h2 id="lanes">Four-File Loop Lanes</h2>
-
-        <p><strong>Sample Lanes 2</strong> and <strong>Sample Lanes 32</strong> load as many as four independently sized files. One normalized read head crosses the four waveform lanes using Down, Up, Triangle, Sine, stepped, seeded-random, or editable Manual breakpoint paths. Crossfade makes lane transitions continuous; Jump selects the nearest loaded lane with a short anti-click slew. Each lane has independent Speed, pitch-preserving Stretch, and a signed wrap Nudge whose seam is visible in the waveform. The wide editor keeps waveforms and the path scope on the left, moves selected-lane timing, transport, and path controls into the right toolbox column, and flattens Voice or Routing into a short footer.</p>
-
-        <p>Sample Lanes 32 accepts files with one to sixteen channels. Its <code>ROUTING</code> tab swaps the voice panel for output controls, including a categorical <code>ACTIVE OUT</code> menu from 02 through 32. <code>Preserve Field</code> keeps each source channel on the same-numbered output and leaves absent channels silent. <code>Distribute</code> is an explicit topology change: it folds each voice to mono or stereo and sends it through the shared active-width, traversal, pair-layout, and adjacency allocator. Source path, voice timing, and output topology therefore remain independent choices.</p>
-
-        <p>See the <a href="sample-lanes.html">Sample Lanes guide</a> for complete shared-loop, independent timing, breakpoint editing, path shaping, routing, preset, automation, and state behavior.</p>
-
-        <h2 id="grains">Four-File Granulation</h2>
-
-        <p><strong>Sample Grains 2</strong> and <strong>Sample Grains 32</strong> reuse the four lane waveforms, breakpoint path, MIDI voices, and storage model, then add a clearly separate grain-event layer. Its 1280-by-932 editor keeps a consistent 24-pixel row pitch: source waveforms, the read-head scope, and a three-column Grain Process/Timing/Variation toolbox occupy the left; Source Scan, Grain Source, and Path continuously fill the right column; and Voice or Routing spans both columns as the footer. Stacked LOAD/CLEAR buttons give each waveform more room. The Lanes-specific selected-lane Timing/Stretch toolbox is not shown in Grains. Instead of a simulated grain graph, every sounding grain publishes its actual source window, direction, envelope phase, lane weight, and window gain over a deliberately darker waveform. A faint fill accumulates where grains overlap; medium gray is the elapsed contour, bright gray is the remaining contour, and the white dot with a dark halo is current phase. Contour thickness follows lane weight and luminance follows current windowed gain; a contour broken at a loop or wrap-nudge seam continues at the opposite edge. Matching live grain-event rings appear in the read-head path scope. Scan follows normal playback speed and is conditioned by MIDI note around Scan Root, doubling per octave; Grain Pitch Shift remains independent of both note and scan motion. Freeze holds the Position control, Cloud chooses positions stochastically, and Slice quantizes the scan to 2–32 regions. Density and variable Regular/Scatter timing determine event time; Grain Size and Level Variation, Position Spray with directional bias, Pitch Spray, Reverse Chance, and skewable Parzen, Sine, Hann, Triangle, or Gaussian envelopes determine each event. Source Advance can feed the visible lane path continuously from Scan or step that same path once per grain.</p>
-
-        <p>Sample Grains 2 accepts mono and stereo files. <code>CHANNEL MODE</code> defaults to <code>Preserve Origins</code>, retaining a stereo file's left and right sides, and can instead derive <code>Mono Sum</code>, <code>Left</code>, <code>Right</code>, <code>Mid</code>, or <code>Side</code>. <code>MONO SPREAD</code> gives each mono or mono-derived grain a stable position across the stereo output. <code>STEREO LINK</code> keeps both original channels on one trajectory or lets them make independent position, pitch-spray, and reverse decisions. <code>POLYPHONY</code> describes MIDI note ownership rather than audio channel width. The stereo edition does not publish the 32-channel allocator parameters.</p>
-
-        <p>The <code>GRAIN PROCESS</code> menu can remain Ordinary, sort regions by sampled loudness, repeat a Stutter anchor, progressively shorten and accelerate a Shrink chain, or schedule a close Doublet. These names intentionally parallel Sample Slicer's Mutate operations, but the mechanisms are separate: Slicer rearranges slice material, while Grains schedules overlapping grain windows. With Source Sync on, the second Doublet advances in source time by its output-time spacing. Only Sample Grains 32 shows the compact <code>ROUTING</code> tab, which reveals the 02–32 active-output menu and allocator; Preserve Field retains a wider source as one coherent grain, while Distribute folds and allocates each grain independently. The allocation unit is always <code>GRAIN</code>, regardless of the selected source scan or lane path.</p>
-
-        <p>See the <a href="sample-grains.html">Sample Grains guide</a> for complete source-mode, envelope, lane-path, stereo interpretation, process, routing, preset, automation, and state behavior.</p>
-
-        <h2 id="loop-family">Loop Family</h2>
-
-        <ul>
-          <li><a href="effect-crcltr.html">Sample Circulator</a>: two loaded-or-captured stereo loops with editable windows, direction and join; Replace, Overdub, and Punch recording; manual or moving crossfade; and a live-source blend.</li>
-          <li><a href="sample-rings.html">Sample Rings</a>: four independent file-or-upstream-input slots packed into as many as 32 channel rings, with eight angular clocks and free, paired, quad, or Field8 radial formations.</li>
-        </ul>
-
-        <h2 id="ambisonic-grain">Ambisonic Granulation</h2>
-
-        <p><a href="processor-ambi-grain.html">Processor Ambi Grain</a> loads 1OA, 2OA, or 3OA <code>ACN/SN3D</code> media. Grain time, direction, rate, and envelope remain shared across all active channels so the encoded image stays coherent.</p>
+        <table class="readout-table">
+          <thead><tr><th>Instrument</th><th>Use it for</th><th>Output</th></tr></thead>
+          <tbody>
+            <tr><td><a href="sample-player.html">Sample Player</a></td><td>Chromatic one-shots and forward, reverse, wrapping, or ping-pong loops from one file.</td><td>Stereo or 16-channel</td></tr>
+            <tr><td><a href="sample-doubles.html">Sample Doubles</a></td><td>Two independently positioned copies of one source, with offset timing and performance crossfading.</td><td>Stereo</td></tr>
+            <tr><td><a href="sample-wavesets.html">Sample Wavesets</a></td><td>Chromatic playback of zero-crossing groups, with ordered or distributed triggering.</td><td>Stereo or 32-channel</td></tr>
+            <tr><td><a href="sample-motion.html">Sample Motion</a></td><td>Bounded source trajectories combined with continuous or retriggered segment events.</td><td>Stereo or 32-channel</td></tr>
+            <tr><td><a href="sample-lanes.html">Sample Lanes</a></td><td>Continuous loop paths through as many as four independently timed files.</td><td>Stereo or 32-channel</td></tr>
+            <tr><td><a href="sample-grains.html">Sample Grains</a></td><td>Overlapping granular events drawn from a four-file source field.</td><td>Stereo or 32-channel</td></tr>
+            <tr><td><a href="sample-slicer.html">Sample Slicer</a></td><td>Equal or transient slicing of as many as four breaks into mapped MIDI voices.</td><td>Stereo or 16-channel</td></tr>
+            <tr><td><a href="effect-crcltr.html">Sample Circulator</a></td><td>Crossfading two loaded or live-captured performance loops.</td><td>Stereo</td></tr>
+            <tr><td><a href="sample-rings.html">Sample Rings</a></td><td>Moving eight read heads through as many as 32 file or input-channel rings.</td><td>8-channel</td></tr>
+            <tr><td><a href="processor-ambi-grain.html">Processor Ambi Grain</a></td><td>Granulating 1OA, 2OA, or 3OA <code>ACN/SN3D</code> media as one coherent field.</td><td>16-channel Ambisonic bus</td></tr>
+          </tbody>
+        </table>
 
         <h2 id="state">Sample Storage</h2>
 
-        <p>Sample Circulator accepts file loading or live input capture and always embeds both stereo loops directly in CLAP project state. The saved source sample rate allows duration-preserving restore into a session running at a different rate. Its fixed capacity is approximately 32 seconds per loop; unlike the longer-form file instruments below, it has no Link or Project storage mode.</p>
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>Behavior</th><th>Best use</th></tr></thead>
+          <tbody>
+            <tr><td><code>PROJECT</code></td><td>Copies the unchanged source into the saved REAPER project's <code>s3g Samples</code> media directory and stores a path reference.</td><td>Normal sessions; the default</td></tr>
+            <tr><td><code>LINK</code></td><td>References the original file without copying it.</td><td>Stable externally managed media</td></tr>
+            <tr><td><code>EMBED</code></td><td>Stores decoded floating-point audio in CLAP state.</td><td>Self-contained exchange</td></tr>
+          </tbody>
+        </table>
 
-        <p>Sample Player, Sample Doubles, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, and Sample Slicer use the same three-way <code>STORE</code> policy. <code>PROJECT</code>, the default for new instances, copies an unchanged source file in the background to the containing saved REAPER project's effective media directory under <code>s3g Samples</code>, registers that file with the same project, and keeps only a path reference in plug-in state. The effective media directory can be different from the folder containing the <code>.RPP</code>. <code>LINK</code> keeps a reference to the original file without copying it. <code>EMBED</code> writes decoded channel audio directly into CLAP state so the source remains available without any external file.</p>
+        <p><code>PROJECT</code> requires a saved REAPER project and supported project-media access. Until both are available, collection remains pending and the current source stays usable. Copies are content-verified and reused when the source is unchanged. Registered media follows a REAPER Save As only when a copy-media option is selected.</p>
 
-        <p><code>PROJECT</code> gives small plug-in state and project-managed media, but it requires a saved REAPER project and REAPER's CLAP project-media support. Selecting it in an unsaved project, unsupported host, or context without a containing project leaves the request pending instead of guessing a folder or discarding the current source. Saving the project allows the pending collection to retry automatically. REAPER can relocate a registered file and report its new path when <strong>Save As</strong> is performed with a copy-media option; an ordinary Save As that does not copy media does not make a second copy.</p>
+        <p><code>LINK</code> keeps state small but requires the original path to remain valid. <code>EMBED</code> is portable, but decoded audio can be much larger than the source file and may enlarge host undo snapshots; prefer <code>PROJECT</code> for routine work. Missing paths remain available for later relinking. Generated Slicer material can be written as project media, while live captures remain embedded.</p>
 
-        <p><code>LINK</code> produces the smallest state but the original path must remain valid. <code>EMBED</code> is the self-contained fallback, but it stores decoded 32-bit floating-point PCM rather than the compressed source file: state cost is approximately channels × frames × four bytes and may be much larger than the file on disk. Hosts can snapshot complete plug-in state for undo when a control is committed, when an effect is bypassed, or when an FX chain changes, so large embedded samples can make those actions pause. That cost is cumulative across Sample-family instances, including instances that are currently bypassed. Prefer <code>PROJECT</code> for normal sessions; reserve <code>EMBED</code> for deliberate self-contained exchange or hosts without project-media support.</p>
-
-        <p><code>PROJECT</code> copies are content-verified and deterministically named from the readable source name plus its SHA-256 digest. Reloading the same unchanged source reuses the existing verified file rather than making another copy. Loading that project-media copy directly also reuses it in place instead of nesting another hash-suffixed copy. A changed external source produces a new copy so an earlier project reference cannot silently change underneath another instance. In an unsaved project the operation remains pending; once the host supplies a project and media path, the copy-or-reuse check runs automatically.</p>
-
-        <p>The editor abbreviates long paths and reports either the referenced file size or the decoded <code>STATE</code> size. Missing files remain represented by their unresolved path so they can be restored or relinked later. A restored or otherwise pathless decoded asset remains embedded as a safety fallback while it has no usable locator. Sample Slicer's generated mutations have no original file to link: in <code>PROJECT</code> mode they are written as lossless project media under <code>s3g Samples</code>, while <code>EMBED</code> retains their decoded PCM in state.</p>
+        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, and Rings use this three-mode policy. Sample Circulator is the exception: it always embeds its two stereo loops, with a capacity of approximately 32 seconds per loop.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="processor-errant.html">
@@ -132,15 +103,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
-          <a href="#player">One-shots and Loops</a>
-          <a href="#doubles">Two-Deck Playback and Timing</a>
-          <a href="#wavesets">Waveset Playback and Distribution</a>
-          <a href="#motion">Bounded Source Motion</a>
-          <a href="#lanes">Four-File Loop Lanes</a>
-          <a href="#grains">Four-File Granulation</a>
-          <a href="#slicer">Break Slicing</a>
-          <a href="#loop-family">Loop Family</a>
-          <a href="#ambisonic-grain">Ambisonic Granulation</a>
+          <a href="#choose">Choose an Instrument</a>
           <a href="#state">Sample Storage</a>
         </div>
       </aside>

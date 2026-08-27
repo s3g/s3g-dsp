@@ -23,8 +23,6 @@
 
 extern "C" const clap_plugin_entry_t s3g_no_input_mixer_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_nim_gesture_embedded_entry;
-extern "C" const clap_plugin_entry_t s3g_mc_to_stereo_autogain_embedded_entry;
-extern "C" const clap_plugin_entry_t s3g_mc_to_quad_autogain_embedded_entry;
 
 namespace {
 
@@ -277,8 +275,8 @@ bool openSelectedAudioDevice(AppState& state)
         state.hardwarePointers.clear();
         return false;
     }
-    clampOutputChannelOffset(state, NoInputOutputMode::StereoAutogain);
-    clampOutputChannelOffset(state, NoInputOutputMode::QuadAutogain);
+    clampOutputChannelOffset(state, NoInputOutputMode::StereoRing);
+    clampOutputChannelOffset(state, NoInputOutputMode::QuadRing);
     clampOutputChannelOffset(state, NoInputOutputMode::DirectEight);
     state.deviceOpen.store(true, std::memory_order_release);
     return true;
@@ -340,8 +338,6 @@ NSString* realtimeDiagnosticsReport(const AppState& state)
          "render_action_errors: %llu\n"
          "gesture_process_errors: %llu\n"
          "no_input_process_errors: %llu\n"
-         "stereo_fold_process_errors: %llu\n"
-         "quad_fold_process_errors: %llu\n"
          "nonfinite_output_samples: %llu\n"
          "midi_input_drops: %llu\n",
         state.audio.telemetryEnabled() ? "yes" : "no",
@@ -384,10 +380,6 @@ NSString* realtimeDiagnosticsReport(const AppState& state)
             engineTelemetry.gestureProcessErrorCount),
         static_cast<unsigned long long>(
             engineTelemetry.noInputProcessErrorCount),
-        static_cast<unsigned long long>(
-            engineTelemetry.stereoFoldProcessErrorCount),
-        static_cast<unsigned long long>(
-            engineTelemetry.quadFoldProcessErrorCount),
         static_cast<unsigned long long>(
             engineTelemetry.nonFiniteOutputSampleCount),
         static_cast<unsigned long long>(state.engine.midiInputDropCount())];
@@ -618,24 +610,58 @@ bool clearGestureSession(EmbeddedClapPlugin& plugin)
     return session && session->clear && session->clear(plugin.plugin());
 }
 
+bool legacyOutputRotation(NSData* data, float& rotation)
+{
+    // Both legacy output plug-ins began their raw state with this common
+    // prefix. Read only the representable rotation field; the former width,
+    // layout, autogain and trim controls intentionally do not migrate.
+    struct LegacyPrefix {
+        uint32_t version = 0u;
+        uint32_t inputChannels = 0u;
+        float widthPercent = 0.0f;
+        float rotationDegrees = 0.0f;
+    };
+    if (!data || [data length] < sizeof(LegacyPrefix)) return false;
+    LegacyPrefix prefix;
+    std::memcpy(&prefix, [data bytes], sizeof(prefix));
+    if ((prefix.version != 1u && prefix.version != 2u)
+        || !std::isfinite(prefix.rotationDegrees)) return false;
+    rotation = std::clamp(prefix.rotationDegrees, -180.0f, 180.0f);
+    return true;
+}
+
 void restoreProcessorState(AppState& state)
 {
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-    auto restore = [defaults](EmbeddedClapPlugin& plugin, NSString* key) {
-        NSData* data = [defaults dataForKey:key];
-        const auto bytes = bytesFromData(data);
-        if (!bytes.empty()) plugin.loadState(bytes);
-    };
-    restore(state.engine.noInputPlugin(), @"NoInputMixerState");
-    restore(state.engine.stereoPlugin(), @"StereoAutogainState");
-    restore(state.engine.quadPlugin(), @"QuadAutogainState");
+    const auto noInputState = bytesFromData(
+        [defaults dataForKey:@"NoInputMixerState"]);
+    const bool restoredNoInput = !noInputState.empty()
+        && state.engine.noInputPlugin().loadState(noInputState);
     // Gesture recordings are deliberately session-only. Remove preferences
     // written by older builds, begin empty, and require an explicit PLAY.
     [defaults removeObjectForKey:@"NimGestureState"];
     clearGestureSession(state.engine.gesturePlugin());
-    const NSInteger mode = [defaults integerForKey:@"OutputMode"];
-    state.engine.setOutputMode(static_cast<NoInputOutputMode>(
-        std::clamp<NSInteger>(mode, 0, 2)));
+
+    if ([defaults integerForKey:@"NimSafetyRoutingStateVersion"] < 1) {
+        NSNumber* savedMode = [defaults objectForKey:@"OutputMode"];
+        const NSInteger legacyMode = savedMode
+            ? [savedMode integerValue] : 0;
+        const auto mode = static_cast<NoInputOutputMode>(
+            std::clamp<NSInteger>(legacyMode, 0, 2));
+        state.engine.setOutputMode(mode);
+        if (mode != NoInputOutputMode::DirectEight) {
+            NSData* legacyState = [defaults dataForKey:
+                mode == NoInputOutputMode::QuadRing
+                    ? @"QuadAutogainState" : @"StereoAutogainState"];
+            float rotation = 0.0f;
+            if (legacyOutputRotation(legacyState, rotation))
+                state.engine.setOutputRotation(rotation);
+        }
+    } else if (restoredNoInput) {
+        state.engine.synchronizeOutputModeFromPlugin();
+    } else {
+        state.engine.setOutputMode(NoInputOutputMode::StereoRing);
+    }
     for (uint32_t index = 0u; index < 3u; ++index) {
         NSString* key = [NSString stringWithFormat:@"OutputOffset%u", index];
         state.engine.setOutputChannelOffset(
@@ -655,12 +681,12 @@ void saveProcessorState(AppState& state)
         if (plugin.saveState(bytes)) [defaults setObject:dataFromBytes(bytes)
             forKey:key];
     };
+    // Termination releases the audio engine before saving, so this flushes a
+    // last route-strip selection into the one canonical NIM state.
+    state.engine.setOutputMode(state.engine.outputMode());
     save(state.engine.noInputPlugin(), @"NoInputMixerState");
-    save(state.engine.stereoPlugin(), @"StereoAutogainState");
-    save(state.engine.quadPlugin(), @"QuadAutogainState");
     [defaults removeObjectForKey:@"NimGestureState"];
-    [defaults setInteger:static_cast<NSInteger>(state.engine.outputMode())
-        forKey:@"OutputMode"];
+    [defaults setInteger:1 forKey:@"NimSafetyRoutingStateVersion"];
     for (uint32_t index = 0u; index < 3u; ++index) {
         NSString* key = [NSString stringWithFormat:@"OutputOffset%u", index];
         [defaults setInteger:state.engine.outputChannelOffset(
@@ -945,15 +971,11 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     NSPopUpButton* _deviceMenu;
     NSPopUpButton* _outputBankMenu;
     NSButton* _audioButton;
-    NSButton* _editButton;
     NSButton* _midiButton;
     NSSlider* _tempoSlider;
     NSTextField* _tempoLabel;
     NSTextField* _statusLabel;
     NSTimer* _timer;
-    NSPanel* _outputPanel;
-    NSView* _outputPluginContainer;
-    EmbeddedClapPlugin* _outputEditorPlugin;
     NSPanel* _midiPanel;
     NSView* _midiPanelContent;
     NSPopUpButton* _midiInputMenu;
@@ -970,7 +992,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 - (void)refreshDeviceMenu;
 - (void)refreshOutputBankMenu;
 - (void)refreshControls;
-- (void)closeOutputEditor;
 - (void)closeMidiPanels;
 - (void)setGestureSessionStatus:(NSString*)status color:(int)color;
 @end
@@ -999,7 +1020,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     self = [super initWithFrame:frame];
     if (!self) return nil;
     _state = state;
-    _outputEditorPlugin = nullptr;
     _gestureGuiAttached = false;
     [self setWantsLayer:YES];
     [[self layer] setBackgroundColor:[[NSColor colorWithCalibratedWhite:0.055
@@ -1050,17 +1070,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_outputBankMenu setAutoresizingMask:NSViewMinYMargin];
     [self addSubview:_outputBankMenu];
 
-    _editButton = [[S3GStandaloneActionButton alloc]
-        initWithFrame:NSMakeRect(786.0, y + 9.0, 100.0, 34.0)];
-    [_editButton setTitle:@"EDIT OUTPUT"];
-    [_editButton setBordered:NO];
-    [_editButton setTarget:self];
-    [_editButton setAction:@selector(editOutput:)];
-    [_editButton setAutoresizingMask:NSViewMinYMargin];
-    [self addSubview:_editButton];
-
     _audioButton = [[S3GStandaloneActionButton alloc]
-        initWithFrame:NSMakeRect(894.0, y + 9.0, 88.0, 34.0)];
+        initWithFrame:NSMakeRect(786.0, y + 9.0, 100.0, 34.0)];
     [_audioButton setTitle:@"AUDIO ON"];
     [_audioButton setButtonType:NSButtonTypeToggle];
     [_audioButton setBordered:NO];
@@ -1071,7 +1082,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [self addSubview:_audioButton];
 
     NSButton* panic = [[S3GStandaloneActionButton alloc]
-        initWithFrame:NSMakeRect(990.0, y + 9.0, 66.0, 34.0)];
+        initWithFrame:NSMakeRect(894.0, y + 9.0, 66.0, 34.0)];
     [panic setTitle:@"PANIC"];
     [panic setBordered:NO];
     [panic setTag:2];
@@ -1082,7 +1093,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [panic release];
 
     _tempoSlider = [[S3GStandaloneSlider alloc]
-        initWithFrame:NSMakeRect(1068.0, y + 9.0, 136.0, 34.0)];
+        initWithFrame:NSMakeRect(972.0, y + 9.0, 160.0, 34.0)];
     [_tempoSlider setMinValue:20.0];
     [_tempoSlider setMaxValue:300.0];
     [_tempoSlider setDoubleValue:_state->engine.tempo()];
@@ -1096,12 +1107,12 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     [_tempoLabel setAlignment:NSTextAlignmentRight];
     [_tempoLabel setTextColor:s3g::clap_gui::color(0xa8a8a8)];
     [_tempoLabel setFont:s3g::clap_gui::uiFont(10.0)];
-    [_tempoLabel setFrame:NSMakeRect(1210.0, y + 17.0, 74.0, 20.0)];
+    [_tempoLabel setFrame:NSMakeRect(1140.0, y + 17.0, 74.0, 20.0)];
     [_tempoLabel setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
     [self addSubview:_tempoLabel];
 
     _midiButton = [[S3GStandaloneActionButton alloc]
-        initWithFrame:NSMakeRect(1292.0, y + 9.0, 52.0, 34.0)];
+        initWithFrame:NSMakeRect(1222.0, y + 9.0, 64.0, 34.0)];
     [_midiButton setTitle:@"MIDI"];
     [_midiButton setBordered:NO];
     [_midiButton setTarget:self];
@@ -1128,14 +1139,12 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 {
     [_timer invalidate];
     [_timer release];
-    [self closeOutputEditor];
     [self closeMidiPanels];
     [_pluginContainer release];
     [_modeControl release];
     [_deviceMenu release];
     [_outputBankMenu release];
     [_audioButton release];
-    [_editButton release];
     [_midiButton release];
     [_tempoSlider release];
     [_tempoLabel release];
@@ -1189,15 +1198,31 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
 
 - (void)refreshControls
 {
-    const auto mode = _state->engine.outputMode();
-    [_modeControl setSelectedSegment:static_cast<NSInteger>(mode)];
+    const auto previousMode = _state->engine.outputMode();
+    _state->engine.synchronizeOutputModeFromPlugin();
+    auto mode = _state->engine.outputMode();
+    bool routeChanged = mode != previousMode;
     uint32_t available = 0u;
     if (_state->selectedDevice < _state->devices.size())
         available = _state->devices[_state->selectedDevice].outputChannels;
+    if (available >= 2u && available < outputChannelsForMode(mode)) {
+        // A SAFETY-page selection can demand more channels than the current
+        // interface provides. Fall back while muted rather than truncating an
+        // eight- or four-channel field without warning.
+        _state->engine.setAudioEnabled(false);
+        mode = available >= 4u ? NoInputOutputMode::QuadRing
+                               : NoInputOutputMode::StereoRing;
+        _state->engine.setOutputMode(mode);
+        routeChanged = true;
+    }
+    if (routeChanged) {
+        clampOutputChannelOffset(*_state, mode);
+        [self refreshOutputBankMenu];
+    }
+    [_modeControl setSelectedSegment:static_cast<NSInteger>(mode)];
     [_modeControl setEnabled:available >= 2u forSegment:0];
     [_modeControl setEnabled:available >= 4u forSegment:1];
     [_modeControl setEnabled:available >= 8u forSegment:2];
-    [_editButton setEnabled:mode != NoInputOutputMode::DirectEight];
     [_audioButton setState:_state->engine.audioEnabled()
         ? NSControlStateValueOn : NSControlStateValueOff];
     [_audioButton setTitle:_state->engine.audioEnabled()
@@ -1211,9 +1236,9 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     float peak = 0.0f;
     for (uint32_t channel = 0u; channel < routedChannels; ++channel)
         peak = std::max(peak, _state->engine.outputPeak(channel));
-    NSString* modeName = mode == NoInputOutputMode::StereoAutogain
-        ? @"STEREO AUTOGAIN" : mode == NoInputOutputMode::QuadAutogain
-            ? @"QUAD AUTOGAIN" : @"DIRECT 8";
+    NSString* modeName = mode == NoInputOutputMode::StereoRing
+        ? @"STEREO RING" : mode == NoInputOutputMode::QuadRing
+            ? @"QUAD RING" : @"DIRECT 8";
     if (_state->deviceOpen.load(std::memory_order_acquire)) {
         const auto telemetry = _state->audio.telemetry();
         const auto engineTelemetry = _state->engine.telemetry();
@@ -1292,8 +1317,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     (void)timer;
     _state->engine.noInputPlugin().serviceMainThreadCallback();
     _state->engine.gesturePlugin().serviceMainThreadCallback();
-    _state->engine.stereoPlugin().serviceMainThreadCallback();
-    _state->engine.quadPlugin().serviceMainThreadCallback();
     drainMidiOutput(*_state);
     uint32_t width = 0u;
     uint32_t height = 0u;
@@ -1301,10 +1324,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         && [self window]) {
         [[self window] setContentSize:NSMakeSize(width,
             height + kOutputStripHeight)];
-    }
-    if (_outputEditorPlugin && _outputPanel
-        && _outputEditorPlugin->takeGuiResizeRequest(width, height)) {
-        [_outputPanel setContentSize:NSMakeSize(width, height)];
     }
     if (_gestureGuiAttached && _gesturePanel
         && _state->engine.gesturePlugin().takeGuiResizeRequest(width, height)) {
@@ -1328,10 +1347,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _state->engine.setOutputMode(mode);
     clampOutputChannelOffset(*_state, mode);
     [self refreshOutputBankMenu];
-    if (_outputPanel && [_outputPanel isVisible]) {
-        [self closeOutputEditor];
-        if (mode != NoInputOutputMode::DirectEight) [self editOutput:nil];
-    }
     [self refreshControls];
 }
 
@@ -1345,8 +1360,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
         .outputChannels;
     if (available < outputChannelsForMode(_state->engine.outputMode())) {
         _state->engine.setOutputMode(available >= 4u
-            ? NoInputOutputMode::QuadAutogain
-            : NoInputOutputMode::StereoAutogain);
+            ? NoInputOutputMode::QuadRing
+            : NoInputOutputMode::StereoRing);
     }
     openSelectedAudioDevice(*_state);
     [self refreshOutputBankMenu];
@@ -1746,46 +1761,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     _midiPanelContent = nil;
 }
 
-- (void)editOutput:(id)sender
-{
-    (void)sender;
-    const auto mode = _state->engine.outputMode();
-    if (mode == NoInputOutputMode::DirectEight) return;
-    [self closeOutputEditor];
-    _outputEditorPlugin = mode == NoInputOutputMode::QuadAutogain
-        ? &_state->engine.quadPlugin() : &_state->engine.stereoPlugin();
-    _outputPanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(
-        0.0, 0.0, 920.0, 560.0)
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-            | NSWindowStyleMaskResizable
-        backing:NSBackingStoreBuffered defer:NO];
-    [_outputPanel setReleasedWhenClosed:NO];
-    [_outputPanel setTitle:mode == NoInputOutputMode::QuadAutogain
-        ? @"Quad Autogain Output" : @"Stereo Autogain Output"];
-    _outputPluginContainer = [[NSView alloc] initWithFrame:NSMakeRect(
-        0.0, 0.0, 920.0, 560.0)];
-    [_outputPluginContainer setAutoresizingMask:NSViewWidthSizable
-        | NSViewHeightSizable];
-    [_outputPanel setContentView:_outputPluginContainer];
-    if (!attachPluginGui(*_outputEditorPlugin, _outputPluginContainer)) {
-        [self closeOutputEditor];
-        return;
-    }
-    [_outputPanel center];
-    [_outputPanel makeKeyAndOrderFront:nil];
-}
-
-- (void)closeOutputEditor
-{
-    if (_outputEditorPlugin) detachPluginGui(*_outputEditorPlugin);
-    _outputEditorPlugin = nullptr;
-    if (_outputPanel) [_outputPanel orderOut:nil];
-    [_outputPanel release];
-    _outputPanel = nil;
-    [_outputPluginContainer release];
-    _outputPluginContainer = nil;
-}
-
 @end
 
 @interface S3GNoInputAppDelegate : NSObject <NSApplicationDelegate> {
@@ -1804,9 +1779,7 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     (void)notification;
     _state = new AppState();
     if (!_state->engine.create(&s3g_no_input_mixer_embedded_entry,
-            &s3g_nim_gesture_embedded_entry,
-            &s3g_mc_to_stereo_autogain_embedded_entry,
-            &s3g_mc_to_quad_autogain_embedded_entry)) {
+            &s3g_nim_gesture_embedded_entry)) {
         [NSApp terminate:nil];
         return;
     }
@@ -1839,8 +1812,8 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
             .outputChannels;
         if (available < outputChannelsForMode(_state->engine.outputMode()))
             _state->engine.setOutputMode(available >= 4u
-                ? NoInputOutputMode::QuadAutogain
-                : NoInputOutputMode::StereoAutogain);
+                ? NoInputOutputMode::QuadRing
+                : NoInputOutputMode::StereoRing);
         openSelectedAudioDevice(*_state);
     } else {
         _state->audioError = "No Core Audio output devices found";
@@ -1941,7 +1914,6 @@ void detachPluginGui(EmbeddedClapPlugin& plugin)
     clearGestureSession(_state->engine.gesturePlugin());
     _state->engine.release();
     saveProcessorState(*_state);
-    [_rootView closeOutputEditor];
     [_rootView closeMidiPanels];
     if (_mainGuiAttached) detachPluginGui(_state->engine.noInputPlugin());
     _mainGuiAttached = false;

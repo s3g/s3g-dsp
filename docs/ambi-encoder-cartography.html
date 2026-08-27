@@ -78,6 +78,8 @@
 
         <p><code>MAP SCALE</code> converts one normalized map unit to meters. At <code>PROPAGATION TIME 100%</code>, the acoustic path uses 343 meters per second. Smaller settings compress travel time while retaining the map's distance and direction relationships.</p>
 
+        <p>The map uses world X toward screen-right, Y toward the front, and Z upward. At the Ambisonic boundary, world +Y becomes front at <code>0°</code>, world +X becomes right at <code>-90°</code>, and world -X becomes left at <code>+90°</code>. Direct and reflected paths use the same conversion.</p>
+
         <table class="readout-table">
           <thead><tr><th>Time reference</th><th>Behavior</th></tr></thead>
           <tbody>

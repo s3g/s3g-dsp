@@ -4,6 +4,7 @@
 
 #include <clap/events.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -12,41 +13,58 @@
 namespace s3g::standalone {
 
 enum class NoInputOutputMode : uint32_t {
-    StereoAutogain = 0u,
-    QuadAutogain = 1u,
+    StereoRing = 0u,
+    QuadRing = 1u,
     DirectEight = 2u,
 };
 
 inline uint32_t outputChannelsForMode(NoInputOutputMode mode)
 {
     switch (mode) {
-    case NoInputOutputMode::QuadAutogain: return 4u;
+    case NoInputOutputMode::QuadRing: return 4u;
     case NoInputOutputMode::DirectEight: return 8u;
-    case NoInputOutputMode::StereoAutogain:
+    case NoInputOutputMode::StereoRing:
     default: return 2u;
+    }
+}
+
+// The standalone presents its hardware-oriented choices in 2/4/8 order,
+// while the NIM CLAP parameter is published in 8/4/2 order.
+inline uint32_t noInputOutputFormatForMode(NoInputOutputMode mode)
+{
+    switch (mode) {
+    case NoInputOutputMode::DirectEight: return 0u;
+    case NoInputOutputMode::QuadRing: return 1u;
+    case NoInputOutputMode::StereoRing:
+    default: return 2u;
+    }
+}
+
+inline NoInputOutputMode outputModeForNoInputFormat(uint32_t format)
+{
+    switch (std::min<uint32_t>(format, 2u)) {
+    case 0u: return NoInputOutputMode::DirectEight;
+    case 1u: return NoInputOutputMode::QuadRing;
+    case 2u:
+    default: return NoInputOutputMode::StereoRing;
     }
 }
 
 struct NoInputMixerStandaloneTelemetrySnapshot {
     uint64_t gestureProcessErrorCount = 0u;
     uint64_t noInputProcessErrorCount = 0u;
-    uint64_t stereoFoldProcessErrorCount = 0u;
-    uint64_t quadFoldProcessErrorCount = 0u;
     uint64_t nonFiniteOutputSampleCount = 0u;
 
     uint64_t totalProcessErrorCount() const
     {
-        return gestureProcessErrorCount + noInputProcessErrorCount
-            + stereoFoldProcessErrorCount + quadFoldProcessErrorCount;
+        return gestureProcessErrorCount + noInputProcessErrorCount;
     }
 };
 
 class NoInputMixerStandaloneEngine {
 public:
     bool create(const clap_plugin_entry_t* noInputEntry,
-        const clap_plugin_entry_t* gestureEntry,
-        const clap_plugin_entry_t* stereoEntry,
-        const clap_plugin_entry_t* quadEntry);
+        const clap_plugin_entry_t* gestureEntry);
     void destroy();
 
     bool prepare(double sampleRate, uint32_t maximumFrames);
@@ -55,6 +73,11 @@ public:
 
     void setOutputMode(NoInputOutputMode mode);
     NoInputOutputMode outputMode() const;
+    // Refresh the hardware-routing cache after a change made in the embedded
+    // NIM SAFETY page. Must be called from the main thread.
+    bool synchronizeOutputModeFromPlugin();
+    // Used by the one-time legacy standalone migration before activation.
+    bool setOutputRotation(float degrees);
     void setOutputChannelOffset(NoInputOutputMode mode, uint32_t offset);
     uint32_t outputChannelOffset(NoInputOutputMode mode) const;
     uint32_t outputChannelOffset() const;
@@ -91,12 +114,8 @@ public:
 
     EmbeddedClapPlugin& noInputPlugin() { return noInput_; }
     EmbeddedClapPlugin& gesturePlugin() { return gesture_; }
-    EmbeddedClapPlugin& stereoPlugin() { return stereo_; }
-    EmbeddedClapPlugin& quadPlugin() { return quad_; }
     const EmbeddedClapPlugin& noInputPlugin() const { return noInput_; }
     const EmbeddedClapPlugin& gesturePlugin() const { return gesture_; }
-    const EmbeddedClapPlugin& stereoPlugin() const { return stereo_; }
-    const EmbeddedClapPlugin& quadPlugin() const { return quad_; }
 
     double sampleRate() const { return sampleRate_; }
     uint32_t maximumFrames() const { return maximumFrames_; }
@@ -144,6 +163,9 @@ private:
     static constexpr uint32_t kMidiOutputQueueCapacity = 4096u;
     static constexpr uint32_t kMaximumEventsPerBlock = 512u;
     static constexpr uint32_t kMaximumGestureEventsPerBlock = 2048u;
+    static constexpr uint32_t kNoPendingOutputFormat = 3u;
+    static constexpr clap_id kOutputFormatParamId = 61u;
+    static constexpr clap_id kOutputRotationParamId = 62u;
 
     bool dequeueMidi(MidiMessage& message);
     bool deferMidi(const MidiMessage& message);
@@ -158,22 +180,18 @@ private:
 
     EmbeddedClapPlugin noInput_;
     EmbeddedClapPlugin gesture_;
-    EmbeddedClapPlugin stereo_;
-    EmbeddedClapPlugin quad_;
 
     std::vector<float> sourceStorage_;
-    std::vector<float> stereoStorage_;
-    std::vector<float> quadStorage_;
     std::array<float*, kSourceChannels> sourcePointers_ {};
-    std::array<float*, 2u> stereoPointers_ {};
-    std::array<float*, 4u> quadPointers_ {};
     std::array<BlockMidiEvent, kMaximumEventsPerBlock> midiEvents_ {};
     uint32_t midiEventCount_ = 0u;
     clap_input_events_t inputEvents_ {};
     std::array<clap_event_midi_t,
         kMaximumGestureEventsPerBlock> gestureMidiEvents_ {};
     uint32_t gestureMidiEventCount_ = 0u;
-    clap_input_events_t gestureInputEvents_ {};
+    clap_event_param_value_t outputFormatEvent_ {};
+    bool outputFormatEventActive_ = false;
+    clap_input_events_t noInputInputEvents_ {};
     clap_output_events_t gestureOutputEvents_ {};
     clap_output_events_t noInputOutputEvents_ {};
     std::array<MidiMessage, kMidiQueueCapacity> midiQueue_ {};
@@ -185,15 +203,14 @@ private:
     std::atomic<uint64_t> midiInputDropCount_ { 0u };
     std::atomic<uint64_t> gestureProcessErrorCount_ { 0u };
     std::atomic<uint64_t> noInputProcessErrorCount_ { 0u };
-    std::atomic<uint64_t> stereoFoldProcessErrorCount_ { 0u };
-    std::atomic<uint64_t> quadFoldProcessErrorCount_ { 0u };
     std::atomic<uint64_t> nonFiniteOutputSampleCount_ { 0u };
     std::array<MidiMessage, kMidiOutputQueueCapacity> midiOutputQueue_ {};
     std::atomic<uint32_t> midiOutputWrite_ { 0u };
     std::atomic<uint32_t> midiOutputRead_ { 0u };
 
     std::atomic<uint32_t> outputMode_ {
-        static_cast<uint32_t>(NoInputOutputMode::StereoAutogain) };
+        static_cast<uint32_t>(NoInputOutputMode::StereoRing) };
+    std::atomic<uint32_t> pendingOutputFormat_ { kNoPendingOutputFormat };
     std::atomic<bool> gestureFeedbackEnabled_ { false };
     std::atomic<bool> gestureFeedbackRequested_ { false };
     GestureFeedbackState gestureFeedbackState_ {};

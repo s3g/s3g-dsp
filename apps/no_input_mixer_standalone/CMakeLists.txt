@@ -13,8 +13,6 @@ add_executable(s3g_no_input_mixer_app MACOSX_BUNDLE
   s3g_no_input_mixer_standalone_engine.cpp
   embed_no_input_mixer.mm
   embed_nim_gesture.mm
-  embed_mc_to_stereo_autogain.mm
-  embed_mc_to_quad_autogain.mm
   ${S3G_NO_INPUT_MIXER_APP_ICON}
 )
 
@@ -56,8 +54,6 @@ add_executable(s3g_no_input_mixer_standalone_smoke
   s3g_no_input_mixer_standalone_engine.cpp
   embed_no_input_mixer.mm
   embed_nim_gesture.mm
-  embed_mc_to_stereo_autogain.mm
-  embed_mc_to_quad_autogain.mm
 )
 
 target_include_directories(s3g_no_input_mixer_standalone_smoke PRIVATE
@@ -84,8 +80,6 @@ add_executable(s3g_no_input_mixer_coreaudio_diagnostic
   s3g_no_input_mixer_standalone_engine.cpp
   embed_no_input_mixer.mm
   embed_nim_gesture.mm
-  embed_mc_to_stereo_autogain.mm
-  embed_mc_to_quad_autogain.mm
 )
 
 target_include_directories(s3g_no_input_mixer_coreaudio_diagnostic PRIVATE

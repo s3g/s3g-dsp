@@ -17,8 +17,6 @@
 
 extern "C" const clap_plugin_entry_t s3g_no_input_mixer_embedded_entry;
 extern "C" const clap_plugin_entry_t s3g_nim_gesture_embedded_entry;
-extern "C" const clap_plugin_entry_t s3g_mc_to_stereo_autogain_embedded_entry;
-extern "C" const clap_plugin_entry_t s3g_mc_to_quad_autogain_embedded_entry;
 
 namespace {
 
@@ -85,6 +83,17 @@ bool renderMode(s3g::standalone::NoInputMixerStandaloneEngine& engine,
                 energy[channel] += static_cast<double>(value) * value;
             }
         }
+    }
+    const auto* params = engine.noInputPlugin()
+        .extension<clap_plugin_params_t>(CLAP_EXT_PARAMS);
+    double format = -1.0;
+    if (!params || !params->get_value
+        || !params->get_value(engine.noInputPlugin().plugin(), 61u,
+            &format)
+        || static_cast<uint32_t>(std::lround(format))
+            != s3g::standalone::noInputOutputFormatForMode(mode)) {
+        std::cerr << "Standalone mode did not reach NIM SAFETY\n";
+        return false;
     }
     for (uint32_t channel = 0u; channel < kChannels; ++channel) {
         const bool shouldBeActive = channel >= outputOffset
@@ -213,9 +222,7 @@ int main()
 
     s3g::standalone::NoInputMixerStandaloneEngine engine;
     ok = ok && engine.create(&s3g_no_input_mixer_embedded_entry,
-        &s3g_nim_gesture_embedded_entry,
-        &s3g_mc_to_stereo_autogain_embedded_entry,
-        &s3g_mc_to_quad_autogain_embedded_entry);
+        &s3g_nim_gesture_embedded_entry);
     ok = ok && engine.prepare(48000.0, kFrames);
     engine.setGestureFeedbackEnabled(true);
 
@@ -318,9 +325,9 @@ int main()
     ok = ok && engine.render(midiPointers.data(), kChannels, kFrames);
 
     ok = ok && renderMode(engine,
-        s3g::standalone::NoInputOutputMode::StereoAutogain, 2u);
+        s3g::standalone::NoInputOutputMode::StereoRing, 2u);
     ok = ok && renderMode(engine,
-        s3g::standalone::NoInputOutputMode::QuadAutogain, 4u);
+        s3g::standalone::NoInputOutputMode::QuadRing, 4u);
     ok = ok && renderMode(engine,
         s3g::standalone::NoInputOutputMode::DirectEight, 8u);
 
@@ -366,7 +373,7 @@ int main()
             &playing)
         && loopCount == 0.0 && recording == 0.0 && playing == 0.0
         && renderMode(engine,
-            s3g::standalone::NoInputOutputMode::StereoAutogain, 0u);
+            s3g::standalone::NoInputOutputMode::StereoRing, 0u);
 
     engine.setAudioEnabled(false);
     std::array<std::array<float, kFrames>, kChannels> mutedStorage {};
@@ -396,16 +403,16 @@ int main()
             [](float value) { return value == 0.0f; });
     }
     std::vector<uint8_t> noInputState;
-    std::vector<uint8_t> stereoState;
-    std::vector<uint8_t> quadState;
+    engine.setOutputMode(
+        s3g::standalone::NoInputOutputMode::QuadRing);
     ok = ok && engine.noInputPlugin().saveState(noInputState)
-        && engine.stereoPlugin().saveState(stereoState)
-        && engine.quadPlugin().saveState(quadState)
-        && !noInputState.empty() && !stereoState.empty()
-        && !quadState.empty();
+        && !noInputState.empty();
+    engine.setOutputMode(
+        s3g::standalone::NoInputOutputMode::StereoRing);
     ok = ok && engine.noInputPlugin().loadState(noInputState)
-        && engine.stereoPlugin().loadState(stereoState)
-        && engine.quadPlugin().loadState(quadState);
+        && engine.synchronizeOutputModeFromPlugin()
+        && engine.outputMode()
+            == s3g::standalone::NoInputOutputMode::QuadRing;
     // A diagnostics reset must clear a prior MIDI overflow indication so the
     // GUI fault state does not remain latched until relaunch.
     for (uint32_t message = 0u; message < 4096u; ++message)

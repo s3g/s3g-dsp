@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>No Input Mixer Standalone App</h1>
 
-        <p><strong>s3g No Input Mixer</strong> runs the same No Input Mixer DSP outside a plugin host and adds Stereo Autogain, Quad Autogain, and direct eight-channel Core Audio output. The app embeds its processors: REAPER and the separately distributed s3g-dsp CLAP package are not required.</p>
+        <p><strong>s3g No Input Mixer</strong> runs the same No Input Mixer DSP outside a plugin host and routes its built-in Stereo Ring, Quad Ring, or direct eight-channel SAFETY output to Core Audio. The app embeds its processors: REAPER and the separately distributed s3g-dsp CLAP package are not required.</p>
 
         <div class="callout">
           <p>The current pre-release is an Apple-silicon-only <code>arm64</code> build for macOS 15 or newer. It is ad-hoc signed but not Apple notarized, so macOS requires one Gatekeeper approval for the installer.</p>
@@ -44,7 +44,7 @@
         <h2 id="download">Download and Install</h2>
 
         <ol>
-          <li>Download <code>s3g-no-input-mixer-app-macos-arm64-0.8.0-pre.zip</code> from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">GitHub releases page</a>, unzip it, and quit s3g No Input Mixer if an earlier copy is running.</li>
+          <li>Download <code>s3g-no-input-mixer-app-macos-arm64-0.9.0-pre.zip</code> from the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">GitHub releases page</a>, unzip it, and quit s3g No Input Mixer if an earlier copy is running.</li>
           <li>Double-click <code>Install s3g No Input Mixer.command</code>.</li>
           <li>If macOS blocks it, click <strong>OK</strong>, open <strong>System Settings &gt; Privacy &amp; Security</strong>, and choose <strong>Open Anyway</strong>. Confirm <strong>Open</strong> and authenticate if asked. This option remains available for about one hour after the blocked launch.</li>
           <li>If prompted, allow Terminal to access the downloaded folder and wait for the installer to finish.</li>
@@ -72,43 +72,25 @@
         <ol>
           <li>Begin with interface, amplifier, and monitor levels low.</li>
           <li>The app opens its selected Core Audio device on launch but starts signal-muted. Confirm that the status strip reads <code>SAFE MUTED</code>.</li>
-          <li>In the persistent <code>ROUTE</code> strip, choose <code>STEREO · 2CH</code>, <code>QUAD · 4CH</code>, or <code>DIRECT · 8CH</code>. Select the intended device and <code>OUT</code> channel bank. A mode is disabled when the device does not provide enough outputs.</li>
+          <li>In the persistent <code>ROUTE</code> strip, choose <code>STEREO · 2CH</code>, <code>QUAD · 4CH</code>, or <code>DIRECT · 8CH</code>. This control mirrors <code>OUTPUT FORMAT</code> on the NIM <code>SAFETY</code> page. Select the intended device and <code>OUT</code> channel bank. A mode is disabled when the device does not provide enough outputs.</li>
           <li>Keep the No Input Mixer's ceiling limiter enabled while establishing the feedback patch. Select <code>AUDIO ON</code> only after checking the entire hardware route.</li>
-          <li><code>PANIC</code> remains available in the output strip on every processor page. <code>EDIT OUTPUT</code> opens the Stereo or Quad Autogain controls; Direct 8 sends the eight NIM lanes directly to the selected hardware bank.</li>
+          <li><code>PANIC</code> remains available in the output strip on every processor page. Use <code>OUTPUT ROTATION</code> on the NIM <code>SAFETY</code> page to rotate the stereo or quad ring projection.</li>
         </ol>
 
         <h2 id="output-routing">Output Modes and Hardware Routing</h2>
 
-        <p>The persistent <code>ROUTE</code> strip sits above every No Input Mixer page. It contains the output mode, Core Audio device, hardware bank, output editor, Safe Mute control, Panic, tempo, MIDI setup, and a status line. Changing the NIM page never hides these controls.</p>
-
-        <figure>
-          <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/app-guis/no-input-mixer-standalone.route.png" aria-label="Open the No Input Mixer standalone main-window screenshot">
-              <img src="assets/app-guis/no-input-mixer-standalone.route.png" alt="s3g No Input Mixer standalone main window with the NIM Patch page below the persistent Route strip, showing Stereo, Quad, Direct 8, audio device, output bank, Edit Output, Audio On, Panic, tempo, MIDI, and Safe Muted status" loading="lazy" decoding="async">
-            </button>
-          </div>
-          <figcaption>The standalone's persistent <code>ROUTE</code> strip stays above every NIM page. This safe-muted stereo route shows the output mode, Core Audio device and bank, output editor, monitoring gate, Panic, tempo, MIDI setup, and status.</figcaption>
-        </figure>
+        <p>The persistent <code>ROUTE</code> strip sits above every No Input Mixer page. It contains a hardware-aware mirror of the NIM output format, the Core Audio device and hardware bank, Safe Mute, Panic, tempo, MIDI setup, and a status line. Changing the NIM page never hides these controls. The fold-down itself occurs once inside NIM; the standalone layer only copies the active two, four, or eight channels to the selected hardware bank.</p>
 
         <table class="readout-table">
           <thead><tr><th>Mode</th><th>Hardware outputs</th><th>Behavior</th></tr></thead>
           <tbody>
-            <tr><td><code>STEREO · 2CH</code></td><td>Two consecutive outputs</td><td>Folds the eight NIM lanes into stereo through the embedded Output Autogain Stereo processor. <code>EDIT OUTPUT</code> opens its layout, width, rotation, weighting, 3D, autogain, and trim controls.</td></tr>
-            <tr><td><code>QUAD · 4CH</code></td><td>Four consecutive outputs</td><td>Folds the eight lanes to Left, Right, Right Back, and Left Back through Output Autogain Quad. <code>EDIT OUTPUT</code> opens the quad fold-down controls.</td></tr>
-            <tr><td><code>DIRECT · 8CH</code></td><td>Eight consecutive outputs</td><td>Sends NIM lanes 1–8 directly to the selected hardware bank. No fold-down processor is used, so <code>EDIT OUTPUT</code> is unavailable.</td></tr>
+            <tr><td><code>STEREO · 2CH</code></td><td>Two consecutive outputs</td><td>NIM's SAFETY renderer projects the eight-lane ring into its first two output channels with power-normalized gain.</td></tr>
+            <tr><td><code>QUAD · 4CH</code></td><td>Four consecutive outputs</td><td>NIM's SAFETY renderer projects the ring to Left, Right, Right Back, and Left Back in its first four output channels.</td></tr>
+            <tr><td><code>DIRECT · 8CH</code></td><td>Eight consecutive outputs</td><td>Sends NIM lanes 1–8 directly to the selected hardware bank without a fold-down.</td></tr>
           </tbody>
         </table>
 
-        <figure>
-          <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/app-guis/no-input-mixer-standalone.quad-output.png" aria-label="Open the Quad Autogain Output window screenshot">
-              <img src="assets/app-guis/no-input-mixer-standalone.quad-output.png" alt="Quad Autogain Output window with input count set to eight and the four-channel layout, routing, autogain, output meters, and trim controls visible" loading="lazy" decoding="async">
-            </button>
-          </div>
-          <figcaption><code>EDIT OUTPUT</code> opens the embedded fold-down editor. Keep <code>IN</code> at <code>8</code>; Stereo opens the corresponding two-channel editor, while Direct 8 bypasses this stage.</figcaption>
-        </figure>
-
-        <p>In either Output Editor, leave <code>IN</code> at <code>8</code> so all eight NIM lanes reach the fold-down. A lower value deliberately omits higher-numbered lanes; a value above eight cannot add sources because the embedded NIM chain supplies exactly eight. See <a href="output-autogain-stereo.html">Output Autogain Stereo</a> and <a href="output-autogain-quad.html">Output Autogain Quad</a> for the shared layout and gain controls.</p>
+        <p>The route-strip mode and the NIM <code>SAFETY</code> page edit the same saved <code>OUTPUT FORMAT</code> parameter. There is no separate standalone fold-down state. Older app preferences migrate the previous Stereo, Quad, or Direct selection and the active fold-down rotation; former output-editor width, layout, autogain, and trim adjustments are retired.</p>
 
         <p>A mode is available only when the selected device has enough outputs. The <code>OUT</code> menu lists complete, non-overlapping banks for that mode: for example, an eight-output device offers four stereo banks, two quad banks, or one direct eight-channel bank. Check the device and displayed channel numbers before selecting <code>AUDIO ON</code>.</p>
 
@@ -137,7 +119,7 @@
 
         <h2 id="saved-settings">What the App Remembers</h2>
 
-        <p>When the app quits normally, it remembers the No Input Mixer processor state, Stereo and Quad Autogain settings, selected output mode and bank, tempo, Core Audio device, enabled MIDI input sources, and E16/Grid feedback destinations. It restores the saved audio device when available and otherwise uses the current default output device.</p>
+        <p>When the app quits normally, it remembers the No Input Mixer processor state—including SAFETY output format and rotation—the selected hardware bank, tempo, Core Audio device, enabled MIDI input sources, and E16/Grid feedback destinations. It restores the saved audio device when available and otherwise uses the current default output device.</p>
 
         <p>For safety, the final audio gate always starts muted. Gesture recordings, Gesture Play, realtime diagnostic counters, and an exported session's file location are not restored automatically. This separates a reusable processor setup from a deliberate performance recording.</p>
 

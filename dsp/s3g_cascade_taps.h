@@ -183,7 +183,10 @@ private:
     {
         const float size = static_cast<float>(bufferSize_);
         pos -= size * std::floor(pos / size);
-        return pos;
+        // A negative position immediately below zero can round to exactly
+        // `size` here. Preserve the strict [0, size) indexing contract at
+        // that interpolation boundary.
+        return pos >= 0.0f && pos < size ? pos : 0.0f;
     }
 
     float inputSmoothingCoef() const

@@ -101,7 +101,7 @@
 
         <h2 id="voices">Voices and MIDI</h2>
 
-        <p>MIDI notes are pitches, centered on Root. Tune moves all notes in semitones and Fine supplies cent offsets. Poly layers as many as sixteen voices. Mono replaces the active voice on each note. Legato preserves the current waveset position and amplitude while retargeting its pitch. Velocity blends between fixed level and note velocity according to the Velocity control.</p>
+        <p>MIDI notes are pitches, centered on Root. Tune moves all notes in semitones and Fine supplies cent offsets. Poly layers as many as sixteen voices. Mono replaces the active voice on each note. Legato preserves the current waveset position and amplitude while retargeting its pitch. Mono and Legato replacement, and oldest-voice stealing when all sixteen Poly voices are occupied, use a 3 ms old/new handoff to suppress routing discontinuities. Velocity blends between fixed level and note velocity according to the Velocity control.</p>
 
         <table class="readout-table">
           <thead><tr><th>Trigger</th><th>Note-off behavior</th></tr></thead>

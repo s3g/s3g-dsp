@@ -3469,6 +3469,9 @@ int main(int argc, char** argv)
         const bool documentationRotate = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambisonic-rotate-64") == 0;
+        const bool documentationGroupRotate = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-group-rotate-64") == 0;
         const bool documentationOrderBand = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambisonic-order-band-tool-64") == 0;
@@ -11068,7 +11071,12 @@ int main(int argc, char** argv)
                 const uint32_t parameterCount = params->count(plugin);
                 for (uint32_t index = 0u; index < parameterCount; ++index) {
                     clap_param_info_t info {};
-                    if (!params->get_info(plugin, index, &info)) return false;
+                    if (!params->get_info(plugin, index, &info)) {
+                        std::cerr << "Could not inspect documentation encoder "
+                                  << "parameter " << index << " while looking "
+                                  << "for " << name << "\n";
+                        return false;
+                    }
                     if (std::strcmp(info.name, name) != 0) continue;
                     SingleParamEventInput event {};
                     const double value = std::clamp(requestedValue,
@@ -11079,14 +11087,133 @@ int main(int argc, char** argv)
                     return params->get_value(plugin, info.id, &reported)
                         && std::fabs(reported - value) < 0.000001;
                 }
+                std::cerr << "Documentation encoder parameter not found: "
+                          << name << "\n";
                 return false;
             };
 
             if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-encoder-medium-16") == 0) {
+                // A sustained, radiating medium is easier to read in 3/4:
+                // all eight cube nodes separate and their energy halos stay
+                // visible through the final frame.
+                ok = setDocumentationParam("Decay", 7.5)
+                    && setDocumentationParam(
+                        "Junction Nonlinearity", 0.24)
+                    && setDocumentationParam("Velocity Radiation", 0.74)
+                    && setDocumentationParam("Self Excitation", 0.56)
+                    && setDocumentationParam("Self Excitation Rate", 1.8)
+                    && setDocumentationParam("Sustained Exciter", 3.0)
+                    && setDocumentationParam("Sustain Drive", 0.72)
+                    && setDocumentationParam("Exciter Character", 0.76)
+                    && setDocumentationParam("Waveguide Dispersion", 0.42);
+                if (ok) {
+                    @try {
+                        ok = [document respondsToSelector:
+                            @selector(setViewPreset:)];
+                        if (ok) [document setViewPreset:2];
+                    } @catch (NSException*) {
+                        ok = false;
+                    }
+                }
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16") == 0) {
+                // Hold a long, off-centre strike through the capture so the
+                // membrane displacement and body activity remain visible.
+                ok = setDocumentationParam("Membrane Shape", 3.0)
+                    && setDocumentationParam("Shape Amount", 0.92)
+                    && setDocumentationParam("Decay", 4.8)
+                    && setDocumentationParam("Damping", 0.16)
+                    && setDocumentationParam("Punch", 0.92)
+                    && setDocumentationParam("Drive", 0.48)
+                    && setDocumentationParam("Strike X", 0.58)
+                    && setDocumentationParam("Strike Y", -0.42)
+                    && setDocumentationParam("Spatial Spread", 0.90)
+                    && setDocumentationParam("Membrane Depth", 0.78)
+                    && setDocumentationParam("Rotation", 34.0)
+                    && setDocumentationParam("Trigger", 1.0);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-horizon-encoder-64") == 0) {
+                // Populate the whole acoustic horizon rather than preserving
+                // the intentionally moderate RANDOM state used by the tests.
+                ok = setDocumentationParam("Voice Count", 32.0)
+                    && setDocumentationParam("Ecology", 3.0)
+                    && setDocumentationParam("Activity", 0.94)
+                    && setDocumentationParam("Occupancy", 0.88)
+                    && setDocumentationParam("Pace", 0.84)
+                    && setDocumentationParam("Cascade", 0.82)
+                    && setDocumentationParam("Signals", 0.78)
+                    && setDocumentationParam("Landscape Bed", 0.62)
+                    && setDocumentationParam("Local Floor", 0.44)
+                    && setDocumentationParam("Range", 6.4)
+                    && setDocumentationParam("Arc", 330.0)
+                    && setDocumentationParam("Detail", 0.86)
+                    && setDocumentationParam("Traffic", 0.84)
+                    && setDocumentationParam("Aircraft", 0.68)
+                    && setDocumentationParam("Machines", 0.62)
+                    && setDocumentationParam("Surf", 0.54);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-point-encoder-64") == 0) {
+                // Use all points and an energetic bounded motion scene so the
+                // capture shows a working field rather than its edit-at-rest
+                // default.
+                ok = setDocumentationParam("Input Count", 64.0)
+                    && setDocumentationParam("Motion Style", 4.0)
+                    && setDocumentationParam("Motion", 4.0)
+                    && setDocumentationParam("Amount", 0.88)
+                    && setDocumentationParam("Rate", 0.18)
+                    && setDocumentationParam("Attract", 0.14)
+                    && setDocumentationParam("Repel", 0.12)
+                    && setDocumentationParam("Swirl", 0.16)
+                    && setDocumentationParam("Brownian", 0.08)
+                    && setDocumentationParam("Collision", 0.76)
+                    && setDocumentationParam("Impact", 0.62)
+                    && setDocumentationParam("Doppler", 0.48);
+            } else if (std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0) {
+                // Stage a dense moving read over a deeply articulated shell.
+                // The shell itself is rendered asynchronously and is awaited
+                // below before the PDF is committed.
+                ok = setDocumentationParam("Input Count", 64.0)
+                    && setDocumentationParam("Playback", 1.0)
+                    && setDocumentationParam("Rate", 0.16)
+                    && setDocumentationParam("Traversal", 0.88)
+                    && setDocumentationParam("Terrain Depth", 0.94)
+                    && setDocumentationParam("Layer Spread", 0.84)
+                    && setDocumentationParam("Azimuth Warp", 118.0)
+                    && setDocumentationParam("Elevation Warp", 58.0)
+                    && setDocumentationParam("Distance Warp", 0.64)
+                    && setDocumentationParam("Fold", 0.46)
+                    && setDocumentationParam("Orbit", 2.0)
+                    && setDocumentationParam("Palette", 6.0)
+                    && setDocumentationParam("Phase Spread", 0.92)
+                    && setDocumentationParam("Rate Spread", 0.54)
+                    && setDocumentationParam("Rate Deviation", 0.30)
+                    && setDocumentationParam("Terrain Form", 4.0)
+                    && setDocumentationParam("Terrain Facet", 0.34)
+                    && setDocumentationParam("Terrain Bevel", 0.22)
+                    && setDocumentationParam("Terrain Ridge", 0.48)
+                    && setDocumentationParam("Terrain Erosion", 0.32)
+                    && setDocumentationParam("Terrain Domain Warp", 0.60)
+                    && setDocumentationParam("Terrain Twist", 0.36)
+                    && setDocumentationParam("Terrain Roughness", 0.70)
+                    && setDocumentationParam("Terrain Relief", 0.92)
+                    && setDocumentationParam("Terrain Read", 5.0)
+                    && setDocumentationParam("Terrain Read Mix", 0.68);
+                if (ok) {
+                    @try {
+                        ok = [document respondsToSelector:
+                            @selector(setViewPreset:)];
+                        if (ok) [document setViewPreset:2];
+                    } @catch (NSException*) {
+                        ok = false;
+                    }
+                }
+            } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-wind-encoder-64") == 0) {
                 // TORNADO COLUMN is the widest, fastest factory wind field.
                 ok = setDocumentationParam("Preset", 16.0)
-                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Voice Count", 64.0)
                     && setDocumentationParam("Field Rate", 0.55)
                     && setDocumentationParam("Flow Push", 0.88)
                     && setDocumentationParam("Shear", 0.76)
@@ -11098,7 +11225,7 @@ int main(int argc, char** argv)
                     "org.s3g.s3g-dsp.ambi-water-encoder-64") == 0) {
                 // STORM SHEET keeps a dense parcel population in motion.
                 ok = setDocumentationParam("Preset", 14.0)
-                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Voice Count", 64.0)
                     && setDocumentationParam("Parcel Rate", 0.72)
                     && setDocumentationParam("Current", 0.88)
                     && setDocumentationParam("Eddy", 0.72)
@@ -11110,7 +11237,7 @@ int main(int argc, char** argv)
                 // FIRESTORM DEBRIS FIELD exposes the large-scale transport,
                 // fragments, vortex, and causal-score layers together.
                 ok = setDocumentationParam("Preset", 11.0)
-                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Voice Count", 64.0)
                     && setDocumentationParam("Field Rate", 0.72)
                     && setDocumentationParam("Flow Push", 0.82)
                     && setDocumentationParam("Shear", 0.76)
@@ -11128,7 +11255,7 @@ int main(int argc, char** argv)
                 // AVALANCHE RELEASE provides a full descending mass rather
                 // than the sparse isolated events used by smaller scenes.
                 ok = setDocumentationParam("Preset", 7.0)
-                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Voice Count", 64.0)
                     && setDocumentationParam("Drift Rate", 0.65)
                     && setDocumentationParam("Drift", 0.82)
                     && setDocumentationParam("Torque", 0.72)
@@ -11147,7 +11274,7 @@ int main(int argc, char** argv)
                 // MIXED SUMMER NIGHT fills several strata with independently
                 // moving colonies and makes the swarm structure legible.
                 ok = setDocumentationParam("Preset", 15.0)
-                    && setDocumentationParam("Voices", 64.0)
+                    && setDocumentationParam("Voice Count", 64.0)
                     && setDocumentationParam("Activity", 0.92)
                     && setDocumentationParam("Field Rate", 0.36)
                     && setDocumentationParam("Roam", 0.78)
@@ -11177,7 +11304,7 @@ int main(int argc, char** argv)
                     && setDocumentationParam("Cloud 4 Distance", 1.30);
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-path-encoder-64") == 0) {
-                ok = setDocumentationParam("Inputs", 18.0)
+                ok = setDocumentationParam("Input Count", 18.0)
                     && setDocumentationParam("Active Paths", 4.0)
                     && setDocumentationParam("Phase Spread", 0.92)
                     && setDocumentationParam("Rate", 0.34);
@@ -11197,7 +11324,7 @@ int main(int argc, char** argv)
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-pulsar-encoder-64") == 0) {
                 ok = setDocumentationParam("Preset", 9.0)
-                    && setDocumentationParam("Spatial Points", 32.0)
+                    && setDocumentationParam("Spatial Point Count", 32.0)
                     && setDocumentationParam("Spatial Width", 0.88)
                     && setDocumentationParam("Spatial Scatter", 0.72)
                     && setDocumentationParam("Orbit Rate", 0.38)
@@ -11215,7 +11342,7 @@ int main(int argc, char** argv)
                     && setDocumentationParam("Field Lattice Planes", 2.0);
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0) {
-                ok = setDocumentationParam("Voices", 24.0)
+                ok = setDocumentationParam("Voice Count", 24.0)
                     && setDocumentationParam("Topology Animation", 4.0)
                     && setDocumentationParam("Topology Rate", 0.08)
                     && setDocumentationParam("Topology Amount", 0.82)
@@ -11230,7 +11357,7 @@ int main(int argc, char** argv)
                     "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0
                 || std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-vox-encoder-64") == 0) {
-                ok = setDocumentationParam("Voices", 16.0)
+                ok = setDocumentationParam("Voice Count", 16.0)
                     && setDocumentationParam("Motion Scene",
                         std::strcmp(pluginId,
                             "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0
@@ -11357,6 +11484,33 @@ int main(int argc, char** argv)
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
+
+            if (ok && std::strcmp(pluginId,
+                    "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0) {
+                failureStage = "documentation Terrain rendered shell";
+                @try {
+                    id terrainShell = [document
+                        valueForKey:@"surfaceImageCache"];
+                    const NSDate* deadline = [NSDate
+                        dateWithTimeIntervalSinceNow:2.0];
+                    while (!terrainShell
+                        && [deadline timeIntervalSinceNow] > 0.0) {
+                        [[NSRunLoop mainRunLoop]
+                            runMode:NSDefaultRunLoopMode
+                            beforeDate:[NSDate
+                                dateWithTimeIntervalSinceNow:0.01]];
+                        terrainShell = [document
+                            valueForKey:@"surfaceImageCache"];
+                    }
+                    ok = terrainShell != nil;
+                    if (ok) {
+                        [document setNeedsDisplay:YES];
+                        [document displayIfNeeded];
+                    }
+                } @catch (NSException*) {
+                    ok = false;
+                }
+            }
 
             if (ok && std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-path-encoder-64") == 0) {
@@ -12082,6 +12236,15 @@ int main(int argc, char** argv)
                     && setDocumentationSceneParam("Dispersion tilt", -0.31)
                     && setDocumentationSceneParam("Dispersion twist", 0.58)
                     && setDocumentationSceneParam("Order width", 1.18);
+            } else if (documentationGroupRotate) {
+                failureStage = "documentation Ambi Group Rotate AED";
+                ok = setDocumentationSceneParam("Yaw", 64.0)
+                    && setDocumentationSceneParam("Pitch", -28.0)
+                    && setDocumentationSceneParam("Roll", 36.0)
+                    && setDocumentationSceneParam("Group spread", 0.82)
+                    && setDocumentationSceneParam("Group tilt", -0.54)
+                    && setDocumentationSceneParam("Group twist", 0.68)
+                    && setDocumentationSceneParam("Order width", 1.22);
             } else if (documentationOrderBand) {
                 failureStage = "documentation Order Band MaxRE";
                 ok = setDocumentationSceneParam("Active order", 7.0)
@@ -12216,6 +12379,8 @@ int main(int argc, char** argv)
                 || documentationAdaptiveDecoder
                 || documentationStereoDecoder
                 || documentationHeadDecoder
+                || documentationRotate
+                || documentationGroupRotate
                 || documentationEffectDelay
                 || documentationEffectPitch
                 || documentationEffectGain

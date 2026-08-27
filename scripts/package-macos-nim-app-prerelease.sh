@@ -7,7 +7,7 @@ dist_root="$repo_root/dist"
 package_verifier="$repo_root/scripts/verify-macos-nim-app-package.py"
 installer_source="$repo_root/scripts/install-no-input-mixer-app.sh"
 app_release_notes="$repo_root/apps/no_input_mixer_standalone/RELEASE_NOTES.md"
-release_version="${S3G_RELEASE_VERSION:-0.8.0-pre}"
+release_version="${S3G_RELEASE_VERSION:-0.9.0-pre}"
 release_date="${S3G_RELEASE_DATE:-$(date +%F)}"
 codesign_identity="${S3G_CODESIGN_IDENTITY:--}"
 allow_dirty="${S3G_PACKAGE_ALLOW_DIRTY:-0}"
@@ -275,8 +275,9 @@ First launch and audio safety:
 4. Keep the NIM ceiling limiter enabled while establishing a feedback patch.
    Select AUDIO ON only after checking the complete route. PANIC remains
    available in the output strip on every NIM page.
-5. EDIT OUTPUT opens the Stereo or Quad Autogain controls. Direct 8 sends the
-   eight NIM lanes directly to the selected eight-channel hardware bank.
+5. The ROUTE mode mirrors OUTPUT FORMAT on the NIM SAFETY page. Use OUTPUT
+   ROTATION there for stereo or quad; Direct 8 sends the eight NIM lanes to
+   the selected eight-channel hardware bank without another processor stage.
 
 MIDI and gesture sessions:
 

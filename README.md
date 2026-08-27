@@ -52,7 +52,7 @@ REAPER should not show a separate Gatekeeper dialog for each plugin afterward.
 
 Use this only for a fresh manual install; it cannot migrate older top-level
 copies or retire renamed aliases. In Terminal, type `cd` followed by a space,
-drag the unzipped `s3g-dsp-macos-clap-0.8.0-pre` folder from Finder into the
+drag the unzipped `s3g-dsp-macos-clap-0.9.0-pre` folder from Finder into the
 Terminal window, and press Return. Then run:
 
 ```sh

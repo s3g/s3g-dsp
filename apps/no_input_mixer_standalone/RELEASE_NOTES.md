@@ -1,6 +1,22 @@
+# s3g No Input Mixer 0.9.0-pre
+
+Apple silicon macOS standalone pre-release, prepared August 27, 2026.
+
+## Asset
+
+- `s3g-no-input-mixer-app-macos-arm64-0.9.0-pre.zip`
+
+## Highlights
+
+- Uses the No Input Mixer's SAFETY renderer directly for stereo-ring, quad-ring, and eight-channel output, removing the duplicate embedded Output Autogain processors and editor. The persistent ROUTE selector and SAFETY page now control one saved format; legacy app modes and the active output rotation migrate on first launch.
+- Retains safe-muted launch, hardware-aware output-bank selection, selectable CoreMIDI input and feedback destinations, embedded NIM Gesture, and the identity-verified user-level installer.
+- Rebuilds the standalone application and distribution metadata against the s3g-dsp 0.9.0 release baseline.
+
+---
+
 # s3g No Input Mixer 0.8.0-pre
 
-Apple silicon macOS standalone pre-release, prepared August 21, 2026.
+Apple silicon macOS standalone pre-release, released August 21, 2026.
 
 ## Asset
 
@@ -8,9 +24,8 @@ Apple silicon macOS standalone pre-release, prepared August 21, 2026.
 
 ## Highlights
 
-- Updates the embedded No Input Mixer core and its saved-state migration while preserving the safe direct eight-channel default for existing sessions.
-- Retains safe-muted launch, Stereo and Quad Autogain monitoring, direct eight-channel output, selectable CoreMIDI input and feedback destinations, embedded NIM Gesture, and the identity-verified user-level installer.
-- Rebuilds the standalone application and distribution metadata against the s3g-dsp 0.8.0 release baseline.
+- Updated the embedded No Input Mixer core and its saved-state migration while preserving the safe direct eight-channel default for existing sessions.
+- Retained safe-muted launch, Stereo and Quad Autogain monitoring, direct eight-channel output, selectable CoreMIDI input and feedback destinations, embedded NIM Gesture, and the identity-verified user-level installer.
 
 ---
 

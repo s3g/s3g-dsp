@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Collection and default bundle version. Individual targets and CLAP
 # descriptors may keep component-scoped versions and advance independently.
-project(s3g_dsp VERSION 0.8.0 LANGUAGES CXX)
+project(s3g_dsp VERSION 0.9.0 LANGUAGES CXX)
 
 include(CTest)
 
