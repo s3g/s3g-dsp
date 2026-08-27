@@ -12886,6 +12886,19 @@ int main(int argc, char** argv)
                 NSMakePoint(firstOutputX, firstOutputY))];
             const bool outputPointFocused = [[document valueForKey:
                 @"layoutSelectionIsOutput"] boolValue];
+            const double secondOutputX = [[document valueForKey:
+                @"layoutSecondOutputPointX"] doubleValue];
+            const double secondOutputY = [[document valueForKey:
+                @"layoutSecondOutputPointY"] doubleValue];
+            // Tier Rings nodes remain usable beyond their tiny drawn square.
+            // This point is outside the former 14 px target but inside the
+            // shared 18 px target centered on the visible outer-tier node.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint(secondOutputX + 17.0, secondOutputY))];
+            const bool outputEdgeTargetFocused = [[document valueForKey:
+                    @"layoutSelectionIsOutput"] boolValue]
+                && [[document valueForKey:@"layoutSelectedOutputIndex"]
+                    unsignedIntValue] == 1u;
             [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
                 NSMakePoint(1052.0, 58.0))];
             const bool aedFlatSelected = ![[document valueForKey:
@@ -12997,6 +13010,7 @@ int main(int argc, char** argv)
                 && tierOneRadius > tierTwoRadius
                 && tierTwoRadius > tierThreeRadius
                 && outputPointFocused
+                && outputEdgeTargetFocused
                 && aedFlatSelected
                 && origamiRestored
                 && popupOpened
@@ -13042,6 +13056,7 @@ int main(int argc, char** argv)
                     << origamiDefault << " tiers " << tierOneRadius << "/"
                     << tierTwoRadius << "/" << tierThreeRadius
                     << "/focus " << outputPointFocused
+                    << "/edge " << outputEdgeTargetFocused
                     << "/" << aedFlatSelected << "/"
                     << origamiRestored << "/" << popupOpened << "/"
                     << popupDocked << "/" << dockedLayoutPage << "/"

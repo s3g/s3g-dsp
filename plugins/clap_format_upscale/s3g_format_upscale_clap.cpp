@@ -651,6 +651,7 @@ constexpr NSRect kLayoutSurfaceRect = {
 constexpr CGFloat kLayoutProjectionHorizontalInset = 42.0;
 constexpr CGFloat kLayoutProjectionVerticalInset = 42.0;
 constexpr CGFloat kTierRingDegreeLabelGutter = 34.0;
+constexpr CGFloat kLayoutNodeHitRadius = 18.0;
 constexpr float kTierRingZenithElevation = 89.5f;
 
 NSRect layoutProjectionRect(bool output)
@@ -727,7 +728,9 @@ void layoutNodePoints(const s3g::FormatUpscaleLayoutData& layout,
     const CGFloat maximumExtent = std::max<CGFloat>(24.0,
         std::min(map.size.width, map.size.height) * 0.5 - 38.0);
     const CGFloat innerExtent = maximumExtent * 0.28;
-    const CGFloat outerExtent = maximumExtent * 0.94;
+    const CGFloat outerExtent = std::max<CGFloat>(
+        innerExtent + 16.0,
+        maximumExtent - kTierRingDegreeLabelGutter);
     for (uint32_t index = 0u; index < layout.count; ++index) {
         const float height = s3g::formatUpscaleSpeakerHeight(
             layout.speakers[index]);
@@ -1811,6 +1814,29 @@ enum : NSInteger {
     layoutNodePoints(_plugin->dsp.outputLayout(), layoutProjectionRect(true),
         _layoutOrigami, points);
     return points[0u].y;
+}
+
+- (double)layoutSecondOutputPointX
+{
+    if (!_plugin || _plugin->dsp.outputLayout().count < 2u) return 0.0;
+    std::array<NSPoint, kChannels> points {};
+    layoutNodePoints(_plugin->dsp.outputLayout(), layoutProjectionRect(true),
+        _layoutOrigami, points);
+    return points[1u].x;
+}
+
+- (double)layoutSecondOutputPointY
+{
+    if (!_plugin || _plugin->dsp.outputLayout().count < 2u) return 0.0;
+    std::array<NSPoint, kChannels> points {};
+    layoutNodePoints(_plugin->dsp.outputLayout(), layoutProjectionRect(true),
+        _layoutOrigami, points);
+    return points[1u].y;
+}
+
+- (uint32_t)layoutSelectedOutputIndex
+{
+    return _selectedOutput;
 }
 
 - (double)layoutOutputPointRadiusAtIndex:(uint32_t)index
@@ -3128,8 +3154,6 @@ enum : NSInteger {
         std::array<uint32_t, kChannels> indices {};
         uint32_t count = 0u;
         CGFloat y = 0.0;
-        CGFloat planExtent = 0.0;
-        CGFloat horizontalExtent = 0.0;
     };
     const NSRect inputMap = layoutProjectionRect(false);
     const NSRect outputMap = layoutProjectionRect(true);
@@ -3167,13 +3191,6 @@ enum : NSInteger {
             [](const UnfoldedTier& a, const UnfoldedTier& b) {
                 return a.height < b.height;
             });
-        const NSPoint center = NSMakePoint(NSMidX(map), NSMidY(map));
-        const CGFloat maximumExtent = std::max<CGFloat>(24.0,
-            std::min(map.size.width, map.size.height) * 0.5 - 38.0);
-        const CGFloat innerExtent = maximumExtent * 0.28;
-        const CGFloat outerExtent = std::max<CGFloat>(
-            innerExtent + 16.0,
-            maximumExtent - kTierRingDegreeLabelGutter);
         for (uint32_t tier = 0u; tier < tierCount; ++tier) {
             tiers[tier].height = tiers[tier].heightSum
                 / static_cast<float>(std::max<uint32_t>(1u,
@@ -3182,52 +3199,17 @@ enum : NSInteger {
                 map, 0.0f,
                 (tiers[tier].minimumElevation
                     + tiers[tier].maximumElevation) * 0.5f).y;
-            tiers[tier].planExtent = tierCount == 1u
-                ? maximumExtent * 0.70
-                : outerExtent - (outerExtent - innerExtent)
-                    * static_cast<CGFloat>(tier)
-                    / static_cast<CGFloat>(tierCount - 1u);
             std::sort(tiers[tier].indices.begin(),
                 tiers[tier].indices.begin() + tiers[tier].count,
                 [&](uint32_t a, uint32_t b) {
                     return layout.speakers[a].azimuthDeg
                         < layout.speakers[b].azimuthDeg;
                 });
-            for (uint32_t offset = 0u; offset < tiers[tier].count;
-                 ++offset) {
-                const auto& speaker = layout.speakers[
-                    tiers[tier].indices[offset]];
-                const auto direction = s3g::directionFromAed(
-                    speaker.azimuthDeg, speaker.elevationDeg);
-                tiers[tier].horizontalExtent = std::max<CGFloat>(
-                    tiers[tier].horizontalExtent,
-                    std::max(std::abs(direction.x),
-                        std::abs(direction.y)) * speaker.distance);
-            }
-            for (uint32_t offset = 0u; offset < tiers[tier].count;
-                 ++offset) {
-                const uint32_t index = tiers[tier].indices[offset];
-                if (_layoutOrigami) {
-                    const auto& speaker = layout.speakers[index];
-                    const auto direction = s3g::directionFromAed(
-                        speaker.azimuthDeg, speaker.elevationDeg);
-                    const CGFloat scale = tiers[tier].planExtent
-                        / std::max<CGFloat>(
-                            0.000001, tiers[tier].horizontalExtent);
-                    const bool zenith = speaker.elevationDeg
-                        >= kTierRingZenithElevation;
-                    points[index] = NSMakePoint(
-                        center.x - (zenith ? 0.0
-                            : direction.y * speaker.distance * scale),
-                        center.y - (zenith ? 0.0
-                            : direction.x * speaker.distance * scale));
-                } else {
-                    points[index] = layoutProjectionPoint(map,
-                        layout.speakers[index].azimuthDeg,
-                        layout.speakers[index].elevationDeg);
-                }
-            }
         }
+        // The renderer and mouse hit testing deliberately share this single
+        // projection path. Keeping the visible nodes and their hit centers
+        // identical avoids tier-dependent misses when ring spacing changes.
+        layoutNodePoints(layout, map, _layoutOrigami, points);
         return tierCount;
     };
     const uint32_t inputTierCount = unfold(
@@ -4185,7 +4167,9 @@ enum : NSInteger {
                     nearest = index;
                 }
             }
-            if (nearestDistance > 14.0 * 14.0) return false;
+            if (nearestDistance
+                > kLayoutNodeHitRadius * kLayoutNodeHitRadius)
+                return false;
             S3GFormatUpscaleMapView* root =
                 _layoutPopupChild && _layoutPopupOwner
                 ? _layoutPopupOwner : self;
