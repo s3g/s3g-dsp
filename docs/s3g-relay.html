@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>s3g Relay - s3g-dsp</title>
+    <meta name="description" content="Use the s3g Relay neural-control MIDI sequencer for assignable notes and CC, recirculating rhythmic memory, and climate-lattice long form.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>s3g Relay</h1>
+
+        <p><strong>s3g Relay</strong> is a MIDI-only CLAP sequencer whose rhythm is carried by a recurrent control ecology instead of a pattern grid. Sixteen signed neural nodes excite and inhibit one another in four clusters. Eight comparator relays observe that field, write decisions into an eight-bit recirculating register, emit assignable notes and controllers, and return signed impulses to the field.</p>
+
+        <div class="callout">
+          <p>Relay contains no clips, piano roll, samples, or audio generator. REAPER supplies musical time and routing; a downstream drum, Sample-family plug-in, or other MIDI instrument supplies the sound.</p>
+        </div>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Relay</code> before a MIDI-receiving instrument, or route its single MIDI output to one or more instrument tracks. Choose a factory preset from the title bar when you want a complete starting ecology.</li>
+          <li>Monitor the receiving instrument through the appropriate speaker, headphone, decoder, or fold-down path.</li>
+          <li>Select relay R1–R8 in the graph or lower header. Assign its channel, note, <code>CC A</code>, and <code>CC B</code>. A note or controller can be set to <code>Off</code>.</li>
+          <li>Choose a receptor topology. <code>Local</code> listens to the corresponding cluster, <code>Cross</code> listens across the graph, <code>Diffuse</code> combines the whole field, and <code>Roaming</code> moves between clusters over climate time.</li>
+          <li>Set <code>Threshold</code>, <code>Bias</code>, and <code>Refractory</code> to decide when the relay fires. Choose <code>Restart</code>, <code>Hold</code>, <code>Extend</code>, or <code>Stack</code> articulation for its notes. <code>Feedback</code> controls the signed impulse returned to its cluster after a rising register edge.</li>
+          <li>Set <code>Form Cycle</code>, <code>Cell Dwell</code>, and <code>Gestation</code>, then start the host transport.</li>
+        </ol>
+
+        <p>The same host position, time signature, seed, and parameter state reproduce the same decisions. Audio buffer size does not change the sequence. Stop, seek, disable, and mapping changes release affected notes safely.</p>
+
+        <h2 id="ecology">Field, Relays, and Memory</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Layer</th><th>Operation</th><th>Musical consequence</th></tr></thead>
+          <tbody>
+            <tr><td>Neural field</td><td>Four signed four-node rings exchange energy through a recurrent matrix and slow-to-fast hierarchy.</td><td>Continuous tensions and recoveries rather than authored steps.</td></tr>
+            <tr><td>Receptors</td><td>Eight configurable views reduce the field to signed comparator signals.</td><td>Different relays can hear local, opposed, global, or migrating activity.</td></tr>
+            <tr><td>Register</td><td>One comparator decision enters an eight-bit shift register on every clock tick.</td><td>Decisions circulate, collide with neighbor logic, and recur as rhythm.</td></tr>
+            <tr><td>Relay feedback</td><td>A rising bit emits MIDI and injects a signed impulse back into one cluster.</td><td>What the sequencer plays changes what it will decide next.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>Memory</code> chooses between recirculated register data and fresh comparator data. <code>Mutation</code> introduces deterministic seeded perturbation and slow connection plasticity. <code>Freeze</code> removes those changes; the <code>Crystallize</code> header action sets full memory and freezes the ecology, exposing a repeating register orbit without replacing the current mappings.</p>
+
+        <p>Select <code>Field</code> in the Output View to inspect the ecology. Each cluster is flanked by its paired receptors: R1/R5 listen from C1, R2/R6 from C2, R3/R7 from C3, and R4/R8 from C4. The short signed rail beside each receptor shows its current negative-to-positive position. A single line shows the selected topology path; diffuse receptors meet at the central diffuse bus.</p>
+
+        <h2 id="long-form">Climate-Lattice Form</h2>
+
+        <p>A seeded 4×4 climate lattice supplies composition-scale change. Relay walks to another wrapping neighbor after each <code>Cell Dwell</code>. Every cell has a stable four-part signature that bends field energy, coupling, hierarchy, and contrast. <code>Climate</code> sets the depth of those changes, while <code>Gestation</code> crossfades between the previous and current cell rather than cutting abruptly.</p>
+
+        <p>The live form lattice is embedded beside the Climate controls so the current cell, trail, and cycle phase remain visually attached to the parameters that shape them.</p>
+
+        <p><code>Form Cycle</code> defines the larger organism boundary in bars. At the next cycle the seed derives another deterministic lattice history. This separates three useful time scales: the clock produces local events, the register carries phrase memory, and the lattice supplies a long arc. The form does not prescribe intro, verse, or chorus; structure emerges from changing conditions imposed on the same ecology.</p>
+
+        <p>For a long developing piece, begin with <code>Form Cycle 128 bars</code>, <code>Cell Dwell 8 bars</code>, <code>Gestation 2 bars</code>, and <code>Climate 68%</code>. Raise <code>Memory</code> for recognizable recurrence, raise <code>Mutation</code> for divergence, or use <code>Crystallize</code> when a discovered state should become a stable passage.</p>
+
+        <h2 id="presets">Presets and Randomization</h2>
+
+        <p>The title band follows the shared s3g-dsp convention. The <code>Preset</code> menu contains eight starting points: <code>Init / Fixed</code>, <code>Drum Ecology</code>, <code>Muse Logic</code>, <code>Zillion Cascade</code>, <code>Hybrid Sample</code>, <code>Crystalline Canon</code>, <code>Long-Form Dorian</code>, and <code>Whole-Tone Drift</code>. The Muse and Zillion presets are conceptual responses to logic-addressed hardware sequencing rather than device emulations. Muse uses protected Hold gates, Zillion and Whole-Tone use Stack polyphony, and the crystalline and long-form presets use Extend ties.</p>
+
+        <p>Factory presets preserve every relay's MIDI channel, fixed note, and CC A/B assignments while changing the ecology, comparator behavior, pitch modes, articulations, and shared scale. <code>Random</code> is more conservative: it changes the field, form, thresholds, feedback, refractory times, and receptor topologies while preserving all MIDI assignments and the current pitch and articulation configuration.</p>
+
+        <p><code>Save</code> and <code>Load</code> write or restore the complete Relay state as an <code>.s3gpreset</code> file using the suite preset folder. Host project state remains independent and automatic.</p>
+
+        <h2 id="mappings">Generic MIDI and Sample-Family Use</h2>
+
+        <p>Relay is not coupled to a receiving plug-in. Each of its eight relays owns a MIDI channel, note, two controller assignments, base-gate multiplier, and refractory interval. With Sample-family instruments, notes can select files, slices, decks, or articulations; <code>CC A</code> follows signed receptor position and <code>CC B</code> combines cluster energy with register population. Repeated 7-bit CC values are suppressed.</p>
+
+        <p>The default notes are 36, 38, 40, 41, 43, 45, 47, and 48. The default <code>CC A</code> assignments are CC 20–27; <code>CC B</code> begins Off. All use channel 1 and remain fully editable and stored with the host project.</p>
+
+        <p>Each relay independently selects <code>Fixed</code> or <code>Scale Logic</code> as its <code>Pitch Mode</code>. Fixed emits the relay's exact MIDI Note assignment. Scale Logic derives a degree address from rotated register taps, the signed receptor band, relay identity, and climate cell, then quantizes it through the shared Root, Octave, Scale, and Range controls. Setting the relay's MIDI Note to <code>Off</code> suppresses notes in either mode, so a relay may remain CC-only.</p>
+
+        <p><code>Articulation</code> determines what happens when a relay fires before its current gate has finished. <code>Restart</code> ends its active notes and reattacks immediately. <code>Hold</code> ignores the new note firing until the configured gate completes, making <code>Base Gate × Gate Scale</code> a protected minimum duration. <code>Extend</code> pushes a matching pitch's Note Off later; when Scale Logic chooses another pitch it releases the old pitch and starts the new one. <code>Stack</code> allows up to four simultaneous voices per relay and steals the oldest voice when that pool is full.</p>
+
+        <p>Across eight relays, Stack can address a polyphonic synthesizer with as many as 32 scheduled voices. Relay coalesces simultaneous owners of the same MIDI channel and note: it sends the first Note On and waits for the final owner before sending Note Off. This prevents one relay from cutting off another relay that has converged on the same scale pitch. Standard MIDI cannot identify two independent copies of the same channel/note pair, so coalescing treats those duplicates as one safely shared sustained pitch.</p>
+
+        <p>The four-column Scale menu uses the complete 101-scale catalog shared across s3g-dsp. It spans core major/minor and modal families, pentatonic and blues collections, bebop and diminished sets, regional scales, modern symmetric scales, and Messiaen modes. Fixed and scale-driven relays can coexist—for example, R1–R4 can address drum or Sample-family triggers while R5–R8 generate a changing pitched layer.</p>
+
+        <h2 id="boundaries">Timing and Boundaries</h2>
+
+        <ul>
+          <li><code>Energy</code>, <code>Coupling</code>, <code>Hierarchy</code>, and <code>Contrast</code> set the neural field's operating regime.</li>
+          <li><code>Clock Rate</code> spans one tick per four beats through sixteen ticks per beat. <code>CC Interval</code> independently reduces controller traffic.</li>
+          <li><code>Clock Rate</code>, <code>CC Interval</code>, MIDI channel, and receptor topology use categorical menus. Continuous parameters use track-aligned drags; double-click restores a parameter default.</li>
+          <li><code>Base Gate</code> is measured in beats and is multiplied by each relay's <code>Gate Scale</code>. Refractory remains the minimum interval between accepted firing decisions; Hold is the mode that protects the resulting note duration.</li>
+          <li>Select <code>MIDI</code> in the Output View to replace the neural field temporarily with the MIDI monitor. It shows the actual emitted event sequence, host beat, source relay, channel, and Note On, Note Off, or CC data. Filter it to All, Notes, or CC; <code>Clear</code> clears the visible history without changing the sequence.</li>
+          <li>One MIDI 1.0 CLAP note-output port; no MIDI input and no audio ports.</li>
+          <li>All 124 controls are automatable host parameters and are included in CLAP state. Relay v1 states migrate with all receptor pitch modes set to Fixed; Relay v2's ten original scale values migrate to their matching canonical scale IDs; v1–v3 states default the new Articulation control to Restart.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="s3g-tracker.html"><span>Previous</span>s3g Tracker</a>
+          <a class="page-nav-link next" href="drums.html"><span>Next</span>Drums</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Instruments</h2>
+          <a href="instruments.html">Overview</a>
+          <a href="s3g-tracker.html">s3g Tracker</a>
+          <a href="s3g-relay.html">s3g Relay</a>
+          <a href="drums.html">Drums</a>
+          <a href="generative-instruments.html">Generative</a>
+          <a href="sample-instruments.html">Sample</a>
+          <a href="voice-instruments.html">Voice / Language</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#ecology">Field and Memory</a>
+          <a href="#long-form">Climate-Lattice Form</a>
+          <a href="#presets">Presets</a>
+          <a href="#mappings">MIDI Mappings</a>
+          <a href="#boundaries">Timing and Boundaries</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

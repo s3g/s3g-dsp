@@ -29,6 +29,7 @@ SAFE_LEGACY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\*?$")
 VARIABLE_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 BARE_OUTPUT_SUFFIX_RE = re.compile(r" [1-9][0-9]*$")
 NO_AUDIO_OUTPUT_HOST_NAMES = {
+    "s3g Relay",
     "s3g Tracker",
     "s3g Utility NIM Gesture",
 }

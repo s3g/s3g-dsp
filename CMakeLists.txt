@@ -26,6 +26,8 @@ option(S3G_BUILD_DRUM_OVERLOAD_PREVIEW
   "Build Drum Overload when the complete 0.7 component set is disabled" OFF)
 option(S3G_BUILD_TRACKER_PREVIEW
   "Build the host-synchronized s3g Tracker MIDI CLAP" ON)
+option(S3G_BUILD_RELAY_PREVIEW
+  "Build the host-synchronized s3g Relay MIDI CLAP" ON)
 option(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW
   "Build the s3g Sample Slicer multisample CLAP" ON)
 option(S3G_BUILD_SAMPLE_PLAYER_PREVIEW
@@ -54,6 +56,13 @@ target_compile_definitions(s3g_dsp_smoke PRIVATE
   $<$<CONFIG:Release>:S3G_ENABLE_TEST_TIMING_ASSERTIONS=1>)
 if(APPLE)
   target_link_libraries(s3g_dsp_smoke PRIVATE "-framework Accelerate")
+endif()
+
+add_executable(s3g_relay_smoke tests/relay_smoke.cpp)
+target_link_libraries(s3g_relay_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_relay_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
 add_executable(s3g_format_upscale_smoke
@@ -456,6 +465,7 @@ endif()
 if(BUILD_TESTING)
   set(S3G_NON_NIM_CORE_SMOKE_TARGETS
     s3g_dsp_smoke
+    s3g_relay_smoke
     s3g_format_upscale_smoke
     s3g_crcltr_smoke
     s3g_breakbeat_slicer_smoke
@@ -738,6 +748,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
         LANGUAGE OBJCXX)
       target_compile_options(s3g_tracker_clap_smoke PRIVATE -fobjc-arc)
       target_link_libraries(s3g_tracker_clap_smoke PRIVATE "-framework Cocoa")
+    endif()
+  endif()
+
+  if(S3G_BUILD_RELAY_PREVIEW)
+    add_executable(s3g_relay_clap_smoke
+      tests/relay_clap_smoke.cpp)
+    target_include_directories(s3g_relay_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_relay_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+    if(APPLE)
+      set_source_files_properties(tests/relay_clap_smoke.cpp
+        PROPERTIES LANGUAGE OBJCXX)
+      target_link_libraries(s3g_relay_clap_smoke PRIVATE
+        "-framework Cocoa")
     endif()
   endif()
 
@@ -1309,6 +1333,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_TRACKER_PREVIEW)
     add_subdirectory(plugins/clap_tracker)
   endif()
+  if(S3G_BUILD_RELAY_PREVIEW)
+    add_subdirectory(plugins/clap_relay)
+  endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)
     add_subdirectory(plugins/clap_breakbeat_slicer)
   endif()
@@ -1336,6 +1363,13 @@ if(S3G_BUILD_CLAP_PLUGIN)
         $<TARGET_FILE:s3g_tracker_clap>)
     set_tests_properties(s3g_tracker_clap_smoke PROPERTIES
       LABELS "non_nim;tracker;clap;smoke" TIMEOUT 120)
+  endif()
+  if(S3G_BUILD_RELAY_PREVIEW AND BUILD_TESTING)
+    add_test(NAME s3g_relay_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_relay_clap_smoke>
+        $<TARGET_FILE:s3g_relay_clap>)
+    set_tests_properties(s3g_relay_clap_smoke PROPERTIES
+      LABELS "non_nim;relay;clap;smoke" TIMEOUT 120)
   endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_breakbeat_slicer_clap_smoke
@@ -2936,6 +2970,16 @@ if(S3G_BUILD_CLAP_PLUGIN)
           s3g_tracker_clap_smoke
           s3g_tracker_clap
         COMMENT "Rendering and validating the s3g Tracker GUI")
+    endif()
+
+    if(S3G_BUILD_RELAY_PREVIEW)
+      add_custom_target(audit_gui_relay
+        COMMAND $<TARGET_FILE:s3g_relay_clap_smoke>
+          $<TARGET_FILE:s3g_relay_clap>
+        DEPENDS
+          s3g_relay_clap_smoke
+          s3g_relay_clap
+        COMMENT "Rendering and validating the s3g Relay GUI")
     endif()
 
     if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)

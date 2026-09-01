@@ -44,6 +44,7 @@ clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8.clap	org.s3g.s3g-dsp.fau
 clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8
 clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture
 clap_tracker/s3g_tracker.clap	s3g_tracker.clap	org.s3g.s3g-dsp.tracker	s3g Tracker
+clap_relay/s3g_relay.clap	s3g_relay.clap	org.s3g.s3g-dsp.relay	s3g Relay
 clap_breakbeat_slicer/s3g_slicer.clap	s3g_sample_slicer_16.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g Sample Slicer 16
 clap_sample_player/s3g_sample_player.clap	s3g_sample_player_2.clap	org.s3g.s3g-dsp.sample-player	s3g Sample Player 2
 clap_sample_doubles/s3g_sample_doubles.clap	s3g_sample_doubles_2.clap	org.s3g.s3g-dsp.sample-doubles	s3g Sample Doubles 2

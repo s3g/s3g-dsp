@@ -372,6 +372,7 @@ DOC_SEQUENCE = [
     "s3gray-format.html",
     "instruments.html",
     "s3g-tracker.html",
+    "s3g-relay.html",
     "drums.html",
     "drum-kick.html",
     "drum-snare.html",
