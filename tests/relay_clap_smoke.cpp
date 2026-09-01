@@ -304,8 +304,8 @@ int main(int argc, char** argv)
 
     const auto* params = static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS));
-    ok &= expect(params && params->count(plugin) == 124u,
-        "expected 124 generic neural sequencer parameters");
+    ok &= expect(params && params->count(plugin) == 125u,
+        "expected 125 generic neural sequencer parameters");
     clap_param_info_t scaleInfo {};
     ok &= expect(params && params->get_info(plugin, 18u, &scaleInfo)
             && scaleInfo.id == 19u
@@ -323,17 +323,17 @@ int main(int argc, char** argv)
             && parsedScale == 31.0,
         "canonical musical-scale text conversion failed");
     clap_param_info_t noteInfo {};
-    ok &= expect(params && params->get_info(plugin, 22u, &noteInfo)
+    ok &= expect(params && params->get_info(plugin, 23u, &noteInfo)
             && noteInfo.id == 102u
             && std::strcmp(noteInfo.name, "MIDI Note") == 0,
         "Relay 1 MIDI-note parameter is missing");
     clap_param_info_t pitchModeInfo {};
-    ok &= expect(params && params->get_info(plugin, 31u, &pitchModeInfo)
+    ok &= expect(params && params->get_info(plugin, 32u, &pitchModeInfo)
             && pitchModeInfo.id == 111u
             && std::strcmp(pitchModeInfo.name, "Pitch Mode") == 0,
         "Relay 1 pitch-mode parameter is missing");
     clap_param_info_t articulationInfo {};
-    ok &= expect(params && params->get_info(plugin, 32u, &articulationInfo)
+    ok &= expect(params && params->get_info(plugin, 33u, &articulationInfo)
             && articulationInfo.id == 112u
             && std::strcmp(articulationInfo.name, "Articulation") == 0
             && articulationInfo.max_value == 3.0,
@@ -348,6 +348,22 @@ int main(int argc, char** argv)
                 &parsedArticulation)
             && parsedArticulation == 2.0,
         "articulation text conversion failed");
+    clap_param_info_t latticeDepthInfo {};
+    ok &= expect(params && params->get_info(plugin, 20u, &latticeDepthInfo)
+            && latticeDepthInfo.id == 21u
+            && std::strcmp(latticeDepthInfo.name, "Lattice Depth") == 0
+            && latticeDepthInfo.max_value == 2.0,
+        "lattice-depth parameter is missing");
+    char latticeDepthText[32] {};
+    double parsedLatticeDepth = -1.0;
+    ok &= expect(params
+            && params->value_to_text(plugin, 21u, 2.0,
+                latticeDepthText, sizeof(latticeDepthText))
+            && std::strcmp(latticeDepthText, "4 Planes") == 0
+            && params->text_to_value(plugin, 21u, "2 Planes",
+                &parsedLatticeDepth)
+            && parsedLatticeDepth == 1.0,
+        "lattice-depth text conversion failed");
 
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
@@ -366,7 +382,7 @@ int main(int argc, char** argv)
     input.add(102u, 64.0);
     input.add(103u, 74.0);
     input.add(104u, 71.0);
-    input.add(105u, 0.0); // permissive comparator threshold
+    input.add(105u, 1.0); // selective threshold produces register edges
     input.add(106u, 1.0); // positive receptor bias
     input.add(116u, 0.0);
     input.add(132u, 0.0);
@@ -490,6 +506,26 @@ int main(int argc, char** argv)
             && params->get_value(plugin, 112u, &version3Articulation)
             && version3Articulation == 0.0,
         "Relay v3 state did not default articulation to Restart");
+
+    StateBuffer version4;
+    constexpr uint32_t kVersion4 = 4u;
+    const uint32_t version4Header[2] { kLegacyMagic, kVersion4 };
+    std::array<double, 124u> version4Values {};
+    version4Values[18u] = 31.0;
+    version4Values[32u] = 3.0; // Relay 1 Stack.
+    StateBuffer::write(&version4.output, version4Header,
+        sizeof(version4Header));
+    StateBuffer::write(&version4.output, version4Values.data(),
+        sizeof(version4Values));
+    ok &= expect(state->load(plugin, &version4.input),
+        "Relay v4 state did not migrate");
+    double version4Articulation = -1.0;
+    double version4LatticeDepth = -1.0;
+    ok &= expect(params->get_value(plugin, 112u, &version4Articulation)
+            && version4Articulation == 3.0
+            && params->get_value(plugin, 21u, &version4LatticeDepth)
+            && version4LatticeDepth == 2.0,
+        "Relay v4 state did not retain articulation/default lattice depth");
 
     StateBuffer version2;
     constexpr uint32_t kVersion2 = 2u;

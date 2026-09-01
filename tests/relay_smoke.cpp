@@ -435,6 +435,182 @@ bool testStackCreatesPolyphonicTails()
     return true;
 }
 
+bool testLatticeDepthAndTraits()
+{
+    if (s3g::relay::latticePlaneCount(0u) != 1u
+        || s3g::relay::latticePlaneCount(1u) != 2u
+        || s3g::relay::latticePlaneCount(2u) != 4u) {
+        std::cerr << "Relay lattice-depth mapping is invalid\n";
+        return false;
+    }
+    for (uint32_t cell = 0u; cell < s3g::relay::kClimateCells; ++cell) {
+        for (uint32_t trait = 0u; trait < 4u; ++trait) {
+            const double a = s3g::relay::climateCellTrait(
+                1977u, 3, cell, trait);
+            const double b = s3g::relay::climateCellTrait(
+                1977u, 3, cell, trait);
+            if (!std::isfinite(a) || a < -1.0 || a > 1.0 || a != b) {
+                std::cerr << "Relay climate notation trait is unstable\n";
+                return false;
+            }
+        }
+    }
+    for (uint32_t depth = 0u; depth < 3u; ++depth) {
+        Config config;
+        config.latticeDepthIndex = depth;
+        config.formBars = 128u;
+        config.dwellBars = 1u;
+        config.transitionBars = 0.0;
+        for (auto& relay : config.relays) relay.enabled = false;
+        Engine engine;
+        Event events[8] {};
+        const auto result = engine.process(
+            0.0, 256.0, 4.0, true, config, events, 8u);
+        const uint32_t planes = s3g::relay::latticePlaneCount(depth);
+        std::array<bool, s3g::relay::kClimateMaxPlanes> seen {};
+        for (uint32_t index = 0u; index < result.snapshot.trailCount; ++index) {
+            const uint32_t cell = result.snapshot.trail[index];
+            if (cell >= planes * s3g::relay::kClimateCellsPerPlane) {
+                std::cerr << "Relay lattice escaped its selected depth\n";
+                return false;
+            }
+            seen[cell / s3g::relay::kClimateCellsPerPlane] = true;
+        }
+        uint32_t seenPlanes = 0u;
+        for (uint32_t plane = 0u; plane < planes; ++plane)
+            seenPlanes += seen[plane] ? 1u : 0u;
+        if (depth == 0u ? seenPlanes != 1u : seenPlanes < 2u) {
+            std::cerr << "Relay lattice did not traverse its planes\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool testPlasticitySnapshot()
+{
+    Config config;
+    config.clockRateIndex = 6u;
+    config.mutation = 1.0;
+    config.freeze = false;
+    for (auto& relay : config.relays) relay.enabled = false;
+    Engine engine;
+    Event events[8] {};
+    const auto learning = engine.process(
+        0.0, 64.0, 4.0, true, config, events, 8u);
+    bool changed = false;
+    for (double value : learning.snapshot.plasticity) {
+        if (!std::isfinite(value) || value < -0.22 || value > 0.22) {
+            std::cerr << "Relay published invalid plasticity\n";
+            return false;
+        }
+        changed |= std::abs(value) > 1.0e-8;
+    }
+    if (!changed) {
+        std::cerr << "Relay did not publish learned matrix drift\n";
+        return false;
+    }
+
+    config.freeze = true;
+    const auto frozen = engine.process(
+        64.0, 80.0, 4.0, true, config, events, 8u);
+    if (frozen.snapshot.plasticity != learning.snapshot.plasticity) {
+        std::cerr << "Relay plasticity changed while frozen\n";
+        return false;
+    }
+    return true;
+}
+
+bool testCrystallizeFormHold()
+{
+    Config config;
+    config.formBars = 16u;
+    config.dwellBars = 1u;
+    config.transitionBars = 2.0;
+    config.clockRateIndex = 4u;
+    for (auto& relay : config.relays) relay.enabled = false;
+    Engine engine;
+    Event events[8] {};
+
+    const auto beforeHold = engine.process(
+        0.0, 6.0, 4.0, true, config, events, 8u);
+    config.formHold = true;
+    const auto held = engine.process(
+        6.0, 30.0, 4.0, true, config, events, 8u);
+    if (held.snapshot.currentCell != beforeHold.snapshot.currentCell
+        || held.snapshot.previousCell != beforeHold.snapshot.previousCell
+        || held.snapshot.trailCount != beforeHold.snapshot.trailCount
+        || held.snapshot.cycleIndex != beforeHold.snapshot.cycleIndex
+        || std::abs(held.snapshot.climateBlend
+            - beforeHold.snapshot.climateBlend) > 1.0e-12
+        || std::abs(held.snapshot.cyclePhase
+            - beforeHold.snapshot.cyclePhase) > 1.0e-12) {
+        std::cerr << "Relay climate form advanced while crystallized\n";
+        return false;
+    }
+
+    config.formHold = false;
+    const auto thawed = engine.process(
+        30.0, 31.0, 4.0, true, config, events, 8u);
+    const double expectedPhase = beforeHold.snapshot.cyclePhase + 1.0 / 64.0;
+    if (std::abs(thawed.snapshot.cyclePhase - expectedPhase) > 1.0e-12
+        || thawed.snapshot.climateBlend
+            <= beforeHold.snapshot.climateBlend) {
+        std::cerr << "Relay climate form did not resume from its held phase\n";
+        return false;
+    }
+    return true;
+}
+
+bool testPentadArchitecture()
+{
+    if (s3g::relay::kNodesPerCluster != 5u
+        || s3g::relay::kNodeCount != 20u
+        || s3g::relay::receptorPentadTap(0u) != 0u
+        || s3g::relay::receptorPentadTap(3u) != 0u
+        || s3g::relay::receptorPentadTap(4u) != 3u
+        || s3g::relay::receptorPentadTap(7u) != 3u) {
+        std::cerr << "Relay pentad topology is invalid\n";
+        return false;
+    }
+    Config config;
+    config.clockRateIndex = 5u;
+    for (auto& relay : config.relays)
+        relay.topology = s3g::relay::ReceptorTopology::Local;
+    Engine engine;
+    Event events[4096] {};
+    const auto result = engine.process(
+        0.0, 16.0, 4.0, true, config, events, 4096u);
+    bool variedRoles = false;
+    for (uint32_t cluster = 0u; cluster < s3g::relay::kClusterCount;
+         ++cluster) {
+        const uint32_t base = cluster * s3g::relay::kNodesPerCluster;
+        for (uint32_t role = 0u; role < s3g::relay::kNodesPerCluster;
+             ++role) {
+            const double state = result.snapshot.nodes[base + role];
+            if (!std::isfinite(state) || state < -1.0 || state > 1.0) {
+                std::cerr << "Relay pentad published invalid node state\n";
+                return false;
+            }
+            if (role > 0u && std::abs(state
+                    - result.snapshot.nodes[base]) > 1.0e-5)
+                variedRoles = true;
+        }
+    }
+    bool variedTaps = false;
+    for (uint32_t cluster = 0u; cluster < s3g::relay::kClusterCount;
+         ++cluster) {
+        variedTaps |= std::abs(result.snapshot.receptors[cluster]
+            - result.snapshot.receptors[cluster
+                + s3g::relay::kClusterCount]) > 1.0e-5;
+    }
+    if (!variedRoles || !variedTaps) {
+        std::cerr << "Relay pentad roles or paired taps did not diverge\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -449,6 +625,10 @@ int main()
     if (!testArticulationModes()) return 1;
     if (!testCollisionSafeOwnership()) return 1;
     if (!testStackCreatesPolyphonicTails()) return 1;
+    if (!testLatticeDepthAndTraits()) return 1;
+    if (!testPlasticitySnapshot()) return 1;
+    if (!testCrystallizeFormHold()) return 1;
+    if (!testPentadArchitecture()) return 1;
     std::cout << "Relay core smoke passed\n";
     return 0;
 }

@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>s3g Relay</h1>
 
-        <p><strong>s3g Relay</strong> is a MIDI-only CLAP sequencer whose rhythm is carried by a recurrent control ecology instead of a pattern grid. Sixteen signed neural nodes excite and inhibit one another in four clusters. Eight comparator relays observe that field, write decisions into an eight-bit recirculating register, emit assignable notes and controllers, and return signed impulses to the field.</p>
+        <p><strong>s3g Relay</strong> is a MIDI-only CLAP sequencer whose rhythm is carried by a recurrent control ecology instead of a pattern grid. Twenty signed neural nodes form four five-node pentads. Eight comparator relays observe that field, write decisions into an eight-bit recirculating register, emit assignable notes and controllers, and return signed impulses to the field.</p>
 
         <div class="callout">
           <p>Relay contains no clips, piano roll, samples, or audio generator. REAPER supplies musical time and routing; a downstream drum, Sample-family plug-in, or other MIDI instrument supplies the sound.</p>
@@ -41,7 +41,7 @@
           <li>Select relay R1–R8 in the graph or lower header. Assign its channel, note, <code>CC A</code>, and <code>CC B</code>. A note or controller can be set to <code>Off</code>.</li>
           <li>Choose a receptor topology. <code>Local</code> listens to the corresponding cluster, <code>Cross</code> listens across the graph, <code>Diffuse</code> combines the whole field, and <code>Roaming</code> moves between clusters over climate time.</li>
           <li>Set <code>Threshold</code>, <code>Bias</code>, and <code>Refractory</code> to decide when the relay fires. Choose <code>Restart</code>, <code>Hold</code>, <code>Extend</code>, or <code>Stack</code> articulation for its notes. <code>Feedback</code> controls the signed impulse returned to its cluster after a rising register edge.</li>
-          <li>Set <code>Form Cycle</code>, <code>Cell Dwell</code>, and <code>Gestation</code>, then start the host transport.</li>
+          <li>Choose a <code>Lattice Depth</code>, set <code>Form Cycle</code>, <code>Cell Dwell</code>, and <code>Gestation</code>, then start the host transport.</li>
         </ol>
 
         <p>The same host position, time signature, seed, and parameter state reproduce the same decisions. Audio buffer size does not change the sequence. Stop, seek, disable, and mapping changes release affected notes safely.</p>
@@ -51,22 +51,32 @@
         <table class="readout-table">
           <thead><tr><th>Layer</th><th>Operation</th><th>Musical consequence</th></tr></thead>
           <tbody>
-            <tr><td>Neural field</td><td>Four signed four-node rings exchange energy through a recurrent matrix and slow-to-fast hierarchy.</td><td>Continuous tensions and recoveries rather than authored steps.</td></tr>
+            <tr><td>Neural field</td><td>Four signed five-node pentads exchange energy through a recurrent matrix and slow-to-fast hierarchy.</td><td>Asymmetric rotations, tensions, and recoveries rather than authored steps.</td></tr>
             <tr><td>Receptors</td><td>Eight configurable views reduce the field to signed comparator signals.</td><td>Different relays can hear local, opposed, global, or migrating activity.</td></tr>
             <tr><td>Register</td><td>One comparator decision enters an eight-bit shift register on every clock tick.</td><td>Decisions circulate, collide with neighbor logic, and recur as rhythm.</td></tr>
             <tr><td>Relay feedback</td><td>A rising bit emits MIDI and injects a signed impulse back into one cluster.</td><td>What the sequencer plays changes what it will decide next.</td></tr>
           </tbody>
         </table>
 
-        <p><code>Memory</code> chooses between recirculated register data and fresh comparator data. <code>Mutation</code> introduces deterministic seeded perturbation and slow connection plasticity. <code>Freeze</code> removes those changes; the <code>Crystallize</code> header action sets full memory and freezes the ecology, exposing a repeating register orbit without replacing the current mappings.</p>
+        <p><code>Memory</code> chooses between recirculated register data and fresh comparator data. <code>Mutation</code> introduces deterministic seeded perturbation and slow connection plasticity. The standalone <code>Freeze</code> control removes those field changes but leaves long-form time running. The compound <code>Crystallize</code> action remembers the current Memory value, sets full memory, freezes the ecology, and holds the climate deck at its exact card, plane, gestation position, and Form Cycle phase. The field and register continue producing MIDI against that held climate. In this state the button becomes <code>Thaw</code>; pressing it restores the remembered Memory value, turns Freeze off, and resumes form time from the held position instead of catching up to elapsed host time.</p>
 
-        <p>Select <code>Field</code> in the Output View to inspect the ecology. Each cluster is flanked by its paired receptors: R1/R5 listen from C1, R2/R6 from C2, R3/R7 from C3, and R4/R8 from C4. The short signed rail beside each receptor shows its current negative-to-positive position. A single line shows the selected topology path; diffuse receptors meet at the central diffuse bus.</p>
+        <p>Select <code>Field</code> in the Output View to inspect the ecology. Each pentad proceeds clockwise from its top node through <code>Initiate</code>, <code>Accumulate</code>, <code>Integrate</code>, <code>Invert</code>, and <code>Recover</code>. The role-specific biases and response rates make Recover the slow return path rather than a fifth generic node. With a receptor in <code>Local</code> mode, R1–R4 combine their cluster average with its Initiate node while the paired R5–R8 combine it with Invert, so paired receptors no longer hear identical local positions.</p>
+
+        <p>Each cluster is flanked by its paired receptors: R1/R5 listen from C1, R2/R6 from C2, R3/R7 from C3, and R4/R8 from C4. The paired arrows between neighboring nodes are the engine's actual recurrent couplings: rust is excitatory, teal is inhibitory, arrowheads identify the receiving node, and width shows fixed coupling strength. Node color shows the current signed state and node size its magnitude. The short signed rail beside each receptor shows its current negative-to-positive position. A single line shows the selected topology path; Local paths terminate on the exact Initiate or Invert node, while diffuse receptors meet at the central diffuse bus.</p>
+
+        <p>The adjacent <code>Learning</code> page exposes that slower adaptive layer as a contiguous 4×4 area-encoded weight matrix, sometimes called a Hinton diagram. Bordered columns are labeled <code>Send C1</code>–<code>C4</code> and bordered rows <code>Recv C1</code>–<code>C4</code>. A filled square shows each effective weight, with area—not side length—proportional to magnitude; its outline preserves the fixed base weight. Rust is positive, teal is negative, and the short line at the foot of each cell shows the signed learned delta. Exact <code>D</code> and <code>W</code> values remain printed in every cell. The side readout reports mutation, mean and maximum drift, strongest adaptation, sign reversals, and whether learning is adapting, static, or frozen. Diagonal base weights begin at zero, but correlated activity may develop learned self-coupling. <code>Freeze</code> and <code>Crystallize</code> hold the matrix in its current state.</p>
 
         <h2 id="long-form">Climate-Lattice Form</h2>
 
-        <p>A seeded 4×4 climate lattice supplies composition-scale change. Relay walks to another wrapping neighbor after each <code>Cell Dwell</code>. Every cell has a stable four-part signature that bends field energy, coupling, hierarchy, and contrast. <code>Climate</code> sets the depth of those changes, while <code>Gestation</code> crossfades between the previous and current cell rather than cutting abruptly.</p>
+        <p>A seeded climate lattice supplies composition-scale change. <code>Lattice Depth</code> selects one 4×4 <code>Sheet</code>, <code>2 Planes</code> with 32 cells, or <code>4 Planes</code> with 64 cells. Relay normally walks to one of eight wrapping neighbors within its current plane after each <code>Cell Dwell</code>; register state and cluster energy occasionally send it vertically to the corresponding cell on an adjacent wrapping plane.</p>
 
-        <p>The live form lattice is embedded beside the Climate controls so the current cell, trail, and cycle phase remain visually attached to the parameters that shape them.</p>
+        <p>Planes are macro-climates: all 16 cells on a plane share a strong seeded tendency, while each cell adds local variation. Every cell supplies four signed traits that bend field Energy, Coupling, Hierarchy, and Contrast. <code>Climate</code> sets the depth of those changes, while <code>Gestation</code> crossfades between the previous and current cell rather than cutting abruptly.</p>
+
+        <p>The four Conduct sliders remain the manual baselines; lattice traits modulate them additively rather than replacing them. After plane/card weighting, Gestation, and the <code>Climate</code> depth are applied, the effective values are <code>Energy + E×0.24</code>, <code>Coupling + C×0.22</code>, <code>Hierarchy + H×0.20</code>, and <code>Contrast + X×0.22</code>, clamped to their safe ranges. At Climate 0% the deck has no effect. At 100%, a trait can move its baseline by the full amount in either direction; settings near an endpoint may reach the clamp and therefore show less apparent movement.</p>
+
+        <p>Select <code>Form</code> in the Output View to read the lattice as a climate deck. Planes become suits and cells become cards. <code>Follow</code> keeps the visible suit attached to the current deal, while <code>P1</code>–<code>P4</code> let another available suit be inspected without changing playback. Every card prints explicit signed <code>E</code>nergy, <code>C</code>oupling, <code>H</code>ierarchy, and contrast <code>X</code> values; the enlarged Dealt Climate card spells out the four traits, shows their signed gauges, and gives gestation and form-cycle progress. The active, previous, and recently visited cards are distinguished in the grid, and Recent Deal shows the path across suits.</p>
+
+        <p>The deck metaphor describes the existing deterministic mechanism rather than imposing a conventional no-replacement card game. Seed plus Form Cycle reshuffles the cards' climate traits. Register and field state then deal the path by choosing a wrapping neighbor or an occasional plane change, so a card may recur. Moving the atlas into its own page leaves the Climate toolbox for the parameters that shape that process.</p>
 
         <p><code>Form Cycle</code> defines the larger organism boundary in bars. At the next cycle the seed derives another deterministic lattice history. This separates three useful time scales: the clock produces local events, the register carries phrase memory, and the lattice supplies a long arc. The form does not prescribe intro, verse, or chorus; structure emerges from changing conditions imposed on the same ecology.</p>
 
@@ -74,7 +84,7 @@
 
         <h2 id="presets">Presets and Randomization</h2>
 
-        <p>The title band follows the shared s3g-dsp convention. The <code>Preset</code> menu contains eight starting points: <code>Init / Fixed</code>, <code>Drum Ecology</code>, <code>Muse Logic</code>, <code>Zillion Cascade</code>, <code>Hybrid Sample</code>, <code>Crystalline Canon</code>, <code>Long-Form Dorian</code>, and <code>Whole-Tone Drift</code>. The Muse and Zillion presets are conceptual responses to logic-addressed hardware sequencing rather than device emulations. Muse uses protected Hold gates, Zillion and Whole-Tone use Stack polyphony, and the crystalline and long-form presets use Extend ties.</p>
+        <p>The title band follows the shared s3g-dsp convention. The <code>Preset</code> menu contains eight starting points: <code>Init / Fixed</code>, <code>Drum Ecology</code>, <code>Muse Logic</code>, <code>Zillion Cascade</code>, <code>Hybrid Sample</code>, <code>Crystalline Canon</code>, <code>Long-Form Dorian</code>, and <code>Whole-Tone Drift</code>. The Muse and Zillion presets are conceptual responses to logic-addressed hardware sequencing rather than device emulations. Drum Ecology uses a single sheet, Muse and Hybrid use two planes, and the other developing presets use all four. Muse uses protected Hold gates, Zillion and Whole-Tone use Stack polyphony, and the crystalline and long-form presets use Extend ties.</p>
 
         <p>Factory presets preserve every relay's MIDI channel, fixed note, and CC A/B assignments while changing the ecology, comparator behavior, pitch modes, articulations, and shared scale. <code>Random</code> is more conservative: it changes the field, form, thresholds, feedback, refractory times, and receptor topologies while preserving all MIDI assignments and the current pitch and articulation configuration.</p>
 
@@ -82,7 +92,7 @@
 
         <h2 id="mappings">Generic MIDI and Sample-Family Use</h2>
 
-        <p>Relay is not coupled to a receiving plug-in. Each of its eight relays owns a MIDI channel, note, two controller assignments, base-gate multiplier, and refractory interval. With Sample-family instruments, notes can select files, slices, decks, or articulations; <code>CC A</code> follows signed receptor position and <code>CC B</code> combines cluster energy with register population. Repeated 7-bit CC values are suppressed.</p>
+        <p>Relay is not coupled to a receiving plug-in. Each of its eight relays owns a MIDI channel, note, two controller assignments, base-gate multiplier, and refractory interval. With Sample-family instruments, notes can select files, slices, decks, or articulations. <code>CC A</code> maps that relay's signed receptor value from −1…+1 to MIDI 0…127. <code>CC B</code> maps a blend of 72% absolute energy in the relay's cluster and 28% register population to 0…127. Controllers are sampled at <code>CC Interval</code>, independently of note triggers; Off assignments and repeated 7-bit values emit nothing.</p>
 
         <p>The default notes are 36, 38, 40, 41, 43, 45, 47, and 48. The default <code>CC A</code> assignments are CC 20–27; <code>CC B</code> begins Off. All use channel 1 and remain fully editable and stored with the host project.</p>
 
@@ -99,11 +109,11 @@
         <ul>
           <li><code>Energy</code>, <code>Coupling</code>, <code>Hierarchy</code>, and <code>Contrast</code> set the neural field's operating regime.</li>
           <li><code>Clock Rate</code> spans one tick per four beats through sixteen ticks per beat. <code>CC Interval</code> independently reduces controller traffic.</li>
-          <li><code>Clock Rate</code>, <code>CC Interval</code>, MIDI channel, and receptor topology use categorical menus. Continuous parameters use track-aligned drags; double-click restores a parameter default.</li>
+          <li><code>Clock Rate</code>, <code>CC Interval</code>, <code>Lattice Depth</code>, MIDI channel, receptor topology, pitch mode, and articulation use categorical menus. Continuous parameters use track-aligned drags; double-click restores a parameter default.</li>
           <li><code>Base Gate</code> is measured in beats and is multiplied by each relay's <code>Gate Scale</code>. Refractory remains the minimum interval between accepted firing decisions; Hold is the mode that protects the resulting note duration.</li>
-          <li>Select <code>MIDI</code> in the Output View to replace the neural field temporarily with the MIDI monitor. It shows the actual emitted event sequence, host beat, source relay, channel, and Note On, Note Off, or CC data. Filter it to All, Notes, or CC; <code>Clear</code> clears the visible history without changing the sequence.</li>
+          <li>The Output View has four pages: <code>Field</code> shows the live neural ecology, <code>Learning</code> shows its adaptive matrix, <code>Form</code> shows the shuffled climate deck and current deal, and <code>MIDI</code> shows the emitted event sequence. The MIDI page reports host beat, source relay, channel, and Note On, Note Off, or CC data; filter it to All, Notes, or CC, or use <code>Clear</code> without changing the sequence.</li>
           <li>One MIDI 1.0 CLAP note-output port; no MIDI input and no audio ports.</li>
-          <li>All 124 controls are automatable host parameters and are included in CLAP state. Relay v1 states migrate with all receptor pitch modes set to Fixed; Relay v2's ten original scale values migrate to their matching canonical scale IDs; v1–v3 states default the new Articulation control to Restart.</li>
+          <li>All 125 controls are automatable host parameters and are included in CLAP state. Earlier Relay states migrate with the new four-plane depth as their default; v1 states use Fixed pitch and v1–v3 states use Restart articulation. Their mappings still load, but the intentional twenty-node pentad anatomy changes the generated sequence.</li>
         </ul>
 
         <nav class="page-nav" aria-label="Page navigation">

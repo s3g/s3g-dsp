@@ -10,17 +10,62 @@
 
 namespace s3g::relay {
 
-constexpr uint32_t kNodeCount = 16u;
 constexpr uint32_t kClusterCount = 4u;
-constexpr uint32_t kNodesPerCluster = 4u;
+constexpr uint32_t kNodesPerCluster = 5u;
+constexpr uint32_t kNodeCount = kClusterCount * kNodesPerCluster;
 constexpr uint32_t kRelayCount = 8u;
 constexpr uint32_t kVoicesPerRelay = 4u;
-constexpr uint32_t kClimateCells = 16u;
 constexpr uint32_t kClimateWidth = 4u;
+constexpr uint32_t kClimateHeight = 4u;
+constexpr uint32_t kClimateCellsPerPlane = kClimateWidth * kClimateHeight;
+constexpr uint32_t kClimateMaxPlanes = 4u;
+constexpr uint32_t kClimateCells = kClimateCellsPerPlane * kClimateMaxPlanes;
 constexpr uint32_t kTrailLength = 16u;
 constexpr uint16_t kMidiOff = 128u;
 
 constexpr double kPi = 3.1415926535897932384626433832795;
+
+// Each five-node pentad is a bidirectional ring. Clockwise from its top node,
+// the roles are Initiate, Accumulate, Integrate, Invert, and Recover. A target
+// receives the forward weight from its preceding neighbor and the reverse
+// weight from its following neighbor. These public constants keep the field
+// view identical to the actual engine topology.
+inline constexpr std::array<const char*, kNodesPerCluster> kPentadRoleNames {{
+    "INIT", "ACCUM", "INTEGRATE", "INVERT", "RECOVER",
+}};
+inline constexpr std::array<double, kNodesPerCluster> kRingForwardWeights {{
+    0.82, 1.18, 1.03, 1.26, -1.14,
+}};
+inline constexpr std::array<double, kNodesPerCluster> kRingReverseWeights {{
+    -0.20, 0.16, 0.20, -0.14, 0.12,
+}};
+inline constexpr std::array<double, kNodesPerCluster> kPentadBias {{
+    0.10, -0.035, 0.05, 0.11, -0.13,
+}};
+inline constexpr std::array<double, kNodesPerCluster> kPentadResponse {{
+    1.10, 0.82, 0.62, 1.04, 0.42,
+}};
+inline constexpr std::array<double, kNodesPerCluster>
+    kPentadImpulseResponse {{
+        0.54, 0.62, 0.70, -0.72, 0.34,
+    }};
+
+inline constexpr uint32_t receptorPentadTap(uint32_t relay) noexcept
+{
+    // The first receptor bank hears Initiate; the paired bank hears Invert.
+    return relay < kClusterCount ? 0u : 3u;
+}
+
+// Destination-major cluster coupling matrix:
+// index = target * kClusterCount + source.
+// Plasticity is added to these base weights at runtime.
+inline constexpr std::array<double, kClusterCount * kClusterCount>
+    kInterClusterWeights {{
+         0.00,  0.31, -0.17,  0.10,
+        -0.28,  0.00,  0.23,  0.13,
+         0.16, -0.26,  0.00,  0.29,
+        -0.12,  0.19, -0.25,  0.00,
+    }};
 
 enum class EventKind : uint8_t {
     NoteOn,
@@ -81,6 +126,7 @@ struct Config {
     double hierarchy = 0.56;
     double contrast = 0.52;
     bool freeze = false;
+    bool formHold = false; // Compound Crystallize action; not field Freeze.
     uint32_t clockRateIndex = 4u;
     double gateBeats = 0.18;
     uint32_t ccRateIndex = 1u;
@@ -93,6 +139,7 @@ struct Config {
     int32_t scaleOctave = 3;
     uint32_t scale = 31u; // Canonical s3g PENTATONIC MINOR scale ID.
     uint32_t scaleRange = 2u;
+    uint32_t latticeDepthIndex = 2u; // Four 4x4 planes.
     std::array<RelayConfig, kRelayCount> relays {};
 
     Config()
@@ -118,12 +165,15 @@ struct Config {
             relay.note = notes[index];
             relay.ccA = cc[index];
             relay.ccB = kMidiOff;
-            relay.threshold = 0.42 + 0.045 * static_cast<double>(index % 4u);
+            relay.threshold = 0.42 + 0.045
+                * static_cast<double>(index % kClusterCount);
             relay.bias = biases[index];
             relay.refractoryTicks = refractory[index];
             relay.feedback = feedbacks[index];
-            relay.gateScale = 0.72 + 0.14 * static_cast<double>(index % 4u);
-            relay.topology = static_cast<ReceptorTopology>(index % 4u);
+            relay.gateScale = 0.72 + 0.14
+                * static_cast<double>(index % kClusterCount);
+            relay.topology = static_cast<ReceptorTopology>(
+                index % kClusterCount);
         }
     }
 };
@@ -132,6 +182,7 @@ struct Snapshot {
     std::array<double, kNodeCount> nodes {};
     std::array<double, kClusterCount> clusters {};
     std::array<double, kRelayCount> receptors {};
+    std::array<double, kClusterCount * kClusterCount> plasticity {};
     std::array<uint32_t, kTrailLength> trail {};
     uint8_t registerBits = 0u;
     uint32_t currentCell = 5u;
@@ -140,6 +191,7 @@ struct Snapshot {
     double climateBlend = 1.0;
     double cyclePhase = 0.0;
     double energy = 0.0;
+    int64_t cycleIndex = 0;
 };
 
 inline double clampFinite(double value, double minimum, double maximum,
@@ -195,6 +247,37 @@ inline uint32_t ccEveryTicks(uint32_t index) noexcept
     }};
     return values[std::min<uint32_t>(index,
         static_cast<uint32_t>(values.size() - 1u))];
+}
+
+inline constexpr uint32_t latticePlaneCount(uint32_t depthIndex) noexcept
+{
+    constexpr std::array<uint32_t, 3u> counts {{ 1u, 2u, 4u }};
+    return counts[std::min<uint32_t>(depthIndex, 2u)];
+}
+
+inline constexpr uint32_t latticeCellCount(uint32_t depthIndex) noexcept
+{
+    return latticePlaneCount(depthIndex) * kClimateCellsPerPlane;
+}
+
+inline const char* latticeDepthName(uint32_t depthIndex) noexcept
+{
+    constexpr std::array<const char*, 3u> names {{
+        "Sheet", "2 Planes", "4 Planes",
+    }};
+    return names[std::min<uint32_t>(depthIndex, 2u)];
+}
+
+inline double climateCellTrait(uint32_t seed, int64_t cycleIndex,
+    uint32_t cell, uint32_t trait) noexcept
+{
+    const uint32_t plane = cell / kClimateCellsPerPlane;
+    const uint64_t cycle = static_cast<uint64_t>(cycleIndex);
+    const double planeTrait = signedHash(seed,
+        cycle * 43u + plane + 1u, 1700u + trait * 29u);
+    const double localTrait = signedHash(seed,
+        cycle * 131u + cell + 1u, 700u + trait * 17u);
+    return std::clamp(planeTrait * 0.64 + localTrait * 0.36, -1.0, 1.0);
 }
 
 inline const char* topologyName(ReceptorTopology topology) noexcept
@@ -296,6 +379,9 @@ public:
         expectedBeat_ = 0.0;
         lastBeatPerBar_ = 4.0;
         lastTickPeriod_ = 0.25;
+        formBeatOffset_ = 0.0;
+        heldFormBeat_ = 0.0;
+        formHold_ = false;
         continuous_ = false;
         snapshot_ = {};
     }
@@ -318,6 +404,7 @@ public:
         const Config config = sanitize(sourceConfig);
         const double bar = clampFinite(beatsPerBar, 1.0, 32.0, 4.0);
         const double tickPeriod = clockPeriodBeats(config.clockRateIndex);
+        updateFormHold(config.formHold, beginBeat);
 
         if (!playing || !config.enabled) {
             releaseAll(beginBeat, events, capacity, result);
@@ -336,7 +423,16 @@ public:
             || std::abs(tickPeriod - lastTickPeriod_) > 1.0e-12;
         if (discontinuity) {
             releaseAll(beginBeat, events, capacity, result);
-            initializeForPosition(config, beginBeat, bar, tickPeriod);
+            if (formHold_ && cycleIndex_
+                    != std::numeric_limits<int64_t>::min()) {
+                nextTick_ = firstTickAtOrAfter(beginBeat, tickPeriod);
+                continuous_ = true;
+                expectedBeat_ = beginBeat;
+                lastBeatPerBar_ = bar;
+                lastTickPeriod_ = tickPeriod;
+            } else {
+                initializeForPosition(config, beginBeat, bar, tickPeriod);
+            }
             invalidateCc();
         }
 
@@ -395,6 +491,8 @@ private:
         config.scale = std::min<uint32_t>(
             config.scale, s3g::kMusicalScaleCount - 1u);
         config.scaleRange = std::clamp<uint32_t>(config.scaleRange, 1u, 4u);
+        config.latticeDepthIndex = std::min<uint32_t>(
+            config.latticeDepthIndex, 2u);
         for (auto& relay : config.relays) {
             relay.channel = std::min<uint8_t>(relay.channel, 15u);
             relay.note = std::min<uint16_t>(relay.note, kMidiOff);
@@ -427,6 +525,22 @@ private:
         return static_cast<int64_t>(std::ceil(beat / period - 1.0e-10));
     }
 
+    double formBeat(double hostBeat) const noexcept
+    {
+        return formHold_ ? heldFormBeat_ : hostBeat - formBeatOffset_;
+    }
+
+    void updateFormHold(bool hold, double hostBeat) noexcept
+    {
+        if (hold == formHold_) return;
+        if (hold) {
+            heldFormBeat_ = hostBeat - formBeatOffset_;
+        } else {
+            formBeatOffset_ = hostBeat - heldFormBeat_;
+        }
+        formHold_ = hold;
+    }
+
     void initializeOrganism(const Config& config, int64_t cycle) noexcept
     {
         const uint64_t cycleBits = static_cast<uint64_t>(cycle);
@@ -444,9 +558,13 @@ private:
         if (pattern == 0u || pattern == 0xffu) pattern = 0x96u;
         registerBits_ = pattern;
         lastFireTick_.fill(std::numeric_limits<int64_t>::min() / 4);
-        currentCell_ = 5u;
-        previousCell_ = 5u;
-        trail_.fill(5u);
+        const uint32_t planes = latticePlaneCount(config.latticeDepthIndex);
+        const uint32_t initialPlane = static_cast<uint32_t>(
+            mix64(static_cast<uint64_t>(config.seed) ^ cycleBits
+                ^ 0x706c616e65ULL) % planes);
+        currentCell_ = initialPlane * kClimateCellsPerPlane + 5u;
+        previousCell_ = currentCell_;
+        trail_.fill(currentCell_);
         trailCount_ = 1u;
         cellStep_ = 0;
         cycleIndex_ = cycle;
@@ -455,13 +573,15 @@ private:
     void initializeForPosition(const Config& config, double beat,
         double beatsPerBar, double tickPeriod) noexcept
     {
+        const double climateBeat = formBeat(beat);
         const double cycleBeats = static_cast<double>(config.formBars)
             * beatsPerBar;
         const int64_t cycle = static_cast<int64_t>(std::floor(
-            beat / std::max(1.0, cycleBeats)));
+            climateBeat / std::max(1.0, cycleBeats)));
         const double cycleStart = static_cast<double>(cycle) * cycleBeats;
         initializeOrganism(config, cycle);
-        const int64_t start = firstTickAtOrAfter(cycleStart, tickPeriod);
+        const double replayStartBeat = beat - (climateBeat - cycleStart);
+        const int64_t start = firstTickAtOrAfter(replayStartBeat, tickPeriod);
         const int64_t target = firstTickAtOrAfter(beat, tickPeriod);
         Result ignored;
         for (int64_t tick = start; tick < target; ++tick) {
@@ -475,7 +595,8 @@ private:
         lastTickPeriod_ = tickPeriod;
     }
 
-    static uint32_t wrappedCellNeighbor(uint32_t cell, uint32_t direction) noexcept
+    static uint32_t wrappedCellNeighbor(uint32_t cell, uint32_t direction,
+        uint32_t planes) noexcept
     {
         static constexpr std::array<int32_t, 8u> dx {{
             0, 1, 1, 1, 0, -1, -1, -1,
@@ -483,24 +604,32 @@ private:
         static constexpr std::array<int32_t, 8u> dy {{
             -1, -1, 0, 1, 1, 1, 0, -1,
         }};
-        const int32_t x = static_cast<int32_t>(cell % kClimateWidth);
-        const int32_t y = static_cast<int32_t>(cell / kClimateWidth);
+        planes = std::clamp<uint32_t>(planes, 1u, kClimateMaxPlanes);
+        const uint32_t localCell = cell % kClimateCellsPerPlane;
+        const int32_t x = static_cast<int32_t>(localCell % kClimateWidth);
+        const int32_t y = static_cast<int32_t>(localCell / kClimateWidth);
+        const uint32_t plane = (cell / kClimateCellsPerPlane) % planes;
+        if (direction >= 8u) {
+            const uint32_t nextPlane = direction == 8u
+                ? (plane + 1u) % planes
+                : (plane + planes - 1u) % planes;
+            return nextPlane * kClimateCellsPerPlane + localCell;
+        }
         const int32_t nextX = (x + dx[direction & 7u]
             + static_cast<int32_t>(kClimateWidth))
             % static_cast<int32_t>(kClimateWidth);
         const int32_t nextY = (y + dy[direction & 7u]
             + static_cast<int32_t>(kClimateWidth))
             % static_cast<int32_t>(kClimateWidth);
-        return static_cast<uint32_t>(nextY) * kClimateWidth
+        return plane * kClimateCellsPerPlane
+            + static_cast<uint32_t>(nextY) * kClimateWidth
             + static_cast<uint32_t>(nextX);
     }
 
     double cellTrait(const Config& config, uint32_t cell,
         uint32_t trait) const noexcept
     {
-        return signedHash(config.seed,
-            static_cast<uint64_t>(cycleIndex_) * 31u + cell + 1u,
-            700u + trait * 17u);
+        return climateCellTrait(config.seed, cycleIndex_, cell, trait);
     }
 
     void updateClimateCell(const Config& config, int64_t tick,
@@ -521,12 +650,20 @@ private:
                 (registerBits_ >> ((cellStep_ + 1) & 3)) & 3u);
             const uint32_t energyCode = static_cast<uint32_t>(std::floor(
                 std::abs(clusters_[clusterChoice]) * 29.0));
-            const uint32_t direction = static_cast<uint32_t>(
+            const uint32_t motion = static_cast<uint32_t>(
                 registerBits_ + energyCode
                 + static_cast<uint32_t>(mix64(static_cast<uint64_t>(tick)
-                    ^ static_cast<uint64_t>(config.seed)))) & 7u;
+                    ^ static_cast<uint64_t>(config.seed))));
+            const uint32_t planes = latticePlaneCount(
+                config.latticeDepthIndex);
+            const bool changePlane = planes > 1u
+                && ((motion >> 3u) + static_cast<uint32_t>(cellStep_)) % 5u
+                    == 0u;
+            const uint32_t direction = changePlane
+                ? 8u + ((motion >> 7u) & 1u) : motion & 7u;
             previousCell_ = currentCell_;
-            currentCell_ = wrappedCellNeighbor(currentCell_, direction);
+            currentCell_ = wrappedCellNeighbor(
+                currentCell_, direction, planes);
             if (trailCount_ < kTrailLength) {
                 trail_[trailCount_++] = currentCell_;
             } else {
@@ -571,8 +708,9 @@ private:
         double value = 0.0;
         switch (relay.topology) {
         case ReceptorTopology::Local:
-            value = clusters_[local] * 0.76
-                + nodes_[local * 4u + (index & 3u)] * 0.24;
+            value = clusters_[local] * 0.70
+                + nodes_[local * kNodesPerCluster
+                    + receptorPentadTap(index)] * 0.30;
             break;
         case ReceptorTopology::Cross: {
             const uint32_t opposite = (local + 2u) % kClusterCount;
@@ -588,9 +726,11 @@ private:
                 static_cast<double>(config.dwellBars) * 4.0)
                 + static_cast<double>(index) * 0.173;
             const double wrapped = phase - std::floor(phase);
-            const double position = wrapped * 4.0;
-            const uint32_t a = static_cast<uint32_t>(position) & 3u;
-            const uint32_t b = (a + 1u) & 3u;
+            const double position = wrapped
+                * static_cast<double>(kClusterCount);
+            const uint32_t a = static_cast<uint32_t>(position)
+                % kClusterCount;
+            const uint32_t b = (a + 1u) % kClusterCount;
             value = clusters_[a] + (clusters_[b] - clusters_[a])
                 * (position - std::floor(position));
             break;
@@ -612,8 +752,9 @@ private:
     void advanceNetwork(const Config& config, int64_t tick,
         double beat, double beatsPerBar) noexcept
     {
-        updateClimateCell(config, tick, beat, beatsPerBar);
-        const double blend = climateBlend(config, beat, beatsPerBar);
+        const double climateBeat = formBeat(beat);
+        updateClimateCell(config, tick, climateBeat, beatsPerBar);
+        const double blend = climateBlend(config, climateBeat, beatsPerBar);
         const double activityTrait = effectiveTrait(config, 0u, blend);
         const double couplingTrait = effectiveTrait(config, 1u, blend);
         const double hierarchyTrait = effectiveTrait(config, 2u, blend);
@@ -627,26 +768,9 @@ private:
         const double effectiveContrast = std::clamp(
             config.contrast + contrastTrait * 0.22, 0.0, 1.0);
 
-        static constexpr std::array<double, kNodesPerCluster> ringForward {{
-            1.18, 1.02, 1.27, -1.16,
-        }};
-        static constexpr std::array<double, kNodesPerCluster> ringReverse {{
-            -0.22, 0.17, 0.21, 0.15,
-        }};
-        static constexpr std::array<double, kNodesPerCluster> bias {{
-            -0.11, 0.075, -0.045, 0.12,
-        }};
         static constexpr std::array<double, kClusterCount> alpha {{
             0.075, 0.16, 0.34, 0.61,
         }};
-        static constexpr std::array<double, kClusterCount * kClusterCount>
-            matrix {{
-                 0.00,  0.31, -0.17,  0.10,
-                -0.28,  0.00,  0.23,  0.13,
-                 0.16, -0.26,  0.00,  0.29,
-                -0.12,  0.19, -0.25,  0.00,
-            }};
-
         const auto previousNodes = nodes_;
         const auto previousClusters = clusters_;
         const double gain = 1.25 + effectiveActivity * 2.25;
@@ -656,18 +780,20 @@ private:
             for (uint32_t source = 0u; source < kClusterCount; ++source) {
                 const uint32_t matrixIndex = cluster * kClusterCount + source;
                 cross += previousClusters[source]
-                    * (matrix[matrixIndex] + plasticity_[matrixIndex]);
+                    * (kInterClusterWeights[matrixIndex]
+                        + plasticity_[matrixIndex]);
             }
             const double parent = cluster == 0u ? 0.0
                 : previousClusters[cluster - 1u];
             for (uint32_t local = 0u; local < kNodesPerCluster; ++local) {
                 const uint32_t node = cluster * kNodesPerCluster + local;
                 const uint32_t previous = cluster * kNodesPerCluster
-                    + ((local + 3u) % 4u);
+                    + ((local + kNodesPerCluster - 1u) % kNodesPerCluster);
                 const uint32_t next = cluster * kNodesPerCluster
-                    + ((local + 1u) % 4u);
-                const double ring = previousNodes[previous] * ringForward[local]
-                    + previousNodes[next] * ringReverse[local];
+                    + ((local + 1u) % kNodesPerCluster);
+                const double ring = previousNodes[previous]
+                        * kRingForwardWeights[local]
+                    + previousNodes[next] * kRingReverseWeights[local];
                 const bool bit = ((registerBits_ >> (node % kRelayCount)) & 1u)
                     != 0u;
                 const double registerDrive = bit ? 0.115 : -0.065;
@@ -676,13 +802,16 @@ private:
                         static_cast<uint64_t>(tick), 1000u + node)
                         * config.mutation * 0.115;
                 const double impulse = pendingImpulse_[cluster]
-                    * (local == 3u ? -0.72 : 0.54 + 0.08 * local);
-                const double target = std::tanh((bias[local] + activityBias
+                    * kPentadImpulseResponse[local];
+                const double target = std::tanh((kPentadBias[local]
+                    + activityBias
                     + ring * (0.50 + effectiveContrast * 0.32)
                     + cross * effectiveCoupling * 0.62
                     + parent * effectiveHierarchy * (cluster == 0u ? 0.0 : 0.48)
                     + registerDrive + impulse + noise) * gain);
-                nodes_[node] += (target - nodes_[node]) * alpha[cluster];
+                const double response = std::min(
+                    1.0, alpha[cluster] * kPentadResponse[local]);
+                nodes_[node] += (target - nodes_[node]) * response;
                 nodes_[node] = std::clamp(nodes_[node], -1.0, 1.0);
             }
         }
@@ -742,7 +871,7 @@ private:
     {
         // Establish a cycle reset before taking the register edge snapshot so
         // uninterrupted playback and a seek to the same cycle boundary agree.
-        updateClimateCell(config, tick, beat, beatsPerBar);
+        updateClimateCell(config, tick, formBeat(beat), beatsPerBar);
         const uint8_t oldBits = registerBits_;
         advanceNetwork(config, tick, beat, beatsPerBar);
         advanceRegister(config, tick, beat);
@@ -1002,20 +1131,24 @@ private:
     void updateSnapshot(const Config& config, double beat,
         double beatsPerBar) noexcept
     {
+        const double climateBeat = formBeat(beat);
         snapshot_.nodes = nodes_;
         snapshot_.clusters = clusters_;
         snapshot_.receptors = receptors_;
+        snapshot_.plasticity = plasticity_;
         snapshot_.trail = trail_;
         snapshot_.registerBits = registerBits_;
         snapshot_.currentCell = currentCell_;
         snapshot_.previousCell = previousCell_;
         snapshot_.trailCount = trailCount_;
-        snapshot_.climateBlend = climateBlend(config, beat, beatsPerBar);
+        snapshot_.climateBlend = climateBlend(
+            config, climateBeat, beatsPerBar);
         const double cycleBeats = static_cast<double>(config.formBars)
             * beatsPerBar;
-        double phase = beat / std::max(1.0, cycleBeats);
+        double phase = climateBeat / std::max(1.0, cycleBeats);
         phase -= std::floor(phase);
         snapshot_.cyclePhase = phase;
+        snapshot_.cycleIndex = cycleIndex_;
         double energy = 0.0;
         for (double cluster : clusters_) energy += std::abs(cluster);
         snapshot_.energy = energy / static_cast<double>(kClusterCount);
@@ -1042,6 +1175,9 @@ private:
     double expectedBeat_ = 0.0;
     double lastBeatPerBar_ = 4.0;
     double lastTickPeriod_ = 0.25;
+    double formBeatOffset_ = 0.0;
+    double heldFormBeat_ = 0.0;
+    bool formHold_ = false;
     bool continuous_ = false;
     Snapshot snapshot_ {};
 };
