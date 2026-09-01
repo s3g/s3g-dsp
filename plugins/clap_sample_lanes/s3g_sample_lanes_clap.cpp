@@ -1,4 +1,9 @@
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+#include "s3g_sample_cutups.h"
+#include "s3g_sample_cutups_analysis.h"
+#include "s3g_sample_lanes.h"
+#define S3GSampleLanesView S3GSampleCutupsView
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 #include "s3g_sample_grains.h"
 #define S3GSampleLanesView S3GSampleGrainsView
 #else
@@ -28,7 +33,10 @@
 
 bool parameterAvailableForPlugin(const Plugin& instance, clap_id id) noexcept
 {
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (id >= kOutputModeParamId && id <= kAvoidAdjacentParamId)
+        return instance.outputChannelCount != 2u;
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
     const bool stereo = instance.outputChannelCount == 2u;
     if (id >= kOutputModeParamId && id <= kAvoidAdjacentParamId)
         return !stereo;
@@ -131,33 +139,67 @@ void queueGuiParamEnd(Plugin& instance, clap_id id)
 
 const char* transportName(int value) noexcept
 {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    return value <= 0 ? "Free" : "Host";
+#else
     constexpr std::array<const char*, 3u> names {{
         "Forward", "Reverse", "Ping Pong",
     }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 2))];
+#endif
 }
 
 const char* rateBasisName(int value) noexcept
-{ return value <= 0 ? "Normal" : "Hertz"; }
+{
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    constexpr std::array<const char*, 8u> names {{
+        "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/8T", "1/16T",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 7))];
+#else
+    return value <= 0 ? "Normal" : "Hertz";
+#endif
+}
 
 const char* pathName(int value) noexcept
 {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    constexpr std::array<const char*, 6u> names {{
+        "Down", "Up", "Palindrome", "Random", "Random Cycle", "Manual",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 5))];
+#else
     constexpr std::array<const char*, 8u> names {{
         "Down", "Up", "Triangle", "Sine", "Steps Down", "Steps Up",
         "Random", "Manual",
     }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 7))];
+#endif
 }
 
 const char* blendName(int value) noexcept
-{ return value <= 0 ? "Crossfade" : "Jump"; }
+{
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    constexpr std::array<const char*, 7u> names {{
+        "Timeline", "Forward", "Reverse", "Palindrome", "Random", "Walk",
+        "Manual",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 6))];
+#else
+    return value <= 0 ? "Crossfade" : "Jump";
+#endif
+}
 
 const char* shapeName(int value) noexcept
 {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    return value <= 0 ? "Equal" : "Transient";
+#else
     constexpr std::array<const char*, 4u> names {{
         "Linear", "Smooth", "Exponential", "Plateau",
     }};
     return names[static_cast<std::size_t>(std::clamp(value, 0, 3))];
+#endif
 }
 
 const char* voiceName(int value) noexcept
@@ -188,7 +230,11 @@ const char* outputModeName(int value) noexcept
 
 const char* allocationCadenceName(int value) noexcept
 {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    constexpr std::array<const char*, 3u> names {{ "Note", "Cut", "Pattern" }};
+#else
     constexpr std::array<const char*, 3u> names {{ "Note", "Lane", "Turn" }};
+#endif
     return names[static_cast<std::size_t>(std::clamp(value, 0, 2))];
 }
 
@@ -370,6 +416,11 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
     else if (id == kAvoidAdjacentParamId)
         std::snprintf(display, size, "%s", onOffName(
             static_cast<int>(std::lround(value))));
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    else if (id == kTempoSyncParamId)
+        std::snprintf(display, size, "%s", onOffName(
+            static_cast<int>(std::lround(value))));
+#endif
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     else if (id == kChannelModeParamId)
         std::snprintf(display, size, "%s", channelModeName(
@@ -403,7 +454,42 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
         char buffer[32] {};
         std::snprintf(display, size, "%s", midiName(
             static_cast<int>(std::lround(value)), buffer, sizeof(buffer)));
-    } else if (id == kRateParamId)
+    }
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    else if (id == kRateParamId)
+        std::snprintf(display, size, "%.2f Hz", value);
+    else if (id == kOutParamId)
+        std::snprintf(display, size, "%+.1f dB", value);
+    else if (id == kTuneParamId)
+        std::snprintf(display, size, "%+.2f st", value);
+    else if (id == kFineParamId)
+        std::snprintf(display, size, "%+.1f ct", value);
+    else if (id == kAttackParamId || id == kReleaseParamId)
+        std::snprintf(display, size, "%.1f ms", value * 1000.0);
+    else if (id == kActiveOutputsParamId)
+        std::snprintf(display, size, "%02d",
+            static_cast<int>(std::lround(value)));
+    else if (id == kRootParamId || id == kSeedParamId
+        || id == kCyclesParamId || id == kOffsetParamId
+        || id == kSkewParamId)
+        std::snprintf(display, size, "%d",
+            static_cast<int>(std::lround(value)));
+    else if (id == kPanParamId)
+        std::snprintf(display, size, "%+.2f", value);
+    else if (id == kStartParamId || id == kEndParamId
+        || id == kManualLaneParamId || id == kCurveParamId
+        || id == kLaneSlewParamId || id == kVelocityParamId
+        || id == kCutReverseChanceParamId
+        || id == kCutLevelVariationParamId)
+        std::snprintf(display, size, "%.1f %%", value * 100.0);
+    else if (id == kLoopCrossfadeParamId)
+        std::snprintf(display, size, "%.1f ms", value);
+    else if (id >= kLane1SpeedParamId && id <= kLane2SpeedParamId)
+        std::snprintf(display, size, "%.2f BPM", value);
+    else if (id == kCutPitchVariationParamId)
+        std::snprintf(display, size, "%.2f st", value);
+#else
+    else if (id == kRateParamId)
         std::snprintf(display, size,
             paramValue(*self(plugin), kRateBasisParamId) < 0.5
                 ? "%.2f x" : "%.2f Hz", value);
@@ -459,6 +545,7 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
             std::snprintf(display, size, "%.2f x", value);
         else std::snprintf(display, size, "%+.1f %%", value * 100.0);
     }
+#endif
     else return false;
     return true;
 }
@@ -469,15 +556,45 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     if (!plugin || !display || !value || !paramDef(id)
         || !parameterAvailableForPlugin(*self(plugin), id)) return false;
     if (id == kTransportParamId)
-        return parseNamedValue(display, value, 3, transportName);
+        return parseNamedValue(display, value,
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            2,
+#else
+            3,
+#endif
+            transportName);
     if (id == kRateBasisParamId)
-        return parseNamedValue(display, value, 2, rateBasisName);
+        return parseNamedValue(display, value,
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            8,
+#else
+            2,
+#endif
+            rateBasisName);
     if (id == kPathParamId)
-        return parseNamedValue(display, value, 8, pathName);
+        return parseNamedValue(display, value,
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            6,
+#else
+            8,
+#endif
+            pathName);
     if (id == kBlendParamId)
-        return parseNamedValue(display, value, 2, blendName);
+        return parseNamedValue(display, value,
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            7,
+#else
+            2,
+#endif
+            blendName);
     if (id == kShapeParamId)
-        return parseNamedValue(display, value, 4, shapeName);
+        return parseNamedValue(display, value,
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            2,
+#else
+            4,
+#endif
+            shapeName);
     if (id == kVoiceModeParamId)
         return parseNamedValue(display, value, 3, voiceName);
     if (id == kTriggerParamId) {
@@ -505,6 +622,10 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         return parseNamedValue(display, value, 2, pairLayoutName);
     if (id == kAvoidAdjacentParamId)
         return parseNamedValue(display, value, 2, onOffName);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (id == kTempoSyncParamId)
+        return parseNamedValue(display, value, 2, onOffName);
+#endif
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     if (id == kChannelModeParamId)
         return parseNamedValue(display, value, 6, channelModeName);
@@ -542,6 +663,17 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     char* end = nullptr;
     double parsed = std::strtod(display, &end);
     if (end == display) return false;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if ((id == kStartParamId || id == kEndParamId
+            || id == kManualLaneParamId || id == kCurveParamId
+            || id == kLaneSlewParamId || id == kVelocityParamId
+            || id == kCutReverseChanceParamId
+            || id == kCutLevelVariationParamId)
+        && std::strchr(display, '%')) parsed *= 0.01;
+    if ((id == kAttackParamId || id == kReleaseParamId)
+        && (std::strstr(display, "ms") || std::strstr(display, "MS")))
+        parsed *= 0.001;
+#else
     if ((id == kStartParamId || id == kEndParamId
             || id == kLoopCrossfadeParamId || id == kOffsetParamId
             || id == kSkewParamId || id == kVelocityParamId
@@ -563,6 +695,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         && (std::strstr(display, "ms") || std::strstr(display, "MS")))
         parsed *= 0.001;
     if (id == kManualLaneParamId) parsed = (parsed - 1.0) / 3.0;
+#endif
     *value = parsed;
     return true;
 }
@@ -669,7 +802,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     StateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT) \
+    || defined(S3G_SAMPLE_GRAINS_VARIANT)
         || header.version != kStateVersion
         || header.parameterCount != kParamCount
 #else
@@ -701,7 +835,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         || !s3g::clap_state::readAll(stream, saved.lanes.data(),
             saved.lanes.size() * sizeof(LaneState))) return false;
     if (
-#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        true
+#elif !defined(S3G_SAMPLE_GRAINS_VARIANT)
         header.version >= kRoutingPreviousStateVersion
 #else
         true
@@ -782,6 +918,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             instance.projectCopyInFlight[lane] = false;
         }
         (void)publishAsset(instance, lane, asset, runtimePath, false);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        (void)publishMetadata(instance, lane,
+            asset ? analyzeCutupsLane(*asset) : nullptr);
+#endif
         if (mode == StorageMode::Project && !runtimePath.empty()) {
             const ReaperContext context = s3g::sample_storage::reaperContext(
                 instance.host);
@@ -893,6 +1033,9 @@ bool pluginInit(const clap_plugin_t* plugin)
     setParam(instance, kActiveOutputsParamId,
         static_cast<double>(instance.outputChannelCount));
     instance.retainedAssets.reserve(64u);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    instance.retainedMetadata.reserve(64u);
+#endif
     instance.reaperContext = s3g::sample_storage::reaperContext(
         instance.host);
     if (instance.host && instance.host->get_extension) {
@@ -935,6 +1078,9 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
          ++channel)
         instance.scratch[channel].assign(maximumFrames, 0.0f);
     instance.audioAssets = {};
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    instance.audioMetadata = {};
+#endif
     return true;
 }
 
@@ -954,6 +1100,12 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     instance.retainedAssets.clear();
     for (const auto& asset : instance.controlAssets)
         if (asset) instance.retainedAssets.push_back(asset);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    instance.audioMetadata = {};
+    instance.retainedMetadata.clear();
+    for (const auto& metadata : instance.controlMetadata)
+        if (metadata) instance.retainedMetadata.push_back(metadata);
+#endif
 }
 
 bool pluginStartProcessing(const clap_plugin_t* plugin)
@@ -1000,6 +1152,14 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
             instance.audioAssets[lane] = asset;
             instance.engine.setPreparedAsset(lane, asset);
         }
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        const auto* metadata = instance.publishedMetadata[lane].load(
+            std::memory_order_acquire);
+        if (metadata != instance.audioMetadata[lane]) {
+            instance.audioMetadata[lane] = metadata;
+            instance.engine.setPreparedMetadata(lane, metadata);
+        }
+#endif
     }
     const std::size_t eventCount = collectRenderEvents(instance,
         process->in_events, process->frames_count);
@@ -1007,10 +1167,23 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     for (uint32_t channel = 0u; channel < instance.outputChannelCount;
          ++channel)
         scratchPointers[channel] = instance.scratch[channel].data();
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    double hostTempoBpm = 120.0;
+    if (process->transport
+        && (process->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
+        && std::isfinite(process->transport->tempo)
+        && process->transport->tempo > 0.0)
+        hostTempoBpm = process->transport->tempo;
+    instance.engine.render(settingsSnapshot(instance),
+        instance.blockEvents.data(), eventCount,
+        scratchPointers.data(), instance.outputChannelCount,
+        process->frames_count, hostTempoBpm);
+#else
     instance.engine.render(settingsSnapshot(instance),
         instance.blockEvents.data(), eventCount,
         scratchPointers.data(), instance.outputChannelCount,
         process->frames_count);
+#endif
     const auto& cursors = instance.engine.voiceCursors();
     const uint32_t cursorCount = instance.engine.voiceCursorCount();
     for (uint32_t index = 0u;
@@ -1358,7 +1531,29 @@ const char* const multichannelFeatures[] {
     nullptr,
 };
 
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+const clap_plugin_descriptor_t stereoDescriptor {
+    CLAP_VERSION_INIT,
+    "org.s3g.s3g-dsp.sample-cutups",
+    "s3g Sample Cutups 2",
+    "s3g",
+    "https://github.com/s3g/s3g-dsp",
+    "", "", "0.1.0",
+    "Four-file cut-up instrument with transient regions and per-file tempo analysis.",
+    stereoFeatures,
+};
+
+const clap_plugin_descriptor_t multichannelDescriptor {
+    CLAP_VERSION_INIT,
+    "org.s3g.s3g-dsp.sample-cutups-32",
+    "s3g Sample Cutups 32",
+    "s3g",
+    "https://github.com/s3g/s3g-dsp",
+    "", "", "0.1.0",
+    "Four-file cut-up instrument with transient regions and 32-channel allocation.",
+    multichannelFeatures,
+};
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 const clap_plugin_descriptor_t stereoDescriptor {
     CLAP_VERSION_INIT,
     "org.s3g.s3g-dsp.sample-grains",
@@ -1572,7 +1767,13 @@ void publishManualPath(Plugin& instance,
     std::array<LanePathPoint, s3g::sample::kMaximumLanePathPoints> points {};
     pointCount = std::min<uint32_t>(pointCount,
         static_cast<uint32_t>(points.size()));
-    if (pointCount >= 2u) {
+    if (pointCount >=
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        1u
+#else
+        2u
+#endif
+        ) {
         std::copy_n(requestedPoints.begin(), pointCount, points.begin());
         for (uint32_t index = 0u; index < pointCount; ++index) {
             points[index].phase = std::clamp(
@@ -1582,6 +1783,7 @@ void publishManualPath(Plugin& instance,
                 std::isfinite(points[index].lane)
                     ? points[index].lane : 0.0f, 0.0f, 1.0f);
         }
+#if !defined(S3G_SAMPLE_CUTUPS_VARIANT)
         std::sort(points.begin(), points.begin() + pointCount,
             [](const LanePathPoint& first, const LanePathPoint& second) {
                 return first.phase < second.phase;
@@ -1597,6 +1799,7 @@ void publishManualPath(Plugin& instance,
         }
         points[write++] = points[pointCount - 1u];
         pointCount = write;
+#endif
     } else pointCount = 0u;
 
     instance.manualPathRevision.fetch_add(1u, std::memory_order_acq_rel);
@@ -1617,6 +1820,100 @@ void publishManualPath(Plugin& instance,
 InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
 {
     InstrumentSettings settings;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    settings.clockBasis = static_cast<CutClockBasis>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kTransportParamId))));
+    settings.division = static_cast<CutDivision>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kRateBasisParamId))));
+    settings.regionMode = static_cast<CutRegionMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kShapeParamId))));
+    settings.fileOrder = static_cast<CutFileOrder>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kPathParamId))));
+    settings.sourceOrder = static_cast<CutSourceOrder>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kBlendParamId))));
+    settings.outputMode = static_cast<CutOutputMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kOutputModeParamId))));
+    settings.allocationCadence = static_cast<CutAllocationCadence>(
+        static_cast<uint8_t>(std::lround(
+            paramValue(instance, kAllocationCadenceParamId))));
+    settings.voiceMode = static_cast<VoiceMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kVoiceModeParamId))));
+    settings.triggerMode = static_cast<TriggerMode>(static_cast<uint8_t>(
+        std::lround(paramValue(instance, kTriggerParamId))));
+    settings.start = paramValue(instance, kStartParamId);
+    settings.end = paramValue(instance, kEndParamId);
+    settings.cutRateHz = static_cast<float>(paramValue(instance,
+        kRateParamId));
+    settings.swing = static_cast<float>(paramValue(instance, kCurveParamId));
+    settings.timeVariation = static_cast<float>(paramValue(instance,
+        kLaneSlewParamId));
+    settings.gate = static_cast<float>(paramValue(instance,
+        kManualLaneParamId));
+    settings.joinMilliseconds = static_cast<float>(paramValue(instance,
+        kLoopCrossfadeParamId));
+    settings.regionCount = static_cast<uint32_t>(std::lround(
+        paramValue(instance, kCyclesParamId)));
+    settings.patternLength = static_cast<uint32_t>(std::lround(
+        paramValue(instance, kOffsetParamId)));
+    settings.repeatCount = static_cast<uint32_t>(std::lround(
+        paramValue(instance, kSkewParamId)));
+    settings.reverseChance = static_cast<float>(paramValue(instance,
+        kCutReverseChanceParamId));
+    settings.pitchVariationSemitones = static_cast<float>(paramValue(instance,
+        kCutPitchVariationParamId));
+    settings.levelVariation = static_cast<float>(paramValue(instance,
+        kCutLevelVariationParamId));
+    settings.outputGainDecibels = static_cast<float>(paramValue(instance,
+        kOutParamId));
+    settings.rootNote = static_cast<uint8_t>(std::lround(
+        paramValue(instance, kRootParamId)));
+    settings.tuneSemitones = static_cast<float>(paramValue(instance,
+        kTuneParamId));
+    settings.fineTuneCents = static_cast<float>(paramValue(instance,
+        kFineParamId));
+    settings.attackSeconds = static_cast<float>(paramValue(instance,
+        kAttackParamId));
+    settings.releaseSeconds = static_cast<float>(paramValue(instance,
+        kReleaseParamId));
+    settings.pan = static_cast<float>(paramValue(instance, kPanParamId));
+    settings.velocitySensitivity = static_cast<float>(paramValue(instance,
+        kVelocityParamId));
+    settings.seed = static_cast<uint32_t>(std::lround(paramValue(instance,
+        kSeedParamId)));
+    settings.tempoSync = paramValue(instance, kTempoSyncParamId) >= 0.5;
+    for (std::size_t lane = 0u; lane < settings.laneBpm.size(); ++lane)
+        settings.laneBpm[lane] = static_cast<float>(paramValue(instance,
+            laneBpmParamId(lane)));
+    settings.activeOutputChannels = std::max<uint32_t>(2u,
+        std::min<uint32_t>(instance.outputChannelCount,
+            static_cast<uint32_t>(std::lround(paramValue(instance,
+                kActiveOutputsParamId)))));
+    settings.outputRouting.traversal
+        = static_cast<s3g::routing::OutputTraversal>(static_cast<uint8_t>(
+            std::lround(paramValue(instance, kTraversalParamId))));
+    settings.outputRouting.width
+        = static_cast<s3g::routing::OutputVoiceWidth>(static_cast<uint8_t>(
+            std::lround(paramValue(instance, kOutputWidthParamId))));
+    settings.outputRouting.pairLayout
+        = static_cast<s3g::routing::StereoPairLayout>(static_cast<uint8_t>(
+            std::lround(paramValue(instance, kPairLayoutParamId))));
+    settings.outputRouting.avoidAdjacent
+        = paramValue(instance, kAvoidAdjacentParamId) >= 0.5;
+    std::array<LanePathPoint, s3g::sample::kMaximumLanePathPoints> points {};
+    const uint32_t pointCount = manualPathSnapshot(instance, points);
+    for (uint32_t index = 0u; index < pointCount
+         && index < settings.manualPattern.size(); ++index) {
+        settings.manualPattern[index].source = points[index].phase;
+        settings.manualPattern[index].lane = static_cast<uint8_t>(std::lround(
+            std::clamp(points[index].lane, 0.0f, 1.0f) * 3.0f));
+    }
+    if (instance.outputChannelCount == 2u) {
+        settings.outputMode = CutOutputMode::Preserve;
+        settings.activeOutputChannels = 2u;
+        settings.outputRouting = {};
+    }
+    return settings;
+#else
     settings.transport = static_cast<LaneTransport>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kTransportParamId))));
     settings.rateBasis = static_cast<LaneRateBasis>(static_cast<uint8_t>(
@@ -1780,6 +2077,7 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
     }
 #endif
     return settings;
+#endif
 }
 
 void requestProcess(Plugin& instance) noexcept
@@ -1851,6 +2149,25 @@ bool publishAsset(Plugin& instance, std::size_t lane,
     return true;
 }
 
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+bool publishMetadata(Plugin& instance, std::size_t lane,
+    std::shared_ptr<const CutupsLaneMetadata> metadata)
+{
+    if (lane >= instance.controlMetadata.size()
+        || (metadata && !metadata->valid())) return false;
+    {
+        std::lock_guard<std::mutex> lock(instance.statusMutex);
+        if (metadata) instance.retainedMetadata.push_back(metadata);
+        instance.controlMetadata[lane] = std::move(metadata);
+        instance.publishedMetadata[lane].store(
+            instance.controlMetadata[lane].get(), std::memory_order_release);
+    }
+    instance.cursorRevision.fetch_add(1u, std::memory_order_release);
+    requestProcess(instance);
+    return true;
+}
+#endif
+
 void clearLane(Plugin& instance, std::size_t lane)
 {
     if (lane >= s3g::sample::kSampleLaneCount) return;
@@ -1874,10 +2191,22 @@ void clearLane(Plugin& instance, std::size_t lane)
         instance.projectStoragePending[lane] = false;
         instance.projectCopyInFlight[lane] = false;
     }
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    (void)publishMetadata(instance, lane, nullptr);
+#endif
     (void)publishAsset(instance, lane, nullptr, "", true);
 }
 
 void queueGuiParamGesture(Plugin& instance, clap_id id, double value);
+
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+std::shared_ptr<const CutupsLaneMetadata> analyzeCutupsLane(
+    const SampleAsset& asset)
+{
+    return std::make_shared<CutupsLaneMetadata>(
+        s3g::sample::analyzeCutupsAsset(asset));
+}
+#endif
 
 #if defined(__APPLE__)
 bool decodeSampleFile(const std::string& path,
@@ -1973,6 +2302,10 @@ void loaderMain(Plugin* instance)
                 if (!decodeSampleFile(result.decodedPath, result.asset,
                         decodeError, instance->outputChannelCount))
                     result.asset.reset();
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+                if (result.asset)
+                    result.metadata = analyzeCutupsLane(*result.asset);
+#endif
             } catch (...) {
                 result.asset.reset();
                 decodeError = "SAMPLE DECODE EXCEEDED AVAILABLE MEMORY";
@@ -2177,6 +2510,21 @@ void serviceLoads(Plugin& instance)
             instance.sourceFileBytes[lane] = result.sourceFileBytes;
         }
         (void)publishAsset(instance, lane, result.asset, publishedPath, true);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        (void)publishMetadata(instance, lane, result.metadata);
+        if (result.metadata && result.metadata->tempoValid) {
+            if (result.metadata->tempoConfidence >= 0.62f
+                && !result.metadata->tempoOctaveAmbiguous)
+                setParam(instance, laneBpmParamId(lane),
+                    result.metadata->analyzedBpm, true);
+            std::lock_guard<std::mutex> lock(instance.statusMutex);
+            char tempoText[64] {};
+            std::snprintf(tempoText, sizeof(tempoText), " / %.2f BPM%s",
+                result.metadata->analyzedBpm,
+                result.metadata->tempoOctaveAmbiguous ? "?" : "");
+            instance.statuses[lane] += tempoText;
+        }
+#endif
         if (mode == StorageMode::Project) {
             const ReaperContext context = s3g::sample_storage::reaperContext(
                 instance.host);

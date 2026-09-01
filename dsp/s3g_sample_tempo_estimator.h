@@ -26,7 +26,7 @@ inline TempoEstimate estimateSampleTempo(const SampleAsset& asset,
 {
     TempoEstimate result;
     if (!asset.valid() || asset.channelCount == 0u
-        || asset.channelCount > 2u || !(asset.sampleRate > 0.0)
+        || !(asset.sampleRate > 0.0)
         || !std::isfinite(minimumBpm) || !std::isfinite(maximumBpm)
         || minimumBpm < 20.0 || maximumBpm <= minimumBpm) return result;
 

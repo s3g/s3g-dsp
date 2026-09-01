@@ -21,17 +21,31 @@
 
 namespace {
 
-using s3g::sample::LaneBlend;
-using s3g::sample::LaneEventKind;
 using s3g::sample::LanePath;
 using s3g::sample::LanePathPoint;
+using s3g::sample::SampleAsset;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+using InstrumentEngine = s3g::sample::SampleCutupsEngine;
+using InstrumentSettings = s3g::sample::SampleCutupsSettings;
+using LaneEventKind = s3g::sample::CutupsEventKind;
+using LanesRenderEvent = s3g::sample::CutupsRenderEvent;
+using s3g::sample::CutAllocationCadence;
+using s3g::sample::CutClockBasis;
+using s3g::sample::CutDivision;
+using s3g::sample::CutFileOrder;
+using s3g::sample::CutOutputMode;
+using s3g::sample::CutRegionMode;
+using s3g::sample::CutSourceOrder;
+using s3g::sample::CutupsLaneMetadata;
+#else
+using s3g::sample::LaneBlend;
+using s3g::sample::LaneEventKind;
 using s3g::sample::LanePathShape;
 using s3g::sample::LaneRateBasis;
 using s3g::sample::LaneTransport;
 using s3g::sample::LaneOutputMode;
 using s3g::sample::LaneAllocationCadence;
 using s3g::sample::LanesRenderEvent;
-using s3g::sample::SampleAsset;
 using s3g::sample::SampleLanesSettings;
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
 using InstrumentEngine = s3g::sample::SampleGrainsEngine;
@@ -48,6 +62,7 @@ using s3g::sample::GrainTiming;
 using InstrumentEngine = s3g::sample::SampleLanesEngine;
 using InstrumentSettings = s3g::sample::SampleLanesSettings;
 #endif
+#endif
 using s3g::sample::TriggerMode;
 using s3g::sample::VoiceMode;
 using s3g::sample_storage::ProjectCopyResult;
@@ -56,7 +71,10 @@ using s3g::sample_storage::ProjectLocation;
 using s3g::sample_storage::ReaperContext;
 using s3g::sample_storage::StorageMode;
 
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr uint32_t kStateMagic = 0x43553353u; // "S3UC"
+constexpr uint32_t kStateVersion = 1u;
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr uint32_t kStateMagic = 0x47533353u; // "S3SG"
 constexpr uint32_t kStateVersion = 4u;
 #else
@@ -69,7 +87,9 @@ constexpr uint32_t kLegacyStateVersion = 1u;
 constexpr std::size_t kLegacyParamCount = 27u;
 constexpr std::size_t kPreviousParamCount = 39u;
 constexpr uint32_t kGuiWidth = 1280u;
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr uint32_t kGuiHeight = 832u;
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr uint32_t kGuiHeight = 932u;
 #else
 constexpr uint32_t kGuiHeight = 724u;
@@ -129,7 +149,9 @@ constexpr clap_id kTraversalParamId = 43u;
 constexpr clap_id kOutputWidthParamId = 44u;
 constexpr clap_id kPairLayoutParamId = 45u;
 constexpr clap_id kAvoidAdjacentParamId = 46u;
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr std::size_t kParamCount = 42u;
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr clap_id kGrainSourceModeParamId = 47u;
 constexpr clap_id kGrainDensityParamId = 48u;
 constexpr clap_id kGrainSizeParamId = 49u;
@@ -165,6 +187,15 @@ constexpr clap_id laneStretchParamId(std::size_t lane) noexcept
 constexpr clap_id laneNudgeParamId(std::size_t lane) noexcept
 { return kLane1NudgeParamId + static_cast<clap_id>(lane * 3u); }
 
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr clap_id laneBpmParamId(std::size_t lane) noexcept
+{ return kLane1SpeedParamId + static_cast<clap_id>(lane); }
+constexpr clap_id kTempoSyncParamId = kLane2StretchParamId;
+constexpr clap_id kCutReverseChanceParamId = kLane2NudgeParamId;
+constexpr clap_id kCutPitchVariationParamId = kLane3SpeedParamId;
+constexpr clap_id kCutLevelVariationParamId = kLane3StretchParamId;
+#endif
+
 struct ParamDef {
     clap_id id;
     const char* name;
@@ -175,6 +206,71 @@ struct ParamDef {
     bool stepped;
 };
 
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr std::array<ParamDef, kParamCount> kParamDefs {{
+    { kOutParamId, "Out", "Output", -60.0, 12.0, -6.0, false },
+    { kTransportParamId, "Cut Clock", "Cut Clock", 0.0, 1.0, 1.0, true },
+    { kRateBasisParamId, "Division", "Cut Clock", 0.0, 7.0, 4.0, true },
+    { kRateParamId, "Free Rate", "Cut Clock", 0.1, 80.0, 8.0, false },
+    { kStartParamId, "Start", "Source Field", 0.0, 1.0, 0.0, false },
+    { kEndParamId, "End", "Source Field", 0.0, 1.0, 1.0, false },
+    { kLoopCrossfadeParamId, "Join", "Cut Playback", 0.0, 100.0, 5.0,
+        false },
+    { kPathParamId, "File Order", "Cut Address", 0.0, 5.0, 4.0, true },
+    { kBlendParamId, "Source Order", "Cut Address", 0.0, 6.0, 1.0, true },
+    { kShapeParamId, "Regions", "Cut Address", 0.0, 1.0, 0.0, true },
+    { kCyclesParamId, "Region Count", "Cut Address", 2.0, 64.0, 16.0,
+        true },
+    { kOffsetParamId, "Pattern Length", "Cut Address", 1.0, 16.0, 16.0,
+        true },
+    { kSkewParamId, "Repeat", "Cut Address", 1.0, 16.0, 1.0, true },
+    { kCurveParamId, "Swing", "Cut Clock", 0.0, 0.75, 0.0, false },
+    { kManualLaneParamId, "Gate", "Cut Playback", 0.05, 1.0, 1.0,
+        false },
+    { kLaneSlewParamId, "Time Variation", "Cut Clock", 0.0, 1.0, 0.0,
+        false },
+    { kVoiceModeParamId, "Voice Mode", "Voice", 0.0, 2.0, 0.0, true },
+    { kTriggerParamId, "Trigger", "Voice", 0.0, 3.0, 1.0, true },
+    { kRootParamId, "Root Note", "Pitch", 0.0, 127.0, 60.0, true },
+    { kTuneParamId, "Tune", "Pitch", -60.0, 60.0, 0.0, false },
+    { kFineParamId, "Fine Tune", "Pitch", -100.0, 100.0, 0.0, false },
+    { kAttackParamId, "Attack", "Amp", 0.0, 2.0, 0.003, false },
+    { kReleaseParamId, "Release", "Amp", 0.0, 2.0, 0.020, false },
+    { kPanParamId, "Pan", "Output", -1.0, 1.0, 0.0, false },
+    { kVelocityParamId, "Velocity", "MIDI", 0.0, 1.0, 1.0, false },
+    { kSeedParamId, "Seed", "Cut Address", 1.0, 65535.0, 1.0, true },
+    { kMidiParamId, "MIDI Receive", "MIDI", 0.0, 16.0, 0.0, true },
+    { kLane1SpeedParamId, "Lane 1 BPM", "Lane Tempo", 20.0, 400.0,
+        120.0, false },
+    { kLane1StretchParamId, "Lane 2 BPM", "Lane Tempo", 20.0, 400.0,
+        120.0, false },
+    { kLane1NudgeParamId, "Lane 3 BPM", "Lane Tempo", 20.0, 400.0,
+        120.0, false },
+    { kLane2SpeedParamId, "Lane 4 BPM", "Lane Tempo", 20.0, 400.0,
+        120.0, false },
+    { kTempoSyncParamId, "Tempo Sync", "Lane Tempo", 0.0, 1.0, 1.0,
+        true },
+    { kCutReverseChanceParamId, "Reverse Chance", "Cut Playback", 0.0,
+        1.0, 0.0, false },
+    { kCutPitchVariationParamId, "Pitch Variation", "Cut Playback", 0.0,
+        24.0, 0.0, false },
+    { kCutLevelVariationParamId, "Level Variation", "Cut Playback", 0.0,
+        1.0, 0.0, false },
+    { kOutputModeParamId, "Output Mode", "Output", 0.0, 1.0, 0.0, true },
+    { kActiveOutputsParamId, "Active Outputs", "Output", 2.0, 32.0,
+        32.0, true },
+    { kAllocationCadenceParamId, "Allocation Clock", "Output", 0.0, 2.0,
+        0.0, true },
+    { kTraversalParamId, "Output Traversal", "Output", 0.0, 4.0, 0.0,
+        true },
+    { kOutputWidthParamId, "Output Voice Width", "Output", 0.0, 1.0,
+        1.0, true },
+    { kPairLayoutParamId, "Stereo Pair Layout", "Output", 0.0, 1.0,
+        0.0, true },
+    { kAvoidAdjacentParamId, "Avoid Adjacent", "Output", 0.0, 1.0,
+        0.0, true },
+}};
+#else
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kOutParamId, "Out", "Output", -60.0, 12.0, -6.0, false },
     { kTransportParamId, "Transport", "Loop", 0.0, 2.0, 0.0, true },
@@ -309,6 +405,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         -48.0, 48.0, 0.0, false },
 #endif
 }};
+#endif
 
 struct StateHeader {
     uint32_t magic = kStateMagic;
@@ -368,6 +465,9 @@ struct LoadResult {
     std::string sourcePath;
     std::string decodedPath;
     std::shared_ptr<const SampleAsset> asset;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    std::shared_ptr<const CutupsLaneMetadata> metadata;
+#endif
     std::string error;
     ProjectCopyResult projectCopy;
     uint64_t sourceFileBytes = 0u;
@@ -393,6 +493,15 @@ struct Plugin {
     std::array<std::shared_ptr<const SampleAsset>,
         s3g::sample::kSampleLaneCount> controlAssets {};
     std::vector<std::shared_ptr<const SampleAsset>> retainedAssets;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    std::array<const CutupsLaneMetadata*, s3g::sample::kSampleLaneCount>
+        audioMetadata {};
+    std::array<std::atomic<const CutupsLaneMetadata*>,
+        s3g::sample::kSampleLaneCount> publishedMetadata {};
+    std::array<std::shared_ptr<const CutupsLaneMetadata>,
+        s3g::sample::kSampleLaneCount> controlMetadata {};
+    std::vector<std::shared_ptr<const CutupsLaneMetadata>> retainedMetadata;
+#endif
     std::mutex statusMutex;
     std::array<std::string, s3g::sample::kSampleLaneCount> samplePaths {};
     std::array<std::string, s3g::sample::kSampleLaneCount> linkSourcePaths {};
@@ -512,8 +621,16 @@ std::shared_ptr<const SampleAsset> currentAsset(Plugin& instance,
 bool publishAsset(Plugin& instance, std::size_t lane,
     std::shared_ptr<const SampleAsset> asset, std::string path,
     bool dirty = true);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+bool publishMetadata(Plugin& instance, std::size_t lane,
+    std::shared_ptr<const CutupsLaneMetadata> metadata);
+#endif
 void clearLane(Plugin& instance, std::size_t lane);
 
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+std::shared_ptr<const CutupsLaneMetadata> analyzeCutupsLane(
+    const SampleAsset& asset);
+#endif
 #if defined(__APPLE__)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error,

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Cutups - s3g-dsp</title>
+    <meta name="description" content="User guide for Sample Cutups 2 and 32: four-file cut patterns, transient regions, per-file BPM, and multichannel allocation.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Cutups</h1>
+
+        <p><code>Sample Cutups 2</code> and <code>Sample Cutups 32</code> turn as many as four files into one clocked cut pattern. Every step chooses a file lane and a region within that file, so a pattern can splice beats, phrases, field recordings, or unrelated sources without first rendering a composite file. Cutups is a distinct instrument rather than a Lanes mode: its voice state advances discrete regions, repeats, probability, and output allocation at cut boundaries.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert Sample Cutups 2 on a stereo track, or Sample Cutups 32 on a fixed 32-channel track.</li>
+          <li>Route its stereo output, or the selected Cutups 32 outputs, to an audible speaker or headphone path.</li>
+          <li>Load or drop as many as four files. Each file is analysed off the audio thread for transient boundaries and tempo.</li>
+          <li>Choose Host and a rhythmic Division, or choose Free and set the cut rate in hertz.</li>
+          <li>Select Equal or Transient regions, then choose File Order and Source Order.</li>
+          <li>Set Pattern Length and Step Repeat. Click or drag the lower pattern to author file choices; Option-drag a step to author its manual source position.</li>
+          <li>Shape the edit with Gate, Join, Swing, timing variation, reverse chance, pitch variation, and level variation.</li>
+        </ol>
+
+        <h2 id="analysis">Transient Regions and File Tempo</h2>
+
+        <p>Analysis runs when a decoded file becomes available and again when embedded audio is restored. Transient markers are snapped toward nearby zero crossings, include a short pre-transient lead, and reject regions shorter than 20 ms. The waveform rows display the resulting boundaries. If analysis produces no usable onset after the beginning, Transient mode still has one full-file region.</p>
+
+        <p>The selected lane’s File BPM appears in the tempo panel and remains editable. A confident, unambiguous estimate replaces its default value automatically; uncertain estimates are shown in the lane status without forcing the parameter. With Tempo Sync enabled and Host clock selected, playback rate is multiplied by host BPM divided by that lane’s BPM. This is intentional sampler-style varispeed, so tempo correction also changes pitch.</p>
+
+        <h2 id="clock">Cut Clock</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Host / Division</td><td>Derive cut duration from host tempo at 1/1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/8 triplet, or 1/16 triplet.</td></tr>
+            <tr><td>Free Rate</td><td>Run an independent cut clock from 0.1 to 80 Hz.</td></tr>
+            <tr><td>Swing</td><td>Lengthen alternating cuts and shorten the cuts between them while preserving the two-step duration.</td></tr>
+            <tr><td>Time Variation</td><td>Add deterministic seeded deviation to each interval.</td></tr>
+            <tr><td>Step Repeat</td><td>Repeat the current pattern address before advancing to the next step.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="address">File and Source Addressing</h2>
+
+        <p>File Order offers Down, Up, Palindrome, Random, Random Cycle, and Manual. Random Cycle visits every loaded file once before reshuffling. A requested empty manual lane resolves to the nearest loaded lane rather than producing a silent hole.</p>
+
+        <p>Source Order offers Timeline, Forward, Reverse, Palindrome, Random, Walk, and Manual. Equal mode divides the shared Start–End window into Region Count pieces. Transient mode uses the analysed boundaries that fall inside that window. Timeline continues from the current read position; Manual maps the source position stored in each pattern step to the available region set.</p>
+
+        <p>The pattern editor’s X axis is step number and Y axis is file lane. Clicking selects Manual File Order and quantizes the step to one of four lanes. Option-clicking or Option-dragging selects Manual Source Order and writes a proportional source location; the dark line within each step shows that location. Up to sixteen steps are stored in plug-in state.</p>
+
+        <h2 id="playback">Cut Playback</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Gate</td><td>Sets how much of each cut interval remains audible.</td></tr>
+            <tr><td>Join</td><td>Applies an equal-power overlap between outgoing and incoming cuts, limited to half the current interval.</td></tr>
+            <tr><td>Reverse</td><td>Sets the seeded probability that a cut reads backward.</td></tr>
+            <tr><td>Pitch Variation</td><td>Adds a seeded bipolar pitch offset of as much as 24 semitones per cut.</td></tr>
+            <tr><td>Level Variation</td><td>Applies a seeded attenuation per cut.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Poly, Mono, and Legato determine voice ownership. Auto and Gate release at note-off, One Shot releases after one complete pattern, and Toggle alternates a matching note on and off. Root, Tune, Fine, Attack, Release, Velocity, MIDI reception, Pan, and Out follow the rest of the Sample family.</p>
+
+        <h2 id="routing">Sample Cutups 32 Routing</h2>
+
+        <p>Preserve Field retains each source channel on the same-numbered output. Distribute folds the active cut to mono or stereo and assigns it within Active Outputs. Allocation Clock can choose a destination per Note, per Cut, or at each Pattern boundary. Traversal, pair layout, and Avoid Near use the shared Sample-family allocator.</p>
+
+        <h2 id="presets">Factory Presets</h2>
+
+        <p>Tight Sixteenths, Transient Relay, Tape Mosaic, Four File Walk, Reverse Stutter, Wide Cuts, and Manual Pattern provide starting points for ordered, transient-driven, stochastic, reversed, and multichannel behaviors. Presets reset every parameter before applying their changes.</p>
+
+        <h2 id="storage">Storage and Recall</h2>
+
+        <p>The sixteen-step pattern, parameters, and four source references return with the project. <code>PROJECT</code>, <code>LINK</code>, and <code>EMBED</code> use the same storage rules as the other Sample instruments. Analysis metadata is safely regenerated from restored audio rather than being trusted as opaque state.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="sample-grains.html"><span>Previous</span>Sample Grains</a>
+          <a class="page-nav-link next" href="sample-slicer.html"><span>Next</span>Sample Slicer</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-lanes.html">Sample Lanes</a>
+          <a href="sample-grains.html">Sample Grains</a>
+          <a href="sample-cutups.html">Sample Cutups</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
+          <a href="sample-rings.html">Sample Rings</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#analysis">Transient and Tempo Analysis</a>
+          <a href="#clock">Cut Clock</a>
+          <a href="#address">File and Source Addressing</a>
+          <a href="#playback">Cut Playback</a>
+          <a href="#routing">Cutups 32 Routing</a>
+          <a href="#presets">Factory Presets</a>
+          <a href="#storage">Storage and Recall</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

@@ -9,6 +9,7 @@ static_assert(s3g::gui_layout::processorTitleBandFits(kLanesTitleBand));
 
 constexpr NSRect kSamplePanel = {{ 18.0, 54.0 }, { 850.0, 296.0 }};
 constexpr NSRect kStorageButton = {{ 744.0, 60.0 }, { 112.0, 16.0 }};
+#if !defined(S3G_SAMPLE_CUTUPS_VARIANT)
 constexpr NSRect kLaneTimingPanel = {{ 880.0, 54.0 }, { 382.0, 120.0 }};
 constexpr NSRect kTimingSpeedColumn = kLaneTimingPanel;
 constexpr NSRect kTimingStretchColumn = kLaneTimingPanel;
@@ -18,7 +19,31 @@ constexpr CGFloat kTimingStretchY = 120.0;
 constexpr CGFloat kTimingNudgeY = 146.0;
 constexpr NSRect kPathScope = {{ 18.0, 362.0 }, { 850.0, 180.0 }};
 constexpr NSRect kPathGraph = {{ 218.0, 390.0 }, { 638.0, 138.0 }};
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#endif
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr NSRect kLaneTimingPanel = {{ 880.0, 54.0 }, { 382.0, 96.0 }};
+constexpr NSRect kTimingSpeedColumn = kLaneTimingPanel;
+constexpr NSRect kTimingStretchColumn = kLaneTimingPanel;
+constexpr NSRect kTimingNudgeColumn = kLaneTimingPanel;
+constexpr CGFloat kTimingSpeedY = 94.0;
+constexpr CGFloat kTimingStretchY = 118.0;
+constexpr CGFloat kTimingNudgeY = 118.0;
+constexpr NSRect kLoopPanel = {{ 880.0, 162.0 }, { 382.0, 188.0 }};
+constexpr NSRect kPathScope = {{ 18.0, 362.0 }, { 850.0, 180.0 }};
+constexpr NSRect kPathGraph = {{ 218.0, 390.0 }, { 638.0, 138.0 }};
+constexpr NSRect kPathPanel = {{ 880.0, 362.0 }, { 382.0, 308.0 }};
+constexpr NSRect kCutPlaybackPanel = {{ 18.0, 554.0 }, { 850.0, 116.0 }};
+constexpr NSRect kCutPlaybackColumn1 = {{ 18.0, 554.0 }, { 270.0, 116.0 }};
+constexpr NSRect kCutPlaybackColumn2 = {{ 300.0, 554.0 }, { 270.0, 116.0 }};
+constexpr NSRect kCutPlaybackColumn3 = {{ 582.0, 554.0 }, { 286.0, 116.0 }};
+constexpr NSRect kVoicePanel = {{ 18.0, 682.0 }, { 1244.0, 130.0 }};
+constexpr NSRect kVoiceColumn1 = {{ 18.0, 682.0 }, { 392.0, 130.0 }};
+constexpr NSRect kVoiceColumn2 = {{ 422.0, 682.0 }, { 392.0, 130.0 }};
+constexpr NSRect kVoiceColumn3 = {{ 826.0, 682.0 }, { 436.0, 130.0 }};
+constexpr NSRect kOutputPageButton = {{ 850.0, 688.0 }, { 116.0, 16.0 }};
+constexpr NSRect kPreviewButton = {{ 974.0, 688.0 }, { 126.0, 16.0 }};
+constexpr NSRect kStopButton = {{ 1108.0, 688.0 }, { 142.0, 16.0 }};
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr NSRect kLoopPanel = {{ 880.0, 54.0 }, { 382.0, 176.0 }};
 constexpr NSRect kGrainPanel = {{ 880.0, 242.0 }, { 382.0, 224.0 }};
 constexpr NSRect kGrainSourceColumn = kGrainPanel;
@@ -49,7 +74,16 @@ constexpr NSRect kPreviewButton = {{ 590.0, 560.0 }, { 126.0, 16.0 }};
 constexpr NSRect kStopButton = {{ 724.0, 560.0 }, { 132.0, 16.0 }};
 #endif
 
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr std::array<const char*, 8u> kPresetNames {{
+    "INIT", "Tight Sixteenths", "Transient Relay", "Tape Mosaic",
+    "Four File Walk", "Reverse Stutter", "Wide Cuts", "Manual Pattern",
+}};
+NSString* const kPresetItems[] = {
+    @"INIT", @"Tight Sixteenths", @"Transient Relay", @"Tape Mosaic",
+    @"Four File Walk", @"Reverse Stutter", @"Wide Cuts", @"Manual Pattern",
+};
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr std::array<const char*, 8u> kPresetNames {{
     "INIT", "Soft Cloud", "Frozen Halo", "Loudness Sort",
     "Stutter Field", "Shrinking Rain", "Doublet Scatter", "Manual Path",
@@ -68,6 +102,19 @@ NSString* const kPresetItems[] = {
     @"Sine Weave", @"Random Cuts", @"Ping Pong", @"Manual Path",
 };
 #endif
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+NSString* const kTransportItems[] = { @"Free", @"Host" };
+NSString* const kRateBasisItems[] = {
+    @"1/1", @"1/2", @"1/4", @"1/8", @"1/16", @"1/32", @"1/8T", @"1/16T",
+};
+NSString* const kPathItems[] = {
+    @"Down", @"Up", @"Palindrome", @"Random", @"Random Cycle", @"Manual",
+};
+NSString* const kBlendItems[] = {
+    @"Timeline", @"Forward", @"Reverse", @"Palindrome", @"Random", @"Walk", @"Manual",
+};
+NSString* const kShapeItems[] = { @"Equal", @"Transient" };
+#else
 NSString* const kTransportItems[] = {
     @"Forward", @"Reverse", @"Ping Pong",
 };
@@ -80,6 +127,7 @@ NSString* const kBlendItems[] = { @"Crossfade", @"Jump" };
 NSString* const kShapeItems[] = {
     @"Linear", @"Smooth", @"Exponential", @"Plateau",
 };
+#endif
 NSString* const kVoiceItems[] = { @"Poly", @"Mono", @"Legato" };
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
 NSString* const kTriggerItems[] = { @"Gate", @"One Shot", @"Toggle" };
@@ -95,7 +143,9 @@ NSString* const kActiveOutputCountItems[] = {
     @"18", @"19", @"20", @"21", @"22", @"23", @"24", @"25",
     @"26", @"27", @"28", @"29", @"30", @"31", @"32",
 };
-#if !defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+NSString* const kAllocationCadenceItems[] = { @"Note", @"Cut", @"Pattern" };
+#elif !defined(S3G_SAMPLE_GRAINS_VARIANT)
 NSString* const kAllocationCadenceItems[] = { @"Note", @"Lane", @"Turn" };
 #endif
 NSString* const kTraversalItems[] = {
@@ -137,11 +187,19 @@ struct LanesMenuSpec {
 LanesMenuSpec lanesMenuSpec(clap_id id) noexcept
 {
     switch (id) {
-    case kTransportParamId: return { kTransportItems, 3u, 1u };
-    case kRateBasisParamId: return { kRateBasisItems, 2u, 1u };
-    case kPathParamId: return { kPathItems, 8u, 1u };
-    case kBlendParamId: return { kBlendItems, 2u, 1u };
-    case kShapeParamId: return { kShapeItems, 4u, 1u };
+    case kTransportParamId: return { kTransportItems,
+        static_cast<uint32_t>(std::size(kTransportItems)), 1u };
+    case kRateBasisParamId: return { kRateBasisItems,
+        static_cast<uint32_t>(std::size(kRateBasisItems)), 1u };
+    case kPathParamId: return { kPathItems,
+        static_cast<uint32_t>(std::size(kPathItems)), 1u };
+    case kBlendParamId: return { kBlendItems,
+        static_cast<uint32_t>(std::size(kBlendItems)), 1u };
+    case kShapeParamId: return { kShapeItems,
+        static_cast<uint32_t>(std::size(kShapeItems)), 1u };
+    #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    case kTempoSyncParamId: return { kOnOffItems, 2u, 1u };
+    #endif
     case kVoiceModeParamId: return { kVoiceItems, 3u, 1u };
     case kTriggerParamId:
         return { kTriggerItems,
@@ -242,7 +300,50 @@ struct UiRow {
 };
 
 constexpr UiRow kRows[] = {
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    { kTempoSyncParamId, kLaneTimingPanel, 118.0, "TEMPO SYNC", true },
+    { kTransportParamId, kLoopPanel, 202.0, "CLOCK", true },
+    { kRateBasisParamId, kLoopPanel, 226.0, "DIVISION", true },
+    { kRateParamId, kLoopPanel, 250.0, "FREE RATE", false },
+    { kCurveParamId, kLoopPanel, 274.0, "SWING", false },
+    { kLaneSlewParamId, kLoopPanel, 298.0, "TIME VAR", false },
+    { kPathParamId, kPathPanel, 402.0, "FILE ORDER", true },
+    { kBlendParamId, kPathPanel, 426.0, "SOURCE ORDER", true },
+    { kShapeParamId, kPathPanel, 450.0, "REGION MODE", true },
+    { kCyclesParamId, kPathPanel, 474.0, "REGION COUNT", false },
+    { kOffsetParamId, kPathPanel, 498.0, "PATTERN LENGTH", false },
+    { kSkewParamId, kPathPanel, 522.0, "STEP REPEAT", false },
+    { kStartParamId, kPathPanel, 546.0, "START", false },
+    { kEndParamId, kPathPanel, 570.0, "END", false },
+    { kSeedParamId, kPathPanel, 594.0, "SEED", false },
+    { kLoopCrossfadeParamId, kCutPlaybackColumn1, 594.0, "JOIN", false },
+    { kManualLaneParamId, kCutPlaybackColumn1, 618.0, "GATE", false },
+    { kCutReverseChanceParamId, kCutPlaybackColumn2, 594.0,
+        "REVERSE", false },
+    { kCutPitchVariationParamId, kCutPlaybackColumn2, 618.0,
+        "PITCH VAR", false },
+    { kCutLevelVariationParamId, kCutPlaybackColumn3, 594.0,
+        "LEVEL VAR", false },
+    { kOutputModeParamId, kVoiceColumn1, 722.0, "SOURCE MODE", true },
+    { kActiveOutputsParamId, kVoiceColumn1, 746.0, "ACTIVE OUT", true },
+    { kAllocationCadenceParamId, kVoiceColumn1, 770.0,
+        "ALLOC CLOCK", true },
+    { kTraversalParamId, kVoiceColumn2, 722.0, "TRAVERSAL", true },
+    { kOutputWidthParamId, kVoiceColumn2, 746.0, "CUT WIDTH", true },
+    { kPairLayoutParamId, kVoiceColumn2, 770.0, "PAIR LAYOUT", true },
+    { kAvoidAdjacentParamId, kVoiceColumn3, 722.0, "AVOID NEAR", true },
+    { kOutParamId, kVoiceColumn1, 722.0, "OUT", false },
+    { kPanParamId, kVoiceColumn1, 746.0, "PAN", false },
+    { kVoiceModeParamId, kVoiceColumn1, 770.0, "VOICE", true },
+    { kTriggerParamId, kVoiceColumn1, 794.0, "TRIGGER", true },
+    { kRootParamId, kVoiceColumn2, 722.0, "ROOT", false },
+    { kTuneParamId, kVoiceColumn2, 746.0, "TUNE", false },
+    { kFineParamId, kVoiceColumn2, 770.0, "FINE", false },
+    { kMidiParamId, kVoiceColumn2, 794.0, "MIDI", true },
+    { kAttackParamId, kVoiceColumn3, 722.0, "ATTACK", false },
+    { kReleaseParamId, kVoiceColumn3, 746.0, "RELEASE", false },
+    { kVelocityParamId, kVoiceColumn3, 770.0, "VELOCITY", false },
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
     { kGrainSourceModeParamId, kGrainPanel, 282.0, "SOURCE MODE", true },
     { kGrainEnvelopeParamId, kGrainPanel, 306.0, "ENVELOPE", true },
     { kGrainDensityParamId, kGrainSourceColumn, 330.0, "DENSITY", false },
@@ -361,6 +462,10 @@ NSRect laneClearRect(std::size_t lane) noexcept
 double normalizedParam(const ParamDef& def, double value) noexcept
 {
     if ((def.id == kRateParamId || def.id == kCyclesParamId
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            || (def.id >= kLane1SpeedParamId
+                && def.id <= kLane2SpeedParamId))
+#else
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
             || def.id == kGrainDensityParamId
             || def.id == kGrainSizeParamId
@@ -368,6 +473,7 @@ double normalizedParam(const ParamDef& def, double value) noexcept
             || (def.id >= kLane1SpeedParamId
                 && def.id <= kLane4StretchParamId
                 && (def.id - kLane1SpeedParamId) % 3u < 2u))
+#endif
         && def.minimum > 0.0)
         return std::clamp(std::log(value / def.minimum)
             / std::log(def.maximum / def.minimum), 0.0, 1.0);
@@ -383,6 +489,10 @@ double paramFromNormalized(const ParamDef& def, double value) noexcept
 {
     value = std::clamp(value, 0.0, 1.0);
     if ((def.id == kRateParamId || def.id == kCyclesParamId
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            || (def.id >= kLane1SpeedParamId
+                && def.id <= kLane2SpeedParamId))
+#else
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
             || def.id == kGrainDensityParamId
             || def.id == kGrainSizeParamId
@@ -390,6 +500,7 @@ double paramFromNormalized(const ParamDef& def, double value) noexcept
             || (def.id >= kLane1SpeedParamId
                 && def.id <= kLane4StretchParamId
                 && (def.id - kLane1SpeedParamId) % 3u < 2u))
+#endif
         && def.minimum > 0.0)
         return def.minimum * std::pow(def.maximum / def.minimum, value);
     if (def.id == kAttackParamId || def.id == kReleaseParamId
@@ -435,6 +546,16 @@ uint32_t editableManualPath(Plugin& instance,
     ManualPathPoints& points) noexcept
 {
     uint32_t count = manualPathSnapshot(instance, points);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    const uint32_t savedCount = count;
+    count = static_cast<uint32_t>(points.size());
+    for (uint32_t index = savedCount; index < count; ++index) {
+        points[index].phase = static_cast<float>(index)
+            / static_cast<float>(count);
+        points[index].lane = static_cast<float>(index % 4u) / 3.0f;
+    }
+    return count;
+#else
     if (count >= 2u) return count;
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     constexpr float lane = 0.5f;
@@ -445,6 +566,7 @@ uint32_t editableManualPath(Plugin& instance,
     points[0u] = { 0.0f, lane };
     points[1u] = { 1.0f, lane };
     return 2u;
+#endif
 }
 
 NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
@@ -598,8 +720,22 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     s3g::clap_gui::drawPanelFrame(NSMinX(kLaneTimingPanel),
         NSMinY(kLaneTimingPanel), NSWidth(kLaneTimingPanel),
         NSHeight(kLaneTimingPanel), style);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    std::shared_ptr<const CutupsLaneMetadata> tempoMetadata;
+    {
+        std::lock_guard<std::mutex> lock(_instance->statusMutex);
+        tempoMetadata = _instance->controlMetadata[lane];
+    }
+    NSString* title = tempoMetadata && tempoMetadata->tempoValid
+        ? [NSString stringWithFormat:@"LANE %zu TEMPO / DETECTED %.2f BPM%s",
+            lane + 1u, tempoMetadata->analyzedBpm,
+            tempoMetadata->tempoOctaveAmbiguous ? " ?" : ""]
+        : [NSString stringWithFormat:
+            @"LANE %zu TEMPO / NO CONFIDENT DETECTION", lane + 1u];
+#else
     NSString* title = [NSString stringWithFormat:
         @"LANE %zu TIMING / STRETCH KEEPS PITCH", lane + 1u];
+#endif
     s3g::clap_gui::drawPanelHeader(title, true,
         NSMinX(kLaneTimingPanel), NSMinY(kLaneTimingPanel),
         NSWidth(kLaneTimingPanel), 27.0, labels, style);
@@ -609,12 +745,17 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         NSRect panel;
         CGFloat y;
     } controls[] = {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        { laneBpmParamId(lane), "FILE BPM", kTimingSpeedColumn,
+            kTimingSpeedY },
+#else
         { laneSpeedParamId(lane), "SPEED", kTimingSpeedColumn,
             kTimingSpeedY },
         { laneStretchParamId(lane), "STRETCH", kTimingStretchColumn,
             kTimingStretchY },
         { laneNudgeParamId(lane), "WRAP NUDGE", kTimingNudgeColumn,
             kTimingNudgeY },
+#endif
     };
     for (const auto& control : controls) {
         const auto* def = paramDef(control.id);
@@ -635,7 +776,8 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     const double start = paramValue(*_instance, kStartParamId);
     const double end = paramValue(*_instance, kEndParamId);
     const double span = end - start;
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT) \
+    || defined(S3G_SAMPLE_GRAINS_VARIANT)
     constexpr double nudge = 0.0;
 #else
     const double nudge = paramValue(*_instance, laneNudgeParamId(lane));
@@ -715,6 +857,26 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         [s3g::clap_gui::color(0x555555) setStroke];
         [waveform stroke];
     }
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    std::shared_ptr<const CutupsLaneMetadata> metadata;
+    {
+        std::lock_guard<std::mutex> lock(_instance->statusMutex);
+        metadata = _instance->controlMetadata[lane];
+    }
+    if (metadata && metadata->transientRegions.valid()) {
+        [[style.accent colorWithAlphaComponent:0.42] setStroke];
+        for (uint32_t index = 1u;
+             index < metadata->transientRegions.count; ++index) {
+            const CGFloat x = NSMinX(rect)
+                + metadata->transientRegions.starts[index] * NSWidth(rect);
+            NSBezierPath* marker = [NSBezierPath bezierPath];
+            [marker setLineWidth:0.7];
+            [marker moveToPoint:NSMakePoint(x, NSMinY(rect) + 1.0)];
+            [marker lineToPoint:NSMakePoint(x, NSMaxY(rect) - 1.0)];
+            [marker stroke];
+        }
+    }
+#endif
     if (span > 0.0 && std::abs(nudge) > 1.0e-6) {
         const double seamPhase = s3g::sample::wrapLanePhase(-nudge);
         const CGFloat seamX = NSMinX(rect)
@@ -935,14 +1097,19 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     s3g::clap_gui::drawPanelFrame(NSMinX(kPathScope), NSMinY(kPathScope),
         NSWidth(kPathScope), NSHeight(kPathScope), style);
     s3g::clap_gui::drawPanelHeader(
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        @"CUT PATTERN / STEP CLOCK × FILE LANE",
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
         @"READ HEAD PATH / LIVE GRAIN EVENTS",
 #else
         @"READ HEAD PATH / PATH CLOCK × FILE LANE",
 #endif
         true, NSMinX(kPathScope), NSMinY(kPathScope), NSWidth(kPathScope),
         27.0, labels, style);
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    [@"X  PATTERN STEP" drawAtPoint:NSMakePoint(30.0, 401.0)
+        withAttributes:labels];
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
     const bool grainClock = paramValue(*_instance,
         kSourceAdvanceParamId) >= 0.5;
     [(grainClock ? @"X  GRAIN CLOCK" : @"X  SCAN CLOCK")
@@ -954,6 +1121,18 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
 #endif
     [@"Y  FILE LANE" drawAtPoint:NSMakePoint(30.0, 418.0)
         withAttributes:labels];
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    NSString* rule = paramValue(*_instance, kShapeParamId) < 0.5
+        ? @"REGIONS: EQUAL DIVISIONS"
+        : @"REGIONS: DETECTED TRANSIENTS";
+    [rule drawAtPoint:NSMakePoint(30.0, 451.0) withAttributes:values];
+    [@"EMPTY FILE: USE NEAREST LOADED" drawAtPoint:NSMakePoint(30.0, 468.0)
+        withAttributes:values];
+    [@"CLICK / DRAG: SET FILE • OPTION: SOURCE"
+        drawAtPoint:NSMakePoint(30.0, 485.0) withAttributes:values];
+    [@"SOURCE ORDER CHOOSES CUT WITHIN FILE"
+        drawAtPoint:NSMakePoint(30.0, 502.0) withAttributes:values];
+#else
     NSString* rule = paramValue(*_instance, kBlendParamId) < 0.5
         ? @"LANE CHANGE: EQUAL-POWER"
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
@@ -975,6 +1154,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     if (pathMode == LanePath::Manual)
         [@"DIRECT PATH: MODIFIERS BYPASSED"
             drawAtPoint:NSMakePoint(30.0, 502.0) withAttributes:values];
+#endif
     [s3g::clap_gui::color(0x141414) setFill]; NSRectFill(kPathGraph);
     [style.grid setStroke]; NSFrameRect(kPathGraph);
     for (std::size_t lane = 0u; lane < 4u; ++lane) {
@@ -989,6 +1169,38 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             drawAtPoint:NSMakePoint(NSMinX(kPathGraph) - 18.0, y - 6.0)
             withAttributes:values];
     }
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    const InstrumentSettings settings = settingsSnapshot(*_instance);
+    ManualPathPoints manualPoints {};
+    uint32_t manualPointCount = editableManualPath(*_instance, manualPoints);
+    manualPointCount = std::max(1u, std::min<uint32_t>(manualPointCount,
+        settings.patternLength));
+    const CGFloat stepWidth = NSWidth(kPathGraph)
+        / static_cast<CGFloat>(manualPointCount);
+    for (uint32_t index = 0u; index < manualPointCount; ++index) {
+        const CGFloat x = NSMinX(kPathGraph)
+            + static_cast<CGFloat>(index) * stepWidth;
+        const CGFloat lane = std::round(std::clamp<CGFloat>(
+            manualPoints[index].lane, 0.0, 1.0) * 3.0);
+        const CGFloat y = NSMinY(kPathGraph)
+            + lane * NSHeight(kPathGraph) / 3.0;
+        NSRect step = NSMakeRect(x + 2.0, y - 6.0,
+            std::max<CGFloat>(2.0, stepWidth - 4.0), 12.0);
+        [(static_cast<NSInteger>(index) == _dragPathPoint
+                ? style.text : style.accent) setFill];
+        [[NSBezierPath bezierPathWithRect:step] fill];
+        [s3g::clap_gui::color(0x101010) setStroke];
+        const CGFloat sourceX = NSMinX(step) + std::clamp<CGFloat>(
+            manualPoints[index].phase, 0.0, 1.0) * NSWidth(step);
+        NSBezierPath* sourceMarker = [NSBezierPath bezierPath];
+        [sourceMarker moveToPoint:NSMakePoint(sourceX, NSMinY(step))];
+        [sourceMarker lineToPoint:NSMakePoint(sourceX, NSMaxY(step))];
+        [sourceMarker stroke];
+        [[NSString stringWithFormat:@"%u", index + 1u]
+            drawAtPoint:NSMakePoint(x + 3.0, NSMaxY(kPathGraph) - 17.0)
+            withAttributes:values];
+    }
+#else
     const InstrumentSettings settings = settingsSnapshot(*_instance);
     NSBezierPath* path = [NSBezierPath bezierPath];
     [path setLineWidth:1.4];
@@ -1025,6 +1237,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
                 x - 4.0, y - 4.0, 8.0, 8.0)] stroke];
         }
     }
+#endif
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     const uint32_t emitterCount = std::min<uint32_t>(
         _instance->cursorCount.load(std::memory_order_acquire),
@@ -1074,10 +1287,16 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         _instance->cursorCount.load(std::memory_order_acquire),
         static_cast<uint32_t>(s3g::sample::kMaximumLaneVoices));
     for (uint32_t slot = 0u; slot < count; ++slot) {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        const double horizontal = std::clamp(static_cast<double>(
+            _instance->cursorPathPhases[slot].load(
+                std::memory_order_relaxed)), 0.0, 1.0);
+#else
         const double source = _instance->cursorSourcePositions[slot].load(
             std::memory_order_relaxed);
         const double horizontal = std::clamp((source - settings.start)
             / (settings.end - settings.start), 0.0, 1.0);
+#endif
         const double lane = _instance->cursorLanePositions[slot].load(
             std::memory_order_relaxed);
         [style.text setFill];
@@ -1145,7 +1364,46 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     ManualPathPoints manualPoints {};
     uint32_t manualPointCount = 0u;
     switch (_presetIndex) {
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    case 1:
+        set(kTransportParamId, 1.0); set(kRateBasisParamId, 4.0);
+        set(kPathParamId, 0.0); set(kBlendParamId, 1.0);
+        set(kLoopCrossfadeParamId, 3.0); break;
+    case 2:
+        set(kShapeParamId, 1.0); set(kPathParamId, 4.0);
+        set(kBlendParamId, 3.0); set(kSkewParamId, 2.0);
+        set(kLoopCrossfadeParamId, 8.0); break;
+    case 3:
+        set(kTransportParamId, 0.0); set(kRateParamId, 7.0);
+        set(kPathParamId, 3.0); set(kBlendParamId, 4.0);
+        set(kCurveParamId, 0.18); set(kCutPitchVariationParamId, 3.0);
+        set(kCutLevelVariationParamId, 0.20); break;
+    case 4:
+        set(kPathParamId, 2.0); set(kBlendParamId, 5.0);
+        set(kShapeParamId, 1.0); set(kLaneSlewParamId, 0.16);
+        set(kSkewParamId, 2.0); break;
+    case 5:
+        set(kRateBasisParamId, 5.0); set(kPathParamId, 0.0);
+        set(kBlendParamId, 2.0); set(kCutReverseChanceParamId, 0.72);
+        set(kManualLaneParamId, 0.62); break;
+    case 6:
+        set(kShapeParamId, 1.0); set(kPathParamId, 4.0);
+        set(kOutputModeParamId, 1.0); set(kAllocationCadenceParamId, 1.0);
+        set(kTraversalParamId, 4.0); set(kOutputWidthParamId, 1.0);
+        break;
+    case 7:
+        set(kPathParamId, 5.0); set(kBlendParamId, 6.0);
+        manualPointCount = static_cast<uint32_t>(manualPoints.size());
+        for (uint32_t step = 0u; step < manualPointCount; ++step) {
+            manualPoints[step].phase = static_cast<float>(
+                (step * 5u) % manualPointCount)
+                / static_cast<float>(manualPointCount);
+            manualPoints[step].lane = static_cast<float>(
+                std::array<uint8_t, 8u> {{ 0u, 2u, 1u, 3u, 1u, 0u, 3u, 2u }}
+                    [step % 8u]) / 3.0f;
+        }
+        break;
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
     case 1:
         set(kGrainSourceModeParamId, 2.0); set(kGrainDensityParamId, 32.0);
         set(kGrainSizeParamId, 180.0); set(kPositionSprayParamId, 0.22);
@@ -1226,9 +1484,13 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     const std::size_t lane = std::min<std::size_t>(
         _instance->selectedLane.load(std::memory_order_acquire), 3u);
     const struct TimingHit { clap_id id; NSRect rect; CGFloat y; } timing[] = {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        { laneBpmParamId(lane), kTimingSpeedColumn, kTimingSpeedY },
+#else
         { laneSpeedParamId(lane), kTimingSpeedColumn, kTimingSpeedY },
         { laneStretchParamId(lane), kTimingStretchColumn, kTimingStretchY },
         { laneNudgeParamId(lane), kTimingNudgeColumn, kTimingNudgeY },
+#endif
     };
     for (const auto& control : timing) {
         const NSRect hit = sliderHitRect(control.rect, control.y);
@@ -1279,7 +1541,10 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
 
     s3g::clap_gui::drawPanelFrame(NSMinX(kSamplePanel), NSMinY(kSamplePanel),
         NSWidth(kSamplePanel), NSHeight(kSamplePanel), style);
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    s3g::clap_gui::drawPanelHeader(
+        @"FOUR CUT SOURCES / TRANSIENTS + FILE TEMPO ANALYSED ON LOAD",
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
     s3g::clap_gui::drawPanelHeader(@"FOUR SAMPLE LANES / SHARED SOURCE WINDOW",
 #else
     s3g::clap_gui::drawPanelHeader(@"FOUR LOOP LANES / SHARED START + END",
@@ -1333,20 +1598,29 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
 #endif
     [self drawPathScope:style labels:labels values:values];
     NSString* voiceTitle = @"VOICE / PITCH / MIDI";
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    voiceTitle = @"VOICE / PITCH / MIDI";
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
     voiceTitle = _instance->outputChannelCount == 2u
         ? @"POLYPHONY / SCAN RATE / MIDI / STEREO"
         : @"POLYPHONY / SCAN RATE / MIDI";
 #endif
     NSString* outputTitle = [NSString stringWithFormat:@"%d  %@",
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        4,
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
         5,
 #else
         3,
 #endif
         _outputRoutingPage ? @"OUTPUT / ROUTING" : voiceTitle];
     const struct Panel { NSRect rect; NSString* title; } panels[] = {
-#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        { kLoopPanel, @"1  CUT CLOCK / HOST DIVISION OR FREE RATE" },
+        { kPathPanel, @"2  CUT ADDRESS / FILE + REGION ORDER" },
+        { kCutPlaybackPanel, @"3  CUT PLAYBACK / JOIN + VARIATION" },
+        { kVoicePanel, outputTitle },
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
         { kLoopPanel, @"1  SOURCE SCAN / NORMAL RATE IS FILE SPEED" },
         { kGrainPanel, @"2  GRAIN SOURCE / WINDOW + TEXTURE" },
         { kPathPanel, @"3  SOURCE FIELD PATH / WHICH FILE LANE" },
@@ -1370,6 +1644,8 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
             _outputRoutingPage
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
                 ? @"POLYPHONY / SCAN"
+#elif defined(S3G_SAMPLE_CUTUPS_VARIANT)
+                ? @"VOICE / PITCH"
 #else
                 ? @"VOICE / PITCH"
 #endif
@@ -1496,6 +1772,33 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         }
     }
     if (NSPointInRect(point, kPathGraph)) {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        queueGuiParamGesture(*_instance, kPathParamId,
+            static_cast<double>(CutFileOrder::Manual));
+        ManualPathPoints points {};
+        uint32_t count = editableManualPath(*_instance, points);
+        const uint32_t patternLength = static_cast<uint32_t>(std::clamp(
+            std::lround(paramValue(*_instance, kOffsetParamId)), 1l, 16l));
+        count = std::max(count, patternLength);
+        const double horizontal = std::clamp(static_cast<double>(
+            (point.x - NSMinX(kPathGraph)) / NSWidth(kPathGraph)), 0.0,
+            std::nextafter(1.0, 0.0));
+        const uint32_t selected = std::min(patternLength - 1u,
+            static_cast<uint32_t>(horizontal * patternLength));
+        const float vertical = static_cast<float>(std::clamp(static_cast<double>(
+            (point.y - NSMinY(kPathGraph)) / NSHeight(kPathGraph)), 0.0, 1.0));
+        if (([event modifierFlags] & NSEventModifierFlagOption) != 0u) {
+            queueGuiParamGesture(*_instance, kBlendParamId,
+                static_cast<double>(CutSourceOrder::Manual));
+            points[selected].phase = vertical;
+        } else {
+            points[selected].lane = std::round(vertical * 3.0f) / 3.0f;
+        }
+        publishManualPath(*_instance, points, count);
+        _dragPathPoint = static_cast<NSInteger>(selected);
+        [self setNeedsDisplay:YES];
+        return;
+#else
         queueGuiParamGesture(*_instance, kPathParamId,
             static_cast<double>(LanePath::Manual));
         ManualPathPoints points {};
@@ -1541,6 +1844,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         _dragPathPoint = selected;
         [self setNeedsDisplay:YES];
         return;
+#endif
     }
     for (const auto& row : kRows) if ([self rowIsVisible:row] && row.menu
         && NSPointInRect(point, [self menuRectForParam:row.id])) {
@@ -1578,6 +1882,14 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         ManualPathPoints points {};
         const uint32_t count = manualPathSnapshot(*_instance, points);
         const uint32_t index = static_cast<uint32_t>(_dragPathPoint);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        if (count < 1u || index >= count) return;
+        const float vertical = static_cast<float>(std::clamp(static_cast<double>(
+            (point.y - NSMinY(kPathGraph)) / NSHeight(kPathGraph)), 0.0, 1.0));
+        if (([event modifierFlags] & NSEventModifierFlagOption) != 0u)
+            points[index].phase = vertical;
+        else points[index].lane = std::round(vertical * 3.0f) / 3.0f;
+#else
         if (count < 2u || index >= count) return;
         points[index].lane = static_cast<float>(std::clamp(static_cast<double>(
             (point.y - NSMinY(kPathGraph)) / NSHeight(kPathGraph)), 0.0, 1.0));
@@ -1589,6 +1901,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
                 points[index - 1u].phase + minimumGap,
                 points[index + 1u].phase - minimumGap);
         }
+#endif
         publishManualPath(*_instance, points, count);
         [self setNeedsDisplay:YES];
         return;
@@ -1608,6 +1921,10 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
 
 - (void)rightMouseDown:(NSEvent*)event
 {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    (void)event;
+    return;
+#else
     const NSPoint point = [self convertPoint:[event locationInWindow]
         fromView:nil];
     if (!NSPointInRect(point, kPathGraph)
@@ -1637,6 +1954,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         points[index] = points[index + 1u];
     publishManualPath(*_instance, points, count - 1u);
     [self setNeedsDisplay:YES];
+#endif
 }
 
 - (void)mouseMoved:(NSEvent*)event
