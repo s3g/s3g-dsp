@@ -21,6 +21,7 @@ constexpr uint32_t kClimateCellsPerPlane = kClimateWidth * kClimateHeight;
 constexpr uint32_t kClimateMaxPlanes = 4u;
 constexpr uint32_t kClimateCells = kClimateCellsPerPlane * kClimateMaxPlanes;
 constexpr uint32_t kTrailLength = 16u;
+constexpr uint32_t kExternalInputQueueCapacity = 256u;
 constexpr uint16_t kMidiOff = 128u;
 
 constexpr double kPi = 3.1415926535897932384626433832795;
@@ -92,6 +93,130 @@ enum class ArticulationMode : uint8_t {
     Stack,
 };
 
+enum class DealerLaw : uint8_t {
+    EcologicalDrift,
+    CompassRose,
+    SeededWander,
+    AvoidRecent,
+    ClimateContrast,
+    PlaneTides,
+};
+
+constexpr uint32_t kDealerLawCount = 6u;
+
+inline const char* dealerLawName(DealerLaw law) noexcept
+{
+    switch (law) {
+    case DealerLaw::EcologicalDrift: return "Ecological Drift";
+    case DealerLaw::CompassRose: return "Compass Rose";
+    case DealerLaw::SeededWander: return "Seeded Wander";
+    case DealerLaw::AvoidRecent: return "Avoid Recent";
+    case DealerLaw::ClimateContrast: return "Climate Contrast";
+    case DealerLaw::PlaneTides: return "Plane Tides";
+    }
+    return "Ecological Drift";
+}
+
+enum class MidiInputMode : uint8_t {
+    Off,
+    Notes,
+    ControlChange,
+    NotesAndControlChange,
+};
+
+enum class MidiInputMap : uint8_t {
+    NodeAddress,
+    ClusterAddress,
+    RelayAddress,
+    Diffuse,
+};
+
+enum class MidiInputResponse : uint8_t {
+    Impulse,
+    Gate,
+};
+
+enum class MidiInputPolarity : uint8_t {
+    Excitatory,
+    Signed,
+};
+
+inline const char* midiInputModeName(MidiInputMode mode) noexcept
+{
+    switch (mode) {
+    case MidiInputMode::Off: return "Off";
+    case MidiInputMode::Notes: return "Notes";
+    case MidiInputMode::ControlChange: return "CC";
+    case MidiInputMode::NotesAndControlChange: return "Notes + CC";
+    }
+    return "Off";
+}
+
+inline const char* midiInputMapName(MidiInputMap map) noexcept
+{
+    switch (map) {
+    case MidiInputMap::NodeAddress: return "Node Address";
+    case MidiInputMap::ClusterAddress: return "Cluster Address";
+    case MidiInputMap::RelayAddress: return "Relay Address";
+    case MidiInputMap::Diffuse: return "Diffuse";
+    }
+    return "Node Address";
+}
+
+inline const char* midiInputResponseName(MidiInputResponse response) noexcept
+{
+    return response == MidiInputResponse::Gate ? "Gate" : "Impulse";
+}
+
+inline const char* midiInputPolarityName(MidiInputPolarity polarity) noexcept
+{
+    return polarity == MidiInputPolarity::Signed ? "Signed" : "Excitatory";
+}
+
+enum class CcSource : uint8_t {
+    Receptor,
+    ClusterSigned,
+    ClusterEnergy,
+    RegisterPopulation,
+    EnergyRegister,
+    ClimateEnergy,
+    ClimateCoupling,
+    ClimateHierarchy,
+    ClimateContrast,
+    Gestation,
+    FormPhase,
+    PlasticityDrift,
+};
+
+constexpr uint32_t kCcSourceCount = 12u;
+
+inline const char* ccSourceName(CcSource source) noexcept
+{
+    switch (source) {
+    case CcSource::Receptor: return "Receptor";
+    case CcSource::ClusterSigned: return "Cluster Signed";
+    case CcSource::ClusterEnergy: return "Cluster Energy";
+    case CcSource::RegisterPopulation: return "Register Population";
+    case CcSource::EnergyRegister: return "Energy + Register";
+    case CcSource::ClimateEnergy: return "Climate Energy";
+    case CcSource::ClimateCoupling: return "Climate Coupling";
+    case CcSource::ClimateHierarchy: return "Climate Hierarchy";
+    case CcSource::ClimateContrast: return "Climate Contrast";
+    case CcSource::Gestation: return "Gestation";
+    case CcSource::FormPhase: return "Form Phase";
+    case CcSource::PlasticityDrift: return "Plasticity Drift";
+    }
+    return "Receptor";
+}
+
+struct CcLaneConfig {
+    CcSource source = CcSource::Receptor;
+    uint8_t minimum = 0u;
+    uint8_t maximum = 127u;
+    double curve = 0.0;
+    double slew = 0.0;
+};
+
 struct Event {
     double beat = 0.0;
     EventKind kind = EventKind::ControlChange;
@@ -99,6 +224,14 @@ struct Event {
     uint8_t data1 = 0u;
     uint8_t data2 = 0u;
     uint8_t relay = 0u;
+};
+
+struct ExternalMidiEvent {
+    double beat = 0.0;
+    EventKind kind = EventKind::NoteOn;
+    uint8_t channel = 0u;
+    uint8_t data1 = 0u;
+    uint8_t data2 = 0u;
 };
 
 struct RelayConfig {
@@ -115,6 +248,10 @@ struct RelayConfig {
     ReceptorTopology topology = ReceptorTopology::Local;
     PitchMode pitchMode = PitchMode::Fixed;
     ArticulationMode articulation = ArticulationMode::Restart;
+    std::array<CcLaneConfig, 2u> ccLanes {{
+        { CcSource::Receptor, 0u, 127u, 0.0, 0.0 },
+        { CcSource::EnergyRegister, 0u, 127u, 0.0, 0.0 },
+    }};
 };
 
 struct Config {
@@ -127,6 +264,9 @@ struct Config {
     double contrast = 0.52;
     bool freeze = false;
     bool formHold = false; // Compound Crystallize action; not field Freeze.
+    // A finite value restores a saved Crystallize position when formHold first
+    // becomes active. It is transient runtime state, not an exposed control.
+    double requestedFormHoldBeat = std::numeric_limits<double>::quiet_NaN();
     uint32_t clockRateIndex = 4u;
     double gateBeats = 0.18;
     uint32_t ccRateIndex = 1u;
@@ -140,6 +280,15 @@ struct Config {
     uint32_t scale = 31u; // Canonical s3g PENTATONIC MINOR scale ID.
     uint32_t scaleRange = 2u;
     uint32_t latticeDepthIndex = 2u; // Four 4x4 planes.
+    DealerLaw dealerLaw = DealerLaw::EcologicalDrift;
+    MidiInputMode midiInputMode = MidiInputMode::Off;
+    uint32_t midiInputChannel = 0u; // 0 = Omni, 1..16 = channel.
+    MidiInputMap midiInputMap = MidiInputMap::NodeAddress;
+    MidiInputResponse midiInputResponse = MidiInputResponse::Impulse;
+    uint32_t midiInputCc = 1u;
+    MidiInputPolarity midiInputPolarity = MidiInputPolarity::Excitatory;
+    double midiInputDepth = 0.65;
+    double midiInputDecayBeats = 0.75;
     std::array<RelayConfig, kRelayCount> relays {};
 
     Config()
@@ -192,6 +341,12 @@ struct Snapshot {
     double cyclePhase = 0.0;
     double energy = 0.0;
     int64_t cycleIndex = 0;
+    double formBeat = 0.0;
+    bool formHold = false;
+    std::array<double, 4u> climateTraits {};
+    std::array<double, 4u> effectiveConduct {};
+    std::array<double, kNodeCount> externalInputNodes {};
+    double externalInputActivity = 0.0;
 };
 
 inline double clampFinite(double value, double minimum, double maximum,
@@ -363,10 +518,14 @@ public:
         receptors_.fill(0.0);
         plasticity_.fill(0.0);
         pendingImpulse_.fill(0.0);
+        clearExternalInputState();
         for (auto& relay : activeNotes_)
             for (auto& note : relay) note = {};
         noteOwners_.fill(0u);
         for (auto& cc : lastCc_) cc = {{ -1, -1 }};
+        for (auto& cc : smoothedCc_)
+            cc = {{ std::numeric_limits<double>::quiet_NaN(),
+                    std::numeric_limits<double>::quiet_NaN() }};
         lastFireTick_.fill(std::numeric_limits<int64_t>::min() / 4);
         trail_.fill(5u);
         registerBits_ = 0x96u;
@@ -388,11 +547,30 @@ public:
 
     void invalidate() noexcept { continuous_ = false; }
 
+    // Force the next process block to reconstruct the form/field position,
+    // while retaining active notes long enough for the normal discontinuity
+    // path to emit their Note Off messages.
+    void invalidateFormTimeline() noexcept
+    {
+        formHold_ = false;
+        cycleIndex_ = std::numeric_limits<int64_t>::min();
+        continuous_ = false;
+    }
+
     const Snapshot& snapshot() const noexcept { return snapshot_; }
 
     Result process(double beginBeat, double endBeat, double beatsPerBar,
         bool playing, const Config& sourceConfig, Event* events,
         uint32_t capacity) noexcept
+    {
+        return process(beginBeat, endBeat, beatsPerBar, playing,
+            sourceConfig, nullptr, 0u, events, capacity);
+    }
+
+    Result process(double beginBeat, double endBeat, double beatsPerBar,
+        bool playing, const Config& sourceConfig,
+        const ExternalMidiEvent* inputEvents, uint32_t inputEventCount,
+        Event* events, uint32_t capacity) noexcept
     {
         Result result;
         if (!events || capacity == 0u || !std::isfinite(beginBeat)
@@ -404,11 +582,13 @@ public:
         const Config config = sanitize(sourceConfig);
         const double bar = clampFinite(beatsPerBar, 1.0, 32.0, 4.0);
         const double tickPeriod = clockPeriodBeats(config.clockRateIndex);
-        updateFormHold(config.formHold, beginBeat);
+        updateFormHold(config.formHold, beginBeat,
+            config.requestedFormHoldBeat);
 
         if (!playing || !config.enabled) {
             releaseAll(beginBeat, events, capacity, result);
             invalidateCc();
+            clearExternalInputState();
             continuous_ = false;
             expectedBeat_ = endBeat;
             updateSnapshot(config, beginBeat, bar);
@@ -423,6 +603,7 @@ public:
             || std::abs(tickPeriod - lastTickPeriod_) > 1.0e-12;
         if (discontinuity) {
             releaseAll(beginBeat, events, capacity, result);
+            clearExternalInputState();
             if (formHold_ && cycleIndex_
                     != std::numeric_limits<int64_t>::min()) {
                 nextTick_ = firstTickAtOrAfter(beginBeat, tickPeriod);
@@ -436,11 +617,19 @@ public:
             invalidateCc();
         }
 
+        for (uint32_t index = 0u; index < inputEventCount; ++index) {
+            if (!inputEvents || !queueExternalInput(inputEvents[index])) {
+                ++result.dropped;
+                break;
+            }
+        }
+
         releaseDue(beginBeat, true, events, capacity, result);
         constexpr double epsilon = 1.0e-10;
         while (tickBeat(nextTick_, tickPeriod) < endBeat - epsilon) {
             const double beat = tickBeat(nextTick_, tickPeriod);
             if (beat >= beginBeat - epsilon) {
+                applyExternalInputsThrough(config, beat);
                 releaseDue(beat, true, events, capacity, result);
                 advanceTick(config, nextTick_, beat, bar,
                     true, events, capacity, result);
@@ -493,6 +682,27 @@ private:
         config.scaleRange = std::clamp<uint32_t>(config.scaleRange, 1u, 4u);
         config.latticeDepthIndex = std::min<uint32_t>(
             config.latticeDepthIndex, 2u);
+        config.dealerLaw = static_cast<DealerLaw>(std::min<uint32_t>(
+            static_cast<uint32_t>(config.dealerLaw), kDealerLawCount - 1u));
+        config.midiInputMode = static_cast<MidiInputMode>(
+            std::min<uint32_t>(static_cast<uint32_t>(config.midiInputMode),
+                3u));
+        config.midiInputChannel = std::min<uint32_t>(
+            config.midiInputChannel, 16u);
+        config.midiInputMap = static_cast<MidiInputMap>(
+            std::min<uint32_t>(static_cast<uint32_t>(config.midiInputMap),
+                3u));
+        config.midiInputResponse = static_cast<MidiInputResponse>(
+            std::min<uint32_t>(
+                static_cast<uint32_t>(config.midiInputResponse), 1u));
+        config.midiInputCc = std::min<uint32_t>(config.midiInputCc, 127u);
+        config.midiInputPolarity = static_cast<MidiInputPolarity>(
+            std::min<uint32_t>(
+                static_cast<uint32_t>(config.midiInputPolarity), 1u));
+        config.midiInputDepth = clampFinite(
+            config.midiInputDepth, 0.0, 1.0, 0.65);
+        config.midiInputDecayBeats = clampFinite(
+            config.midiInputDecayBeats, 0.05, 16.0, 0.75);
         for (auto& relay : config.relays) {
             relay.channel = std::min<uint8_t>(relay.channel, 15u);
             relay.note = std::min<uint16_t>(relay.note, kMidiOff);
@@ -511,6 +721,14 @@ private:
             relay.articulation = static_cast<ArticulationMode>(
                 std::min<uint32_t>(
                     static_cast<uint32_t>(relay.articulation), 3u));
+            for (auto& lane : relay.ccLanes) {
+                lane.source = static_cast<CcSource>(std::min<uint32_t>(
+                    static_cast<uint32_t>(lane.source), kCcSourceCount - 1u));
+                lane.minimum = std::min<uint8_t>(lane.minimum, 127u);
+                lane.maximum = std::min<uint8_t>(lane.maximum, 127u);
+                lane.curve = clampFinite(lane.curve, -1.0, 1.0, 0.0);
+                lane.slew = clampFinite(lane.slew, 0.0, 1.0, 0.0);
+            }
         }
         return config;
     }
@@ -530,15 +748,201 @@ private:
         return formHold_ ? heldFormBeat_ : hostBeat - formBeatOffset_;
     }
 
-    void updateFormHold(bool hold, double hostBeat) noexcept
+    void updateFormHold(bool hold, double hostBeat,
+        double requestedBeat) noexcept
     {
         if (hold == formHold_) return;
         if (hold) {
-            heldFormBeat_ = hostBeat - formBeatOffset_;
+            heldFormBeat_ = std::isfinite(requestedBeat)
+                ? requestedBeat : hostBeat - formBeatOffset_;
         } else {
             formBeatOffset_ = hostBeat - heldFormBeat_;
         }
         formHold_ = hold;
+    }
+
+    static bool noteInputEnabled(MidiInputMode mode) noexcept
+    {
+        return mode == MidiInputMode::Notes
+            || mode == MidiInputMode::NotesAndControlChange;
+    }
+
+    static bool ccInputEnabled(MidiInputMode mode) noexcept
+    {
+        return mode == MidiInputMode::ControlChange
+            || mode == MidiInputMode::NotesAndControlChange;
+    }
+
+    static bool inputChannelMatches(const Config& config,
+        uint8_t channel) noexcept
+    {
+        return config.midiInputChannel == 0u
+            || config.midiInputChannel == static_cast<uint32_t>(channel) + 1u;
+    }
+
+    static double inputAmplitude(const Config& config,
+        uint8_t value) noexcept
+    {
+        const double unit = static_cast<double>(value) / 127.0;
+        return config.midiInputPolarity == MidiInputPolarity::Signed
+            ? unit * 2.0 - 1.0 : unit;
+    }
+
+    void addMappedInput(const Config& config, uint32_t address,
+        double amplitude, std::array<double, kNodeCount>& destination) noexcept
+    {
+        if (std::abs(amplitude) <= 1.0e-12) return;
+        switch (config.midiInputMap) {
+        case MidiInputMap::NodeAddress:
+            destination[address % kNodeCount] += amplitude;
+            return;
+        case MidiInputMap::ClusterAddress: {
+            static constexpr std::array<double, kNodesPerCluster> weights {{
+                1.00, 0.82, 0.66, 0.48, 0.35,
+            }};
+            const uint32_t cluster = address % kClusterCount;
+            for (uint32_t role = 0u; role < kNodesPerCluster; ++role)
+                destination[cluster * kNodesPerCluster + role]
+                    += amplitude * weights[role];
+            return;
+        }
+        case MidiInputMap::RelayAddress: {
+            uint32_t relay = address % kRelayCount;
+            for (uint32_t candidate = 0u; candidate < kRelayCount;
+                 ++candidate) {
+                if (config.relays[candidate].note == address) {
+                    relay = candidate;
+                    break;
+                }
+            }
+            const uint32_t node = (relay % kClusterCount) * kNodesPerCluster
+                + receptorPentadTap(relay);
+            destination[node] += amplitude;
+            return;
+        }
+        case MidiInputMap::Diffuse:
+            for (uint32_t node = 0u; node < kNodeCount; ++node) {
+                const double weight = 0.28 + 0.08
+                    * static_cast<double>(node % kNodesPerCluster);
+                destination[node] += amplitude * weight;
+            }
+            return;
+        }
+    }
+
+    void applyExternalInputEvent(const Config& config,
+        const ExternalMidiEvent& event) noexcept
+    {
+        const uint32_t key = static_cast<uint32_t>(event.channel) * 128u
+            + event.data1;
+        if (event.kind == EventKind::NoteOff
+            || (event.kind == EventKind::NoteOn && event.data2 == 0u)) {
+            heldInputNotes_[key] = 0u;
+            return;
+        }
+        if (event.kind == EventKind::NoteOn) {
+            heldInputNotes_[key] = event.data2;
+            if (noteInputEnabled(config.midiInputMode)
+                && config.midiInputResponse == MidiInputResponse::Impulse
+                && inputChannelMatches(config, event.channel)) {
+                addMappedInput(config, event.data1,
+                    inputAmplitude(config, event.data2), externalImpulse_);
+                for (double& value : externalImpulse_)
+                    value = std::clamp(value, -2.0, 2.0);
+            }
+            return;
+        }
+        if (event.kind == EventKind::ControlChange) {
+            inputCcValues_[key] = event.data2;
+            inputCcSeen_[key] = 1u;
+        }
+    }
+
+    bool queueExternalInput(const ExternalMidiEvent& source) noexcept
+    {
+        if (!std::isfinite(source.beat)
+            || source.channel >= 16u || source.data1 >= 128u
+            || source.data2 >= 128u
+            || queuedInputCount_ >= kExternalInputQueueCapacity) return false;
+        uint32_t position = queuedInputCount_;
+        while (position > 0u
+            && queuedInputs_[position - 1u].beat > source.beat) {
+            queuedInputs_[position] = queuedInputs_[position - 1u];
+            --position;
+        }
+        queuedInputs_[position] = source;
+        ++queuedInputCount_;
+        return true;
+    }
+
+    void applyExternalInputsThrough(const Config& config,
+        double beat) noexcept
+    {
+        uint32_t due = 0u;
+        while (due < queuedInputCount_
+            && queuedInputs_[due].beat <= beat + 1.0e-10) {
+            applyExternalInputEvent(config, queuedInputs_[due]);
+            ++due;
+        }
+        if (due == 0u) return;
+        for (uint32_t index = due; index < queuedInputCount_; ++index)
+            queuedInputs_[index - due] = queuedInputs_[index];
+        queuedInputCount_ -= due;
+    }
+
+    void prepareExternalInputDrive(const Config& config) noexcept
+    {
+        if (config.midiInputMode == MidiInputMode::Off) {
+            externalInputDrive_.fill(0.0);
+            return;
+        }
+        externalInputDrive_ = externalImpulse_;
+        if (noteInputEnabled(config.midiInputMode)
+            && config.midiInputResponse == MidiInputResponse::Gate) {
+            for (uint32_t key = 0u; key < heldInputNotes_.size(); ++key) {
+                const uint8_t velocity = heldInputNotes_[key];
+                const uint8_t channel = static_cast<uint8_t>(key / 128u);
+                if (velocity == 0u || !inputChannelMatches(config, channel))
+                    continue;
+                addMappedInput(config, key % 128u,
+                    inputAmplitude(config, velocity) * 0.42,
+                    externalInputDrive_);
+            }
+        }
+        if (ccInputEnabled(config.midiInputMode)) {
+            const uint32_t controller = config.midiInputCc;
+            for (uint32_t channel = 0u; channel < 16u; ++channel) {
+                if (!inputChannelMatches(config,
+                        static_cast<uint8_t>(channel))) continue;
+                const uint32_t key = channel * 128u + controller;
+                if (inputCcSeen_[key] == 0u) continue;
+                addMappedInput(config, controller,
+                    inputAmplitude(config, inputCcValues_[key]) * 0.36,
+                    externalInputDrive_);
+            }
+        }
+        for (double& value : externalInputDrive_)
+            value = std::clamp(value * config.midiInputDepth, -1.5, 1.5);
+    }
+
+    void decayExternalInput(const Config& config) noexcept
+    {
+        const double decay = std::exp(-clockPeriodBeats(
+            config.clockRateIndex) / config.midiInputDecayBeats);
+        for (double& value : externalImpulse_) {
+            value *= decay;
+            if (std::abs(value) < 1.0e-8) value = 0.0;
+        }
+    }
+
+    void clearExternalInputState() noexcept
+    {
+        queuedInputCount_ = 0u;
+        heldInputNotes_.fill(0u);
+        inputCcValues_.fill(64u);
+        inputCcSeen_.fill(0u);
+        externalImpulse_.fill(0.0);
+        externalInputDrive_.fill(0.0);
     }
 
     void initializeOrganism(const Config& config, int64_t cycle) noexcept
@@ -583,10 +987,24 @@ private:
         const double replayStartBeat = beat - (climateBeat - cycleStart);
         const int64_t start = firstTickAtOrAfter(replayStartBeat, tickPeriod);
         const int64_t target = firstTickAtOrAfter(beat, tickPeriod);
+        // A restored Crystallize state has no live field history. Rebuild the
+        // organism along the climate path up to the held instant, then resume
+        // holding that instant. This avoids replaying the held card once for
+        // every elapsed host tick.
+        const bool restoreHold = formHold_;
+        const double previousOffset = formBeatOffset_;
+        if (restoreHold) {
+            formHold_ = false;
+            formBeatOffset_ = beat - climateBeat;
+        }
         Result ignored;
         for (int64_t tick = start; tick < target; ++tick) {
             advanceTick(config, tick, tickBeat(tick, tickPeriod), beatsPerBar,
                 false, nullptr, 0u, ignored);
+        }
+        if (restoreHold) {
+            formBeatOffset_ = previousOffset;
+            formHold_ = true;
         }
         nextTick_ = target;
         continuous_ = true;
@@ -632,6 +1050,71 @@ private:
         return climateCellTrait(config.seed, cycleIndex_, cell, trait);
     }
 
+    uint32_t dealerDirection(const Config& config, int64_t tick,
+        uint32_t motion, uint32_t planes) const noexcept
+    {
+        switch (config.dealerLaw) {
+        case DealerLaw::EcologicalDrift: {
+            const bool changePlane = planes > 1u
+                && ((motion >> 3u) + static_cast<uint32_t>(cellStep_)) % 5u
+                    == 0u;
+            return changePlane ? 8u + ((motion >> 7u) & 1u)
+                               : motion & 7u;
+        }
+        case DealerLaw::CompassRose:
+            if (planes > 1u && (cellStep_ + 1) % 16 == 0)
+                return 8u + (static_cast<uint32_t>(cycleIndex_) & 1u);
+            return static_cast<uint32_t>(cellStep_) & 7u;
+        case DealerLaw::SeededWander: {
+            const uint64_t random = mix64(static_cast<uint64_t>(config.seed)
+                ^ static_cast<uint64_t>(cycleIndex_)
+                ^ static_cast<uint64_t>(cellStep_ + 1) * 0x9e3779b9u);
+            if (planes > 1u && ((random >> 11u) % 6u) == 0u)
+                return 8u + static_cast<uint32_t>((random >> 17u) & 1u);
+            return static_cast<uint32_t>(random & 7u);
+        }
+        case DealerLaw::PlaneTides:
+            if (planes > 1u && (cellStep_ + 1) % 4 == 0)
+                return 8u + (static_cast<uint32_t>((cellStep_ + 1) / 4)
+                    & 1u);
+            return (motion + static_cast<uint32_t>(cellStep_) * 3u) & 7u;
+        case DealerLaw::AvoidRecent:
+        case DealerLaw::ClimateContrast:
+            break;
+        }
+
+        const uint32_t candidates = planes > 1u ? 10u : 8u;
+        uint32_t bestDirection = 0u;
+        double bestScore = -std::numeric_limits<double>::infinity();
+        for (uint32_t direction = 0u; direction < candidates; ++direction) {
+            const uint32_t candidate = wrappedCellNeighbor(
+                currentCell_, direction, planes);
+            double score = unitHash(config.seed,
+                static_cast<uint64_t>(cycleIndex_),
+                static_cast<uint64_t>(cellStep_ + 1) * 13u + direction)
+                * 0.01;
+            if (config.dealerLaw == DealerLaw::AvoidRecent) {
+                uint32_t visits = 0u;
+                const uint32_t inspect = std::min<uint32_t>(trailCount_, 8u);
+                for (uint32_t offset = 0u; offset < inspect; ++offset) {
+                    const uint32_t index = trailCount_ - 1u - offset;
+                    if (trail_[index] == candidate) ++visits;
+                }
+                score -= static_cast<double>(visits) * 2.0;
+            } else {
+                for (uint32_t trait = 0u; trait < 4u; ++trait)
+                    score += std::abs(cellTrait(config, candidate, trait)
+                        - cellTrait(config, currentCell_, trait));
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestDirection = direction;
+            }
+        }
+        (void)tick;
+        return bestDirection;
+    }
+
     void updateClimateCell(const Config& config, int64_t tick,
         double beat, double beatsPerBar) noexcept
     {
@@ -656,11 +1139,8 @@ private:
                     ^ static_cast<uint64_t>(config.seed))));
             const uint32_t planes = latticePlaneCount(
                 config.latticeDepthIndex);
-            const bool changePlane = planes > 1u
-                && ((motion >> 3u) + static_cast<uint32_t>(cellStep_)) % 5u
-                    == 0u;
-            const uint32_t direction = changePlane
-                ? 8u + ((motion >> 7u) & 1u) : motion & 7u;
+            const uint32_t direction = dealerDirection(
+                config, tick, motion, planes);
             previousCell_ = currentCell_;
             currentCell_ = wrappedCellNeighbor(
                 currentCell_, direction, planes);
@@ -693,12 +1173,81 @@ private:
         return linear * linear * (3.0 - 2.0 * linear);
     }
 
-    double effectiveTrait(const Config& config, uint32_t trait,
+    double blendedTrait(const Config& config, uint32_t trait,
         double blend) const noexcept
     {
         const double a = cellTrait(config, previousCell_, trait);
         const double b = cellTrait(config, currentCell_, trait);
-        return (a + (b - a) * blend) * config.climate;
+        return a + (b - a) * blend;
+    }
+
+    double effectiveTrait(const Config& config, uint32_t trait,
+        double blend) const noexcept
+    {
+        return blendedTrait(config, trait, blend) * config.climate;
+    }
+
+    double formPhase(const Config& config, double beat,
+        double beatsPerBar) const noexcept
+    {
+        const double cycleBeats = static_cast<double>(config.formBars)
+            * beatsPerBar;
+        double phase = beat / std::max(1.0, cycleBeats);
+        phase -= std::floor(phase);
+        return phase;
+    }
+
+    double ccSourceValue(const Config& config, uint32_t relay,
+        CcSource source, double population, double beat,
+        double beatsPerBar) const noexcept
+    {
+        const uint32_t cluster = relay % kClusterCount;
+        const double blend = climateBlend(
+            config, formBeat(beat), beatsPerBar);
+        switch (source) {
+        case CcSource::Receptor:
+            return receptors_[relay] * 0.5 + 0.5;
+        case CcSource::ClusterSigned:
+            return clusters_[cluster] * 0.5 + 0.5;
+        case CcSource::ClusterEnergy:
+            return std::abs(clusters_[cluster]);
+        case CcSource::RegisterPopulation:
+            return population;
+        case CcSource::EnergyRegister:
+            return std::clamp(
+                std::abs(clusters_[cluster]) * 0.72 + population * 0.28,
+                0.0, 1.0);
+        case CcSource::ClimateEnergy:
+        case CcSource::ClimateCoupling:
+        case CcSource::ClimateHierarchy:
+        case CcSource::ClimateContrast: {
+            const uint32_t trait = static_cast<uint32_t>(source)
+                - static_cast<uint32_t>(CcSource::ClimateEnergy);
+            return blendedTrait(config, trait, blend) * 0.5 + 0.5;
+        }
+        case CcSource::Gestation:
+            return blend;
+        case CcSource::FormPhase:
+            return formPhase(config, formBeat(beat), beatsPerBar);
+        case CcSource::PlasticityDrift: {
+            double drift = 0.0;
+            for (double value : plasticity_) drift += std::abs(value);
+            return std::clamp(drift
+                / (0.22 * static_cast<double>(plasticity_.size())),
+                0.0, 1.0);
+        }
+        }
+        return 0.0;
+    }
+
+    static double applyCcCurve(double value, double curve) noexcept
+    {
+        value = std::clamp(value, 0.0, 1.0);
+        if (curve > 1.0e-9)
+            return std::pow(value, 1.0 + curve * 3.0);
+        if (curve < -1.0e-9)
+            return 1.0 - std::pow(1.0 - value, 1.0 - curve * 3.0);
+        return value;
     }
 
     double receptorValue(const RelayConfig& relay, uint32_t index,
@@ -808,7 +1357,8 @@ private:
                     + ring * (0.50 + effectiveContrast * 0.32)
                     + cross * effectiveCoupling * 0.62
                     + parent * effectiveHierarchy * (cluster == 0u ? 0.0 : 0.48)
-                    + registerDrive + impulse + noise) * gain);
+                    + registerDrive + impulse + noise
+                    + externalInputDrive_[node] * 0.62) * gain);
                 const double response = std::min(
                     1.0, alpha[cluster] * kPentadResponse[local]);
                 nodes_[node] += (target - nodes_[node]) * response;
@@ -869,12 +1419,14 @@ private:
         double beatsPerBar, bool emit, Event* events, uint32_t capacity,
         Result& result) noexcept
     {
+        prepareExternalInputDrive(config);
         // Establish a cycle reset before taking the register edge snapshot so
         // uninterrupted playback and a seek to the same cycle boundary agree.
         updateClimateCell(config, tick, formBeat(beat), beatsPerBar);
         const uint8_t oldBits = registerBits_;
         advanceNetwork(config, tick, beat, beatsPerBar);
         advanceRegister(config, tick, beat);
+        decayExternalInput(config);
         const uint8_t rising = static_cast<uint8_t>(
             registerBits_ & static_cast<uint8_t>(~oldBits));
 
@@ -917,17 +1469,26 @@ private:
         for (uint32_t relay = 0u; relay < kRelayCount; ++relay) {
             const RelayConfig& mapping = config.relays[relay];
             if (!mapping.enabled) continue;
-            const int ccAValue = std::clamp(static_cast<int>(std::lround(
-                (receptors_[relay] * 0.5 + 0.5) * 127.0)), 0, 127);
-            const double clusterEnergy = std::abs(
-                clusters_[relay % kClusterCount]);
-            const int ccBValue = std::clamp(static_cast<int>(std::lround(
-                std::clamp(clusterEnergy * 0.72 + population * 0.28,
-                    0.0, 1.0) * 127.0)), 0, 127);
-            emitCc(relay, 0u, mapping.ccA, ccAValue, beat,
-                mapping.channel, events, capacity, result);
-            emitCc(relay, 1u, mapping.ccB, ccBValue, beat,
-                mapping.channel, events, capacity, result);
+            const std::array<uint16_t, 2u> controllers {{
+                mapping.ccA, mapping.ccB,
+            }};
+            for (uint32_t lane = 0u; lane < 2u; ++lane) {
+                const auto& laneConfig = mapping.ccLanes[lane];
+                const double shaped = applyCcCurve(ccSourceValue(config,
+                    relay, laneConfig.source, population, beat, beatsPerBar),
+                    laneConfig.curve);
+                double& smoothed = smoothedCc_[relay][lane];
+                if (!std::isfinite(smoothed)) smoothed = shaped;
+                const double alpha = 1.0 - laneConfig.slew * 0.98;
+                smoothed += (shaped - smoothed) * alpha;
+                const double ranged = static_cast<double>(laneConfig.minimum)
+                    + smoothed * (static_cast<double>(laneConfig.maximum)
+                        - static_cast<double>(laneConfig.minimum));
+                const int value = std::clamp(
+                    static_cast<int>(std::lround(ranged)), 0, 127);
+                emitCc(relay, lane, controllers[lane], value, beat,
+                    mapping.channel, events, capacity, result);
+            }
         }
     }
 
@@ -1126,6 +1687,9 @@ private:
     void invalidateCc() noexcept
     {
         for (auto& cc : lastCc_) cc = {{ -1, -1 }};
+        for (auto& cc : smoothedCc_)
+            cc = {{ std::numeric_limits<double>::quiet_NaN(),
+                    std::numeric_limits<double>::quiet_NaN() }};
     }
 
     void updateSnapshot(const Config& config, double beat,
@@ -1149,6 +1713,31 @@ private:
         phase -= std::floor(phase);
         snapshot_.cyclePhase = phase;
         snapshot_.cycleIndex = cycleIndex_;
+        snapshot_.formBeat = climateBeat;
+        snapshot_.formHold = formHold_;
+        for (uint32_t trait = 0u; trait < 4u; ++trait)
+            snapshot_.climateTraits[trait] = blendedTrait(
+                config, trait, snapshot_.climateBlend);
+        snapshot_.effectiveConduct = {{
+            std::clamp(config.activity
+                + snapshot_.climateTraits[0u] * config.climate * 0.24,
+                0.0, 1.0),
+            std::clamp(config.coupling
+                + snapshot_.climateTraits[1u] * config.climate * 0.22,
+                0.0, 1.2),
+            std::clamp(config.hierarchy
+                + snapshot_.climateTraits[2u] * config.climate * 0.20,
+                0.0, 1.0),
+            std::clamp(config.contrast
+                + snapshot_.climateTraits[3u] * config.climate * 0.22,
+                0.0, 1.0),
+        }};
+        snapshot_.externalInputNodes = externalInputDrive_;
+        double inputActivity = 0.0;
+        for (double value : externalInputDrive_)
+            inputActivity += std::abs(value);
+        snapshot_.externalInputActivity = inputActivity
+            / static_cast<double>(kNodeCount);
         double energy = 0.0;
         for (double cluster : clusters_) energy += std::abs(cluster);
         snapshot_.energy = energy / static_cast<double>(kClusterCount);
@@ -1159,10 +1748,18 @@ private:
     std::array<double, kRelayCount> receptors_ {};
     std::array<double, kClusterCount * kClusterCount> plasticity_ {};
     std::array<double, kClusterCount> pendingImpulse_ {};
+    std::array<ExternalMidiEvent, kExternalInputQueueCapacity> queuedInputs_ {};
+    uint32_t queuedInputCount_ = 0u;
+    std::array<uint8_t, 16u * 128u> heldInputNotes_ {};
+    std::array<uint8_t, 16u * 128u> inputCcValues_ {};
+    std::array<uint8_t, 16u * 128u> inputCcSeen_ {};
+    std::array<double, kNodeCount> externalImpulse_ {};
+    std::array<double, kNodeCount> externalInputDrive_ {};
     std::array<std::array<ActiveNote, kVoicesPerRelay>, kRelayCount>
         activeNotes_ {};
     std::array<uint8_t, 16u * 128u> noteOwners_ {};
     std::array<std::array<int, 2u>, kRelayCount> lastCc_ {};
+    std::array<std::array<double, 2u>, kRelayCount> smoothedCc_ {};
     std::array<int64_t, kRelayCount> lastFireTick_ {};
     std::array<uint32_t, kTrailLength> trail_ {};
     uint8_t registerBits_ = 0x96u;

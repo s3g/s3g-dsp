@@ -13,6 +13,13 @@ using s3g::relay::Engine;
 using s3g::relay::Event;
 using s3g::relay::EventKind;
 using s3g::relay::ArticulationMode;
+using s3g::relay::CcSource;
+using s3g::relay::DealerLaw;
+using s3g::relay::ExternalMidiEvent;
+using s3g::relay::MidiInputMap;
+using s3g::relay::MidiInputMode;
+using s3g::relay::MidiInputPolarity;
+using s3g::relay::MidiInputResponse;
 
 bool equivalent(const Event& a, const Event& b)
 {
@@ -111,6 +118,163 @@ bool testGenericMappings()
     }
     if (!note || !ccA || !ccB) {
         std::cerr << "Relay did not preserve generic note/CC mappings\n";
+        return false;
+    }
+    return true;
+}
+
+std::vector<uint8_t> ccValues(const std::vector<Event>& events,
+    uint8_t controller)
+{
+    std::vector<uint8_t> values;
+    for (const auto& event : events) {
+        if (event.kind == EventKind::ControlChange
+            && event.data1 == controller) values.push_back(event.data2);
+    }
+    return values;
+}
+
+bool testAssignableCcRouting()
+{
+    Config config;
+    config.formBars = 16u;
+    config.ccRateIndex = 0u;
+    for (auto& relay : config.relays) relay.enabled = false;
+    auto& relay = config.relays[0u];
+    relay.enabled = true;
+    relay.note = s3g::relay::kMidiOff;
+    relay.ccA = 74u;
+    relay.ccB = 71u;
+    relay.ccLanes[0u] = { CcSource::FormPhase, 20u, 100u, 0.0, 0.0 };
+    relay.ccLanes[1u] = { CcSource::FormPhase, 100u, 20u, 0.0, 0.0 };
+
+    const auto linearEvents = render(config, { 0.0, 32.0 });
+    const auto laneA = ccValues(linearEvents, 74u);
+    const auto laneB = ccValues(linearEvents, 71u);
+    if (laneA.size() < 8u || laneB.size() < 8u
+        || *std::min_element(laneA.begin(), laneA.end()) < 20u
+        || *std::max_element(laneA.begin(), laneA.end()) > 100u
+        || *std::min_element(laneB.begin(), laneB.end()) < 20u
+        || *std::max_element(laneB.begin(), laneB.end()) > 100u
+        || laneA.front() >= laneA.back() || laneB.front() <= laneB.back()) {
+        std::cerr << "Relay CC source/range/inversion routing failed\n";
+        return false;
+    }
+
+    relay.ccLanes[0u].minimum = 0u;
+    relay.ccLanes[0u].maximum = 127u;
+    const auto linear = ccValues(render(config, { 0.0, 32.0 }), 74u);
+    relay.ccLanes[0u].curve = 1.0;
+    const auto curved = ccValues(render(config, { 0.0, 32.0 }), 74u);
+    relay.ccLanes[0u].curve = 0.0;
+    relay.ccLanes[0u].slew = 0.85;
+    const auto slewed = ccValues(render(config, { 0.0, 32.0 }), 74u);
+    if (curved == linear || slewed == linear || curved.empty()
+        || slewed.empty()) {
+        std::cerr << "Relay CC curve or slew did not alter the control path\n";
+        return false;
+    }
+    return true;
+}
+
+bool testExternalEcologicalInjection()
+{
+    Config config;
+    config.clockRateIndex = 4u;
+    config.midiInputMode = MidiInputMode::Notes;
+    config.midiInputMap = MidiInputMap::NodeAddress;
+    config.midiInputResponse = MidiInputResponse::Impulse;
+    config.midiInputDepth = 1.0;
+    config.midiInputDecayBeats = 1.0;
+    for (auto& relay : config.relays) relay.enabled = false;
+
+    ExternalMidiEvent note {
+        0.37, EventKind::NoteOn, 0u, 60u, 127u,
+    };
+    Event events[16] {};
+    Engine baselineEngine;
+    const auto baseline = baselineEngine.process(
+        0.0, 2.0, 4.0, true, config, events, 16u);
+    Engine injectedEngine;
+    const auto injected = injectedEngine.process(
+        0.0, 2.0, 4.0, true, config, &note, 1u, events, 16u);
+    if (injected.snapshot.externalInputActivity <= 0.0
+        || injected.snapshot.externalInputNodes[0u] <= 0.0
+        || injected.snapshot.nodes == baseline.snapshot.nodes) {
+        std::cerr << "Relay note input did not enter the neural ecology\n";
+        return false;
+    }
+
+    Engine segmentedEngine;
+    (void)segmentedEngine.process(
+        0.0, 0.2, 4.0, true, config, events, 16u);
+    const auto segmented = segmentedEngine.process(
+        0.2, 2.0, 4.0, true, config, &note, 1u, events, 16u);
+    if (segmented.snapshot.nodes != injected.snapshot.nodes
+        || segmented.snapshot.registerBits != injected.snapshot.registerBits
+        || segmented.snapshot.externalInputNodes
+            != injected.snapshot.externalInputNodes) {
+        std::cerr << "Relay MIDI injection changed with block boundaries\n";
+        return false;
+    }
+
+    config.midiInputMode = MidiInputMode::NotesAndControlChange;
+    config.midiInputResponse = MidiInputResponse::Gate;
+    config.midiInputMap = MidiInputMap::ClusterAddress;
+    config.midiInputPolarity = MidiInputPolarity::Signed;
+    config.midiInputCc = 11u;
+    const std::array<ExternalMidiEvent, 3u> gateAndCc {{
+        { 0.0, EventKind::NoteOn, 2u, 61u, 120u },
+        { 0.5, EventKind::ControlChange, 2u, 11u, 127u },
+        { 1.1, EventKind::NoteOff, 2u, 61u, 0u },
+    }};
+    Engine gateEngine;
+    const auto gate = gateEngine.process(0.0, 2.0, 4.0, true, config,
+        gateAndCc.data(), static_cast<uint32_t>(gateAndCc.size()),
+        events, 16u);
+    if (gate.snapshot.externalInputActivity <= 0.0) {
+        std::cerr << "Relay gate/CC input did not sustain ecological force\n";
+        return false;
+    }
+    return true;
+}
+
+bool testDealerLaws()
+{
+    Config config;
+    config.formBars = 64u;
+    config.dwellBars = 1u;
+    config.transitionBars = 0.0;
+    config.latticeDepthIndex = 2u;
+    for (auto& relay : config.relays) relay.enabled = false;
+    Event events[8] {};
+    std::array<std::array<uint32_t, s3g::relay::kTrailLength>,
+        s3g::relay::kDealerLawCount> trails {};
+    for (uint32_t law = 0u; law < s3g::relay::kDealerLawCount; ++law) {
+        config.dealerLaw = static_cast<DealerLaw>(law);
+        Engine first;
+        Engine second;
+        const auto a = first.process(
+            0.0, 64.0, 4.0, true, config, events, 8u);
+        const auto b = second.process(
+            0.0, 64.0, 4.0, true, config, events, 8u);
+        if (a.snapshot.trail != b.snapshot.trail
+            || a.snapshot.currentCell != b.snapshot.currentCell
+            || a.snapshot.currentCell >= s3g::relay::kClimateCells) {
+            std::cerr << "Relay dealing law was invalid or non-deterministic\n";
+            return false;
+        }
+        trails[law] = a.snapshot.trail;
+    }
+    uint32_t distinct = 0u;
+    for (uint32_t law = 0u; law < trails.size(); ++law) {
+        bool firstOccurrence = true;
+        for (uint32_t earlier = 0u; earlier < law; ++earlier)
+            firstOccurrence &= trails[law] != trails[earlier];
+        distinct += firstOccurrence ? 1u : 0u;
+    }
+    if (distinct < 4u) {
+        std::cerr << "Relay dealing laws did not produce distinct paths\n";
         return false;
     }
     return true;
@@ -559,6 +723,25 @@ bool testCrystallizeFormHold()
         std::cerr << "Relay climate form did not resume from its held phase\n";
         return false;
     }
+
+    Config restoredConfig = config;
+    restoredConfig.formHold = true;
+    restoredConfig.requestedFormHoldBeat = 37.5;
+    Engine restoredEngine;
+    const auto restored = restoredEngine.process(
+        100.0, 116.0, 4.0, true, restoredConfig, events, 8u);
+    if (!restored.snapshot.formHold
+        || std::abs(restored.snapshot.formBeat - 37.5) > 1.0e-12) {
+        std::cerr << "Relay did not restore its saved crystallized form beat\n";
+        return false;
+    }
+    restoredConfig.formHold = false;
+    const auto restoredThaw = restoredEngine.process(
+        116.0, 117.0, 4.0, true, restoredConfig, events, 8u);
+    if (std::abs(restoredThaw.snapshot.formBeat - 38.5) > 1.0e-12) {
+        std::cerr << "Relay restored form beat did not thaw continuously\n";
+        return false;
+    }
     return true;
 }
 
@@ -617,6 +800,9 @@ int main()
 {
     if (!testBlockSizeIndependence()) return 1;
     if (!testGenericMappings()) return 1;
+    if (!testAssignableCcRouting()) return 1;
+    if (!testExternalEcologicalInjection()) return 1;
+    if (!testDealerLaws()) return 1;
     if (!testCrystallineRegister()) return 1;
     if (!testSeekReleasesNotes()) return 1;
     if (!testClimateAndFeedback()) return 1;

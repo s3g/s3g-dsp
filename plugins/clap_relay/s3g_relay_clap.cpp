@@ -26,6 +26,7 @@
 #include <limits>
 #include <new>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -34,6 +35,13 @@ using s3g::relay::Engine;
 using s3g::relay::Event;
 using s3g::relay::EventKind;
 using s3g::relay::ArticulationMode;
+using s3g::relay::CcSource;
+using s3g::relay::DealerLaw;
+using s3g::relay::ExternalMidiEvent;
+using s3g::relay::MidiInputMap;
+using s3g::relay::MidiInputMode;
+using s3g::relay::MidiInputPolarity;
+using s3g::relay::MidiInputResponse;
 using s3g::relay::PitchMode;
 using s3g::relay::ReceptorTopology;
 
@@ -49,13 +57,21 @@ constexpr uint32_t kVersion4GlobalParamCount = 20u;
 constexpr uint32_t kVersion4RelayParamCount = 13u;
 constexpr uint32_t kVersion4ParamCount = kVersion4GlobalParamCount
     + s3g::relay::kRelayCount * kVersion4RelayParamCount;
-constexpr uint32_t kGlobalParamCount = 21u;
-constexpr uint32_t kRelayParamCount = 13u;
+constexpr uint32_t kVersion5GlobalParamCount = 21u;
+constexpr uint32_t kVersion5RelayParamCount = 13u;
+constexpr uint32_t kVersion5ParamCount = kVersion5GlobalParamCount
+    + s3g::relay::kRelayCount * kVersion5RelayParamCount;
+constexpr uint32_t kVersion6GlobalParamCount = 21u;
+constexpr uint32_t kVersion6RelayParamCount = 23u;
+constexpr uint32_t kVersion6ParamCount = kVersion6GlobalParamCount
+    + s3g::relay::kRelayCount * kVersion6RelayParamCount;
+constexpr uint32_t kGlobalParamCount = 30u;
+constexpr uint32_t kRelayParamCount = 23u;
 constexpr uint32_t kParamCount = kGlobalParamCount
     + s3g::relay::kRelayCount * kRelayParamCount;
 constexpr uint32_t kEventCapacity = 4096u;
 constexpr uint32_t kStateMagic = 0x52454c59u; // RELY
-constexpr uint32_t kStateVersion = 5u;
+constexpr uint32_t kStateVersion = 7u;
 constexpr std::array<uint8_t, 10u> kVersion2ScaleToCanonical {{
     0u, 1u, 2u, 6u, 9u, 3u, 31u, 5u, 4u, 45u,
 }};
@@ -64,6 +80,7 @@ constexpr uint32_t kGuiHeight = 900u;
 constexpr uint32_t kGuiMinimumWidth = 900u;
 constexpr uint32_t kGuiMinimumHeight = 640u;
 constexpr uint32_t kMidiTraceCapacity = 128u;
+constexpr uint32_t kGuiParamQueueCapacity = 1024u;
 const Config kDefaultConfig {};
 constexpr uint32_t kFactoryPresetCount = 8u;
 
@@ -89,6 +106,7 @@ Config factoryPresetConfig(uint32_t index)
     };
     switch (index) {
     case 1u: // Drum Ecology
+        config.dealerLaw = DealerLaw::CompassRose;
         config.latticeDepthIndex = 0u;
         config.activity = 0.74;
         config.coupling = 0.58;
@@ -103,6 +121,7 @@ Config factoryPresetConfig(uint32_t index)
         config.climate = 0.46;
         break;
     case 2u: // Muse Logic
+        config.dealerLaw = DealerLaw::AvoidRecent;
         config.latticeDepthIndex = 1u;
         config.activity = 0.52;
         config.coupling = 0.42;
@@ -123,6 +142,7 @@ Config factoryPresetConfig(uint32_t index)
         setArticulation(ArticulationMode::Hold);
         break;
     case 3u: // Zillion Cascade
+        config.dealerLaw = DealerLaw::SeededWander;
         config.latticeDepthIndex = 2u;
         config.activity = 0.68;
         config.coupling = 0.72;
@@ -163,6 +183,7 @@ Config factoryPresetConfig(uint32_t index)
             config.relays[relay].articulation = ArticulationMode::Stack;
         break;
     case 5u: // Crystalline Canon
+        config.dealerLaw = DealerLaw::CompassRose;
         config.activity = 0.48;
         config.coupling = 0.40;
         config.memory = 1.0;
@@ -180,6 +201,7 @@ Config factoryPresetConfig(uint32_t index)
         setArticulation(ArticulationMode::Extend);
         break;
     case 6u: // Long-form Dorian
+        config.dealerLaw = DealerLaw::PlaneTides;
         config.activity = 0.56;
         config.coupling = 0.63;
         config.memory = 0.76;
@@ -199,6 +221,7 @@ Config factoryPresetConfig(uint32_t index)
         setArticulation(ArticulationMode::Extend);
         break;
     case 7u: // Whole-tone Drift
+        config.dealerLaw = DealerLaw::ClimateContrast;
         config.activity = 0.44;
         config.coupling = 0.67;
         config.memory = 0.57;
@@ -247,6 +270,15 @@ enum GlobalParam : uint32_t {
     kScale,
     kScaleRange,
     kLatticeDepth,
+    kDealerLaw,
+    kMidiInputMode,
+    kMidiInputChannel,
+    kMidiInputMap,
+    kMidiInputResponse,
+    kMidiInputCc,
+    kMidiInputPolarity,
+    kMidiInputDepth,
+    kMidiInputDecay,
 };
 
 enum RelayParam : uint32_t {
@@ -263,6 +295,16 @@ enum RelayParam : uint32_t {
     kRelayTopology,
     kRelayPitchMode,
     kRelayArticulation,
+    kRelayCcASource,
+    kRelayCcAMin,
+    kRelayCcAMax,
+    kRelayCcACurve,
+    kRelayCcASlew,
+    kRelayCcBSource,
+    kRelayCcBMin,
+    kRelayCcBMax,
+    kRelayCcBCurve,
+    kRelayCcBSlew,
 };
 
 struct ParamSpec {
@@ -281,7 +323,10 @@ clap_id paramIdForIndex(uint32_t index) noexcept
     index -= kGlobalParamCount;
     const uint32_t relay = index / kRelayParamCount;
     const uint32_t local = index % kRelayParamCount;
-    return static_cast<clap_id>(100u + relay * 16u + local);
+    if (local < kVersion5RelayParamCount)
+        return static_cast<clap_id>(100u + relay * 16u + local);
+    return static_cast<clap_id>(1000u + relay * 16u
+        + local - kVersion5RelayParamCount);
 }
 
 bool paramIndex(clap_id id, uint32_t& index) noexcept
@@ -291,9 +336,12 @@ bool paramIndex(clap_id id, uint32_t& index) noexcept
         return true;
     }
     if (id < 100u) return false;
-    const uint32_t encoded = static_cast<uint32_t>(id - 100u);
+    const bool extension = id >= 1000u;
+    const uint32_t encoded = static_cast<uint32_t>(
+        id - (extension ? 1000u : 100u));
     const uint32_t relay = encoded / 16u;
-    const uint32_t local = encoded % 16u;
+    const uint32_t local = encoded % 16u
+        + (extension ? kVersion5RelayParamCount : 0u);
     if (relay >= s3g::relay::kRelayCount || local >= kRelayParamCount)
         return false;
     index = kGlobalParamCount + relay * kRelayParamCount + local;
@@ -330,6 +378,15 @@ ParamSpec paramSpec(uint32_t index)
         case kScale: return { paramIdForIndex(index), "Musical Scale", "Pitch", 0.0, static_cast<double>(s3g::kMusicalScaleCount - 1u), static_cast<double>(kDefaultConfig.scale), true };
         case kScaleRange: return { paramIdForIndex(index), "Scale Range", "Pitch", 1.0, 4.0, static_cast<double>(kDefaultConfig.scaleRange), true };
         case kLatticeDepth: return { paramIdForIndex(index), "Lattice Depth", "Climate", 0.0, 2.0, static_cast<double>(kDefaultConfig.latticeDepthIndex), true };
+        case kDealerLaw: return { paramIdForIndex(index), "Dealer Law", "Climate", 0.0, static_cast<double>(s3g::relay::kDealerLawCount - 1u), static_cast<double>(kDefaultConfig.dealerLaw), true };
+        case kMidiInputMode: return { paramIdForIndex(index), "Input Source", "External Input", 0.0, 3.0, static_cast<double>(kDefaultConfig.midiInputMode), true };
+        case kMidiInputChannel: return { paramIdForIndex(index), "Input Channel", "External Input", 0.0, 16.0, static_cast<double>(kDefaultConfig.midiInputChannel), true };
+        case kMidiInputMap: return { paramIdForIndex(index), "Input Map", "External Input", 0.0, 3.0, static_cast<double>(kDefaultConfig.midiInputMap), true };
+        case kMidiInputResponse: return { paramIdForIndex(index), "Note Response", "External Input", 0.0, 1.0, static_cast<double>(kDefaultConfig.midiInputResponse), true };
+        case kMidiInputCc: return { paramIdForIndex(index), "Input CC", "External Input", 0.0, 127.0, static_cast<double>(kDefaultConfig.midiInputCc), true };
+        case kMidiInputPolarity: return { paramIdForIndex(index), "Input Polarity", "External Input", 0.0, 1.0, static_cast<double>(kDefaultConfig.midiInputPolarity), true };
+        case kMidiInputDepth: return { paramIdForIndex(index), "Input Depth", "External Input", 0.0, 1.0, kDefaultConfig.midiInputDepth, false };
+        case kMidiInputDecay: return { paramIdForIndex(index), "Input Decay", "External Input", 0.05, 16.0, kDefaultConfig.midiInputDecayBeats, false };
         default: break;
         }
     }
@@ -352,6 +409,16 @@ ParamSpec paramSpec(uint32_t index)
     case kRelayTopology: return { paramIdForIndex(index), "Receptor", module, 0.0, 3.0, static_cast<double>(relay.topology), true };
     case kRelayPitchMode: return { paramIdForIndex(index), "Pitch Mode", module, 0.0, 1.0, static_cast<double>(relay.pitchMode), true };
     case kRelayArticulation: return { paramIdForIndex(index), "Articulation", module, 0.0, 3.0, static_cast<double>(relay.articulation), true };
+    case kRelayCcASource: return { paramIdForIndex(index), "CC A Source", module, 0.0, static_cast<double>(s3g::relay::kCcSourceCount - 1u), static_cast<double>(relay.ccLanes[0u].source), true };
+    case kRelayCcAMin: return { paramIdForIndex(index), "CC A Minimum", module, 0.0, 127.0, static_cast<double>(relay.ccLanes[0u].minimum), true };
+    case kRelayCcAMax: return { paramIdForIndex(index), "CC A Maximum", module, 0.0, 127.0, static_cast<double>(relay.ccLanes[0u].maximum), true };
+    case kRelayCcACurve: return { paramIdForIndex(index), "CC A Curve", module, -1.0, 1.0, relay.ccLanes[0u].curve, false };
+    case kRelayCcASlew: return { paramIdForIndex(index), "CC A Slew", module, 0.0, 1.0, relay.ccLanes[0u].slew, false };
+    case kRelayCcBSource: return { paramIdForIndex(index), "CC B Source", module, 0.0, static_cast<double>(s3g::relay::kCcSourceCount - 1u), static_cast<double>(relay.ccLanes[1u].source), true };
+    case kRelayCcBMin: return { paramIdForIndex(index), "CC B Minimum", module, 0.0, 127.0, static_cast<double>(relay.ccLanes[1u].minimum), true };
+    case kRelayCcBMax: return { paramIdForIndex(index), "CC B Maximum", module, 0.0, 127.0, static_cast<double>(relay.ccLanes[1u].maximum), true };
+    case kRelayCcBCurve: return { paramIdForIndex(index), "CC B Curve", module, -1.0, 1.0, relay.ccLanes[1u].curve, false };
+    case kRelayCcBSlew: return { paramIdForIndex(index), "CC B Slew", module, 0.0, 1.0, relay.ccLanes[1u].slew, false };
     default: return {};
     }
 }
@@ -360,7 +427,14 @@ struct SavedState {
     uint32_t magic = kStateMagic;
     uint32_t version = kStateVersion;
     std::array<double, kParamCount> values {};
+    double thawMemory = kDefaultConfig.memory;
+    double heldFormBeat = 0.0;
+    uint32_t runtimeFlags = 0u;
+    uint32_t reserved = 0u;
 };
+
+constexpr uint32_t kStateHasThawMemory = 1u << 0u;
+constexpr uint32_t kStateFormHold = 1u << 1u;
 
 struct StateHeader {
     uint32_t magic = 0u;
@@ -381,8 +455,10 @@ struct Plugin {
     Config config {};
     Engine engine {};
     std::array<Event, kEventCapacity> eventBuffer {};
+    std::array<ExternalMidiEvent, s3g::relay::kExternalInputQueueCapacity>
+        inputEventBuffer {};
     std::array<std::atomic<double>, kParamCount> publishedParams {};
-    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::ParamEventQueue<kGuiParamQueueCapacity> guiParamEvents {};
     std::array<std::atomic<double>, s3g::relay::kNodeCount> visualNodes {};
     std::array<std::atomic<double>, s3g::relay::kClusterCount> visualClusters {};
     std::array<std::atomic<double>, s3g::relay::kRelayCount> visualReceptors {};
@@ -394,7 +470,13 @@ struct Plugin {
     std::atomic<double> visualEnergy { 0.0 };
     std::atomic<double> visualClimateBlend { 1.0 };
     std::atomic<double> visualCyclePhase { 0.0 };
+    std::atomic<double> visualFormBeat { 0.0 };
     std::atomic<int64_t> visualCycleIndex { 0 };
+    std::array<std::atomic<double>, 4u> visualClimateTraits {};
+    std::array<std::atomic<double>, 4u> visualEffectiveConduct {};
+    std::array<std::atomic<double>, s3g::relay::kNodeCount>
+        visualExternalInputNodes {};
+    std::atomic<double> visualExternalInputActivity { 0.0 };
     std::atomic<uint32_t> visualRegister { 0u };
     std::atomic<uint32_t> visualCell { 5u };
     std::atomic<uint32_t> visualPreviousCell { 5u };
@@ -403,6 +485,7 @@ struct Plugin {
     std::atomic<uint64_t> sentEvents { 0u };
     std::atomic<uint64_t> droppedEvents { 0u };
     std::atomic<double> thawMemory { kDefaultConfig.memory };
+    std::atomic<double> heldFormBeat { 0.0 };
     std::atomic<bool> hasThawMemory { false };
     std::atomic<bool> formHold { false };
     std::array<MidiTraceSlot, kMidiTraceCapacity> midiTrace {};
@@ -444,6 +527,15 @@ double configValue(const Config& config, uint32_t index) noexcept
         case kScale: return static_cast<double>(config.scale);
         case kScaleRange: return static_cast<double>(config.scaleRange);
         case kLatticeDepth: return static_cast<double>(config.latticeDepthIndex);
+        case kDealerLaw: return static_cast<double>(config.dealerLaw);
+        case kMidiInputMode: return static_cast<double>(config.midiInputMode);
+        case kMidiInputChannel: return static_cast<double>(config.midiInputChannel);
+        case kMidiInputMap: return static_cast<double>(config.midiInputMap);
+        case kMidiInputResponse: return static_cast<double>(config.midiInputResponse);
+        case kMidiInputCc: return static_cast<double>(config.midiInputCc);
+        case kMidiInputPolarity: return static_cast<double>(config.midiInputPolarity);
+        case kMidiInputDepth: return config.midiInputDepth;
+        case kMidiInputDecay: return config.midiInputDecayBeats;
         default: return 0.0;
         }
     }
@@ -464,6 +556,16 @@ double configValue(const Config& config, uint32_t index) noexcept
     case kRelayTopology: return static_cast<double>(relay.topology);
     case kRelayPitchMode: return static_cast<double>(relay.pitchMode);
     case kRelayArticulation: return static_cast<double>(relay.articulation);
+    case kRelayCcASource: return static_cast<double>(relay.ccLanes[0u].source);
+    case kRelayCcAMin: return static_cast<double>(relay.ccLanes[0u].minimum);
+    case kRelayCcAMax: return static_cast<double>(relay.ccLanes[0u].maximum);
+    case kRelayCcACurve: return relay.ccLanes[0u].curve;
+    case kRelayCcASlew: return relay.ccLanes[0u].slew;
+    case kRelayCcBSource: return static_cast<double>(relay.ccLanes[1u].source);
+    case kRelayCcBMin: return static_cast<double>(relay.ccLanes[1u].minimum);
+    case kRelayCcBMax: return static_cast<double>(relay.ccLanes[1u].maximum);
+    case kRelayCcBCurve: return relay.ccLanes[1u].curve;
+    case kRelayCcBSlew: return relay.ccLanes[1u].slew;
     default: return 0.0;
     }
 }
@@ -512,6 +614,15 @@ void applyParam(Plugin& plugin, clap_id id, double value) noexcept
         case kScale: plugin.config.scale = static_cast<uint32_t>(value); invalidate = true; break;
         case kScaleRange: plugin.config.scaleRange = static_cast<uint32_t>(value); invalidate = true; break;
         case kLatticeDepth: plugin.config.latticeDepthIndex = static_cast<uint32_t>(value); invalidate = true; break;
+        case kDealerLaw: plugin.config.dealerLaw = static_cast<DealerLaw>(static_cast<uint32_t>(value)); invalidate = true; break;
+        case kMidiInputMode: plugin.config.midiInputMode = static_cast<MidiInputMode>(static_cast<uint32_t>(value)); break;
+        case kMidiInputChannel: plugin.config.midiInputChannel = static_cast<uint32_t>(value); break;
+        case kMidiInputMap: plugin.config.midiInputMap = static_cast<MidiInputMap>(static_cast<uint32_t>(value)); break;
+        case kMidiInputResponse: plugin.config.midiInputResponse = static_cast<MidiInputResponse>(static_cast<uint32_t>(value)); break;
+        case kMidiInputCc: plugin.config.midiInputCc = static_cast<uint32_t>(value); break;
+        case kMidiInputPolarity: plugin.config.midiInputPolarity = static_cast<MidiInputPolarity>(static_cast<uint32_t>(value)); break;
+        case kMidiInputDepth: plugin.config.midiInputDepth = value; break;
+        case kMidiInputDecay: plugin.config.midiInputDecayBeats = value; break;
         default: break;
         }
     } else {
@@ -532,6 +643,16 @@ void applyParam(Plugin& plugin, clap_id id, double value) noexcept
         case kRelayTopology: relay.topology = static_cast<ReceptorTopology>(static_cast<uint32_t>(value)); break;
         case kRelayPitchMode: relay.pitchMode = static_cast<PitchMode>(static_cast<uint32_t>(value)); invalidate = true; break;
         case kRelayArticulation: relay.articulation = static_cast<ArticulationMode>(static_cast<uint32_t>(value)); invalidate = true; break;
+        case kRelayCcASource: relay.ccLanes[0u].source = static_cast<CcSource>(static_cast<uint32_t>(value)); break;
+        case kRelayCcAMin: relay.ccLanes[0u].minimum = static_cast<uint8_t>(value); break;
+        case kRelayCcAMax: relay.ccLanes[0u].maximum = static_cast<uint8_t>(value); break;
+        case kRelayCcACurve: relay.ccLanes[0u].curve = value; break;
+        case kRelayCcASlew: relay.ccLanes[0u].slew = value; break;
+        case kRelayCcBSource: relay.ccLanes[1u].source = static_cast<CcSource>(static_cast<uint32_t>(value)); break;
+        case kRelayCcBMin: relay.ccLanes[1u].minimum = static_cast<uint8_t>(value); break;
+        case kRelayCcBMax: relay.ccLanes[1u].maximum = static_cast<uint8_t>(value); break;
+        case kRelayCcBCurve: relay.ccLanes[1u].curve = value; break;
+        case kRelayCcBSlew: relay.ccLanes[1u].slew = value; break;
         default: break;
         }
     }
@@ -627,6 +748,44 @@ void readParamEvents(Plugin& plugin, const clap_input_events_t* input)
             const clap_event_param_value_t*>(header);
         applyParam(plugin, event->param_id, event->value);
     }
+}
+
+uint32_t readExternalMidiEvents(Plugin& plugin,
+    const clap_input_events_t* input, double beginBeat, double tempo) noexcept
+{
+    if (!input || !input->size || !input->get) return 0u;
+    uint32_t written = 0u;
+    const uint32_t count = input->size(input);
+    const double beatsPerFrame = std::max(1.0, tempo)
+        / (60.0 * plugin.sampleRate);
+    for (uint32_t index = 0u; index < count; ++index) {
+        const clap_event_header_t* header = input->get(input, index);
+        if (!header || header->space_id != CLAP_CORE_EVENT_SPACE_ID
+            || header->type != CLAP_EVENT_MIDI
+            || header->size < sizeof(clap_event_midi_t)) continue;
+        const auto* midi = reinterpret_cast<const clap_event_midi_t*>(header);
+        const uint8_t command = midi->data[0] & 0xf0u;
+        EventKind kind;
+        if (command == 0x80u
+            || (command == 0x90u && midi->data[2] == 0u)) {
+            kind = EventKind::NoteOff;
+        } else if (command == 0x90u) {
+            kind = EventKind::NoteOn;
+        } else if (command == 0xb0u) {
+            kind = EventKind::ControlChange;
+        } else {
+            continue;
+        }
+        if (written >= plugin.inputEventBuffer.size()) break;
+        plugin.inputEventBuffer[written++] = {
+            beginBeat + static_cast<double>(header->time) * beatsPerFrame,
+            kind,
+            static_cast<uint8_t>(midi->data[0] & 0x0fu),
+            static_cast<uint8_t>(midi->data[1] & 0x7fu),
+            static_cast<uint8_t>(midi->data[2] & 0x7fu),
+        };
+    }
+    return written;
 }
 
 bool pushGuiParamEvent(const clap_output_events_t* output,
@@ -769,8 +928,13 @@ clap_process_status process(const clap_plugin_t* plugin,
         / (60.0 * instance.sampleRate);
     Config processConfig = instance.config;
     processConfig.formHold = instance.formHold.load(std::memory_order_acquire);
+    processConfig.requestedFormHoldBeat = instance.heldFormBeat.load(
+        std::memory_order_acquire);
+    const uint32_t inputEventCount = readExternalMidiEvents(instance,
+        processData->in_events, beginBeat, transport.tempo);
     const auto result = instance.engine.process(beginBeat, endBeat,
         transport.beatsPerBar, playing, processConfig,
+        instance.inputEventBuffer.data(), inputEventCount,
         instance.eventBuffer.data(), kEventCapacity);
     instance.droppedEvents.fetch_add(result.dropped,
         std::memory_order_relaxed);
@@ -812,8 +976,23 @@ clap_process_status process(const clap_plugin_t* plugin,
         std::memory_order_relaxed);
     instance.visualCyclePhase.store(result.snapshot.cyclePhase,
         std::memory_order_relaxed);
+    instance.visualFormBeat.store(result.snapshot.formBeat,
+        std::memory_order_relaxed);
     instance.visualCycleIndex.store(result.snapshot.cycleIndex,
         std::memory_order_relaxed);
+    for (uint32_t trait = 0u; trait < 4u; ++trait) {
+        instance.visualClimateTraits[trait].store(
+            result.snapshot.climateTraits[trait], std::memory_order_relaxed);
+        instance.visualEffectiveConduct[trait].store(
+            result.snapshot.effectiveConduct[trait],
+            std::memory_order_relaxed);
+    }
+    for (uint32_t node = 0u; node < s3g::relay::kNodeCount; ++node)
+        instance.visualExternalInputNodes[node].store(
+            result.snapshot.externalInputNodes[node],
+            std::memory_order_relaxed);
+    instance.visualExternalInputActivity.store(
+        result.snapshot.externalInputActivity, std::memory_order_relaxed);
     instance.visualRegister.store(result.snapshot.registerBits,
         std::memory_order_relaxed);
     instance.visualCell.store(result.snapshot.currentCell,
@@ -830,20 +1009,20 @@ void onMainThread(const clap_plugin_t*) {}
 
 uint32_t notePortsCount(const clap_plugin_t*, bool isInput)
 {
-    return isInput ? 0u : 1u;
+    (void)isInput;
+    return 1u;
 }
 
 bool notePortsGet(const clap_plugin_t*, uint32_t index, bool isInput,
     clap_note_port_info_t* info)
 {
-    (void)isInput;
     if (!info || index != 0u) return false;
     *info = {};
-    info->id = 100u;
-    info->supported_dialects = CLAP_NOTE_DIALECT_CLAP
-        | CLAP_NOTE_DIALECT_MIDI;
+    info->id = isInput ? 0u : 100u;
+    info->supported_dialects = CLAP_NOTE_DIALECT_MIDI;
     info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
-    std::snprintf(info->name, sizeof(info->name), "%s", "Relay MIDI Output");
+    std::snprintf(info->name, sizeof(info->name), "%s",
+        isInput ? "Ecological Injection" : "Relay MIDI Output");
     return true;
 }
 
@@ -949,6 +1128,45 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
             static_cast<uint32_t>(std::llround(value))));
         return true;
     }
+    if (index == kDealerLaw) {
+        std::snprintf(display, size, "%s", s3g::relay::dealerLawName(
+            static_cast<DealerLaw>(static_cast<uint32_t>(
+                std::llround(value)))));
+        return true;
+    }
+    if (index == kMidiInputMode) {
+        std::snprintf(display, size, "%s", s3g::relay::midiInputModeName(
+            static_cast<MidiInputMode>(static_cast<uint32_t>(
+                std::llround(value)))));
+        return true;
+    }
+    if (index == kMidiInputChannel) {
+        if (value < 0.5) std::snprintf(display, size, "Omni");
+        else std::snprintf(display, size, "Ch %.0f", value);
+        return true;
+    }
+    if (index == kMidiInputMap) {
+        std::snprintf(display, size, "%s", s3g::relay::midiInputMapName(
+            static_cast<MidiInputMap>(static_cast<uint32_t>(
+                std::llround(value)))));
+        return true;
+    }
+    if (index == kMidiInputResponse) {
+        std::snprintf(display, size, "%s",
+            s3g::relay::midiInputResponseName(static_cast<MidiInputResponse>(
+                static_cast<uint32_t>(std::llround(value)))));
+        return true;
+    }
+    if (index == kMidiInputCc) {
+        std::snprintf(display, size, "CC %.0f", value);
+        return true;
+    }
+    if (index == kMidiInputPolarity) {
+        std::snprintf(display, size, "%s",
+            s3g::relay::midiInputPolarityName(static_cast<MidiInputPolarity>(
+                static_cast<uint32_t>(std::llround(value)))));
+        return true;
+    }
     if (index < kGlobalParamCount) {
         switch (index) {
         case kActivity:
@@ -958,11 +1176,13 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         case kHierarchy:
         case kContrast:
         case kClimate:
+        case kMidiInputDepth:
             std::snprintf(display, size, "%.0f%%", value * 100.0); break;
         case kGate: std::snprintf(display, size, "%.3g beats", value); break;
         case kFormBars:
         case kDwellBars: std::snprintf(display, size, "%.0f bars", value); break;
         case kTransitionBars: std::snprintf(display, size, "%.2g bars", value); break;
+        case kMidiInputDecay: std::snprintf(display, size, "%.2gb", value); break;
         case kSeed: std::snprintf(display, size, "%.0f", value); break;
         default: std::snprintf(display, size, "%.3g", value); break;
         }
@@ -1001,6 +1221,22 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
         std::snprintf(display, size, "%s", s3g::relay::articulationModeName(
             static_cast<ArticulationMode>(static_cast<uint32_t>(
                 std::llround(value))))); break;
+    case kRelayCcASource:
+    case kRelayCcBSource:
+        std::snprintf(display, size, "%s", s3g::relay::ccSourceName(
+            static_cast<CcSource>(static_cast<uint32_t>(
+                std::llround(value))))); break;
+    case kRelayCcAMin:
+    case kRelayCcAMax:
+    case kRelayCcBMin:
+    case kRelayCcBMax:
+        std::snprintf(display, size, "%.0f", value); break;
+    case kRelayCcACurve:
+    case kRelayCcBCurve:
+        std::snprintf(display, size, "%+.0f%%", value * 100.0); break;
+    case kRelayCcASlew:
+    case kRelayCcBSlew:
+        std::snprintf(display, size, "%.0f%%", value * 100.0); break;
     default: std::snprintf(display, size, "%.3g", value); break;
     }
     return true;
@@ -1032,6 +1268,56 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* input,
         }};
         for (uint32_t candidate = 0u; candidate < names.size(); ++candidate) {
             if (strcasecmp(input, names[candidate]) == 0) {
+                *value = static_cast<double>(candidate);
+                return true;
+            }
+        }
+    }
+    if (index == kDealerLaw) {
+        for (uint32_t candidate = 0u;
+             candidate < s3g::relay::kDealerLawCount; ++candidate) {
+            if (strcasecmp(input, s3g::relay::dealerLawName(
+                    static_cast<DealerLaw>(candidate))) == 0) {
+                *value = static_cast<double>(candidate);
+                return true;
+            }
+        }
+    }
+    if (index == kMidiInputMode) {
+        for (uint32_t candidate = 0u; candidate < 4u; ++candidate) {
+            if (strcasecmp(input, s3g::relay::midiInputModeName(
+                    static_cast<MidiInputMode>(candidate))) == 0) {
+                *value = static_cast<double>(candidate);
+                return true;
+            }
+        }
+    }
+    if (index == kMidiInputChannel && strcasecmp(input, "Omni") == 0) {
+        *value = 0.0;
+        return true;
+    }
+    if (index == kMidiInputMap) {
+        for (uint32_t candidate = 0u; candidate < 4u; ++candidate) {
+            if (strcasecmp(input, s3g::relay::midiInputMapName(
+                    static_cast<MidiInputMap>(candidate))) == 0) {
+                *value = static_cast<double>(candidate);
+                return true;
+            }
+        }
+    }
+    if (index == kMidiInputResponse) {
+        for (uint32_t candidate = 0u; candidate < 2u; ++candidate) {
+            if (strcasecmp(input, s3g::relay::midiInputResponseName(
+                    static_cast<MidiInputResponse>(candidate))) == 0) {
+                *value = static_cast<double>(candidate);
+                return true;
+            }
+        }
+    }
+    if (index == kMidiInputPolarity) {
+        for (uint32_t candidate = 0u; candidate < 2u; ++candidate) {
+            if (strcasecmp(input, s3g::relay::midiInputPolarityName(
+                    static_cast<MidiInputPolarity>(candidate))) == 0) {
                 *value = static_cast<double>(candidate);
                 return true;
             }
@@ -1124,6 +1410,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* input,
             }
         }
     }
+    if (index >= kGlobalParamCount
+        && (local == kRelayCcASource || local == kRelayCcBSource)) {
+        for (uint32_t candidate = 0u;
+             candidate < s3g::relay::kCcSourceCount; ++candidate) {
+            if (strcasecmp(input, s3g::relay::ccSourceName(
+                    static_cast<CcSource>(candidate))) == 0) {
+                *value = static_cast<double>(candidate);
+                return true;
+            }
+        }
+    }
     const char* number = input;
     if (index >= kGlobalParamCount && local == kRelayNote) {
         if (const char* open = std::strrchr(input, '(')) number = open + 1;
@@ -1137,9 +1434,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* input,
     const bool percent = std::strchr(input, '%') != nullptr
         && ((index >= kActivity && index <= kContrast)
             || index == kClimate
+            || index == kMidiInputDepth
             || (index >= kGlobalParamCount
                 && (local == kRelayThreshold || local == kRelayBias
-                    || local == kRelayFeedback)));
+                    || local == kRelayFeedback
+                    || local == kRelayCcACurve
+                    || local == kRelayCcASlew
+                    || local == kRelayCcBCurve
+                    || local == kRelayCcBSlew)));
     if (percent) parsed *= 0.01;
     *value = parsed;
     return true;
@@ -1190,6 +1492,13 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     const auto& instance = *self(plugin);
     for (uint32_t index = 0u; index < kParamCount; ++index)
         state.values[index] = publishedValue(instance, index);
+    state.thawMemory = instance.thawMemory.load(std::memory_order_relaxed);
+    state.heldFormBeat = instance.heldFormBeat.load(
+        std::memory_order_acquire);
+    if (instance.hasThawMemory.load(std::memory_order_relaxed))
+        state.runtimeFlags |= kStateHasThawMemory;
+    if (instance.formHold.load(std::memory_order_acquire))
+        state.runtimeFlags |= kStateFormHold;
     return writeAll(stream, &state, sizeof(state));
 }
 
@@ -1230,11 +1539,41 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (!readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic) return false;
     auto& instance = *self(plugin);
+    double thawMemory = kDefaultConfig.memory;
+    double heldFormBeat = 0.0;
+    bool hasThawMemory = false;
+    bool formHold = false;
+    const auto readRuntimeState = [&]() {
+        uint32_t runtimeFlags = 0u;
+        uint32_t reserved = 0u;
+        if (!readAll(stream, &thawMemory, sizeof(thawMemory))
+            || !readAll(stream, &heldFormBeat, sizeof(heldFormBeat))
+            || !readAll(stream, &runtimeFlags, sizeof(runtimeFlags))
+            || !readAll(stream, &reserved, sizeof(reserved))) return false;
+        (void)reserved;
+        if (!std::isfinite(thawMemory)) thawMemory = kDefaultConfig.memory;
+        if (!std::isfinite(heldFormBeat)) heldFormBeat = 0.0;
+        hasThawMemory = (runtimeFlags & kStateHasThawMemory) != 0u;
+        formHold = (runtimeFlags & kStateFormHold) != 0u;
+        return true;
+    };
     if (header.version == kStateVersion) {
         std::array<double, kParamCount> values {};
         if (!readAll(stream, values.data(), sizeof(values))) return false;
         for (uint32_t index = 0u; index < kParamCount; ++index)
             applyParam(instance, paramIdForIndex(index), values[index]);
+        if (!readRuntimeState()) return false;
+    } else if (header.version == 6u) {
+        std::array<double, kVersion6ParamCount> values {};
+        if (!readAll(stream, values.data(), sizeof(values))) return false;
+        applyPreviousState(instance, values,
+            kVersion6GlobalParamCount, kVersion6RelayParamCount, false);
+        if (!readRuntimeState()) return false;
+    } else if (header.version == 5u) {
+        std::array<double, kVersion5ParamCount> values {};
+        if (!readAll(stream, values.data(), sizeof(values))) return false;
+        applyPreviousState(instance, values,
+            kVersion5GlobalParamCount, kVersion5RelayParamCount, false);
     } else if (header.version == 4u) {
         std::array<double, kVersion4ParamCount> values {};
         if (!readAll(stream, values.data(), sizeof(values))) return false;
@@ -1268,9 +1607,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
-    instance.formHold.store(false, std::memory_order_release);
-    instance.hasThawMemory.store(false, std::memory_order_relaxed);
-    instance.engine.invalidate();
+    instance.thawMemory.store(thawMemory, std::memory_order_relaxed);
+    instance.heldFormBeat.store(heldFormBeat, std::memory_order_release);
+    instance.hasThawMemory.store(hasThawMemory, std::memory_order_relaxed);
+    instance.formHold.store(formHold, std::memory_order_release);
+    instance.engine.invalidateFormTimeline();
     publishAll(instance);
     return true;
 }
@@ -1288,6 +1629,8 @@ constexpr NSInteger kFactoryPresetMenuId =
     static_cast<NSInteger>(kParamCount);
 
 struct GuiParamBatch {
+    static_assert(kParamCount * 3u < kGuiParamQueueCapacity,
+        "Relay preset transaction must fit the GUI parameter queue");
     std::array<s3g::clap_gui::ParamEvent, kParamCount * 3u> events {};
     uint32_t count = 0u;
 
@@ -1373,19 +1716,56 @@ NSRect globalRowRect(uint32_t index)
             400.0, 22.0);
     if (index < 16u)
         return NSMakeRect(806.0,
-            586.0 + static_cast<CGFloat>(index - 8u) * 30.0, 400.0, 22.0);
+            584.0 + static_cast<CGFloat>(index - 8u) * 28.0, 400.0, 22.0);
     if (index <= kScaleRange)
         return NSMakeRect(806.0,
             362.0 + static_cast<CGFloat>(index - 16u) * 34.0, 400.0, 22.0);
-    return NSMakeRect(806.0, 826.0, 400.0, 22.0);
+    if (index == kLatticeDepth)
+        return NSMakeRect(806.0, 808.0, 400.0, 22.0);
+    if (index == kDealerLaw)
+        return NSMakeRect(806.0, 836.0, 400.0, 22.0);
+    if (index >= kMidiInputMode && index <= kMidiInputDecay) {
+        const uint32_t local = index - kMidiInputMode;
+        const uint32_t column = local >= 4u ? 1u : 0u;
+        const uint32_t row = local % 4u;
+        return NSMakeRect(34.0 + static_cast<CGFloat>(column) * 390.0,
+            126.0 + static_cast<CGFloat>(row) * 48.0, 338.0, 24.0);
+    }
+    return NSZeroRect;
 }
 
 NSRect relayRowRect(uint32_t local)
 {
-    const uint32_t column = local >= 6u ? 1u : 0u;
-    const uint32_t row = local >= 6u ? local - 6u : local;
+    uint32_t column = 0u;
+    uint32_t row = 0u;
+    switch (local) {
+    case kRelayEnabled: row = 0u; break;
+    case kRelayChannel: row = 1u; break;
+    case kRelayNote: row = 2u; break;
+    case kRelayThreshold: row = 3u; break;
+    case kRelayBias: column = 1u; row = 0u; break;
+    case kRelayRefractory: column = 1u; row = 1u; break;
+    case kRelayFeedback: column = 1u; row = 2u; break;
+    case kRelayGate: column = 1u; row = 3u; break;
+    case kRelayTopology: column = 1u; row = 4u; break;
+    case kRelayPitchMode: column = 1u; row = 5u; break;
+    case kRelayArticulation: column = 1u; row = 6u; break;
+    case kRelayCcA: row = 0u; break;
+    case kRelayCcASource: row = 1u; break;
+    case kRelayCcAMin: row = 2u; break;
+    case kRelayCcAMax: row = 3u; break;
+    case kRelayCcACurve: row = 4u; break;
+    case kRelayCcASlew: row = 5u; break;
+    case kRelayCcB: column = 1u; row = 0u; break;
+    case kRelayCcBSource: column = 1u; row = 1u; break;
+    case kRelayCcBMin: column = 1u; row = 2u; break;
+    case kRelayCcBMax: column = 1u; row = 3u; break;
+    case kRelayCcBCurve: column = 1u; row = 4u; break;
+    case kRelayCcBSlew: column = 1u; row = 5u; break;
+    default: break;
+    }
     return NSMakeRect(34.0 + static_cast<CGFloat>(column) * 390.0,
-        592.0 + static_cast<CGFloat>(row) * 38.0, 338.0, 24.0);
+        606.0 + static_cast<CGFloat>(row) * 36.0, 338.0, 24.0);
 }
 
 NSRect relayTabRect(uint32_t relay)
@@ -1394,18 +1774,61 @@ NSRect relayTabRect(uint32_t relay)
         557.0, 72.0, 16.0);
 }
 
+NSRect relayModeTabRect(uint32_t mode)
+{
+    return NSMakeRect(34.0 + static_cast<CGFloat>(mode) * 104.0,
+        580.0, 96.0, 16.0);
+}
+
+inline constexpr std::array<uint32_t, 11u> kRelayVoiceControls {{
+    kRelayEnabled, kRelayChannel, kRelayNote, kRelayThreshold,
+    kRelayBias, kRelayRefractory, kRelayFeedback, kRelayGate,
+    kRelayTopology, kRelayPitchMode, kRelayArticulation,
+}};
+
+inline constexpr std::array<uint32_t, 12u> kRelayCcControls {{
+    kRelayCcA, kRelayCcASource, kRelayCcAMin, kRelayCcAMax,
+    kRelayCcACurve, kRelayCcASlew,
+    kRelayCcB, kRelayCcBSource, kRelayCcBMin, kRelayCcBMax,
+    kRelayCcBCurve, kRelayCcBSlew,
+}};
+
 NSRect crystallizeRect() { return NSMakeRect(1107.0, 45.0, 104.0, 16.0); }
 
 NSRect visualPageTabRect(uint32_t page)
 {
-    return NSMakeRect(432.0 + static_cast<CGFloat>(page) * 84.0,
-        45.0, 80.0, 16.0);
+    return NSMakeRect(392.0 + static_cast<CGFloat>(page) * 75.0,
+        45.0, 69.0, 16.0);
 }
 
 NSRect formPlaneButtonRect(uint32_t item)
 {
     return NSMakeRect(34.0 + static_cast<CGFloat>(item) * 64.0,
         72.0, 58.0, 16.0);
+}
+
+constexpr CGFloat kLearningRowHeaderX = 34.0;
+constexpr CGFloat kLearningRowHeaderWidth = 64.0;
+constexpr CGFloat kLearningMatrixX = kLearningRowHeaderX
+    + kLearningRowHeaderWidth;
+constexpr CGFloat kLearningColumnHeaderY = 124.0;
+constexpr CGFloat kLearningColumnHeaderHeight = 30.0;
+constexpr CGFloat kLearningMatrixY = kLearningColumnHeaderY
+    + kLearningColumnHeaderHeight;
+constexpr CGFloat kLearningCellSize = 80.0;
+
+NSRect learningCellRect(uint32_t target, uint32_t source)
+{
+    return NSMakeRect(
+        kLearningMatrixX + static_cast<CGFloat>(source) * kLearningCellSize,
+        kLearningMatrixY + static_cast<CGFloat>(target) * kLearningCellSize,
+        kLearningCellSize, kLearningCellSize);
+}
+
+NSRect learningModeRect(uint32_t mode)
+{
+    return NSMakeRect(342.0 + static_cast<CGFloat>(mode) * 62.0,
+        74.0, 56.0, 16.0);
 }
 
 NSRect consoleFilterRect(uint32_t filter)
@@ -1427,12 +1850,15 @@ bool parameterIsBinary(uint32_t index)
 bool parameterIsMenu(uint32_t index)
 {
     if (index == kClockRate || index == kCcRate
-        || index == kLatticeDepth
+        || index == kLatticeDepth || index == kDealerLaw
+        || (index >= kMidiInputMode && index <= kMidiInputResponse)
+        || index == kMidiInputPolarity
         || (index >= kScaleRoot && index <= kScaleRange)) return true;
     if (index < kGlobalParamCount) return false;
     const uint32_t local = (index - kGlobalParamCount) % kRelayParamCount;
     return local == kRelayChannel || local == kRelayTopology
-        || local == kRelayPitchMode || local == kRelayArticulation;
+        || local == kRelayPitchMode || local == kRelayArticulation
+        || local == kRelayCcASource || local == kRelayCcBSource;
 }
 
 uint32_t parameterMenuCount(uint32_t index)
@@ -1444,12 +1870,20 @@ uint32_t parameterMenuCount(uint32_t index)
     if (index == kScale) return s3g::kMusicalScaleCount;
     if (index == kScaleRange) return 4u;
     if (index == kLatticeDepth) return 3u;
+    if (index == kDealerLaw) return s3g::relay::kDealerLawCount;
+    if (index == kMidiInputMode) return 4u;
+    if (index == kMidiInputChannel) return 17u;
+    if (index == kMidiInputMap) return 4u;
+    if (index == kMidiInputResponse) return 2u;
+    if (index == kMidiInputPolarity) return 2u;
     if (index < kGlobalParamCount) return 0u;
     const uint32_t local = (index - kGlobalParamCount) % kRelayParamCount;
     if (local == kRelayChannel) return 16u;
     if (local == kRelayTopology) return 4u;
     if (local == kRelayPitchMode) return 2u;
     if (local == kRelayArticulation) return 4u;
+    if (local == kRelayCcASource || local == kRelayCcBSource)
+        return s3g::relay::kCcSourceCount;
     return 0u;
 }
 
@@ -1457,6 +1891,7 @@ uint32_t parameterMenuColumns(uint32_t index)
 {
     if (index == kScale) return 4u;
     if (index == kScaleRoot) return 2u;
+    if (index == kMidiInputChannel) return 2u;
     return index >= kGlobalParamCount
             && (index - kGlobalParamCount) % kRelayParamCount == kRelayChannel
         ? 2u : 1u;
@@ -1522,6 +1957,25 @@ NSString* parameterMenuItem(uint32_t index, uint32_t item)
         };
         return items[std::min<uint32_t>(item, 2u)];
     }
+    if (index == kDealerLaw)
+        return [[NSString stringWithUTF8String:s3g::relay::dealerLawName(
+            static_cast<DealerLaw>(std::min<uint32_t>(item,
+                s3g::relay::kDealerLawCount - 1u)))] uppercaseString];
+    if (index == kMidiInputMode)
+        return [[NSString stringWithUTF8String:s3g::relay::midiInputModeName(
+            static_cast<MidiInputMode>(std::min<uint32_t>(item, 3u)))]
+            uppercaseString];
+    if (index == kMidiInputChannel)
+        return item == 0u ? @"OMNI"
+            : [NSString stringWithFormat:@"CHANNEL %u", item];
+    if (index == kMidiInputMap)
+        return [[NSString stringWithUTF8String:s3g::relay::midiInputMapName(
+            static_cast<MidiInputMap>(std::min<uint32_t>(item, 3u)))]
+            uppercaseString];
+    if (index == kMidiInputResponse)
+        return item == 0u ? @"IMPULSE" : @"GATE";
+    if (index == kMidiInputPolarity)
+        return item == 0u ? @"EXCITATORY" : @"SIGNED";
     const uint32_t local = index >= kGlobalParamCount
         ? (index - kGlobalParamCount) % kRelayParamCount : kRelayParamCount;
     if (local == kRelayChannel)
@@ -1540,6 +1994,10 @@ NSString* parameterMenuItem(uint32_t index, uint32_t item)
         };
         return items[std::min<uint32_t>(item, 3u)];
     }
+    if (local == kRelayCcASource || local == kRelayCcBSource)
+        return [NSString stringWithUTF8String:s3g::relay::ccSourceName(
+            static_cast<CcSource>(std::min<uint32_t>(
+                item, s3g::relay::kCcSourceCount - 1u)))];
     return @"";
 }
 
@@ -1552,7 +2010,14 @@ void parameterPanelGeometry(uint32_t index, CGFloat& panelX,
         return;
     }
     if (index < kGlobalParamCount) {
-        const bool climate = index < 16u || index == kLatticeDepth;
+        if (index >= kMidiInputMode && index <= kMidiInputDecay) {
+            const bool left = index < kMidiInputCc;
+            panelX = left ? 18.0 : 408.0;
+            panelWidth = 370.0;
+            return;
+        }
+        const bool climate = index < 16u || index == kLatticeDepth
+            || index == kDealerLaw;
         panelX = climate ? climatePanelRect().origin.x
                          : pitchPanelRect().origin.x;
         panelWidth = climate ? climatePanelRect().size.width
@@ -1560,7 +2025,11 @@ void parameterPanelGeometry(uint32_t index, CGFloat& panelX,
         return;
     }
     const uint32_t local = (index - kGlobalParamCount) % kRelayParamCount;
-    panelX = local < 6u ? 18.0 : 408.0;
+    const bool left = local == kRelayEnabled || local == kRelayChannel
+        || local == kRelayNote || local == kRelayThreshold
+        || local == kRelayCcA
+        || (local >= kRelayCcASource && local <= kRelayCcASlew);
+    panelX = left ? 18.0 : 408.0;
     panelWidth = 370.0;
 }
 
@@ -1728,19 +2197,44 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
     const auto style = s3g::clap_gui::softTextStyle();
+    int32_t climateTrait = -1;
+    if (index == kActivity) climateTrait = 0;
+    else if (index == kCoupling) climateTrait = 1;
+    else if (index == kHierarchy) climateTrait = 2;
+    else if (index == kContrast) climateTrait = 3;
+    NSString* displayValue = [NSString stringWithUTF8String:buffer];
+    double effective = value;
+    if (climateTrait >= 0) {
+        effective = plugin.visualEffectiveConduct[
+            static_cast<std::size_t>(climateTrait)].load(
+                std::memory_order_relaxed);
+        displayValue = [NSString stringWithFormat:@"%.0f→%.0f%%",
+            value * 100.0, effective * 100.0];
+    }
     if (parameterIsBinary(index)) {
         s3g::clap_gui::drawToggle(label, value >= 0.5,
             rect.origin.y + 2.0, labels, values, style,
             rect.origin.x, NSMaxX(rect) - 64.0, 64.0);
     } else if (parameterIsMenu(index)) {
         s3g::clap_gui::drawProcessorMenu(label,
-            [NSString stringWithUTF8String:buffer], rect.origin.y + 2.0,
+            displayValue, rect.origin.y + 2.0,
             panelX, panelWidth, labels, values, style);
     } else {
         s3g::clap_gui::drawProcessorSlider(label,
-            [NSString stringWithUTF8String:buffer],
+            displayValue,
             static_cast<CGFloat>(normalized), rect.origin.y + 2.0,
             panelX, panelWidth, labels, values, style);
+        if (climateTrait >= 0) {
+            const NSRect track = parameterSliderTrackRect(index);
+            const CGFloat marker = track.origin.x
+                + static_cast<CGFloat>(std::clamp(effective, 0.0, 1.0))
+                    * track.size.width;
+            NSColor* ink = effective >= value
+                ? s3g::clap_gui::color(0x9a6b50)
+                : s3g::clap_gui::color(0x587d81);
+            drawLine(NSMakePoint(marker, track.origin.y - 2.0),
+                NSMakePoint(marker, NSMaxY(track) + 2.0), ink, 1.4);
+        }
     }
 }
 
@@ -1749,11 +2243,14 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
 @interface S3GRelayView : NSView {
     void* _plugin;
     NSInteger _selectedRelay;
+    NSInteger _relayPage;
     NSInteger _dragParam;
     NSInteger _openMenu;
     NSInteger _hoverMenuItem;
     uint32_t _menuItemCount;
     NSInteger _visualPage;
+    NSInteger _matrixMode;
+    NSInteger _selectedMatrixCell;
     NSInteger _formPlane;
     NSInteger _consoleFilter;
     uint64_t _consoleFloor;
@@ -1770,6 +2267,10 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
 - (void)drawMidiConsole:(Plugin&)plugin
     style:(const s3g::clap_gui::Style&)style
     labels:(NSDictionary*)labels values:(NSDictionary*)values;
+- (void)drawInjectionView:(Plugin&)plugin
+    style:(const s3g::clap_gui::Style&)style
+    labels:(NSDictionary*)labels values:(NSDictionary*)values;
+- (BOOL)openParameterMenu:(NSInteger)index;
 - (BOOL)applyFactoryPreset:(NSInteger)index;
 - (BOOL)applySafeRandom;
 - (void)markCustomPreset:(const char*)name;
@@ -1783,11 +2284,14 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     if (self) {
         _plugin = plugin;
         _selectedRelay = 0;
+        _relayPage = 0;
         _dragParam = -1;
         _openMenu = -1;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
         _visualPage = 0;
+        _matrixMode = 0;
+        _selectedMatrixCell = -1;
         _formPlane = -1;
         _consoleFilter = 0;
         _consoleFloor = 0u;
@@ -1885,6 +2389,33 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     drawLine(clusterPoint(1u), clusterPoint(3u), dormant);
     drawLine(clusterPoint(2u), clusterPoint(3u), dormant);
 
+    if (_selectedMatrixCell >= 0
+        && _selectedMatrixCell < static_cast<NSInteger>(
+            s3g::relay::kClusterCount * s3g::relay::kClusterCount)) {
+        const uint32_t selected = static_cast<uint32_t>(_selectedMatrixCell);
+        const uint32_t target = selected / s3g::relay::kClusterCount;
+        const uint32_t source = selected % s3g::relay::kClusterCount;
+        const double learned = plugin.visualPlasticity[selected].load(
+            std::memory_order_relaxed);
+        const double weight = s3g::relay::kInterClusterWeights[selected]
+            + learned;
+        if (source != target) {
+            drawDirectedConnection(clusterPoint(source), clusterPoint(target),
+                weight, positive, negative);
+        }
+        for (uint32_t cluster : { source, target }) {
+            const NSPoint center = clusterPoint(cluster);
+            NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:
+                NSMakeRect(center.x - 48.0, center.y - 48.0, 96.0, 96.0)];
+            [(cluster == target ? style.accent : style.text) setStroke];
+            [ring setLineWidth:cluster == target ? 1.6 : 0.9];
+            [ring stroke];
+        }
+        [[NSString stringWithFormat:@"MATRIX  C%u SEND → C%u RECV  W%+.2f",
+            source + 1u, target + 1u, weight]
+            drawAtPoint:NSMakePoint(286.0, 76.0) withAttributes:labels];
+    }
+
     for (uint32_t relay = 0u; relay < s3g::relay::kRelayCount; ++relay) {
         const uint32_t local = kGlobalParamCount + relay * kRelayParamCount;
         const auto topology = static_cast<ReceptorTopology>(
@@ -1913,7 +2444,20 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     for (uint32_t node = 0u; node < s3g::relay::kNodeCount; ++node) {
         const double state = plugin.visualNodes[node].load(
             std::memory_order_relaxed);
+        const double external = plugin.visualExternalInputNodes[node].load(
+            std::memory_order_relaxed);
         const CGFloat radius = 5.0 + static_cast<CGFloat>(std::abs(state)) * 3.0;
+        if (std::abs(external) > 1.0e-6) {
+            const CGFloat halo = radius + 3.0
+                + static_cast<CGFloat>(std::min(1.0, std::abs(external)))
+                    * 3.0;
+            [(external >= 0.0 ? positive : negative) setStroke];
+            NSBezierPath* inputHalo = [NSBezierPath bezierPathWithOvalInRect:
+                NSMakeRect(nodePoint(node).x - halo,
+                    nodePoint(node).y - halo, halo * 2.0, halo * 2.0)];
+            [inputHalo setLineWidth:1.0];
+            [inputHalo stroke];
+        }
         [(state >= 0.0 ? positive : negative) setFill];
         [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
             nodePoint(node).x - radius, nodePoint(node).y - radius,
@@ -2002,39 +2546,121 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     }
 }
 
+- (void)drawInjectionView:(Plugin&)plugin
+    style:(const s3g::clap_gui::Style&)style
+    labels:(NSDictionary*)labels values:(NSDictionary*)values
+{
+    NSColor* positive = s3g::clap_gui::color(0x9a6b50);
+    NSColor* negative = s3g::clap_gui::color(0x587d81);
+    const double activity = plugin.visualExternalInputActivity.load(
+        std::memory_order_relaxed);
+    [@"EXTERNAL ECOLOGICAL INJECTION"
+        drawAtPoint:NSMakePoint(34.0, 76.0) withAttributes:values];
+    [@"MIDI ENTERS THE FIELD / RELAY OUTPUT IS NOT MIDI THRU"
+        drawAtPoint:NSMakePoint(34.0, 96.0) withAttributes:labels];
+    [@"INPUT ACTIVITY" drawAtPoint:NSMakePoint(518.0, 96.0)
+        withAttributes:labels];
+    [style.grid setFill];
+    NSRectFill(NSMakeRect(610.0, 101.0, 132.0, 4.0));
+    [style.accent setFill];
+    NSRectFill(NSMakeRect(610.0, 101.0,
+        132.0 * static_cast<CGFloat>(std::clamp(activity * 3.0, 0.0, 1.0)),
+        4.0));
+
+    static constexpr std::array<double, s3g::relay::kClusterCount> centers {{
+        112.0, 290.0, 468.0, 646.0,
+    }};
+    const auto inputPoint = [&](uint32_t node) {
+        const uint32_t cluster = node / s3g::relay::kNodesPerCluster;
+        const uint32_t role = node % s3g::relay::kNodesPerCluster;
+        const double angle = -s3g::relay::kPi * 0.5
+            + s3g::relay::kPi * 2.0 * static_cast<double>(role)
+                / static_cast<double>(s3g::relay::kNodesPerCluster);
+        return NSMakePoint(static_cast<CGFloat>(centers[cluster]
+                + std::cos(angle) * 43.0),
+            static_cast<CGFloat>(397.0 + std::sin(angle) * 43.0));
+    };
+    for (uint32_t cluster = 0u; cluster < s3g::relay::kClusterCount;
+         ++cluster) {
+        const uint32_t base = cluster * s3g::relay::kNodesPerCluster;
+        for (uint32_t role = 0u; role < s3g::relay::kNodesPerCluster;
+             ++role) {
+            const uint32_t next = (role + 1u)
+                % s3g::relay::kNodesPerCluster;
+            drawLine(inputPoint(base + role), inputPoint(base + next),
+                style.grid, 0.8);
+        }
+        [[NSString stringWithFormat:@"C%u", cluster + 1u]
+            drawAtPoint:NSMakePoint(
+                static_cast<CGFloat>(centers[cluster] - 8.0), 390.0)
+            withAttributes:values];
+    }
+    for (uint32_t node = 0u; node < s3g::relay::kNodeCount; ++node) {
+        const double drive = plugin.visualExternalInputNodes[node].load(
+            std::memory_order_relaxed);
+        const CGFloat radius = 4.0
+            + static_cast<CGFloat>(std::min(1.0, std::abs(drive))) * 7.0;
+        [(std::abs(drive) < 1.0e-7 ? style.dim
+                                   : drive >= 0.0 ? positive : negative)
+            setFill];
+        const NSPoint point = inputPoint(node);
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            point.x - radius, point.y - radius, radius * 2.0, radius * 2.0)]
+            fill];
+    }
+    const auto map = static_cast<MidiInputMap>(static_cast<uint32_t>(
+        std::lround(publishedValue(plugin, kMidiInputMap))));
+    static NSString* const mapNotes[4] = {
+        @"NOTE NUMBER MOD 20 ADDRESSES ONE PENTAD ROLE",
+        @"NOTE NUMBER MOD 4 ADDRESSES A WHOLE CLUSTER",
+        @"MATCH OUTPUT NOTE WHEN POSSIBLE / OTHERWISE NOTE MOD 8",
+        @"EVERY ACCEPTED EVENT EXCITES THE COMPLETE FIELD",
+    };
+    [mapNotes[std::min<uint32_t>(static_cast<uint32_t>(map), 3u)]
+        drawAtPoint:NSMakePoint(34.0, 488.0) withAttributes:values];
+    [@"IMPULSE DECAYS IN BEATS / GATE PERSISTS UNTIL NOTE OFF / CC IS A CONTINUOUS FORCE"
+        drawAtPoint:NSMakePoint(34.0, 510.0) withAttributes:labels];
+}
+
 - (void)drawLearningPlate:(Plugin&)plugin
     style:(const s3g::clap_gui::Style&)style
     labels:(NSDictionary*)labels values:(NSDictionary*)values
 {
     NSColor* positive = s3g::clap_gui::color(0x9a6b50);
     NSColor* negative = s3g::clap_gui::color(0x587d81);
-    constexpr CGFloat rowHeaderX = 34.0;
-    constexpr CGFloat rowHeaderWidth = 64.0;
-    constexpr CGFloat matrixX = rowHeaderX + rowHeaderWidth;
-    constexpr CGFloat columnHeaderY = 124.0;
-    constexpr CGFloat columnHeaderHeight = 30.0;
-    constexpr CGFloat matrixY = columnHeaderY + columnHeaderHeight;
-    constexpr CGFloat cellSize = 80.0;
     constexpr double displayLimit = 0.55;
+    const bool flowMode = _matrixMode == 1;
 
-    [@"PLASTICITY MATRIX / EFFECTIVE CLUSTER CONNECTIVITY"
+    [(flowMode ? @"FLOW MATRIX / LIVE SIGNED CONTRIBUTION"
+               : @"PLASTICITY MATRIX / EFFECTIVE CLUSTER CONNECTIVITY")
         drawAtPoint:NSMakePoint(34.0, 76.0) withAttributes:values];
-    [@"SQUARE AREA = |EFFECTIVE WEIGHT| / ROWS RECEIVE / COLUMNS SEND"
+    [(flowMode
+        ? @"SQUARE AREA = |SOURCE ACTIVITY × WEIGHT| / ROWS RECEIVE"
+        : @"SQUARE AREA = |EFFECTIVE WEIGHT| / ROWS RECEIVE / COLUMNS SEND")
         drawAtPoint:NSMakePoint(34.0, 94.0) withAttributes:labels];
+    static NSString* const matrixModes[2] = { @"WEIGHT", @"FLOW" };
+    for (uint32_t mode = 0u; mode < 2u; ++mode) {
+        s3g::clap_gui::drawToolboxHeaderButton(learningModeRect(mode),
+            graphPanelRect(), matrixModes[mode],
+            _matrixMode == static_cast<NSInteger>(mode), labels, style);
+    }
 
-    const NSRect matrixCorner = NSMakeRect(rowHeaderX, columnHeaderY,
-        rowHeaderWidth, columnHeaderHeight);
+    const NSRect matrixCorner = NSMakeRect(kLearningRowHeaderX,
+        kLearningColumnHeaderY, kLearningRowHeaderWidth,
+        kLearningColumnHeaderHeight);
     [style.strip setFill];
     NSRectFill(matrixCorner);
     [style.dim setStroke];
     NSFrameRect(matrixCorner);
-    [@"TO / FROM" drawAtPoint:NSMakePoint(rowHeaderX + 7.0,
-        columnHeaderY + 9.0) withAttributes:labels];
+    [@"TO / FROM" drawAtPoint:NSMakePoint(kLearningRowHeaderX + 7.0,
+        kLearningColumnHeaderY + 9.0) withAttributes:labels];
     for (uint32_t source = 0u; source < s3g::relay::kClusterCount;
          ++source) {
         const NSRect header = NSMakeRect(
-            matrixX + static_cast<CGFloat>(source) * cellSize,
-            columnHeaderY, cellSize, columnHeaderHeight);
+            kLearningMatrixX + static_cast<CGFloat>(source)
+                * kLearningCellSize,
+            kLearningColumnHeaderY, kLearningCellSize,
+            kLearningColumnHeaderHeight);
         [style.strip setFill];
         NSRectFill(header);
         [style.dim setStroke];
@@ -2053,9 +2679,10 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     uint32_t signFlips = 0u;
     for (uint32_t target = 0u; target < s3g::relay::kClusterCount;
          ++target) {
-        const NSRect rowHeader = NSMakeRect(rowHeaderX,
-            matrixY + static_cast<CGFloat>(target) * cellSize,
-            rowHeaderWidth, cellSize);
+        const NSRect rowHeader = NSMakeRect(kLearningRowHeaderX,
+            kLearningMatrixY + static_cast<CGFloat>(target)
+                * kLearningCellSize,
+            kLearningRowHeaderWidth, kLearningCellSize);
         [style.strip setFill];
         NSRectFill(rowHeader);
         [style.dim setStroke];
@@ -2075,6 +2702,11 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
             const double learned = plugin.visualPlasticity[index].load(
                 std::memory_order_relaxed);
             const double effective = base + learned;
+            const double sourceActivity = plugin.visualClusters[source].load(
+                std::memory_order_relaxed);
+            const double displayed = flowMode
+                ? sourceActivity * effective : effective;
+            const double outlined = flowMode ? effective : base;
             totalDrift += std::abs(learned);
             if (std::abs(learned) > maximumDrift) {
                 maximumDrift = std::abs(learned);
@@ -2082,10 +2714,7 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
             }
             if (base * effective < 0.0) ++signFlips;
 
-            const NSRect cell = NSMakeRect(
-                matrixX + static_cast<CGFloat>(source) * cellSize,
-                matrixY + static_cast<CGFloat>(target) * cellSize,
-                cellSize, cellSize);
+            const NSRect cell = learningCellRect(target, source);
             [style.cellBg setFill];
             NSRectFill(cell);
             [style.dim setStroke];
@@ -2100,18 +2729,18 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
             };
             const NSPoint squareCenter = NSMakePoint(
                 NSMidX(cell), cell.origin.y + 38.0);
-            const CGFloat effectiveSide = squareSide(effective);
+            const CGFloat effectiveSide = squareSide(displayed);
             if (effectiveSide > 0.5) {
-                [[(effective >= 0.0 ? positive : negative)
+                [[(displayed >= 0.0 ? positive : negative)
                     colorWithAlphaComponent:0.72] setFill];
                 NSRectFill(NSMakeRect(
                     squareCenter.x - effectiveSide * 0.5,
                     squareCenter.y - effectiveSide * 0.5,
                     effectiveSide, effectiveSide));
             }
-            const CGFloat baseSide = squareSide(base);
+            const CGFloat baseSide = squareSide(outlined);
             if (baseSide > 0.5) {
-                [[(base >= 0.0 ? positive : negative)
+                [[(outlined >= 0.0 ? positive : negative)
                     colorWithAlphaComponent:0.92] setStroke];
                 NSBezierPath* baseOutline = [NSBezierPath bezierPathWithRect:
                     NSMakeRect(squareCenter.x - baseSide * 0.5,
@@ -2120,46 +2749,60 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
                 [baseOutline setLineWidth:1.1];
                 [baseOutline stroke];
             }
-            const CGFloat deltaHalf = static_cast<CGFloat>(std::clamp(
-                std::abs(learned) / 0.22, 0.0, 1.0)) * 29.0;
-            const CGFloat deltaCenter = NSMidX(cell);
-            const CGFloat deltaY = NSMaxY(cell) - 4.0;
-            drawLine(NSMakePoint(deltaCenter, deltaY),
-                NSMakePoint(deltaCenter
-                    + (learned >= 0.0 ? deltaHalf : -deltaHalf), deltaY),
-                style.accent, 2.0);
+            if (!flowMode) {
+                const CGFloat deltaHalf = static_cast<CGFloat>(std::clamp(
+                    std::abs(learned) / 0.22, 0.0, 1.0)) * 29.0;
+                const CGFloat deltaCenter = NSMidX(cell);
+                const CGFloat deltaY = NSMaxY(cell) - 4.0;
+                drawLine(NSMakePoint(deltaCenter, deltaY),
+                    NSMakePoint(deltaCenter
+                        + (learned >= 0.0 ? deltaHalf : -deltaHalf), deltaY),
+                    style.accent, 2.0);
+            }
 
             NSString* deltaText = [NSString stringWithFormat:
-                @"D%+.2f", learned];
+                flowMode ? @"S%+.2f" : @"D%+.2f",
+                flowMode ? sourceActivity : learned];
             [deltaText drawAtPoint:NSMakePoint(cell.origin.x + 5.0,
                 cell.origin.y + 4.0) withAttributes:labels];
             NSString* weightText = [NSString stringWithFormat:
-                @"W%+.2f", effective];
+                flowMode ? @"F%+.2f" : @"W%+.2f", displayed];
             const NSSize weightSize = [weightText sizeWithAttributes:values];
             [weightText drawAtPoint:NSMakePoint(
                 NSMidX(cell) - weightSize.width * 0.5,
                 cell.origin.y + 60.0) withAttributes:values];
+            if (_selectedMatrixCell == static_cast<NSInteger>(index)) {
+                [style.accent setStroke];
+                NSBezierPath* selection = [NSBezierPath bezierPathWithRect:
+                    NSInsetRect(cell, 2.0, 2.0)];
+                [selection setLineWidth:1.8];
+                [selection stroke];
+            }
         }
     }
     [style.text setStroke];
     NSBezierPath* matrixBorder = [NSBezierPath bezierPathWithRect:NSMakeRect(
-        rowHeaderX, columnHeaderY,
-        rowHeaderWidth + cellSize * s3g::relay::kClusterCount,
-        columnHeaderHeight + cellSize * s3g::relay::kClusterCount)];
+        kLearningRowHeaderX, kLearningColumnHeaderY,
+        kLearningRowHeaderWidth
+            + kLearningCellSize * s3g::relay::kClusterCount,
+        kLearningColumnHeaderHeight
+            + kLearningCellSize * s3g::relay::kClusterCount)];
     [matrixBorder setLineWidth:1.4];
     [matrixBorder stroke];
 
     const bool frozen = publishedValue(plugin, kFreeze) >= 0.5;
+    const bool playing = plugin.visualPlaying.load(std::memory_order_relaxed);
     const double mutation = publishedValue(plugin, kMutation);
-    NSString* status = frozen ? @"FROZEN"
+    NSString* status = !playing ? @"IDLE" : frozen ? @"FROZEN"
         : mutation <= 1.0e-6 ? @"STATIC" : @"ADAPTING";
-    [@"MATRIX READOUT" drawAtPoint:NSMakePoint(480.0, 76.0)
+    [(flowMode ? @"FLOW READOUT" : @"MATRIX READOUT")
+        drawAtPoint:NSMakePoint(480.0, 76.0)
         withAttributes:labels];
-    [(frozen ? style.strip : style.accent) setFill];
+    [(!playing || frozen ? style.strip : style.accent) setFill];
     const NSRect statusRect = NSMakeRect(480.0, 94.0, 266.0, 22.0);
     NSRectFill(statusRect);
     NSMutableDictionary* statusAttrs = [values mutableCopy];
-    statusAttrs[NSForegroundColorAttributeName] = frozen
+    statusAttrs[NSForegroundColorAttributeName] = !playing || frozen
         ? style.text : style.bg;
     [status drawAtPoint:NSMakePoint(490.0, 99.0)
         withAttributes:statusAttrs];
@@ -2179,23 +2822,31 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         drawAtPoint:NSMakePoint(480.0, 193.0) withAttributes:values];
     [[NSString stringWithFormat:@"SIGN FLIPS %u", signFlips]
         drawAtPoint:NSMakePoint(480.0, 214.0) withAttributes:values];
-    [@"MATRIX KEY" drawAtPoint:NSMakePoint(480.0, 244.0)
+    [(flowMode ? @"FLOW KEY" : @"MATRIX KEY")
+        drawAtPoint:NSMakePoint(480.0, 244.0)
         withAttributes:labels];
     [[positive colorWithAlphaComponent:0.72] setFill];
     NSRectFill(NSMakeRect(480.0, 267.0, 18.0, 18.0));
-    [@"FILLED AREA  EFFECTIVE WEIGHT"
+    [(flowMode ? @"FILLED AREA  LIVE CONTRIBUTION"
+               : @"FILLED AREA  EFFECTIVE WEIGHT")
         drawAtPoint:NSMakePoint(508.0, 270.0) withAttributes:values];
     [positive setStroke];
     NSBezierPath* baseKey = [NSBezierPath bezierPathWithRect:
         NSMakeRect(480.0, 299.0, 18.0, 18.0)];
     [baseKey setLineWidth:1.1];
     [baseKey stroke];
-    [@"OUTLINE  FIXED BASE WEIGHT"
+    [(flowMode ? @"OUTLINE  EFFECTIVE WEIGHT"
+               : @"OUTLINE  FIXED BASE WEIGHT")
         drawAtPoint:NSMakePoint(508.0, 302.0) withAttributes:values];
-    drawLine(NSMakePoint(480.0, 340.0), NSMakePoint(506.0, 340.0),
-        style.accent, 2.0);
-    [@"FOOT LINE  LEARNED DELTA"
-        drawAtPoint:NSMakePoint(516.0, 333.0) withAttributes:values];
+    if (flowMode) {
+        [@"F = SOURCE STATE × EFFECTIVE WEIGHT"
+            drawAtPoint:NSMakePoint(480.0, 333.0) withAttributes:values];
+    } else {
+        drawLine(NSMakePoint(480.0, 340.0), NSMakePoint(506.0, 340.0),
+            style.accent, 2.0);
+        [@"FOOT LINE  LEARNED DELTA"
+            drawAtPoint:NSMakePoint(516.0, 333.0) withAttributes:values];
+    }
     [@"RUST POSITIVE / TEAL NEGATIVE"
         drawAtPoint:NSMakePoint(480.0, 365.0) withAttributes:labels];
     [@"LEARNING RULE" drawAtPoint:NSMakePoint(480.0, 396.0)
@@ -2463,7 +3114,9 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         || !add(kDwellBars, 1.0 + std::floor(unit() * 16.0))
         || !add(kTransitionBars, unit() * 6.0)
         || !add(kClimate, 0.20 + unit() * 0.74)
-        || !add(kSeed, 1.0 + std::floor(unit() * 65535.0))) return NO;
+        || !add(kSeed, 1.0 + std::floor(unit() * 65535.0))
+        || !add(kDealerLaw, std::floor(unit()
+            * static_cast<double>(s3g::relay::kDealerLawCount)))) return NO;
     for (uint32_t relay = 0u; relay < s3g::relay::kRelayCount; ++relay) {
         const uint32_t base = kGlobalParamCount + relay * kRelayParamCount;
         if (!add(base + kRelayThreshold, 0.22 + unit() * 0.58)
@@ -2512,6 +3165,20 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     return NSMakeRect(box.origin.x, y, box.size.width, height);
 }
 
+- (BOOL)openParameterMenu:(NSInteger)index
+{
+    if (index < 0 || index >= static_cast<NSInteger>(kParamCount)
+        || !parameterIsMenu(static_cast<uint32_t>(index))) return NO;
+    const uint32_t count = parameterMenuCount(static_cast<uint32_t>(index));
+    if (count == 0u) return NO;
+    _openMenu = index;
+    _hoverMenuItem = -1;
+    _menuItemCount = count;
+    _dragParam = -1;
+    [self setNeedsDisplay:YES];
+    return YES;
+}
+
 - (void)drawOpenMenu:(NSDictionary*)attributes
     style:(const s3g::clap_gui::Style&)style
 {
@@ -2545,7 +3212,10 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
             static_cast<int>(_hoverMenuItem), attributes, style);
         return;
     }
-    NSString* items[16] {};
+    // Some menus legitimately exceed sixteen entries (Input Channel has
+    // Omni plus channels 1-16). Keep this scratch storage sized from the
+    // actual menu instead of imposing a hidden stack-array limit.
+    std::vector<NSString*> items(_menuItemCount, nil);
     for (uint32_t item = 0u; item < _menuItemCount; ++item)
         items[item] = parameterMenuItem(
             static_cast<uint32_t>(_openMenu), item);
@@ -2554,12 +3224,13 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     const uint32_t columns = parameterMenuColumns(index);
     if (columns > 1u) {
         s3g::clap_gui::drawMultiColumnDropdownMenu(
-            [self openMenuRect], 18.0, items, _menuItemCount, columns,
+            [self openMenuRect], 18.0, items.data(), _menuItemCount, columns,
             parameterMenuSelection(index, plugin),
             static_cast<int>(_hoverMenuItem), attributes, style);
     } else {
         s3g::clap_gui::drawDropdownMenu([self openMenuRect], 18.0,
-            items, _menuItemCount, parameterMenuSelection(index, plugin),
+            items.data(), _menuItemCount,
+            parameterMenuSelection(index, plugin),
             static_cast<int>(_hoverMenuItem), attributes, style);
     }
 }
@@ -2693,10 +3364,10 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     s3g::clap_gui::drawPanelHeader(@"OUTPUT VIEW", true,
         graph.origin.x, graph.origin.y, graph.size.width, kPanelHeaderHeight,
         labels, style);
-    static NSString* const visualPages[4] = {
-        @"FIELD", @"LEARNING", @"FORM", @"MIDI",
+    static NSString* const visualPages[5] = {
+        @"FIELD", @"LEARNING", @"FORM", @"MIDI", @"INJECT",
     };
-    for (uint32_t page = 0u; page < 4u; ++page) {
+    for (uint32_t page = 0u; page < 5u; ++page) {
         s3g::clap_gui::drawToolboxHeaderButton(visualPageTabRect(page),
             NSMakeRect(graph.origin.x, graph.origin.y, graph.size.width,
                 kPanelHeaderHeight), visualPages[page],
@@ -2732,7 +3403,7 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         [self drawLearningPlate:plugin style:style labels:labels values:values];
     } else if (_visualPage == 2) {
         [self drawFormDeck:plugin style:style labels:labels values:values];
-    } else {
+    } else if (_visualPage == 3) {
         static NSString* const consoleFilters[3] = {
             @"ALL", @"NOTES", @"CC",
         };
@@ -2745,13 +3416,25 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         s3g::clap_gui::drawToolboxHeaderActionButton(consoleClearRect(),
             graph, @"CLEAR", labels, style);
         [self drawMidiConsole:plugin style:style labels:labels values:values];
+    } else {
+        [self drawInjectionView:plugin style:style labels:labels values:values];
     }
-    for (uint32_t index = 0u; index < kGlobalParamCount; ++index) {
+    for (uint32_t index = 0u; index < kMidiInputMode; ++index) {
         const NSRect row = globalRowRect(index);
         CGFloat panelX = 0.0;
         CGFloat panelWidth = 0.0;
         parameterPanelGeometry(index, panelX, panelWidth);
         drawParameter(plugin, index, row, panelX, panelWidth);
+    }
+    if (_visualPage == 4) {
+        for (uint32_t index = kMidiInputMode;
+             index <= kMidiInputDecay; ++index) {
+            const NSRect row = globalRowRect(index);
+            CGFloat panelX = 0.0;
+            CGFloat panelWidth = 0.0;
+            parameterPanelGeometry(index, panelX, panelWidth);
+            drawParameter(plugin, index, row, panelX, panelWidth);
+        }
     }
     [@"PER-RELAY MODE / REGISTER + RECEPTOR + CLIMATE ADDRESS"
         drawAtPoint:NSMakePoint(806.0, 514.0) withAttributes:values];
@@ -2762,34 +3445,60 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
             [NSString stringWithFormat:@"R%u", relay + 1u],
             relay == static_cast<uint32_t>(_selectedRelay), labels, style);
     }
+    static NSString* const relayPages[2] = { @"VOICE", @"CC ROUTING" };
+    for (uint32_t page = 0u; page < 2u; ++page) {
+        s3g::clap_gui::drawToolboxHeaderButton(relayModeTabRect(page),
+            relays, relayPages[page],
+            _relayPage == static_cast<NSInteger>(page), labels, style);
+    }
     const uint32_t base = kGlobalParamCount
         + static_cast<uint32_t>(_selectedRelay) * kRelayParamCount;
-    for (uint32_t local = 0u; local < kRelayParamCount; ++local) {
+    const auto drawRelayControl = [&](uint32_t local) {
         const NSRect row = relayRowRect(local);
         CGFloat panelX = 0.0;
         CGFloat panelWidth = 0.0;
         parameterPanelGeometry(base + local, panelX, panelWidth);
         drawParameter(plugin, base + local, row, panelX, panelWidth);
+    };
+    if (_relayPage == 0) {
+        for (uint32_t local : kRelayVoiceControls) drawRelayControl(local);
+    } else {
+        for (uint32_t local : kRelayCcControls) drawRelayControl(local);
     }
-    [@"COMPARATOR RISE -> ARTICULATION / NOTE + CC -> FIELD IMPULSE"
+    [(_relayPage == 0
+        ? @"COMPARATOR RISE -> ARTICULATION / NOTE -> FIELD IMPULSE"
+        : @"TWO GENERIC CC LANES / SOURCE -> RANGE -> CURVE -> SLEW")
         drawAtPoint:NSMakePoint(34.0, 861.0) withAttributes:values];
-    [@"FORM DECK VIEW / DWELL + GESTATION SHAPE LONG CYCLES"
+    [@"DEALER LAW + DWELL + GESTATION SHAPE LONG CYCLES"
         drawAtPoint:NSMakePoint(806.0, 861.0) withAttributes:values];
     [self drawOpenMenu:values style:style];
 }
 
 - (NSInteger)paramAtPoint:(NSPoint)point
 {
-    for (uint32_t index = 0u; index < kGlobalParamCount; ++index) {
+    for (uint32_t index = 0u; index < kMidiInputMode; ++index) {
         if (NSPointInRect(point, parameterInteractionRect(index)))
             return static_cast<NSInteger>(index);
     }
+    if (_visualPage == 4) {
+        for (uint32_t index = kMidiInputMode;
+             index <= kMidiInputDecay; ++index) {
+            if (NSPointInRect(point, parameterInteractionRect(index)))
+                return static_cast<NSInteger>(index);
+        }
+    }
     const uint32_t base = kGlobalParamCount
         + static_cast<uint32_t>(_selectedRelay) * kRelayParamCount;
-    for (uint32_t local = 0u; local < kRelayParamCount; ++local) {
-        if (NSPointInRect(point, parameterInteractionRect(base + local)))
-            return static_cast<NSInteger>(base + local);
-    }
+    const auto hitControls = [&](const auto& controls) -> NSInteger {
+        for (uint32_t local : controls) {
+            if (NSPointInRect(point, parameterInteractionRect(base + local)))
+                return static_cast<NSInteger>(base + local);
+        }
+        return -1;
+    };
+    const NSInteger hit = _relayPage == 0
+        ? hitControls(kRelayVoiceControls) : hitControls(kRelayCcControls);
+    if (hit >= 0) return hit;
     return -1;
 }
 
@@ -2882,11 +3591,34 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         if (![self applySafeRandom]) NSBeep();
         return;
     }
-    for (uint32_t page = 0u; page < 4u; ++page) {
+    for (uint32_t page = 0u; page < 5u; ++page) {
         if (NSPointInRect(point, visualPageTabRect(page))) {
             _visualPage = static_cast<NSInteger>(page);
             [self setNeedsDisplay:YES];
             return;
+        }
+    }
+    if (_visualPage == 1) {
+        for (uint32_t mode = 0u; mode < 2u; ++mode) {
+            if (NSPointInRect(point, learningModeRect(mode))) {
+                _matrixMode = static_cast<NSInteger>(mode);
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+        for (uint32_t target = 0u;
+             target < s3g::relay::kClusterCount; ++target) {
+            for (uint32_t source = 0u;
+                 source < s3g::relay::kClusterCount; ++source) {
+                if (NSPointInRect(point, learningCellRect(target, source))) {
+                    const NSInteger cell = static_cast<NSInteger>(
+                        target * s3g::relay::kClusterCount + source);
+                    _selectedMatrixCell = _selectedMatrixCell == cell
+                        ? -1 : cell;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
+            }
         }
     }
     if (_visualPage == 2) {
@@ -2923,6 +3655,8 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         if (!crystallized) {
             plugin.thawMemory.store(publishedValue(plugin, kMemory),
                 std::memory_order_relaxed);
+            plugin.heldFormBeat.store(plugin.visualFormBeat.load(
+                std::memory_order_relaxed), std::memory_order_release);
             plugin.hasThawMemory.store(true, std::memory_order_relaxed);
         }
         const bool hasThawMemory = plugin.hasThawMemory.load(
@@ -2950,6 +3684,14 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
         [self setNeedsDisplay:YES];
         return;
     }
+    for (uint32_t page = 0u; page < 2u; ++page) {
+        if (NSPointInRect(point, relayModeTabRect(page))) {
+            _relayPage = static_cast<NSInteger>(page);
+            _dragParam = -1;
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
     for (uint32_t relay = 0u; relay < s3g::relay::kRelayCount; ++relay) {
         if (NSPointInRect(point, relayTabRect(relay))
             || (_visualPage == 0
@@ -2965,11 +3707,7 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     const uint32_t index = static_cast<uint32_t>(_dragParam);
     const ParamSpec spec = paramSpec(index);
     if (parameterIsMenu(index)) {
-        _openMenu = static_cast<NSInteger>(index);
-        _hoverMenuItem = -1;
-        _menuItemCount = parameterMenuCount(index);
-        _dragParam = -1;
-        [self setNeedsDisplay:YES];
+        (void)[self openParameterMenu:static_cast<NSInteger>(index)];
         return;
     }
     queueGuiBegin(plugin, spec.id);
@@ -3200,6 +3938,15 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     if (!instance) return nullptr;
     instance->host = host;
     publishAll(*instance);
+    const std::array<double, 4u> conduct {{
+        instance->config.activity, instance->config.coupling,
+        instance->config.hierarchy, instance->config.contrast,
+    }};
+    for (uint32_t trait = 0u; trait < conduct.size(); ++trait)
+        instance->visualEffectiveConduct[trait].store(
+            conduct[trait], std::memory_order_relaxed);
+    for (auto& node : instance->visualExternalInputNodes)
+        node.store(0.0, std::memory_order_relaxed);
     instance->plugin.desc = &descriptor;
     instance->plugin.plugin_data = instance;
     instance->plugin.init = init;

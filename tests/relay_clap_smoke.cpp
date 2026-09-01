@@ -91,6 +91,44 @@ struct InputEvents {
     }
 };
 
+struct MidiInputEvents {
+    clap_input_events_t interface {};
+    std::array<clap_event_midi_t, 16u> events {};
+    uint32_t count = 0u;
+
+    MidiInputEvents()
+    {
+        interface.ctx = this;
+        interface.size = size;
+        interface.get = get;
+    }
+
+    void add(uint32_t frame, uint8_t status, uint8_t data1, uint8_t data2)
+    {
+        auto& event = events[count++];
+        event.header.size = sizeof(event);
+        event.header.time = frame;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_MIDI;
+        event.port_index = 0u;
+        event.data[0] = status;
+        event.data[1] = data1;
+        event.data[2] = data2;
+    }
+
+    static uint32_t size(const clap_input_events_t* list)
+    {
+        return static_cast<const MidiInputEvents*>(list->ctx)->count;
+    }
+
+    static const clap_event_header_t* get(const clap_input_events_t* list,
+        uint32_t index)
+    {
+        const auto* self = static_cast<const MidiInputEvents*>(list->ctx);
+        return index < self->count ? &self->events[index].header : nullptr;
+    }
+};
+
 struct OutputEvents {
     clap_output_events_t interface {};
     std::array<clap_event_midi_t, 512u> midi {};
@@ -184,6 +222,16 @@ bool containsMidi(const OutputEvents& output, uint8_t status,
 }
 
 #if defined(__APPLE__)
+NSView* findViewRespondingTo(NSView* root, SEL selector)
+{
+    if ([root respondsToSelector:selector]) return root;
+    for (NSView* child in root.subviews) {
+        if (NSView* match = findViewRespondingTo(child, selector))
+            return match;
+    }
+    return nil;
+}
+
 bool exerciseGui(const clap_plugin_t* plugin, const char* capturePath)
 {
     const auto* gui = static_cast<const clap_plugin_gui_t*>(
@@ -210,6 +258,27 @@ bool exerciseGui(const clap_plugin_t* plugin, const char* capturePath)
     const bool attached = gui->set_parent(plugin, &window);
     const bool shown = attached && gui->show(plugin);
     [parent layoutSubtreeIfNeeded];
+    const SEL presetSelector = NSSelectorFromString(@"applyFactoryPreset:");
+    NSView* relayView = findViewRespondingTo(parent, presetSelector);
+    bool presetApplied = false;
+    bool inputChannelMenuOpened = false;
+    if (relayView) {
+        using ApplyPreset = BOOL (*)(id, SEL, NSInteger);
+        auto applyPreset = reinterpret_cast<ApplyPreset>(
+            [relayView methodForSelector:presetSelector]);
+        presetApplied = applyPreset
+            && applyPreset(relayView, presetSelector, 1);
+        const SEL menuSelector = NSSelectorFromString(@"openParameterMenu:");
+        if ([relayView respondsToSelector:menuSelector]) {
+            auto openMenu = reinterpret_cast<ApplyPreset>(
+                [relayView methodForSelector:menuSelector]);
+            // Global parameter index 23 is Input Channel: Omni plus sixteen
+            // channels. Rendering this menu regresses the former 16-slot
+            // stack buffer overflow observed in REAPER.
+            inputChannelMenuOpened = openMenu
+                && openMenu(relayView, menuSelector, 23);
+        }
+    }
     NSBitmapImageRep* bitmap = [parent bitmapImageRepForCachingDisplayInRect:
         parent.bounds];
     if (bitmap) [parent cacheDisplayInRect:parent.bounds
@@ -225,8 +294,9 @@ bool exerciseGui(const clap_plugin_t* plugin, const char* capturePath)
     if (shown) (void)gui->hide(plugin);
     gui->destroy(plugin);
     [parent release];
-    return expect(attached && shown && rendered,
-        "GUI did not attach, show, and render");
+    return expect(attached && shown && rendered && presetApplied
+            && inputChannelMenuOpened,
+        "GUI did not render its preset or 17-item input-channel menu");
 }
 #endif
 
@@ -294,18 +364,22 @@ int main(int argc, char** argv)
 
     const auto* notePorts = static_cast<const clap_plugin_note_ports_t*>(
         plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
-    clap_note_port_info_t port {};
+    clap_note_port_info_t inputPort {};
+    clap_note_port_info_t outputPort {};
     bool ok = expect(notePorts
-            && notePorts->count(plugin, true) == 0u
+            && notePorts->count(plugin, true) == 1u
             && notePorts->count(plugin, false) == 1u
-            && notePorts->get(plugin, 0u, false, &port)
-            && (port.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u,
-        "MIDI output port contract failed");
+            && notePorts->get(plugin, 0u, true, &inputPort)
+            && notePorts->get(plugin, 0u, false, &outputPort)
+            && (inputPort.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u
+            && (outputPort.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0u
+            && std::strcmp(inputPort.name, "Ecological Injection") == 0,
+        "MIDI input/output port contract failed");
 
     const auto* params = static_cast<const clap_plugin_params_t*>(
         plugin->get_extension(plugin, CLAP_EXT_PARAMS));
-    ok &= expect(params && params->count(plugin) == 125u,
-        "expected 125 generic neural sequencer parameters");
+    ok &= expect(params && params->count(plugin) == 214u,
+        "expected 214 generic neural sequencer parameters");
     clap_param_info_t scaleInfo {};
     ok &= expect(params && params->get_info(plugin, 18u, &scaleInfo)
             && scaleInfo.id == 19u
@@ -323,17 +397,17 @@ int main(int argc, char** argv)
             && parsedScale == 31.0,
         "canonical musical-scale text conversion failed");
     clap_param_info_t noteInfo {};
-    ok &= expect(params && params->get_info(plugin, 23u, &noteInfo)
+    ok &= expect(params && params->get_info(plugin, 32u, &noteInfo)
             && noteInfo.id == 102u
             && std::strcmp(noteInfo.name, "MIDI Note") == 0,
         "Relay 1 MIDI-note parameter is missing");
     clap_param_info_t pitchModeInfo {};
-    ok &= expect(params && params->get_info(plugin, 32u, &pitchModeInfo)
+    ok &= expect(params && params->get_info(plugin, 41u, &pitchModeInfo)
             && pitchModeInfo.id == 111u
             && std::strcmp(pitchModeInfo.name, "Pitch Mode") == 0,
         "Relay 1 pitch-mode parameter is missing");
     clap_param_info_t articulationInfo {};
-    ok &= expect(params && params->get_info(plugin, 33u, &articulationInfo)
+    ok &= expect(params && params->get_info(plugin, 42u, &articulationInfo)
             && articulationInfo.id == 112u
             && std::strcmp(articulationInfo.name, "Articulation") == 0
             && articulationInfo.max_value == 3.0,
@@ -364,6 +438,57 @@ int main(int argc, char** argv)
                 &parsedLatticeDepth)
             && parsedLatticeDepth == 1.0,
         "lattice-depth text conversion failed");
+    clap_param_info_t ccSourceInfo {};
+    ok &= expect(params && params->get_info(plugin, 43u, &ccSourceInfo)
+            && ccSourceInfo.id == 1000u
+            && std::strcmp(ccSourceInfo.name, "CC A Source") == 0
+            && ccSourceInfo.max_value == 11.0,
+        "Relay 1 CC-source parameter is missing");
+    char ccSourceText[32] {};
+    double parsedCcSource = -1.0;
+    ok &= expect(params
+            && params->value_to_text(plugin, 1000u, 5.0,
+                ccSourceText, sizeof(ccSourceText))
+            && std::strcmp(ccSourceText, "Climate Energy") == 0
+            && params->text_to_value(plugin, 1000u, "Form Phase",
+                &parsedCcSource)
+            && parsedCcSource == 10.0,
+        "CC-source text conversion failed");
+    char ccCurveText[32] {};
+    double parsedCcCurve = -2.0;
+    ok &= expect(params
+            && params->value_to_text(plugin, 1003u, 0.5,
+                ccCurveText, sizeof(ccCurveText))
+            && std::strcmp(ccCurveText, "+50%") == 0
+            && params->text_to_value(plugin, 1003u, "+50%",
+                &parsedCcCurve)
+            && std::abs(parsedCcCurve - 0.5) < 1.0e-12,
+        "CC-curve percentage conversion failed");
+    clap_param_info_t dealerLawInfo {};
+    char dealerLawText[32] {};
+    double parsedDealerLaw = -1.0;
+    ok &= expect(params && params->get_info(plugin, 21u, &dealerLawInfo)
+            && dealerLawInfo.id == 22u
+            && std::strcmp(dealerLawInfo.name, "Dealer Law") == 0
+            && params->value_to_text(plugin, 22u, 4.0,
+                dealerLawText, sizeof(dealerLawText))
+            && std::strcmp(dealerLawText, "Climate Contrast") == 0
+            && params->text_to_value(plugin, 22u, "Avoid Recent",
+                &parsedDealerLaw)
+            && parsedDealerLaw == 3.0,
+        "dealer-law parameter/text conversion failed");
+    clap_param_info_t inputModeInfo {};
+    char inputModeText[32] {};
+    double parsedInputMode = -1.0;
+    ok &= expect(params && params->get_info(plugin, 22u, &inputModeInfo)
+            && inputModeInfo.id == 23u
+            && std::strcmp(inputModeInfo.name, "Input Source") == 0
+            && params->value_to_text(plugin, 23u, 3.0,
+                inputModeText, sizeof(inputModeText))
+            && std::strcmp(inputModeText, "Notes + CC") == 0
+            && params->text_to_value(plugin, 23u, "Notes", &parsedInputMode)
+            && parsedInputMode == 1.0,
+        "ecological-input parameter/text conversion failed");
 
     const auto* state = static_cast<const clap_plugin_state_t*>(
         plugin->get_extension(plugin, CLAP_EXT_STATE));
@@ -378,6 +503,8 @@ int main(int argc, char** argv)
     input.add(5u, 0.0);   // no stochastic bit flips
     input.add(9u, 6.0);   // 16 comparator ticks / beat
     input.add(10u, 2.0);  // hold an emitted note until transport stop
+    input.add(23u, 3.0);  // notes + CC ecological injection
+    input.add(29u, 1.0);  // full input depth
     input.add(101u, 4.0); // MIDI channel 4
     input.add(102u, 64.0);
     input.add(103u, 74.0);
@@ -428,6 +555,21 @@ int main(int argc, char** argv)
             && containsMidi(output, 0xb3u, 71u),
         "assigned signed-state CC pair was not emitted");
 
+    MidiInputEvents ecologicalInput;
+    ecologicalInput.add(64u, 0x92u, 99u, 120u);
+    ecologicalInput.add(192u, 0xb2u, 1u, 127u);
+    ecologicalInput.add(320u, 0x82u, 99u, 0u);
+    OutputEvents ecologicalOutput;
+    transport.song_pos_beats += static_cast<clap_beattime>(std::llround(
+        120.0 * 512.0 / (60.0 * 48000.0)
+            * static_cast<double>(CLAP_BEATTIME_FACTOR)));
+    process.steady_time += 512;
+    process.in_events = &ecologicalInput.interface;
+    process.out_events = &ecologicalOutput.interface;
+    ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE
+            && !containsMidi(ecologicalOutput, 0x92u, 99u),
+        "ecological MIDI input was rejected or passed through directly");
+
     StateBuffer saved;
     ok &= expect(state->save(plugin, &saved.output) && !saved.bytes.empty(),
         "state save failed");
@@ -444,6 +586,49 @@ int main(int argc, char** argv)
     ok &= expect(params->get_value(plugin, 102u, &restoredNote)
             && restoredNote == 64.0,
         "state did not restore MIDI mapping");
+
+    // Crystallize is a compound runtime state rather than a host parameter.
+    // Verify that its thaw memory and held form instant survive a state round
+    // trip alongside the parameter array.
+    StateBuffer crystallized;
+    crystallized.bytes = saved.bytes;
+    constexpr std::size_t kRuntimeOffset = sizeof(uint32_t) * 2u
+        + sizeof(double) * 214u;
+    const double savedThawMemory = 0.37;
+    const double savedFormBeat = 47.25;
+    const uint32_t savedRuntimeFlags = 3u;
+    std::memcpy(crystallized.bytes.data() + kRuntimeOffset,
+        &savedThawMemory, sizeof(savedThawMemory));
+    std::memcpy(crystallized.bytes.data() + kRuntimeOffset
+            + sizeof(double),
+        &savedFormBeat, sizeof(savedFormBeat));
+    std::memcpy(crystallized.bytes.data() + kRuntimeOffset
+            + sizeof(double) * 2u,
+        &savedRuntimeFlags, sizeof(savedRuntimeFlags));
+    ok &= expect(state->load(plugin, &crystallized.input),
+        "crystallized Relay state did not load");
+    StateBuffer crystallizedRoundTrip;
+    ok &= expect(state->save(plugin, &crystallizedRoundTrip.output),
+        "crystallized Relay state did not save");
+    double roundTripThawMemory = 0.0;
+    double roundTripFormBeat = 0.0;
+    uint32_t roundTripRuntimeFlags = 0u;
+    std::memcpy(&roundTripThawMemory,
+        crystallizedRoundTrip.bytes.data() + kRuntimeOffset,
+        sizeof(roundTripThawMemory));
+    std::memcpy(&roundTripFormBeat,
+        crystallizedRoundTrip.bytes.data() + kRuntimeOffset
+            + sizeof(double), sizeof(roundTripFormBeat));
+    std::memcpy(&roundTripRuntimeFlags,
+        crystallizedRoundTrip.bytes.data() + kRuntimeOffset
+            + sizeof(double) * 2u, sizeof(roundTripRuntimeFlags));
+    ok &= expect(std::abs(roundTripThawMemory - savedThawMemory) < 1.0e-12
+            && std::abs(roundTripFormBeat - savedFormBeat) < 1.0e-12
+            && roundTripRuntimeFlags == savedRuntimeFlags,
+        "crystallized Relay runtime state did not round trip");
+    saved.cursor = 0u;
+    ok &= expect(state->load(plugin, &saved.input),
+        "ordinary Relay state did not restore after Crystallize test");
 
     OutputEvents stoppedOutput;
     InputEvents noInput;
@@ -527,6 +712,68 @@ int main(int argc, char** argv)
             && version4LatticeDepth == 2.0,
         "Relay v4 state did not retain articulation/default lattice depth");
 
+    StateBuffer version6;
+    constexpr uint32_t kVersion6 = 6u;
+    const uint32_t version6Header[2] { kLegacyMagic, kVersion6 };
+    std::array<double, 205u> version6Values {};
+    version6Values[20u] = 2.0;
+    version6Values[33u] = 3.0; // Relay 1 Stack.
+    version6Values[34u] = 5.0; // Relay 1 Climate Energy CC source.
+    const double version6ThawMemory = 0.41;
+    const double version6FormBeat = 31.5;
+    const uint32_t version6Flags[2] { 3u, 0u };
+    StateBuffer::write(&version6.output, version6Header,
+        sizeof(version6Header));
+    StateBuffer::write(&version6.output, version6Values.data(),
+        sizeof(version6Values));
+    StateBuffer::write(&version6.output, &version6ThawMemory,
+        sizeof(version6ThawMemory));
+    StateBuffer::write(&version6.output, &version6FormBeat,
+        sizeof(version6FormBeat));
+    StateBuffer::write(&version6.output, version6Flags,
+        sizeof(version6Flags));
+    ok &= expect(state->load(plugin, &version6.input),
+        "Relay v6 state did not migrate");
+    double version6Articulation = -1.0;
+    double version6CcSource = -1.0;
+    double version6DealerLaw = -1.0;
+    double version6InputMode = -1.0;
+    ok &= expect(params->get_value(plugin, 112u, &version6Articulation)
+            && version6Articulation == 3.0
+            && params->get_value(plugin, 1000u, &version6CcSource)
+            && version6CcSource == 5.0
+            && params->get_value(plugin, 22u, &version6DealerLaw)
+            && version6DealerLaw == 0.0
+            && params->get_value(plugin, 23u, &version6InputMode)
+            && version6InputMode == 0.0,
+        "Relay v6 state did not retain behavior/default new controls");
+
+    StateBuffer version5;
+    constexpr uint32_t kVersion5 = 5u;
+    const uint32_t version5Header[2] { kLegacyMagic, kVersion5 };
+    std::array<double, 125u> version5Values {};
+    version5Values[20u] = 1.0; // Two-plane lattice.
+    version5Values[33u] = 2.0; // Relay 1 Extend.
+    StateBuffer::write(&version5.output, version5Header,
+        sizeof(version5Header));
+    StateBuffer::write(&version5.output, version5Values.data(),
+        sizeof(version5Values));
+    ok &= expect(state->load(plugin, &version5.input),
+        "Relay v5 state did not migrate");
+    double version5Articulation = -1.0;
+    double version5LatticeDepth = -1.0;
+    double version5CcASource = -1.0;
+    double version5CcBSource = -1.0;
+    ok &= expect(params->get_value(plugin, 112u, &version5Articulation)
+            && version5Articulation == 2.0
+            && params->get_value(plugin, 21u, &version5LatticeDepth)
+            && version5LatticeDepth == 1.0
+            && params->get_value(plugin, 1000u, &version5CcASource)
+            && version5CcASource == 0.0
+            && params->get_value(plugin, 1005u, &version5CcBSource)
+            && version5CcBSource == 4.0,
+        "Relay v5 state did not retain behavior/default CC sources");
+
     StateBuffer version2;
     constexpr uint32_t kVersion2 = 2u;
     const uint32_t version2Header[2] { kLegacyMagic, kVersion2 };
@@ -549,6 +796,23 @@ int main(int argc, char** argv)
 #if defined(__APPLE__)
     [NSApplication sharedApplication];
     ok &= exerciseGui(plugin, argc >= 3 ? argv[2] : nullptr);
+    InputEvents presetFlushInput;
+    OutputEvents presetFlushOutput;
+    params->flush(plugin, &presetFlushInput.interface,
+        &presetFlushOutput.interface);
+    double presetEnergy = -1.0;
+    double presetDealerLaw = -1.0;
+    double presetInputMode = -1.0;
+    double presetNote = -1.0;
+    ok &= expect(params->get_value(plugin, 2u, &presetEnergy)
+            && std::abs(presetEnergy - 0.74) < 1.0e-9
+            && params->get_value(plugin, 22u, &presetDealerLaw)
+            && presetDealerLaw == 1.0
+            && params->get_value(plugin, 23u, &presetInputMode)
+            && presetInputMode == 0.0
+            && params->get_value(plugin, 102u, &presetNote)
+            && presetNote == 64.0,
+        "factory preset transaction was incomplete after GUI flush");
 #endif
 
     plugin->stop_processing(plugin);
