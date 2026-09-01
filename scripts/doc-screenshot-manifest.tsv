@@ -71,6 +71,7 @@ processor-errant	processor-errant
 nim-gesture	nim-gesture
 fault	fault
 tracker	s3g-tracker
+relay	s3g-relay
 breakbeat-slicer	s3g-slicer
 sample-player	sample-player
 sample-doubles	sample-doubles

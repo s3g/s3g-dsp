@@ -47,6 +47,47 @@
 
         <p>The same host position, time signature, seed, parameter state, and external MIDI events reproduce the same decisions. Audio buffer size does not change the sequence. Stop, seek, disable, and mapping changes release affected notes safely.</p>
 
+        <h2 id="panels">Interface Panels</h2>
+
+        <p>These views were captured from the same running Relay instance in an active REAPER project. Select an image to inspect the full-resolution panel.</p>
+
+        <div class="panel-gallery">
+          <figure class="panel-gallery-primary">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-relay.png" aria-label="Open the full-resolution Relay Field panel screenshot">
+              <img src="assets/plugin-guis/s3g-relay.png" alt="Relay Field panel showing four live neural pentads, eight receptors, the recirculating register, topology paths, and the Conduct, Pitch, Relay, and Climate toolboxes" loading="lazy" decoding="async">
+            </button>
+            <figcaption><code>Field</code> — live pentad activity, receptor paths, register state, and the manual-to-effective climate controls.</figcaption>
+          </figure>
+
+          <figure>
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-relay.learning.png" aria-label="Open the full-resolution Relay Learning panel screenshot">
+              <img src="assets/plugin-guis/s3g-relay.learning.png" alt="Relay Learning panel showing the bordered four-by-four effective-weight matrix, learned deltas and adaptation status above the open per-relay CC Routing toolbox" loading="lazy" decoding="async">
+            </button>
+            <figcaption><code>Learning</code> — effective cluster weights and adaptation readout above the selected relay's two CC source, range, curve, and slew lanes.</figcaption>
+          </figure>
+
+          <figure>
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-relay.form.png" aria-label="Open the full-resolution Relay Form panel screenshot">
+              <img src="assets/plugin-guis/s3g-relay.form.png" alt="Relay Form panel showing a four-suit climate deck, sixteen cards on plane three, the dealt climate card, and recent deal history" loading="lazy" decoding="async">
+            </button>
+            <figcaption><code>Form</code> — the current lattice suit, climate cards, enlarged deal, and recent cross-plane path.</figcaption>
+          </figure>
+
+          <figure>
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-relay.midi.png" aria-label="Open the full-resolution Relay MIDI panel screenshot">
+              <img src="assets/plugin-guis/s3g-relay.midi.png" alt="Relay MIDI panel showing live Note On, Note Off, and control-change messages above the open per-relay CC Routing toolbox" loading="lazy" decoding="async">
+            </button>
+            <figcaption><code>MIDI</code> — actual emitted events and drop count above the CC A/B assignments that produce the controller traffic.</figcaption>
+          </figure>
+
+          <figure>
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-relay.inject.png" aria-label="Open the full-resolution Relay Inject panel screenshot">
+              <img src="assets/plugin-guis/s3g-relay.inject.png" alt="Relay Inject panel showing note input, Omni channel, node-address mapping, Gate response, excitatory polarity, depth and decay controls, and four pentad input-force monitors" loading="lazy" decoding="async">
+            </button>
+            <figcaption><code>Inject</code> — external MIDI mapping and the signed force currently entering each neural pentad.</figcaption>
+          </figure>
+        </div>
+
         <h2 id="ecology">Field, Relays, and Memory</h2>
 
         <table class="readout-table">
@@ -151,6 +192,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#panels">Interface Panels</a>
           <a href="#ecology">Field and Memory</a>
           <a href="#long-form">Climate-Lattice Form</a>
           <a href="#presets">Presets</a>
@@ -160,5 +202,6 @@
         </div>
       </aside>
     </div>
+    <script src="lightbox.js"></script>
   </body>
 </html>

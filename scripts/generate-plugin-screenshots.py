@@ -77,12 +77,12 @@ TARGET_FILE_RE = re.compile(r"^\$<TARGET_FILE:([A-Za-z0-9_]+)>$")
 OUTPUT_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 GUI_COMMAND_START_RE = re.compile(
     r"^[ \t]*COMMAND[ \t]+"
-    r"\$<TARGET_FILE:s3g_(?:(?:encoder|decoder)_family_gui_smoke|tracker_clap_smoke)>(?=[ \t]|$)"
+    r"\$<TARGET_FILE:s3g_(?:(?:encoder|decoder)_family_gui_smoke|tracker_clap_smoke|relay_clap_smoke)>(?=[ \t]|$)"
 )
 GUI_COMMAND_RE = re.compile(
     r"""
     ^[ \t]*COMMAND[ \t]+
-    (?P<harness>\$<TARGET_FILE:s3g_(?:(?:encoder|decoder)_family_gui_smoke|tracker_clap_smoke)>)[ \t]+
+    (?P<harness>\$<TARGET_FILE:s3g_(?:(?:encoder|decoder)_family_gui_smoke|tracker_clap_smoke|relay_clap_smoke)>)[ \t]+
     (?P<plugin>\$<TARGET_FILE:[A-Za-z0-9_]+>)[ \t]+
     (?P<plugin_id>org\.s3g\.s3g-dsp\.[A-Za-z0-9._-]+)[ \t]+
     (?P<width>[0-9]+)[ \t]+

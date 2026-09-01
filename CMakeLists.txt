@@ -2976,6 +2976,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       add_custom_target(audit_gui_relay
         COMMAND $<TARGET_FILE:s3g_relay_clap_smoke>
           $<TARGET_FILE:s3g_relay_clap>
+          org.s3g.s3g-dsp.relay 1240 900
         DEPENDS
           s3g_relay_clap_smoke
           s3g_relay_clap

@@ -2270,6 +2270,8 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
 - (void)drawInjectionView:(Plugin&)plugin
     style:(const s3g::clap_gui::Style&)style
     labels:(NSDictionary*)labels values:(NSDictionary*)values;
+- (BOOL)selectVisualPage:(NSInteger)page;
+- (BOOL)selectRelayPage:(NSInteger)page;
 - (BOOL)openParameterMenu:(NSInteger)index;
 - (BOOL)applyFactoryPreset:(NSInteger)index;
 - (BOOL)applySafeRandom;
@@ -3179,6 +3181,27 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     return YES;
 }
 
+- (BOOL)selectVisualPage:(NSInteger)page
+{
+    if (page < 0 || page >= 5) return NO;
+    _visualPage = page;
+    _openMenu = -1;
+    _hoverMenuItem = -1;
+    _menuItemCount = 0u;
+    _dragParam = -1;
+    [self setNeedsDisplay:YES];
+    return YES;
+}
+
+- (BOOL)selectRelayPage:(NSInteger)page
+{
+    if (page < 0 || page >= 2) return NO;
+    _relayPage = page;
+    _dragParam = -1;
+    [self setNeedsDisplay:YES];
+    return YES;
+}
+
 - (void)drawOpenMenu:(NSDictionary*)attributes
     style:(const s3g::clap_gui::Style&)style
 {
@@ -3593,8 +3616,7 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     }
     for (uint32_t page = 0u; page < 5u; ++page) {
         if (NSPointInRect(point, visualPageTabRect(page))) {
-            _visualPage = static_cast<NSInteger>(page);
-            [self setNeedsDisplay:YES];
+            (void)[self selectVisualPage:static_cast<NSInteger>(page)];
             return;
         }
     }
@@ -3686,9 +3708,7 @@ void drawParameter(Plugin& plugin, uint32_t index, NSRect rect,
     }
     for (uint32_t page = 0u; page < 2u; ++page) {
         if (NSPointInRect(point, relayModeTabRect(page))) {
-            _relayPage = static_cast<NSInteger>(page);
-            _dragParam = -1;
-            [self setNeedsDisplay:YES];
+            (void)[self selectRelayPage:static_cast<NSInteger>(page)];
             return;
         }
     }

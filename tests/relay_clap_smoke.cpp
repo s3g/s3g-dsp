@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -222,6 +223,41 @@ bool containsMidi(const OutputEvents& output, uint8_t status,
 }
 
 #if defined(__APPLE__)
+bool writeDocumentationPage(NSView* relayView, NSView* root,
+    NSString* directory, NSInteger page, NSString* variant)
+{
+    if (!relayView || !root || !directory) return false;
+    const SEL relaySelector = NSSelectorFromString(@"selectRelayPage:");
+    const SEL selector = NSSelectorFromString(@"selectVisualPage:");
+    if (![relayView respondsToSelector:relaySelector]
+        || ![relayView respondsToSelector:selector]) return false;
+    using SelectPage = BOOL (*)(id, SEL, NSInteger);
+    auto selectRelayPage = reinterpret_cast<SelectPage>(
+        [relayView methodForSelector:relaySelector]);
+    auto selectPage = reinterpret_cast<SelectPage>(
+        [relayView methodForSelector:selector]);
+    const NSInteger relayPage = page == 1 || page == 3 ? 1 : 0;
+    if (!selectRelayPage
+        || !selectRelayPage(relayView, relaySelector, relayPage)
+        || !selectPage || !selectPage(relayView, selector, page)) return false;
+    [root layoutSubtreeIfNeeded];
+    [root displayIfNeeded];
+    NSData* rendered = [root dataWithPDFInsideRect:root.bounds];
+    if (!rendered || rendered.length == 0u) return false;
+    [[NSFileManager defaultManager]
+        createDirectoryAtPath:directory
+        withIntermediateDirectories:YES
+        attributes:nil
+        error:nil];
+    NSString* fileName = variant.length == 0u
+        ? @"org.s3g.s3g-dsp.relay.pdf"
+        : [NSString stringWithFormat:@"org.s3g.s3g-dsp.relay.%@.pdf",
+            variant];
+    return [rendered writeToFile:
+        [directory stringByAppendingPathComponent:fileName]
+        atomically:YES];
+}
+
 NSView* findViewRespondingTo(NSView* root, SEL selector)
 {
     if ([root respondsToSelector:selector]) return root;
@@ -291,12 +327,25 @@ bool exerciseGui(const clap_plugin_t* plugin, const char* capturePath)
         rendered = png && [png writeToFile:
             [NSString stringWithUTF8String:capturePath] atomically:YES];
     }
+    bool documentationRendered = true;
+    const char* captureDirectory = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+    if (captureDirectory && captureDirectory[0] != '\0') {
+        NSString* directory = [NSString stringWithUTF8String:captureDirectory];
+        NSString* const variants[5] = {
+            @"", @"learning", @"form", @"midi", @"inject",
+        };
+        for (NSInteger page = 0; page < 5; ++page) {
+            documentationRendered = writeDocumentationPage(
+                relayView, parent, directory, page, variants[page])
+                && documentationRendered;
+        }
+    }
     if (shown) (void)gui->hide(plugin);
     gui->destroy(plugin);
     [parent release];
     return expect(attached && shown && rendered && presetApplied
-            && inputChannelMenuOpened,
-        "GUI did not render its preset or 17-item input-channel menu");
+            && inputChannelMenuOpened && documentationRendered,
+        "GUI did not render its preset, menu, or documentation pages");
 }
 #endif
 
@@ -304,9 +353,11 @@ bool exerciseGui(const clap_plugin_t* plugin, const char* capturePath)
 
 int main(int argc, char** argv)
 {
-    if (argc < 2) {
+    if (argc != 2 && argc != 3 && argc != 5) {
         std::fprintf(stderr,
-            "usage: %s <s3g_relay.clap> [capture.png]\n", argv[0]);
+            "usage: %s <s3g_relay.clap> [capture.png]\n"
+            "       %s <s3g_relay.clap> <plugin-id> <width> <height>\n",
+            argv[0], argv[0]);
         return 2;
     }
     const std::string binary = resolveBinary(argv[1]);
@@ -795,7 +846,7 @@ int main(int argc, char** argv)
 
 #if defined(__APPLE__)
     [NSApplication sharedApplication];
-    ok &= exerciseGui(plugin, argc >= 3 ? argv[2] : nullptr);
+    ok &= exerciseGui(plugin, argc == 3 ? argv[2] : nullptr);
     InputEvents presetFlushInput;
     OutputEvents presetFlushOutput;
     params->flush(plugin, &presetFlushInput.interface,
