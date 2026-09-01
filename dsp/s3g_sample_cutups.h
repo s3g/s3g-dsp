@@ -15,7 +15,7 @@ namespace s3g::sample {
 
 constexpr std::size_t kSampleCutupsLaneCount = 4u;
 constexpr std::size_t kMaximumCutupsRegions = 64u;
-constexpr std::size_t kMaximumCutupsPatternSteps = 16u;
+constexpr std::size_t kMaximumCutupsPatternSteps = kMaximumCutupsRegions;
 constexpr std::size_t kMaximumCutupsVoices = 16u;
 
 enum class CutClockBasis : uint8_t {
@@ -218,7 +218,7 @@ struct SampleCutupsSettings {
             && std::isfinite(gate) && gate >= 0.05f && gate <= 1.0f
             && std::isfinite(joinMilliseconds)
             && joinMilliseconds >= 0.0f && joinMilliseconds <= 100.0f
-            && regionCount >= 2u && regionCount <= kMaximumCutupsRegions
+            && regionCount >= 1u && regionCount <= kMaximumCutupsRegions
             && patternLength >= 1u
             && patternLength <= kMaximumCutupsPatternSteps
             && repeatCount >= 1u && repeatCount <= 16u

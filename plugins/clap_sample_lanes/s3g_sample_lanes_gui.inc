@@ -22,6 +22,9 @@ constexpr NSRect kPathGraph = {{ 218.0, 390.0 }, { 638.0, 138.0 }};
 #endif
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
 constexpr NSRect kLaneTimingPanel = {{ 880.0, 54.0 }, { 382.0, 96.0 }};
+constexpr NSRect kRecalculateTransientsButton = {
+    { 1088.0, 60.0 }, { 162.0, 16.0 }
+};
 constexpr NSRect kTimingSpeedColumn = kLaneTimingPanel;
 constexpr NSRect kTimingStretchColumn = kLaneTimingPanel;
 constexpr NSRect kTimingNudgeColumn = kLaneTimingPanel;
@@ -310,12 +313,13 @@ constexpr UiRow kRows[] = {
     { kPathParamId, kPathPanel, 402.0, "FILE ORDER", true },
     { kBlendParamId, kPathPanel, 426.0, "SOURCE ORDER", true },
     { kShapeParamId, kPathPanel, 450.0, "REGION MODE", true },
-    { kCyclesParamId, kPathPanel, 474.0, "REGION COUNT", false },
-    { kOffsetParamId, kPathPanel, 498.0, "PATTERN LENGTH", false },
-    { kSkewParamId, kPathPanel, 522.0, "STEP REPEAT", false },
-    { kStartParamId, kPathPanel, 546.0, "START", false },
-    { kEndParamId, kPathPanel, 570.0, "END", false },
-    { kSeedParamId, kPathPanel, 594.0, "SEED", false },
+    { kOffsetParamId, kPathPanel, 474.0, "STEPS / REGIONS", false },
+    { kSkewParamId, kPathPanel, 498.0, "STEP REPEAT", false },
+    { kStartParamId, kPathPanel, 522.0, "START", false },
+    { kEndParamId, kPathPanel, 546.0, "END", false },
+    { kSeedParamId, kPathPanel, 570.0, "SEED", false },
+    { kTransientPrerollParamId, kPathPanel, 594.0,
+        "TRANSIENT PREROLL", false },
     { kLoopCrossfadeParamId, kCutPlaybackColumn1, 594.0, "JOIN", false },
     { kManualLaneParamId, kCutPlaybackColumn1, 618.0, "GATE", false },
     { kCutReverseChanceParamId, kCutPlaybackColumn2, 594.0,
@@ -540,7 +544,7 @@ float grainDisplayWindow(GrainEnvelope envelope, float phase,
 #endif
 
 using ManualPathPoints = std::array<LanePathPoint,
-    s3g::sample::kMaximumLanePathPoints>;
+    kMaximumManualPathPoints>;
 
 uint32_t editableManualPath(Plugin& instance,
     ManualPathPoints& points) noexcept
@@ -727,11 +731,10 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         tempoMetadata = _instance->controlMetadata[lane];
     }
     NSString* title = tempoMetadata && tempoMetadata->tempoValid
-        ? [NSString stringWithFormat:@"LANE %zu TEMPO / DETECTED %.2f BPM%s",
+        ? [NSString stringWithFormat:@"LANE %zu / %.2f BPM%s",
             lane + 1u, tempoMetadata->analyzedBpm,
             tempoMetadata->tempoOctaveAmbiguous ? " ?" : ""]
-        : [NSString stringWithFormat:
-            @"LANE %zu TEMPO / NO CONFIDENT DETECTION", lane + 1u];
+        : [NSString stringWithFormat:@"LANE %zu / NO BPM", lane + 1u];
 #else
     NSString* title = [NSString stringWithFormat:
         @"LANE %zu TIMING / STRETCH KEEPS PITCH", lane + 1u];
@@ -739,6 +742,11 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     s3g::clap_gui::drawPanelHeader(title, true,
         NSMinX(kLaneTimingPanel), NSMinY(kLaneTimingPanel),
         NSWidth(kLaneTimingPanel), 27.0, labels, style);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    s3g::clap_gui::drawToolboxHeaderButton(kRecalculateTransientsButton,
+        kLaneTimingPanel, @"RECALC TRANSIENTS",
+        (_feedbackMask & kActionRecalculate) != 0u, labels, style);
+#endif
     const struct TimingControl {
         clap_id id;
         const char* label;
@@ -858,22 +866,44 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         [waveform stroke];
     }
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-    std::shared_ptr<const CutupsLaneMetadata> metadata;
-    {
-        std::lock_guard<std::mutex> lock(_instance->statusMutex);
-        metadata = _instance->controlMetadata[lane];
-    }
-    if (metadata && metadata->transientRegions.valid()) {
-        [[style.accent colorWithAlphaComponent:0.42] setStroke];
-        for (uint32_t index = 1u;
-             index < metadata->transientRegions.count; ++index) {
-            const CGFloat x = NSMinX(rect)
-                + metadata->transientRegions.starts[index] * NSWidth(rect);
+    const bool transientMode = paramValue(*_instance, kShapeParamId) >= 0.5;
+    const uint32_t maximumMarkers = static_cast<uint32_t>(std::lround(
+        paramValue(*_instance, kOffsetParamId)));
+    [[style.accent colorWithAlphaComponent:0.42] setStroke];
+    if (asset && !transientMode && span > 0.0) {
+        for (uint32_t index = 1u; index < maximumMarkers; ++index) {
+            const double position = start + span
+                * static_cast<double>(index)
+                / static_cast<double>(maximumMarkers);
+            const CGFloat x = NSMinX(rect) + position * NSWidth(rect);
             NSBezierPath* marker = [NSBezierPath bezierPath];
             [marker setLineWidth:0.7];
             [marker moveToPoint:NSMakePoint(x, NSMinY(rect) + 1.0)];
             [marker lineToPoint:NSMakePoint(x, NSMaxY(rect) - 1.0)];
             [marker stroke];
+        }
+    } else if (transientMode) {
+        std::shared_ptr<const CutupsLaneMetadata> metadata;
+        {
+            std::lock_guard<std::mutex> lock(_instance->statusMutex);
+            metadata = _instance->controlMetadata[lane];
+        }
+        if (metadata && metadata->transientRegions.valid()) {
+            uint32_t shown = 0u;
+            for (uint32_t index = 0u;
+                 index < metadata->transientRegions.count
+                    && shown < maximumMarkers; ++index) {
+                const double position = metadata->transientRegions.starts[index];
+                if (position < start || position >= end) continue;
+                ++shown;
+                if (std::abs(position - start) <= 1.0e-7) continue;
+                const CGFloat x = NSMinX(rect) + position * NSWidth(rect);
+                NSBezierPath* marker = [NSBezierPath bezierPath];
+                [marker setLineWidth:0.7];
+                [marker moveToPoint:NSMakePoint(x, NSMinY(rect) + 1.0)];
+                [marker lineToPoint:NSMakePoint(x, NSMaxY(rect) - 1.0)];
+                [marker stroke];
+            }
         }
     }
 #endif
@@ -1729,6 +1759,17 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         [self setNeedsDisplay:YES];
         return;
     }
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (NSPointInRect(point, kRecalculateTransientsButton)) {
+        const std::size_t lane = std::min<std::size_t>(
+            _instance->selectedLane.load(std::memory_order_acquire), 3u);
+        _instance->actionFeedback.fetch_or(kActionRecalculate,
+            std::memory_order_release);
+        queueCutupsReanalysis(*_instance, lane);
+        [self setNeedsDisplay:YES];
+        return;
+    }
+#endif
     if (NSPointInRect(point, kStorageButton)) {
         StorageMode mode;
         {
@@ -1778,7 +1819,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         ManualPathPoints points {};
         uint32_t count = editableManualPath(*_instance, points);
         const uint32_t patternLength = static_cast<uint32_t>(std::clamp(
-            std::lround(paramValue(*_instance, kOffsetParamId)), 1l, 16l));
+            std::lround(paramValue(*_instance, kOffsetParamId)), 1l, 64l));
         count = std::max(count, patternLength);
         const double horizontal = std::clamp(static_cast<double>(
             (point.x - NSMinX(kPathGraph)) / NSWidth(kPathGraph)), 0.0,

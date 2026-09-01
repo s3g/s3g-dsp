@@ -34,6 +34,7 @@
 bool parameterAvailableForPlugin(const Plugin& instance, clap_id id) noexcept
 {
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (id == kCyclesParamId) return false;
     if (id >= kOutputModeParamId && id <= kAvoidAdjacentParamId)
         return instance.outputChannelCount != 2u;
 #elif defined(S3G_SAMPLE_GRAINS_VARIANT)
@@ -482,7 +483,8 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
         || id == kCutReverseChanceParamId
         || id == kCutLevelVariationParamId)
         std::snprintf(display, size, "%.1f %%", value * 100.0);
-    else if (id == kLoopCrossfadeParamId)
+    else if (id == kLoopCrossfadeParamId
+        || id == kTransientPrerollParamId)
         std::snprintf(display, size, "%.1f ms", value);
     else if (id >= kLane1SpeedParamId && id <= kLane2SpeedParamId)
         std::snprintf(display, size, "%.2f BPM", value);
@@ -802,8 +804,17 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     StateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic
-#if defined(S3G_SAMPLE_CUTUPS_VARIANT) \
-    || defined(S3G_SAMPLE_GRAINS_VARIANT)
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        || (header.version != kStateVersion
+            && header.version != kCutupsPreviousStateVersion
+            && header.version != kCutupsLegacyStateVersion)
+        || (header.version == kStateVersion
+            && header.parameterCount != kParamCount)
+        || (header.version == kCutupsPreviousStateVersion
+            && header.parameterCount != kCutupsPreviousParamCount)
+        || (header.version == kCutupsLegacyStateVersion
+            && header.parameterCount != kCutupsLegacyParamCount)
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
         || header.version != kStateVersion
         || header.parameterCount != kParamCount
 #else
@@ -836,7 +847,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             saved.lanes.size() * sizeof(LaneState))) return false;
     if (
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-        true
+        header.version == kStateVersion
 #elif !defined(S3G_SAMPLE_GRAINS_VARIANT)
         header.version >= kRoutingPreviousStateVersion
 #else
@@ -844,6 +855,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 #endif
         && !s3g::clap_state::readAll(stream, &saved.manualPath,
             sizeof(saved.manualPath))) return false;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (header.version != kStateVersion) {
+        CutupsLegacyManualPathState legacyPath;
+        if (!s3g::clap_state::readAll(stream, &legacyPath,
+                sizeof(legacyPath))) return false;
+        saved.manualPath.pointCount = std::min<uint32_t>(
+            legacyPath.pointCount,
+            static_cast<uint32_t>(legacyPath.points.size()));
+        std::copy_n(legacyPath.points.begin(), saved.manualPath.pointCount,
+            saved.manualPath.points.begin());
+    }
+#endif
     for (const auto& def : kParamDefs)
         setParam(instance, def.id,
             saved.parameters[paramIndex(def.id)]);
@@ -920,7 +943,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         (void)publishAsset(instance, lane, asset, runtimePath, false);
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
         (void)publishMetadata(instance, lane,
-            asset ? analyzeCutupsLane(*asset) : nullptr);
+            asset ? analyzeCutupsLane(*asset,
+                paramValue(instance, kTransientPrerollParamId)) : nullptr);
 #endif
         if (mode == StorageMode::Project && !runtimePath.empty()) {
             const ReaperContext context = s3g::sample_storage::reaperContext(
@@ -1538,7 +1562,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "s3g Sample Cutups 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.1.0",
+    "", "", "0.4.0",
     "Four-file cut-up instrument with transient regions and per-file tempo analysis.",
     stereoFeatures,
 };
@@ -1549,7 +1573,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Cutups 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.1.0",
+    "", "", "0.4.0",
     "Four-file cut-up instrument with transient regions and 32-channel allocation.",
     multichannelFeatures,
 };
@@ -1736,7 +1760,7 @@ void initializeParams(Plugin& instance) noexcept
 }
 
 uint32_t manualPathSnapshot(const Plugin& instance,
-    std::array<LanePathPoint, s3g::sample::kMaximumLanePathPoints>& points)
+    std::array<LanePathPoint, kMaximumManualPathPoints>& points)
     noexcept
 {
     for (uint32_t attempt = 0u; attempt < 4u; ++attempt) {
@@ -1760,11 +1784,10 @@ uint32_t manualPathSnapshot(const Plugin& instance,
 }
 
 void publishManualPath(Plugin& instance,
-    const std::array<LanePathPoint,
-        s3g::sample::kMaximumLanePathPoints>& requestedPoints,
+    const std::array<LanePathPoint, kMaximumManualPathPoints>& requestedPoints,
     uint32_t pointCount, bool dirty) noexcept
 {
-    std::array<LanePathPoint, s3g::sample::kMaximumLanePathPoints> points {};
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
     pointCount = std::min<uint32_t>(pointCount,
         static_cast<uint32_t>(points.size()));
     if (pointCount >=
@@ -1851,10 +1874,9 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         kManualLaneParamId));
     settings.joinMilliseconds = static_cast<float>(paramValue(instance,
         kLoopCrossfadeParamId));
-    settings.regionCount = static_cast<uint32_t>(std::lround(
-        paramValue(instance, kCyclesParamId)));
     settings.patternLength = static_cast<uint32_t>(std::lround(
         paramValue(instance, kOffsetParamId)));
+    settings.regionCount = settings.patternLength;
     settings.repeatCount = static_cast<uint32_t>(std::lround(
         paramValue(instance, kSkewParamId)));
     settings.reverseChance = static_cast<float>(paramValue(instance,
@@ -1899,7 +1921,7 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
             std::lround(paramValue(instance, kPairLayoutParamId))));
     settings.outputRouting.avoidAdjacent
         = paramValue(instance, kAvoidAdjacentParamId) >= 0.5;
-    std::array<LanePathPoint, s3g::sample::kMaximumLanePathPoints> points {};
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
     const uint32_t pointCount = manualPathSnapshot(instance, points);
     for (uint32_t index = 0u; index < pointCount
          && index < settings.manualPattern.size(); ++index) {
@@ -2201,10 +2223,14 @@ void queueGuiParamGesture(Plugin& instance, clap_id id, double value);
 
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
 std::shared_ptr<const CutupsLaneMetadata> analyzeCutupsLane(
-    const SampleAsset& asset)
+    const SampleAsset& asset, double transientPrerollMilliseconds)
 {
+    const uint32_t prerollMicroseconds = static_cast<uint32_t>(std::lround(
+        std::clamp(transientPrerollMilliseconds, 0.0, 50.0) * 1000.0));
     return std::make_shared<CutupsLaneMetadata>(
-        s3g::sample::analyzeCutupsAsset(asset));
+        s3g::sample::analyzeCutupsAsset(asset,
+            s3g::sample::kMaximumCutupsRegions, 5.0,
+            prerollMicroseconds));
 }
 #endif
 
@@ -2282,9 +2308,16 @@ void loaderMain(Plugin* instance)
         result.sourcePath = std::move(request.path);
         result.decodedPath = result.sourcePath;
         result.copyOnly = request.copyOnly;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        result.analysisOnly = request.analysisOnly;
+#endif
         result.projectLocationAvailable = request.projectLocation.available();
         result.error = std::move(request.projectError);
-        if (request.projectLocation.available()) {
+        if (
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            !request.analysisOnly &&
+#endif
+            request.projectLocation.available()) {
             result.projectCopy = s3g::sample_storage::copyFileIntoProject(
                 request.projectLocation, result.sourcePath);
             if (result.projectCopy.success) {
@@ -2294,8 +2327,26 @@ void loaderMain(Plugin* instance)
                 result.error = result.projectCopy.error;
             }
         }
-        if (result.sourceFileBytes == 0u)
+        if (
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            !request.analysisOnly &&
+#endif
+            result.sourceFileBytes == 0u)
             result.sourceFileBytes = regularFileByteCount(result.sourcePath);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        if (request.analysisOnly) {
+            result.asset = std::move(request.analysisAsset);
+            try {
+                if (result.asset)
+                    result.metadata = analyzeCutupsLane(*result.asset,
+                        request.transientPrerollMilliseconds);
+                else result.error = "NO SAMPLE LOADED";
+            } catch (...) {
+                result.metadata.reset();
+                result.error = "TRANSIENT ANALYSIS EXCEEDED AVAILABLE MEMORY";
+            }
+        } else
+#endif
         if (!result.copyOnly) {
             std::string decodeError;
             try {
@@ -2304,7 +2355,8 @@ void loaderMain(Plugin* instance)
                     result.asset.reset();
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
                 if (result.asset)
-                    result.metadata = analyzeCutupsLane(*result.asset);
+                    result.metadata = analyzeCutupsLane(*result.asset,
+                        request.transientPrerollMilliseconds);
 #endif
             } catch (...) {
                 result.asset.reset();
@@ -2345,6 +2397,10 @@ void queueSampleLoad(Plugin& instance, std::size_t lane, std::string path)
     request.generation = ++instance.loadGenerations[lane];
     request.lane = static_cast<uint8_t>(lane);
     request.path = path;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    request.transientPrerollMilliseconds = paramValue(instance,
+        kTransientPrerollParamId);
+#endif
     {
         std::lock_guard<std::mutex> lock(instance.statusMutex);
         instance.linkSourcePaths[lane] = path;
@@ -2374,6 +2430,42 @@ void queueSampleLoad(Plugin& instance, std::size_t lane, std::string path)
     }
     instance.loaderCondition.notify_one();
 }
+
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+void queueCutupsReanalysis(Plugin& instance, std::size_t lane)
+{
+    if (lane >= s3g::sample::kSampleLaneCount) return;
+    auto asset = currentAsset(instance, lane);
+    if (!asset) {
+        std::lock_guard<std::mutex> lock(instance.statusMutex);
+        instance.statuses[lane] = "LANE " + std::to_string(lane + 1u)
+            + " / LOAD A FILE BEFORE RECALCULATING";
+        return;
+    }
+    LoadRequest request;
+    request.generation = instance.loadGenerations[lane];
+    request.lane = static_cast<uint8_t>(lane);
+    request.analysisAsset = std::move(asset);
+    request.transientPrerollMilliseconds = paramValue(instance,
+        kTransientPrerollParamId);
+    request.analysisOnly = true;
+    {
+        std::lock_guard<std::mutex> lock(instance.statusMutex);
+        instance.statuses[lane] = "LANE " + std::to_string(lane + 1u)
+            + " / RECALCULATING TRANSIENTS...";
+    }
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.erase(std::remove_if(
+            instance.loadRequests.begin(), instance.loadRequests.end(),
+            [lane](const LoadRequest& pending) {
+                return pending.lane == lane && pending.analysisOnly;
+            }), instance.loadRequests.end());
+        instance.loadRequests.push_back(std::move(request));
+    }
+    instance.loaderCondition.notify_one();
+}
+#endif
 
 void queueProjectCopy(Plugin& instance, std::size_t lane)
 {
@@ -2452,6 +2544,36 @@ void serviceLoads(Plugin& instance)
         const std::size_t lane = result.lane;
         if (lane >= s3g::sample::kSampleLaneCount
             || result.generation != instance.loadGenerations[lane]) continue;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        if (result.analysisOnly) {
+            const auto current = currentAsset(instance, lane);
+            if (!current || current.get() != result.asset.get()) continue;
+            if (!result.metadata) {
+                std::lock_guard<std::mutex> lock(instance.statusMutex);
+                instance.statuses[lane] = "LANE "
+                    + std::to_string(lane + 1u) + " / "
+                    + (result.error.empty() ? "TRANSIENT ANALYSIS FAILED"
+                        : result.error);
+                continue;
+            }
+            (void)publishMetadata(instance, lane, result.metadata);
+            {
+                std::lock_guard<std::mutex> lock(instance.statusMutex);
+                char analysisText[128] {};
+                if (result.metadata->tempoValid)
+                    std::snprintf(analysisText, sizeof(analysisText),
+                        "LANE %zu / %u TRANSIENT REGIONS / %.2f BPM%s",
+                        lane + 1u, result.metadata->transientRegions.count,
+                        result.metadata->analyzedBpm,
+                        result.metadata->tempoOctaveAmbiguous ? "?" : "");
+                else std::snprintf(analysisText, sizeof(analysisText),
+                    "LANE %zu / %u TRANSIENT REGIONS / BPM UNRESOLVED",
+                    lane + 1u, result.metadata->transientRegions.count);
+                instance.statuses[lane] = analysisText;
+            }
+            continue;
+        }
+#endif
         StorageMode mode;
         {
             std::lock_guard<std::mutex> lock(instance.statusMutex);

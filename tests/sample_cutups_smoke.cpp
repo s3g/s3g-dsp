@@ -87,6 +87,19 @@ int main()
 {
     SampleCutupsSettings settings;
     require(settings.valid(), "default settings valid");
+    settings.regionCount = 1u;
+    settings.patternLength = 1u;
+    require(settings.valid(), "one step and one region are valid");
+    settings.regionCount = 64u;
+    settings.patternLength = 64u;
+    require(settings.valid(), "64 steps and regions are valid");
+    settings.regionCount = 65u;
+    settings.patternLength = 65u;
+    require(!settings.valid(), "more than 64 steps and regions rejected");
+    settings.patternLength = 1u;
+    settings.regionCount = 0u;
+    require(!settings.valid(), "zero regions rejected");
+    settings = {};
     settings.start = settings.end;
     require(!settings.valid(), "invalid source window rejected");
     settings = {};
@@ -97,6 +110,15 @@ int main()
         "per-file BPM analysis accepts multichannel sources");
     require(wideAnalysis.transientRegions.count >= 8u,
         "transient-derived regions are produced during file analysis");
+    const auto noPreroll = analyzeCutupsAsset(makeWideTempoAsset(),
+        kMaximumCutupsRegions, 0.0, 0u);
+    const auto tenMillisecondPreroll = analyzeCutupsAsset(
+        makeWideTempoAsset(), kMaximumCutupsRegions, 0.0, 10000u);
+    require(noPreroll.transientRegions.count > 1u
+            && tenMillisecondPreroll.transientRegions.count > 1u
+            && tenMillisecondPreroll.transientRegions.starts[1u]
+                < noPreroll.transientRegions.starts[1u],
+        "transient preroll moves detected region starts earlier");
 
     const std::array<std::shared_ptr<SampleAsset>, 4u> assets {{
         makeAsset(0.2f, 48000u),

@@ -18,10 +18,16 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x43553353u;
-constexpr uint32_t kStateVersion = 1u;
-constexpr std::size_t kParamCount = 42u;
+constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kPreviousStateVersion = 2u;
+constexpr uint32_t kLegacyStateVersion = 1u;
+constexpr std::size_t kParamCount = 43u;
+constexpr std::size_t kPreviousParamCount = 43u;
+constexpr std::size_t kLegacyParamCount = 42u;
 constexpr std::size_t kStereoParamCount = 35u;
+constexpr std::size_t kWideParamCount = 42u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
+constexpr std::size_t kMaximumPatternSteps = 64u;
 constexpr uint32_t kFrames = 4096u;
 
 struct LaneState {
@@ -39,6 +45,12 @@ struct PathPoint {
 };
 
 struct ManualPathState {
+    uint32_t pointCount = static_cast<uint32_t>(kMaximumPatternSteps);
+    uint32_t reserved = 0u;
+    std::array<PathPoint, kMaximumPatternSteps> points {};
+};
+
+struct LegacyManualPathState {
     uint32_t pointCount = 16u;
     uint32_t reserved = 0u;
     std::array<PathPoint, 16u> points {};
@@ -52,11 +64,12 @@ struct SavedState {
     std::array<uint8_t, 3u> reserved {};
     std::array<double, kParamCount> parameters {{
         -6.0, 1.0, 4.0, 8.0, 0.0, 1.0, 5.0,
-        5.0, 6.0, 1.0, 16.0, 16.0, 1.0, 0.0, 1.0, 0.0,
+        5.0, 6.0, 1.0, 16.0, 64.0, 1.0, 0.0, 1.0, 0.0,
         0.0, 1.0, 60.0, 0.0, 0.0, 0.0, 0.02, 0.0, 1.0,
         4312.0, 0.0,
         120.0, 100.0, 140.0, 90.0, 1.0, 0.15, 2.0, 0.1,
         0.0, 32.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+        1.0,
     }};
     std::array<LaneState, 4u> lanes {};
     ManualPathState manualPath;
@@ -126,9 +139,15 @@ struct MemoryOutput {
     };
 };
 
-MemoryInput embeddedFixture()
+MemoryInput embeddedFixture(uint32_t version = kStateVersion)
 {
     SavedState saved;
+    saved.version = version;
+    if (version == kPreviousStateVersion)
+        saved.parameterCount = static_cast<uint32_t>(kPreviousParamCount);
+    else if (version == kLegacyStateVersion)
+        saved.parameterCount = static_cast<uint32_t>(kLegacyParamCount);
+    if (version != kStateVersion) saved.parameters[11u] = 16.0;
     MemoryInput input;
     const auto append = [&input](const void* data, std::size_t size) {
         const auto* first = static_cast<const uint8_t*>(data);
@@ -136,9 +155,22 @@ MemoryInput embeddedFixture()
     };
     constexpr std::size_t headerBytes = 16u;
     append(&saved, headerBytes);
-    append(saved.parameters.data(), saved.parameters.size() * sizeof(double));
+    append(saved.parameters.data(), static_cast<std::size_t>(
+        saved.parameterCount) * sizeof(double));
     append(saved.lanes.data(), saved.lanes.size() * sizeof(LaneState));
-    append(&saved.manualPath, sizeof(saved.manualPath));
+    if (version == kStateVersion)
+        append(&saved.manualPath, sizeof(saved.manualPath));
+    else {
+        LegacyManualPathState legacyPath;
+        for (uint32_t step = 0u; step < legacyPath.points.size(); ++step) {
+            legacyPath.points[step].phase = static_cast<float>((step * 5u)
+                % legacyPath.points.size())
+                / static_cast<float>(legacyPath.points.size());
+            legacyPath.points[step].lane = static_cast<float>(step % 4u)
+                / 3.0f;
+        }
+        append(&legacyPath, sizeof(legacyPath));
+    }
     constexpr double pi = 3.14159265358979323846;
     for (std::size_t lane = 0u; lane < 4u; ++lane) {
         std::vector<float> left(kFrames);
@@ -276,8 +308,10 @@ int main(int argc, char** argv)
     ok = ok && stereo && wide
         && std::strcmp(stereo->id, "org.s3g.s3g-dsp.sample-cutups") == 0
         && std::strcmp(stereo->name, "s3g Sample Cutups 2") == 0
+        && std::strcmp(stereo->version, "0.4.0") == 0
         && std::strcmp(wide->id, "org.s3g.s3g-dsp.sample-cutups-32") == 0
-        && std::strcmp(wide->name, "s3g Sample Cutups 32") == 0;
+        && std::strcmp(wide->name, "s3g Sample Cutups 32") == 0
+        && std::strcmp(wide->version, "0.4.0") == 0;
     checkpoint("descriptors");
 
     clap_host_t host {
@@ -299,13 +333,14 @@ int main(int argc, char** argv)
         && ports->get(plugin, 0u, false, &port) && port.channel_count == 2u;
     const std::array<const char*, 12u> names {{
         "Out", "Cut Clock", "Division", "Free Rate", "Start", "End",
-        "Join", "File Order", "Source Order", "Regions", "Region Count",
-        "Pattern Length",
+        "Join", "File Order", "Source Order", "Regions", "Steps / Regions",
+        "Repeat",
     }};
     for (uint32_t index = 0u; ok && index < names.size(); ++index) {
         clap_param_info_t info {};
         ok = params->get_info(plugin, index, &info)
-            && std::strcmp(info.name, names[index]) == 0;
+            && std::strcmp(info.name, names[index]) == 0
+            && (index != 10u || info.max_value == 64.0);
     }
     char text[64] {};
     double parsed = -1.0;
@@ -314,12 +349,20 @@ int main(int argc, char** argv)
         && params->value_to_text(plugin, 10u, 1.0, text, sizeof(text))
         && std::strcmp(text, "Transient") == 0
         && params->text_to_value(plugin, 8u, "Random Cycle", &parsed)
-        && parsed == 4.0;
+        && parsed == 4.0
+        && params->value_to_text(plugin, 36u, 7.5, text, sizeof(text))
+        && std::strcmp(text, "7.5 ms") == 0;
 #if defined(__APPLE__)
     ok = ok && plugin->get_extension(plugin, CLAP_EXT_GUI) != nullptr;
 #endif
     checkpoint("ports, parameters, text and GUI");
 
+    auto legacyFixture = embeddedFixture(kLegacyStateVersion);
+    ok = ok && state->load(plugin, &legacyFixture.stream);
+    checkpoint("version 1 state migration");
+    auto previousFixture = embeddedFixture(kPreviousStateVersion);
+    ok = ok && state->load(plugin, &previousFixture.stream);
+    checkpoint("version 2 state migration");
     auto fixture = embeddedFixture();
     ok = ok && state->load(plugin, &fixture.stream);
     double bpm = 0.0;
@@ -331,11 +374,15 @@ int main(int argc, char** argv)
     if (ok) {
         SavedState roundTrip;
         std::memcpy(&roundTrip, saved.bytes.data(), sizeof(roundTrip));
-        ok = roundTrip.manualPath.pointCount == 16u
-            && std::abs(roundTrip.manualPath.points[1u].phase - 5.0f / 16.0f)
+        ok = roundTrip.manualPath.pointCount == kMaximumPatternSteps
+            && std::abs(roundTrip.manualPath.points[1u].phase - 5.0f / 64.0f)
                 < 1.0e-6f
             && std::abs(roundTrip.manualPath.points[3u].lane - 1.0f)
-                < 1.0e-6f;
+                < 1.0e-6f
+            && std::abs(roundTrip.manualPath.points[63u].phase - 59.0f / 64.0f)
+                < 1.0e-6f
+            && roundTrip.parameters[11u] == 64.0
+            && std::abs(roundTrip.parameters[42u] - 1.0) < 1.0e-9;
     }
     checkpoint("state and manual pattern round trip");
 
@@ -357,10 +404,14 @@ int main(int argc, char** argv)
     const clap_plugin_t* widePlugin = ok && wide
         ? factory->create_plugin(factory, &host, wide->id) : nullptr;
     ok = ok && widePlugin && widePlugin->init(widePlugin);
+    const auto* wideParams = widePlugin
+        ? static_cast<const clap_plugin_params_t*>(widePlugin->get_extension(
+            widePlugin, CLAP_EXT_PARAMS)) : nullptr;
     const auto* wideState = widePlugin ? static_cast<const clap_plugin_state_t*>(
         widePlugin->get_extension(widePlugin, CLAP_EXT_STATE)) : nullptr;
     auto wideFixture = embeddedFixture();
-    ok = ok && wideState && wideState->load(widePlugin, &wideFixture.stream)
+    ok = ok && wideParams && wideParams->count(widePlugin) == kWideParamCount
+        && wideState && wideState->load(widePlugin, &wideFixture.stream)
         && widePlugin->activate(widePlugin, 48000.0, 32u, 256u)
         && widePlugin->start_processing(widePlugin);
     Events wideEvents;

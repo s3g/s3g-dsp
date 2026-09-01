@@ -37,13 +37,13 @@
           <li>Load or drop as many as four files. Each file is analysed off the audio thread for transient boundaries and tempo.</li>
           <li>Choose Host and a rhythmic Division, or choose Free and set the cut rate in hertz.</li>
           <li>Select Equal or Transient regions, then choose File Order and Source Order.</li>
-          <li>Set Pattern Length and Step Repeat. Click or drag the lower pattern to author file choices; Option-drag a step to author its manual source position.</li>
+          <li>Set Steps / Regions from 1 to 64 and set Step Repeat. The shared count sets both the pattern length and the number of source regions. Click or drag the lower pattern to author file choices; Option-drag a step to author its manual source position.</li>
           <li>Shape the edit with Gate, Join, Swing, timing variation, reverse chance, pitch variation, and level variation.</li>
         </ol>
 
         <h2 id="analysis">Transient Regions and File Tempo</h2>
 
-        <p>Analysis runs when a decoded file becomes available and again when embedded audio is restored. Transient markers are snapped toward nearby zero crossings, include a short pre-transient lead, and reject regions shorter than 20 ms. The waveform rows display the resulting boundaries. If analysis produces no usable onset after the beginning, Transient mode still has one full-file region.</p>
+        <p>Analysis runs when a decoded file becomes available and again when embedded audio is restored. Transient Preroll moves each detected start earlier by 0–50 ms before it is snapped toward a nearby zero crossing; the default is 1 ms. After changing preroll, select a lane and press <strong>Recalc Transients</strong> to analyse its in-memory audio again on the loader thread. This does not re-decode the file or replace a manually edited File BPM. Regions shorter than 20 ms are rejected. If analysis produces no usable onset after the beginning, Transient mode still has one full-file region.</p>
 
         <p>The selected lane’s File BPM appears in the tempo panel and remains editable. A confident, unambiguous estimate replaces its default value automatically; uncertain estimates are shown in the lane status without forcing the parameter. With Tempo Sync enabled and Host clock selected, playback rate is multiplied by host BPM divided by that lane’s BPM. This is intentional sampler-style varispeed, so tempo correction also changes pitch.</p>
 
@@ -64,9 +64,9 @@
 
         <p>File Order offers Down, Up, Palindrome, Random, Random Cycle, and Manual. Random Cycle visits every loaded file once before reshuffling. A requested empty manual lane resolves to the nearest loaded lane rather than producing a silent hole.</p>
 
-        <p>Source Order offers Timeline, Forward, Reverse, Palindrome, Random, Walk, and Manual. Equal mode divides the shared Start–End window into Region Count pieces. Transient mode uses the analysed boundaries that fall inside that window. Timeline continues from the current read position; Manual maps the source position stored in each pattern step to the available region set.</p>
+        <p>Source Order offers Timeline, Forward, Reverse, Palindrome, Random, Walk, and Manual. <strong>Steps / Regions</strong> is the shared pattern and region count. Equal mode divides the shared Start–End window into that many pieces, and each waveform displays those equal boundaries. Transient mode instead displays and uses up to that many analysed boundaries inside the window. Timeline continues from the current read position; Manual maps the source position stored in each pattern step to the available region set.</p>
 
-        <p>The pattern editor’s X axis is step number and Y axis is file lane. Clicking selects Manual File Order and quantizes the step to one of four lanes. Option-clicking or Option-dragging selects Manual Source Order and writes a proportional source location; the dark line within each step shows that location. Up to sixteen steps are stored in plug-in state.</p>
+        <p>The pattern editor’s X axis is step number and Y axis is file lane. Clicking selects Manual File Order and quantizes the step to one of four lanes. Option-clicking or Option-dragging selects Manual Source Order and writes a proportional source location; the dark line within each step shows that location. Up to 64 steps are stored in plug-in state.</p>
 
         <h2 id="playback">Cut Playback</h2>
 

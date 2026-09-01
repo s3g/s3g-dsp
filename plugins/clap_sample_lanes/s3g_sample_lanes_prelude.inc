@@ -73,16 +73,26 @@ using s3g::sample_storage::StorageMode;
 
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
 constexpr uint32_t kStateMagic = 0x43553353u; // "S3UC"
-constexpr uint32_t kStateVersion = 1u;
+constexpr uint32_t kStateVersion = 3u;
+constexpr uint32_t kCutupsPreviousStateVersion = 2u;
+constexpr uint32_t kCutupsLegacyStateVersion = 1u;
+constexpr std::size_t kCutupsPreviousParamCount = 43u;
+constexpr std::size_t kCutupsLegacyParamCount = 42u;
+constexpr std::size_t kMaximumManualPathPoints
+    = s3g::sample::kMaximumCutupsPatternSteps;
 #elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr uint32_t kStateMagic = 0x47533353u; // "S3SG"
 constexpr uint32_t kStateVersion = 4u;
+constexpr std::size_t kMaximumManualPathPoints
+    = s3g::sample::kMaximumLanePathPoints;
 #else
 constexpr uint32_t kStateMagic = 0x4c533353u; // "S3SL"
 constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kRoutingPreviousStateVersion = 3u;
 constexpr uint32_t kPreviousStateVersion = 2u;
 constexpr uint32_t kLegacyStateVersion = 1u;
+constexpr std::size_t kMaximumManualPathPoints
+    = s3g::sample::kMaximumLanePathPoints;
 #endif
 constexpr std::size_t kLegacyParamCount = 27u;
 constexpr std::size_t kPreviousParamCount = 39u;
@@ -100,6 +110,9 @@ constexpr uint64_t kMaximumEmbeddedAudioBytes =
     1024ull * 1024ull * 1024ull;
 constexpr uint32_t kActionPreview = 1u << 0u;
 constexpr uint32_t kActionStopAll = 1u << 1u;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr uint32_t kActionRecalculate = 1u << 2u;
+#endif
 constexpr clap_id kStereoOutputConfigId = 2002u;
 constexpr clap_id kThirtyTwoChannelOutputConfigId = 2032u;
 
@@ -150,7 +163,7 @@ constexpr clap_id kOutputWidthParamId = 44u;
 constexpr clap_id kPairLayoutParamId = 45u;
 constexpr clap_id kAvoidAdjacentParamId = 46u;
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-constexpr std::size_t kParamCount = 42u;
+constexpr std::size_t kParamCount = 43u;
 #elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr clap_id kGrainSourceModeParamId = 47u;
 constexpr clap_id kGrainDensityParamId = 48u;
@@ -194,6 +207,7 @@ constexpr clap_id kTempoSyncParamId = kLane2StretchParamId;
 constexpr clap_id kCutReverseChanceParamId = kLane2NudgeParamId;
 constexpr clap_id kCutPitchVariationParamId = kLane3SpeedParamId;
 constexpr clap_id kCutLevelVariationParamId = kLane3StretchParamId;
+constexpr clap_id kTransientPrerollParamId = kLane3NudgeParamId;
 #endif
 
 struct ParamDef {
@@ -219,9 +233,10 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kPathParamId, "File Order", "Cut Address", 0.0, 5.0, 4.0, true },
     { kBlendParamId, "Source Order", "Cut Address", 0.0, 6.0, 1.0, true },
     { kShapeParamId, "Regions", "Cut Address", 0.0, 1.0, 0.0, true },
+    // Serialized for older Cutups states; hidden from hosts and playback.
     { kCyclesParamId, "Region Count", "Cut Address", 2.0, 64.0, 16.0,
         true },
-    { kOffsetParamId, "Pattern Length", "Cut Address", 1.0, 16.0, 16.0,
+    { kOffsetParamId, "Steps / Regions", "Cut Address", 1.0, 64.0, 16.0,
         true },
     { kSkewParamId, "Repeat", "Cut Address", 1.0, 16.0, 1.0, true },
     { kCurveParamId, "Swing", "Cut Clock", 0.0, 0.75, 0.0, false },
@@ -269,6 +284,8 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         0.0, true },
     { kAvoidAdjacentParamId, "Avoid Adjacent", "Output", 0.0, 1.0,
         0.0, true },
+    { kTransientPrerollParamId, "Transient Preroll", "Cut Address", 0.0,
+        50.0, 1.0, false },
 }};
 #else
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{
@@ -427,9 +444,16 @@ struct LaneState {
 struct ManualPathState {
     uint32_t pointCount = 0u;
     uint32_t reserved = 0u;
-    std::array<LanePathPoint,
-        s3g::sample::kMaximumLanePathPoints> points {};
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
 };
+
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+struct CutupsLegacyManualPathState {
+    uint32_t pointCount = 0u;
+    uint32_t reserved = 0u;
+    std::array<LanePathPoint, 16u> points {};
+};
+#endif
 
 struct SavedState {
     uint32_t magic = kStateMagic;
@@ -457,6 +481,11 @@ struct LoadRequest {
     ProjectLocation projectLocation;
     std::string projectError;
     bool copyOnly = false;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    std::shared_ptr<const SampleAsset> analysisAsset;
+    double transientPrerollMilliseconds = 1.0;
+    bool analysisOnly = false;
+#endif
 };
 
 struct LoadResult {
@@ -473,6 +502,9 @@ struct LoadResult {
     uint64_t sourceFileBytes = 0u;
     bool copyOnly = false;
     bool projectLocationAvailable = false;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    bool analysisOnly = false;
+#endif
 };
 #endif
 
@@ -517,9 +549,9 @@ struct Plugin {
     std::array<std::chrono::steady_clock::time_point,
         s3g::sample::kSampleLaneCount> nextProjectCopyProbe {};
     std::array<std::atomic<double>, kParamCount> parameters {};
-    std::array<std::atomic<float>, s3g::sample::kMaximumLanePathPoints>
+    std::array<std::atomic<float>, kMaximumManualPathPoints>
         manualPathPhases {};
-    std::array<std::atomic<float>, s3g::sample::kMaximumLanePathPoints>
+    std::array<std::atomic<float>, kMaximumManualPathPoints>
         manualPathLanes {};
     std::atomic<uint32_t> manualPathPointCount { 0u };
     std::atomic<uint32_t> manualPathRevision { 0u };
@@ -605,11 +637,10 @@ void setParam(Plugin& instance, clap_id id, double value,
     bool dirty = false) noexcept;
 void initializeParams(Plugin& instance) noexcept;
 uint32_t manualPathSnapshot(const Plugin& instance,
-    std::array<LanePathPoint, s3g::sample::kMaximumLanePathPoints>& points)
+    std::array<LanePathPoint, kMaximumManualPathPoints>& points)
     noexcept;
 void publishManualPath(Plugin& instance,
-    const std::array<LanePathPoint,
-        s3g::sample::kMaximumLanePathPoints>& points,
+    const std::array<LanePathPoint, kMaximumManualPathPoints>& points,
     uint32_t pointCount, bool dirty = true) noexcept;
 InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept;
 void requestProcess(Plugin& instance) noexcept;
@@ -629,7 +660,7 @@ void clearLane(Plugin& instance, std::size_t lane);
 
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
 std::shared_ptr<const CutupsLaneMetadata> analyzeCutupsLane(
-    const SampleAsset& asset);
+    const SampleAsset& asset, double transientPrerollMilliseconds);
 #endif
 #if defined(__APPLE__)
 bool decodeSampleFile(const std::string& path,
@@ -638,6 +669,9 @@ bool decodeSampleFile(const std::string& path,
 bool startLoader(Plugin& instance);
 void stopLoader(Plugin& instance);
 void queueSampleLoad(Plugin& instance, std::size_t lane, std::string path);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+void queueCutupsReanalysis(Plugin& instance, std::size_t lane);
+#endif
 void queueProjectCopy(Plugin& instance, std::size_t lane);
 void serviceLoads(Plugin& instance);
 void setStorageMode(Plugin& instance, StorageMode mode);
