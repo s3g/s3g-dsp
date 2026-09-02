@@ -110,6 +110,7 @@ int main()
         int restartRequests = 0;
         int trackResyncRequests = 0;
         int stepRecordModeRequests = 0;
+        int trackerRevealRequests = 0;
         std::vector<std::string> commands;
         std::size_t resyncedTrack = s3g::tracker::kMaximumTrackCount;
         callbacks.selectPattern = [&](const std::string& patternId) {
@@ -133,6 +134,7 @@ int main()
             ++stepRecordModeRequests;
             state.midiStepRecordMode = mode;
         };
+        callbacks.showTrackerPage = [&] { ++trackerRevealRequests; };
 
         S3GTrackerWorkspaceController* controller =
             [[S3GTrackerWorkspaceController alloc]
@@ -193,6 +195,22 @@ int main()
         NSView* warpPage = [controller warpPageView];
         NSPopUpButton* geometryViewMode = [geometryPage
             valueForKey:@"viewModePopup"];
+        NSArray<NSButton*>* geometryTools = [geometryPage
+            valueForKey:@"toolButtons"];
+        NSButton* geometryRotateBack = [geometryPage
+            valueForKey:@"rotateBackButton"];
+        NSButton* geometryRotateForward = [geometryPage
+            valueForKey:@"rotateForwardButton"];
+        NSButton* geometryDensityDown = [geometryPage
+            valueForKey:@"densityDownButton"];
+        NSButton* geometryDensityUp = [geometryPage
+            valueForKey:@"densityUpButton"];
+        NSButton* geometryReverse = [geometryPage
+            valueForKey:@"reverseButton"];
+        NSButton* geometryReflect = [geometryPage
+            valueForKey:@"reflectButton"];
+        NSButton* geometryMorph = [geometryPage valueForKey:@"morphButton"];
+        NSButton* geometryReveal = [geometryPage valueForKey:@"revealButton"];
 
         check(near(NSWidth(grid.frame), NSWidth(root.bounds)),
             "compact tracker should use the full embedded page width");
@@ -223,20 +241,43 @@ int main()
         check(envelopePlaybackOverlay.wantsLayer
                 && geometryPlaybackOverlay.wantsLayer,
             "animated envelope and geometry marks should use isolated overlays");
-        check(geometryViewMode.numberOfItems == 5u
+        check(geometryViewMode.numberOfItems == 6u
                 && [[geometryViewMode itemAtIndex:0].title
-                    isEqualToString:@"ACTIVE PULSES"]
+                    isEqualToString:@"RING FIELD"]
                 && [[geometryViewMode itemAtIndex:1].title
-                    isEqualToString:@"ALL STEPS UNDERLAY"]
+                    isEqualToString:@"ACTIVE PULSES"]
                 && [[geometryViewMode itemAtIndex:2].title
-                    isEqualToString:@"PHASE SPOKES"]
+                    isEqualToString:@"ALL STEPS UNDERLAY"]
                 && [[geometryViewMode itemAtIndex:3].title
-                    isEqualToString:@"LANE FOCUS"]
+                    isEqualToString:@"PHASE SPOKES"]
                 && [[geometryViewMode itemAtIndex:4].title
+                    isEqualToString:@"LANE FOCUS"]
+                && [[geometryViewMode itemAtIndex:5].title
                     isEqualToString:@"COMPOSITE RING"]
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == 0,
-            "Geometry should default to active pulses and expose all five views");
+            "Geometry should default to the editable Ring Field and retain five diagnostic views");
+        check(geometryTools.count == 4u
+                && [geometryTools[0u].title isEqualToString:@"SELECT"]
+                && [geometryTools[1u].title isEqualToString:@"PAINT"]
+                && [geometryTools[2u].title isEqualToString:@"ERASE"]
+                && [geometryTools[3u].title isEqualToString:@"VELOCITY"]
+                && geometryRotateBack && geometryRotateForward
+                && geometryDensityDown && geometryDensityUp
+                && geometryReverse && geometryReflect && geometryMorph
+                && geometryReveal,
+            "Geometry workspace should expose direct tools and the complete inspector operation set");
+        const auto phaseBeforeGeometry =
+            state.session.pattern.tracks[0u].noteColumn.phase;
+        [geometryRotateForward performClick:nil];
+        [geometryRotateBack performClick:nil];
+        [geometryReveal performClick:nil];
+        check(state.session.pattern.tracks[0u].noteColumn.phase
+                    == phaseBeforeGeometry
+                && patternChangeRequests == 2
+                && trackerRevealRequests == 1,
+            "Geometry phase controls should use the shared pattern history path and Reveal should bridge to Tracker");
+        patternChangeRequests = 0;
         check(NSMinY(geometryViewMode.frame) >= 24.0,
             "Geometry view selector should sit below the title strip");
         check([[geometryPage valueForKey:@"displayedPatternId"]
@@ -269,11 +310,11 @@ int main()
                 isEqualToString:@"A01"],
             "Geometry should return to the editor pattern when Song playback stops");
         NSArray<NSString*>* geometryDescriptions = @[
-            @"Active pulses", @"All steps underlay", @"Phase spokes",
-            @"Lane focus", @"Composite ring"
+            @"Ring field", @"Active pulses", @"All steps underlay",
+            @"Phase spokes", @"Lane focus", @"Composite ring"
         ];
         BOOL geometryModesDispatch = YES;
-        for (NSInteger mode = 1; mode < 5; ++mode) {
+        for (NSInteger mode = 1; mode < 6; ++mode) {
             geometryPlaybackOverlay.needsDisplay = NO;
             [geometryViewMode selectItemAtIndex:mode];
             [geometryViewMode sendAction:geometryViewMode.action

@@ -65,6 +65,8 @@ SHARED_BUNDLE_PLUGIN_IDS = {
         f"{PLUGIN_ID_PREFIX}sample-lanes",
     f"{PLUGIN_ID_PREFIX}sample-grains-32":
         f"{PLUGIN_ID_PREFIX}sample-grains",
+    f"{PLUGIN_ID_PREFIX}sample-cutups-32":
+        f"{PLUGIN_ID_PREFIX}sample-cutups",
 }
 PREFERRED_SLICER_SAMPLES = (
     "Angles Break.wav",

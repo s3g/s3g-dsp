@@ -592,33 +592,35 @@ int main(int argc, char** argv)
                     [geometryModeView isKindOfClass:NSPopUpButton.class]
                         ? static_cast<NSPopUpButton*>(geometryModeView) : nil;
                 const bool geometryModesAvailable = geometryMode.numberOfItems
-                        == 5u
+                        == 6u
                     && geometryMode.indexOfSelectedItem == 0
                     && [[geometryMode itemAtIndex:0].title
-                        isEqualToString:@"ACTIVE PULSES"]
+                        isEqualToString:@"RING FIELD"]
                     && [[geometryMode itemAtIndex:1].title
-                        isEqualToString:@"ALL STEPS UNDERLAY"]
+                        isEqualToString:@"ACTIVE PULSES"]
                     && [[geometryMode itemAtIndex:2].title
-                        isEqualToString:@"PHASE SPOKES"]
+                        isEqualToString:@"ALL STEPS UNDERLAY"]
                     && [[geometryMode itemAtIndex:3].title
-                        isEqualToString:@"LANE FOCUS"]
+                        isEqualToString:@"PHASE SPOKES"]
                     && [[geometryMode itemAtIndex:4].title
+                        isEqualToString:@"LANE FOCUS"]
+                    && [[geometryMode itemAtIndex:5].title
                         isEqualToString:@"COMPOSITE RING"];
                 if (geometryModesAvailable) {
-                    for (NSInteger mode = 1; mode < 5; ++mode) {
+                    for (NSInteger mode = 1; mode < 6; ++mode) {
                         [geometryMode selectItemAtIndex:mode];
                         [geometryMode sendAction:geometryMode.action
                             to:geometryMode.target];
                     }
                     // Leave the animated phase view active for optional
                     // documentation capture later in this smoke run.
-                    [geometryMode selectItemAtIndex:2u];
+                    [geometryMode selectItemAtIndex:3u];
                     [geometryMode sendAction:geometryMode.action
                         to:geometryMode.target];
                 }
                 ok &= expect(geometryModesAvailable
                         && clickButton(parent, nil, @"TRACKER page", nil),
-                    "Geometry five-view selector is incomplete");
+                    "Geometry Ring Field and diagnostic view selector is incomplete");
                 ok &= expect(submitCommand(parent, @"play")
                         && submitCommand(parent, @"stop")
                         && context.playRequests == 1u

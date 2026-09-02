@@ -2,6 +2,7 @@ add_library(s3g_tracker_core STATIC
   src/audio/s3g_tracker_stereo_slice_sampler_node.cpp
   src/core/command.cpp
   src/core/fx_catalog.cpp
+  src/core/geometry_edit.cpp
   src/core/instrument_rack.cpp
   src/core/midi_step_recorder.cpp
   src/core/pattern_bank.cpp
@@ -38,6 +39,7 @@ if(BUILD_TESTING)
 
   s3g_add_tracker_test(s3g_tracker_core_tests tests/sequencer_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_command_tests tests/command_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_geometry_edit_tests tests/geometry_edit_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_instrument_rack_tests tests/instrument_rack_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_midi_step_recorder_tests tests/midi_step_recorder_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_runtime_pattern_plan_tests tests/runtime_pattern_plan_tests.cpp)

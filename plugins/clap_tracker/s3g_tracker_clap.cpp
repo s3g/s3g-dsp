@@ -1912,6 +1912,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _callbacks->showGeometryPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageGeometry];
     };
+    _callbacks->showTrackerPage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPageTracker];
+        [weakSelf.workspace focusTracker];
+    };
     _callbacks->showWarpPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageWarps];
     };
