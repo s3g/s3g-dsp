@@ -589,6 +589,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
     S3GTrackerGeometryToolErase,
     S3GTrackerGeometryToolVelocity,
 };
+
+typedef NS_ENUM(NSInteger, S3GTrackerGeometryGestureKind) {
+    S3GTrackerGeometryGestureNone = 0,
+    S3GTrackerGeometryGesturePaint,
+    S3GTrackerGeometryGestureErase,
+    S3GTrackerGeometryGestureVelocity,
+    S3GTrackerGeometryGesturePhase,
+    S3GTrackerGeometryGestureDensity,
+};
 @class S3GTrackerGeometryWindowController;
 @class S3GTrackerEnvelopeView;
 @class S3GTrackerInstrumentToolboxView;
@@ -3161,6 +3170,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
     std::size_t _gestureRow;
     CGFloat _velocityStartRadius;
     float _velocityStartValue;
+    S3GTrackerGeometryGestureKind _geometryGestureKind;
+    std::size_t _gestureOriginalPhase;
+    std::size_t _gesturePreviewPhase;
+    std::size_t _gestureOriginalDensity;
+    std::size_t _gesturePreviewDensity;
+    CGFloat _gestureLastAngle;
+    CGFloat _gestureAccumulatedAngle;
+    std::vector<NoteCell> _gestureOriginalNotes;
+    std::vector<NoteCell> _gesturePreviewNotes;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
@@ -3290,7 +3308,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Rhythm geometry";
-        self.accessibilityHelp = @"Ring Field edits the same lanes and rows as Tracker. Choose Select, Paint, Erase, or Velocity; use the inspector for phase, density, transforms, morph, and Reveal in Tracker. Space toggles playback.";
+        self.accessibilityHelp = @"Ring Field edits the same lanes and rows as Tracker. Drag the P diamond for phase or the D arc handle for density; both preview before one undoable commit. Choose Select, Paint, Erase, or Velocity. Option-drag with Paint temporarily erases, Shift-drag snaps Velocity, and double-clicking a bead reveals it in Tracker. Space toggles playback.";
     }
     return self;
 }
@@ -3721,6 +3739,200 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         / static_cast<CGFloat>(count - 1u);
 }
 
+- (BOOL)selectedRingLane:(std::size_t*)lane radius:(CGFloat*)radius
+{
+    auto* model = self.trackerState;
+    const auto* pattern = geometryPattern(model);
+    const auto visible = visibleGeometryLanes(model);
+    if (!model || !pattern || visible.count == 0u) return NO;
+    std::size_t selectedOrdinal = 0u;
+    bool foundSelection = false;
+    for (std::size_t ordinal = 0u; ordinal < visible.count; ++ordinal) {
+        if (visible.indices[ordinal] == model->session.selectedTrack) {
+            selectedOrdinal = ordinal;
+            foundSelection = true;
+            break;
+        }
+    }
+    if (!foundSelection) return NO;
+    if (lane) *lane = visible.indices[selectedOrdinal];
+    if (radius) *radius = [self ringRadiusForOrdinal:selectedOrdinal
+        count:visible.count];
+    return YES;
+}
+
+- (CGFloat)geometryAngleForPoint:(NSPoint)point
+{
+    const NSPoint center = [self geometryCenter];
+    return std::atan2(point.y - center.y, point.x - center.x);
+}
+
+- (NSPoint)geometryPointAtRadius:(CGFloat)radius angle:(CGFloat)angle
+{
+    const NSPoint center = [self geometryCenter];
+    return NSMakePoint(center.x + std::cos(angle) * radius,
+        center.y + std::sin(angle) * radius);
+}
+
+- (NSPoint)phaseHandlePoint
+{
+    std::size_t lane = 0u;
+    CGFloat radius = 0.0;
+    const auto* pattern = geometryPattern(self.trackerState);
+    if (![self selectedRingLane:&lane radius:&radius]
+        || !pattern || lane >= pattern->tracks.size()) return NSZeroPoint;
+    const auto& track = pattern->tracks[lane];
+    const auto length = std::clamp<std::size_t>(
+        track.noteColumn.length, 1u, 256u);
+    const auto phase = _geometryGestureActive
+            && _geometryGestureKind == S3GTrackerGeometryGesturePhase
+            && _gestureLane == lane
+        ? _gesturePreviewPhase : track.noteColumn.phase % length;
+    const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+        + static_cast<CGFloat>(phase) * 2.0 * static_cast<CGFloat>(M_PI)
+            / static_cast<CGFloat>(length);
+    // Keep the phase control inside the ring so it never masks a note bead.
+    return [self geometryPointAtRadius:std::max<CGFloat>(0.0, radius - 13.0)
+        angle:angle];
+}
+
+- (NSPoint)densityHandlePoint
+{
+    std::size_t lane = 0u;
+    CGFloat radius = 0.0;
+    const auto* pattern = geometryPattern(self.trackerState);
+    if (![self selectedRingLane:&lane radius:&radius]
+        || !pattern || lane >= pattern->tracks.size()) return NSZeroPoint;
+    const auto& track = pattern->tracks[lane];
+    const auto length = std::clamp<std::size_t>(
+        track.noteColumn.length, 1u, 256u);
+    const auto density = _geometryGestureActive
+            && _geometryGestureKind == S3GTrackerGeometryGestureDensity
+            && _gestureLane == lane
+        ? _gesturePreviewDensity : s3g::tracker::geometryHitCount(track);
+    const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+        + static_cast<CGFloat>(density) * 2.0 * static_cast<CGFloat>(M_PI)
+            / static_cast<CGFloat>(length);
+    return [self geometryPointAtRadius:radius + 18.0 angle:angle];
+}
+
+- (BOOL)beginShapeGestureAtPoint:(NSPoint)point
+{
+    if (self.geometryViewMode != S3GTrackerGeometryViewModeRingField
+        || ![self canEditDisplayedPattern]) return NO;
+    auto* model = self.trackerState;
+    std::size_t lane = 0u;
+    CGFloat radius = 0.0;
+    if (!model || ![self selectedRingLane:&lane radius:&radius]
+        || lane >= model->session.pattern.tracks.size()) return NO;
+    const NSPoint phasePoint = [self phaseHandlePoint];
+    const NSPoint densityPoint = [self densityHandlePoint];
+    const CGFloat phaseDistance = std::hypot(
+        point.x - phasePoint.x, point.y - phasePoint.y);
+    const CGFloat densityDistance = std::hypot(
+        point.x - densityPoint.x, point.y - densityPoint.y);
+    if (phaseDistance > 11.0 && densityDistance > 11.0) return NO;
+
+    auto& track = model->session.pattern.tracks[lane];
+    const auto length = std::clamp<std::size_t>(
+        track.noteColumn.length, 1u, 256u);
+    _geometryGestureActive = YES;
+    _geometryGestureChanged = NO;
+    _geometryGestureKind = phaseDistance <= densityDistance
+        ? S3GTrackerGeometryGesturePhase
+        : S3GTrackerGeometryGestureDensity;
+    _gestureLane = lane;
+    _gestureOriginalPhase = track.noteColumn.phase % length;
+    _gesturePreviewPhase = _gestureOriginalPhase;
+    _gestureOriginalDensity = s3g::tracker::geometryHitCount(track);
+    _gesturePreviewDensity = _gestureOriginalDensity;
+    _gestureOriginalNotes = track.notes;
+    _gesturePreviewNotes = track.notes;
+    _gestureLastAngle = [self geometryAngleForPoint:point];
+    _gestureAccumulatedAngle = 0.0;
+    [self setNeedsDisplay:YES];
+    return YES;
+}
+
+- (void)updateShapeGestureAtPoint:(NSPoint)point
+{
+    if (!_geometryGestureActive || !self.trackerState
+        || (_geometryGestureKind != S3GTrackerGeometryGesturePhase
+            && _geometryGestureKind
+                != S3GTrackerGeometryGestureDensity)) return;
+    auto& pattern = self.trackerState->session.pattern;
+    if (_gestureLane >= pattern.tracks.size()) return;
+    auto& track = pattern.tracks[_gestureLane];
+    const auto length = std::clamp<std::size_t>(
+        track.noteColumn.length, 1u, 256u);
+    const CGFloat fullCircle = static_cast<CGFloat>(M_PI) * 2.0;
+    const CGFloat currentAngle = [self geometryAngleForPoint:point];
+    CGFloat delta = currentAngle - _gestureLastAngle;
+    if (delta > static_cast<CGFloat>(M_PI)) delta -= fullCircle;
+    if (delta < -static_cast<CGFloat>(M_PI)) delta += fullCircle;
+    _gestureAccumulatedAngle += delta;
+    _gestureLastAngle = currentAngle;
+    const auto stepDelta = static_cast<long long>(std::lround(
+        _gestureAccumulatedAngle / fullCircle
+            * static_cast<CGFloat>(length)));
+    if (_geometryGestureKind == S3GTrackerGeometryGesturePhase) {
+        const auto signedLength = static_cast<long long>(length);
+        const auto phase = (static_cast<long long>(_gestureOriginalPhase)
+            + stepDelta % signedLength + signedLength) % signedLength;
+        _gesturePreviewPhase = static_cast<std::size_t>(phase);
+        _geometryGestureChanged = _gesturePreviewPhase
+            != _gestureOriginalPhase;
+    } else {
+        const auto density = std::clamp<long long>(
+            static_cast<long long>(_gestureOriginalDensity) + stepDelta,
+            0ll, static_cast<long long>(length));
+        _gesturePreviewDensity = static_cast<std::size_t>(density);
+        _geometryGestureChanged = _gesturePreviewDensity
+            != _gestureOriginalDensity;
+        if (!_geometryGestureChanged) {
+            _gesturePreviewNotes = _gestureOriginalNotes;
+        } else {
+            Track preview = track;
+            preview.notes = _gestureOriginalNotes;
+            (void)s3g::tracker::setGeometryDensity(preview,
+                _gesturePreviewDensity,
+                defaultNoteForLane(track, _gestureLane));
+            _gesturePreviewNotes = std::move(preview.notes);
+        }
+    }
+    [self setNeedsDisplay:YES];
+}
+
+- (void)finishGeometryGesture
+{
+    if (!_geometryGestureActive) return;
+    auto* model = self.trackerState;
+    BOOL changed = _geometryGestureChanged;
+    if (model && _gestureLane < model->session.pattern.tracks.size()) {
+        auto& track = model->session.pattern.tracks[_gestureLane];
+        if (changed
+            && _geometryGestureKind == S3GTrackerGeometryGesturePhase) {
+            changed = s3g::tracker::rotateGeometryPhase(track,
+                static_cast<int>(_gesturePreviewPhase)
+                    - static_cast<int>(_gestureOriginalPhase));
+        } else if (changed
+            && _geometryGestureKind
+                == S3GTrackerGeometryGestureDensity) {
+            changed = s3g::tracker::setGeometryDensity(track,
+                _gesturePreviewDensity,
+                defaultNoteForLane(track, _gestureLane));
+        }
+    }
+    _geometryGestureActive = NO;
+    _geometryGestureKind = S3GTrackerGeometryGestureNone;
+    _geometryGestureChanged = NO;
+    _gestureOriginalNotes.clear();
+    _gesturePreviewNotes.clear();
+    [self commitGeometryChange:changed];
+    [self.owner moduleSelectionChanged];
+    [self setNeedsDisplay:YES];
+}
+
 - (BOOL)geometryCellAtPoint:(NSPoint)point lane:(std::size_t*)lane
     row:(std::size_t*)row radius:(CGFloat*)hitRadius
 {
@@ -3754,12 +3966,50 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
     const CGFloat fullCircle = static_cast<CGFloat>(M_PI) * 2.0;
     while (angle < 0.0) angle += fullCircle;
     while (angle >= fullCircle) angle -= fullCircle;
-    const auto selectedRow = static_cast<std::size_t>(std::lround(
+    auto selectedRow = static_cast<std::size_t>(std::lround(
         angle / fullCircle * static_cast<CGFloat>(length))) % length;
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeRingField)
+        selectedRow = (selectedRow
+            + pattern->tracks[selectedLane].noteColumn.phase) % length;
     if (lane) *lane = selectedLane;
     if (row) *row = selectedRow;
     if (hitRadius) *hitRadius = [self ringRadiusForOrdinal:bestOrdinal
         count:visible.count];
+    return YES;
+}
+
+- (BOOL)point:(NSPoint)point isNearBeadOnLane:(std::size_t)lane
+    row:(std::size_t)row radius:(CGFloat)radius
+{
+    const auto* pattern = geometryPattern(self.trackerState);
+    if (self.geometryViewMode != S3GTrackerGeometryViewModeRingField
+        || !pattern || lane >= pattern->tracks.size()) return NO;
+    const auto& track = pattern->tracks[lane];
+    const auto length = std::clamp<std::size_t>(
+        track.noteColumn.length, 1u, 256u);
+    row %= length;
+    if (!s3g::tracker::geometryCellIsHit(track, row)) return NO;
+    const auto displayRow = (row + length
+        - track.noteColumn.phase % length) % length;
+    const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+        + static_cast<CGFloat>(displayRow) * 2.0
+            * static_cast<CGFloat>(M_PI) / static_cast<CGFloat>(length);
+    const CGFloat eventRadius = radius
+        + (resolvedVelocity(track, row) - 0.5) * 12.0;
+    const NSPoint bead = [self geometryPointAtRadius:eventRadius angle:angle];
+    return std::hypot(point.x - bead.x, point.y - bead.y) <= 11.0;
+}
+
+- (BOOL)revealBeadAtPoint:(NSPoint)point
+{
+    std::size_t lane = 0u;
+    std::size_t row = 0u;
+    CGFloat radius = 0.0;
+    if (![self geometryCellAtPoint:point lane:&lane row:&row radius:&radius]
+        || ![self point:point isNearBeadOnLane:lane row:row radius:radius])
+        return NO;
+    [self selectLane:lane row:row field:0u];
+    [self revealInTracker:nil];
     return YES;
 }
 
@@ -3794,12 +4044,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         [self selectLane:visible.indices[ordinal]];
         return;
     }
+    [self.window makeFirstResponder:self];
+    if (event.clickCount >= 2 && [self revealBeadAtPoint:point]) return;
+    if ([self beginShapeGestureAtPoint:point]) return;
     std::size_t lane = 0u;
     std::size_t row = 0u;
     CGFloat radius = 0.0;
     if (![self geometryCellAtPoint:point lane:&lane row:&row
             radius:&radius]) return;
-    [self.window makeFirstResponder:self];
     const std::size_t field = self.geometryTool
             == S3GTrackerGeometryToolVelocity ? 1u : 0u;
     [self selectLane:lane row:row field:field];
@@ -3809,6 +4061,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
 
     _geometryGestureActive = YES;
     _geometryGestureChanged = NO;
+    _geometryGestureKind = self.geometryTool
+            == S3GTrackerGeometryToolVelocity
+        ? S3GTrackerGeometryGestureVelocity
+        : self.geometryTool == S3GTrackerGeometryToolErase
+            || (self.geometryTool == S3GTrackerGeometryToolPaint
+                && (event.modifierFlags & NSEventModifierFlagOption) != 0u)
+        ? S3GTrackerGeometryGestureErase
+        : S3GTrackerGeometryGesturePaint;
     _lastGestureRow = static_cast<NSInteger>(row);
     _gestureLane = lane;
     _gestureRow = row;
@@ -3817,10 +4077,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         point.y - [self geometryCenter].y);
     auto& editable = model->session.pattern.tracks[lane];
     _velocityStartValue = resolvedVelocity(editable, row);
-    if (self.geometryTool == S3GTrackerGeometryToolPaint) {
+    if (_geometryGestureKind == S3GTrackerGeometryGesturePaint) {
         _geometryGestureChanged = s3g::tracker::setGeometryHit(editable,
             row, true, defaultNoteForLane(editable, lane));
-    } else if (self.geometryTool == S3GTrackerGeometryToolErase) {
+    } else if (_geometryGestureKind == S3GTrackerGeometryGestureErase) {
         _geometryGestureChanged = s3g::tracker::setGeometryHit(editable,
             row, false, defaultNoteForLane(editable, lane));
     }
@@ -3831,16 +4091,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
 {
     if (!_geometryGestureActive || !self.trackerState) return;
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (_geometryGestureKind == S3GTrackerGeometryGesturePhase
+        || _geometryGestureKind == S3GTrackerGeometryGestureDensity) {
+        [self updateShapeGestureAtPoint:point];
+        return;
+    }
     auto& pattern = self.trackerState->session.pattern;
     if (_gestureLane >= pattern.tracks.size()) return;
     auto& track = pattern.tracks[_gestureLane];
-    if (self.geometryTool == S3GTrackerGeometryToolVelocity) {
+    if (_geometryGestureKind == S3GTrackerGeometryGestureVelocity) {
         const NSPoint center = [self geometryCenter];
         const CGFloat currentRadius = std::hypot(
             point.x - center.x, point.y - center.y);
-        const float value = std::clamp(_velocityStartValue
+        float value = std::clamp(_velocityStartValue
             + static_cast<float>((currentRadius - _velocityStartRadius)
                 / 72.0), 0.0f, 1.0f);
+        if ((event.modifierFlags & NSEventModifierFlagShift) != 0u)
+            value = std::round(value * 16.0f) / 16.0f;
         _geometryGestureChanged |= s3g::tracker::setGeometryVelocity(
             track, _gestureRow, value);
         [self setNeedsDisplay:YES];
@@ -3857,7 +4124,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
     _lastGestureRow = static_cast<NSInteger>(row);
     if (lane >= pattern.tracks.size()) return;
     auto& destination = pattern.tracks[lane];
-    const bool paint = self.geometryTool == S3GTrackerGeometryToolPaint;
+    const bool paint = _geometryGestureKind
+        == S3GTrackerGeometryGesturePaint;
     _geometryGestureChanged |= s3g::tracker::setGeometryHit(destination,
         row, paint, defaultNoteForLane(destination, lane));
     self.trackerState->session.selectedTrack = lane;
@@ -3868,11 +4136,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
-    if (!_geometryGestureActive) return;
-    _geometryGestureActive = NO;
-    [self commitGeometryChange:_geometryGestureChanged];
-    [self.owner moduleSelectionChanged];
-    _geometryGestureChanged = NO;
+    [self finishGeometryGesture];
 }
 
 - (void)keyDown:(NSEvent*)event
@@ -4231,12 +4495,20 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         const auto length = std::clamp<std::size_t>(
             track.noteColumn.length, 1u, 256u);
         const bool selected = lane == selectedLane;
+        const bool phasePreview = _geometryGestureActive
+            && _geometryGestureKind == S3GTrackerGeometryGesturePhase
+            && _gestureLane == lane;
+        const bool densityPreview = _geometryGestureActive
+            && _geometryGestureKind == S3GTrackerGeometryGestureDensity
+            && _gestureLane == lane;
+        const auto displayedPhase = phasePreview
+            ? _gesturePreviewPhase : track.noteColumn.phase % length;
         if (laneFocus && !selected) continue;
         CGFloat radius = [self ringRadiusForOrdinal:ordinal
             count:visible.count];
         if (composite) radius = maximum * 0.70;
         if (laneFocus) radius = maximum * 0.70;
-        const NSColor* identity = trackerColor(
+        NSColor* identity = trackerColor(
             kGeometryLaneColors[lane % kGeometryLaneColors.size()],
             selected ? 0.94 : ringField ? 0.42 : 0.66);
         NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:
@@ -4252,12 +4524,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         NSBezierPath* polygon = [NSBezierPath bezierPath];
         bool polygonStarted = false;
         for (std::size_t row = 0u; row < length; ++row) {
+            const auto displayRow = ringField
+                ? (row + length
+                    - displayedPhase) % length : row;
             const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
-                + static_cast<CGFloat>(row) * fullCircle
+                + static_cast<CGFloat>(displayRow) * fullCircle
                     / static_cast<CGFloat>(length);
             const CGFloat cosine = std::cos(angle);
             const CGFloat sine = std::sin(angle);
-            const bool hit = s3g::tracker::geometryCellIsHit(track, row);
+            const bool originalHit =
+                s3g::tracker::geometryCellIsHit(track, row);
+            const bool previewHit = densityPreview
+                && row < _gesturePreviewNotes.size()
+                && (_gesturePreviewNotes[row].state == NoteCellState::Note
+                    || _gesturePreviewNotes[row].state
+                        == NoteCellState::RetriggerPrevious);
+            const bool hit = densityPreview
+                ? originalHit || previewHit : originalHit;
             if ((ringField && (selected || length <= 32u)) || allSteps) {
                 const CGFloat tick = selected && row % 4u == 0u ? 4.5 : 2.2;
                 NSBezierPath* mark = [NSBezierPath bezierPath];
@@ -4288,8 +4571,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
             NSBezierPath* point = [NSBezierPath bezierPathWithOvalInRect:
                 NSMakeRect(eventPoint.x - bead, eventPoint.y - bead,
                     bead * 2.0, bead * 2.0)];
-            [const_cast<NSColor*>(identity) setFill];
+            NSColor* eventColor = densityPreview
+                    && previewHit && !originalHit
+                ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live, 0.82)
+                : densityPreview && originalHit && !previewHit
+                ? [identity colorWithAlphaComponent:0.18] : identity;
+            [eventColor setFill];
             [point fill];
+            if (densityPreview && previewHit != originalHit) {
+                NSBezierPath* ghost = [NSBezierPath bezierPathWithOvalInRect:
+                    NSInsetRect(point.bounds, -3.0, -3.0)];
+                ghost.lineWidth = 1.1;
+                [S3GTrackerThemeColor(previewHit
+                        ? S3GTrackerThemeRole::Live
+                        : S3GTrackerThemeRole::TextFaint,
+                    previewHit ? 0.92 : 0.62) setStroke];
+                [ghost stroke];
+            }
             if (selected && row == model->session.selectedRow % length) {
                 NSBezierPath* halo = [NSBezierPath bezierPathWithOvalInRect:
                     NSInsetRect(point.bounds, -3.4, -3.4)];
@@ -4302,10 +4600,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         if (polygonStarted) {
             [polygon closePath];
             polygon.lineWidth = selected ? 1.8 : 1.0;
-            [const_cast<NSColor*>(identity) setStroke];
+            [identity setStroke];
             [polygon stroke];
         }
-        const auto phase = track.noteColumn.phase % length;
+        const auto phase = displayedPhase;
         const CGFloat phaseAngle = -static_cast<CGFloat>(M_PI_2)
             + static_cast<CGFloat>(phase) * fullCircle
                 / static_cast<CGFloat>(length);
@@ -4318,13 +4616,91 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         [phaseMark lineToPoint:NSMakePoint(center.x + phaseCosine
             * (radius + 7.0), center.y + phaseSine * (radius + 7.0))];
         phaseMark.lineWidth = selected ? 1.4 : 0.65;
-        [const_cast<NSColor*>(identity) setStroke];
+        [identity setStroke];
         [phaseMark stroke];
+        if (ringField && selected) {
+            const NSPoint phaseHandle = [self geometryPointAtRadius:
+                std::max<CGFloat>(0.0, radius - 13.0) angle:phaseAngle];
+            NSBezierPath* diamond = [NSBezierPath bezierPath];
+            [diamond moveToPoint:NSMakePoint(
+                phaseHandle.x, phaseHandle.y - 7.0)];
+            [diamond lineToPoint:NSMakePoint(
+                phaseHandle.x + 7.0, phaseHandle.y)];
+            [diamond lineToPoint:NSMakePoint(
+                phaseHandle.x, phaseHandle.y + 7.0)];
+            [diamond lineToPoint:NSMakePoint(
+                phaseHandle.x - 7.0, phaseHandle.y)];
+            [diamond closePath];
+            [S3GTrackerThemeColor(phasePreview
+                    ? S3GTrackerThemeRole::Live
+                    : S3GTrackerThemeRole::Raised) setFill];
+            [diamond fill];
+            diamond.lineWidth = 1.2;
+            [S3GTrackerThemeColor(S3GTrackerThemeRole::Live) setStroke];
+            [diamond stroke];
+            drawCenteredText(@"P", NSMakeRect(phaseHandle.x - 7.0,
+                phaseHandle.y - 7.0, 14.0, 14.0),
+                S3GTrackerThemeColor(phasePreview
+                    ? S3GTrackerThemeRole::Canvas
+                    : S3GTrackerThemeRole::Live), 6.5,
+                NSFontWeightBold);
+
+            const auto displayedDensity = densityPreview
+                ? _gesturePreviewDensity
+                : s3g::tracker::geometryHitCount(track);
+            const CGFloat densityRadius = radius + 18.0;
+            const CGFloat densityFraction = static_cast<CGFloat>(
+                displayedDensity) / static_cast<CGFloat>(length);
+            if (displayedDensity > 0u) {
+                NSBezierPath* densityArc = [NSBezierPath bezierPath];
+                const auto segments = std::max<std::size_t>(2u,
+                    static_cast<std::size_t>(std::ceil(
+                        densityFraction * 64.0)));
+                for (std::size_t segment = 0u; segment <= segments;
+                     ++segment) {
+                    const CGFloat fraction = densityFraction
+                        * static_cast<CGFloat>(segment)
+                        / static_cast<CGFloat>(segments);
+                    const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+                        + fraction * fullCircle;
+                    const NSPoint arcPoint = [self
+                        geometryPointAtRadius:densityRadius angle:angle];
+                    if (segment == 0u) [densityArc moveToPoint:arcPoint];
+                    else [densityArc lineToPoint:arcPoint];
+                }
+                densityArc.lineWidth = densityPreview ? 2.3 : 1.5;
+                densityArc.lineCapStyle = NSLineCapStyleRound;
+                [S3GTrackerThemeColor(S3GTrackerThemeRole::Live,
+                    densityPreview ? 0.92 : 0.58) setStroke];
+                [densityArc stroke];
+            }
+            const CGFloat densityAngle = -static_cast<CGFloat>(M_PI_2)
+                + densityFraction * fullCircle;
+            const NSPoint densityHandle = [self
+                geometryPointAtRadius:densityRadius angle:densityAngle];
+            NSBezierPath* densityKnob = [NSBezierPath bezierPathWithOvalInRect:
+                NSMakeRect(densityHandle.x - 6.5,
+                    densityHandle.y - 6.5, 13.0, 13.0)];
+            [S3GTrackerThemeColor(densityPreview
+                    ? S3GTrackerThemeRole::Live
+                    : S3GTrackerThemeRole::Raised) setFill];
+            [densityKnob fill];
+            densityKnob.lineWidth = 1.2;
+            [S3GTrackerThemeColor(S3GTrackerThemeRole::Live) setStroke];
+            [densityKnob stroke];
+            drawCenteredText(@"D", NSMakeRect(densityHandle.x - 6.5,
+                densityHandle.y - 6.5, 13.0, 13.0),
+                S3GTrackerThemeColor(densityPreview
+                    ? S3GTrackerThemeRole::Canvas
+                    : S3GTrackerThemeRole::Live), 6.2,
+                NSFontWeightBold);
+        }
     }
 
     fillRect(NSMakeRect(center.x - 2.0, center.y - 2.0, 4.0, 4.0),
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint));
-    drawText(ringField ? @"DRAG A RING TO EDIT  •  VELOCITY MOVES RADIALLY"
+    drawText(ringField
+            ? @"DRAG P: PHASE  •  DRAG D: DENSITY  •  DOUBLE BEAD: TRACKER  •  ⌥ ERASE  •  ⇧ VEL SNAP"
                        : @"DIAGNOSTIC VIEW  •  SWITCH TO RING FIELD TO EDIT",
         NSMakeRect(NSMinX(canvas) + 10.0, NSMaxY(canvas) - 19.0,
             NSWidth(canvas) - 20.0, 12.0),
@@ -4335,7 +4711,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
     const auto selectedLength = std::clamp<std::size_t>(
         selectedTrack.noteColumn.length, 1u, 256u);
     const auto selectedRow = model->session.selectedRow % selectedLength;
-    const auto hits = s3g::tracker::geometryHitCount(selectedTrack);
+    const bool selectedPhasePreview = _geometryGestureActive
+        && _geometryGestureKind == S3GTrackerGeometryGesturePhase
+        && _gestureLane == selectedLane;
+    const bool selectedDensityPreview = _geometryGestureActive
+        && _geometryGestureKind == S3GTrackerGeometryGestureDensity
+        && _gestureLane == selectedLane;
+    const auto displayedSelectedPhase = selectedPhasePreview
+        ? _gesturePreviewPhase
+        : selectedTrack.noteColumn.phase % selectedLength;
+    const auto hits = selectedDensityPreview
+        ? _gesturePreviewDensity
+        : s3g::tracker::geometryHitCount(selectedTrack);
     const CGFloat panelX = NSMinX(inspector) + 7.0;
     const CGFloat panelWidth = NSWidth(inspector) - 14.0;
     auto drawPanel = [&](NSInteger number, NSString* name, CGFloat top,
@@ -4384,16 +4771,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
 
     const CGFloat shapeTop = top + 99.0;
     drawPanel(2, @"SHAPE", shapeTop, 151.0);
-    drawText([NSString stringWithFormat:@"PHASE %03lu / %03lu     %@",
-        static_cast<unsigned long>(selectedTrack.noteColumn.phase + 1u),
+    drawText([NSString stringWithFormat:@"PHASE %03lu / %03lu     %@%@",
+        static_cast<unsigned long>(displayedSelectedPhase + 1u),
         static_cast<unsigned long>(selectedLength),
-        directionMark(selectedTrack.noteColumn.direction)],
+        directionMark(selectedTrack.noteColumn.direction),
+        selectedPhasePreview ? @"  PREVIEW" : @""],
         NSMakeRect(panelX + 9.0, shapeTop + 31.0,
             panelWidth - 18.0, 13.0),
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary), 7.4);
-    drawText([NSString stringWithFormat:@"DENSITY %03lu / %03lu",
+    drawText([NSString stringWithFormat:@"DENSITY %03lu / %03lu%@",
         static_cast<unsigned long>(hits),
-        static_cast<unsigned long>(selectedLength)],
+        static_cast<unsigned long>(selectedLength),
+        selectedDensityPreview ? @"  PREVIEW" : @""],
         NSMakeRect(panelX + 9.0, shapeTop + 88.0,
             panelWidth - 18.0, 13.0),
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary), 7.4);
@@ -4521,10 +4910,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
         const CGFloat haloStrength = currentHit
             ? 1.0 : _readHeadHaloStrength[lane];
         if (haloStrength <= 0.0) continue;
-        const auto position = (documentationHit
+        auto position = (documentationHit
                 ? _readHeadHaloRows[lane]
                 : currentHit ? model->noteHitRows[lane]
                              : _readHeadHaloRows[lane]) % length;
+        if (self.geometryViewMode == S3GTrackerGeometryViewModeRingField)
+            position = (position + length
+                - track.noteColumn.phase % length) % length;
         const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
             + static_cast<CGFloat>(position) * 2.0
                 * static_cast<CGFloat>(M_PI)

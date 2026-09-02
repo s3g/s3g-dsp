@@ -224,7 +224,7 @@ warp exp 2.0 mix .5</code></pre>
         <h2 id="tool-pages">Tool Pages</h2>
 
         <ul>
-          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles. Use <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, and <code>VELOCITY</code> to work directly in the field; Velocity moves radially. The numbered inspector rotates note phase, changes density by one evenly distributed hit, reverses a lane, reflects it around the selected row, morphs it halfway toward the next visible lane, or reveals the exact lane and row in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. The five earlier polygon, step, phase, focus, and composite views remain available as diagnostics.</li>
+          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles. Use <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, and <code>VELOCITY</code> to work directly in the field; Velocity moves radially, <kbd>Shift</kbd> snaps it, and <kbd>Option</kbd> temporarily turns Paint into Erase. Drag the selected ring's <code>P</code> phase handle or <code>D</code> density handle for a non-destructive ghost preview; releasing commits the whole gesture as one undo step. Double-click any note bead to reveal its exact lane and row in Tracker. The numbered inspector also rotates note phase, changes density by one evenly distributed hit, reverses a lane, reflects it around the selected row, morphs it halfway toward the next visible lane, or reveals the selection in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. The five earlier polygon, step, phase, focus, and composite views remain available as diagnostics.</li>
           <li><strong>Warps</strong> edits the functional timing-warp stack used for exponential and stepped ramps, Euclidean timing, and multipart swing. Save named compositions here, then select them per row in Song's <code>WARP</code> column.</li>
           <li><strong>Console</strong> displays Live Code results and errors and repeats the Live Code entry field, so commands remain available when Console is detached.</li>
           <li><strong>Help</strong> provides the categorized command and sequencing-action reference generated from the current command registry.</li>
@@ -232,11 +232,11 @@ warp exp 2.0 mix .5</code></pre>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.geometry.png?v=4" aria-label="Open the editable s3g Tracker Geometry workspace screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.geometry.png?v=4" alt="s3g Tracker Geometry workspace with concentric editable lane rings, Select Paint Erase and Velocity tools, a numbered shape and transform inspector, live yellow playheads, and a bottom lane bank" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.geometry.png?v=5" aria-label="Open the editable s3g Tracker Geometry workspace screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.geometry.png?v=5" alt="s3g Tracker Geometry workspace with concentric editable lane rings, direct phase and density handles, Select Paint Erase and Velocity tools, a numbered transform inspector, live yellow playheads, and a bottom lane bank" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Geometry as a workspace: concentric lanes support fast note and velocity gestures while the inspector provides phase, density, transform, morph, and Tracker-reveal operations.</figcaption>
+          <figcaption>Geometry as a workspace: concentric lanes support fast note and velocity gestures, direct phase and density shaping with ghost previews, and immediate Tracker reveal.</figcaption>
         </figure>
 
         <figure>

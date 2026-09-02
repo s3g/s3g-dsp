@@ -6,6 +6,7 @@
 #include "s3g_tracker_workspace_layout.h"
 
 #include "s3g/tracker/fx_catalog.h"
+#include "s3g/tracker/geometry_edit.h"
 
 #include <cmath>
 #include <iostream>
@@ -23,6 +24,15 @@
     field:(std::size_t)field row:(std::size_t)row page:(std::size_t)page;
 - (void)extendGridSelectionToTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row;
+- (NSPoint)geometryCenter;
+- (BOOL)selectedRingLane:(std::size_t*)lane radius:(CGFloat*)radius;
+- (NSPoint)geometryPointAtRadius:(CGFloat)radius angle:(CGFloat)angle;
+- (NSPoint)phaseHandlePoint;
+- (NSPoint)densityHandlePoint;
+- (BOOL)revealBeadAtPoint:(NSPoint)point;
+- (BOOL)beginShapeGestureAtPoint:(NSPoint)point;
+- (void)updateShapeGestureAtPoint:(NSPoint)point;
+- (void)finishGeometryGesture;
 @end
 
 namespace {
@@ -277,6 +287,69 @@ int main()
                 && patternChangeRequests == 2
                 && trackerRevealRequests == 1,
             "Geometry phase controls should use the shared pattern history path and Reveal should bridge to Tracker");
+        patternChangeRequests = 0;
+        const auto originalGeometryTrack = state.session.pattern.tracks[0u];
+        state.session.selectedTrack = 0u;
+        geometryPage.frame = NSMakeRect(0.0, 0.0, 1320.0, 780.0);
+        [geometryPage layoutSubtreeIfNeeded];
+        const NSPoint geometryCenter = [geometryPage geometryCenter];
+        std::size_t selectedRingLane = 0u;
+        CGFloat selectedRingRadius = 0.0;
+        const BOOL foundSelectedRing = [geometryPage
+            selectedRingLane:&selectedRingLane radius:&selectedRingRadius];
+        const NSPoint selectedRowBead = [geometryPage
+            geometryPointAtRadius:selectedRingRadius
+            angle:-static_cast<CGFloat>(M_PI_2)];
+        const BOOL revealedBead = [geometryPage
+            revealBeadAtPoint:selectedRowBead];
+        check(foundSelectedRing && selectedRingLane == 0u && revealedBead
+                && trackerRevealRequests == 2,
+            "double-click bead targeting should reveal its exact Tracker location");
+        const NSPoint phaseHandle = [geometryPage phaseHandlePoint];
+        check(std::hypot(phaseHandle.x - selectedRowBead.x,
+                    phaseHandle.y - selectedRowBead.y) > 11.0,
+            "phase handle should remain clear of note-bead hit targets");
+        const CGFloat phaseRadius = std::hypot(
+            phaseHandle.x - geometryCenter.x,
+            phaseHandle.y - geometryCenter.y);
+        const NSPoint quarterTurn = NSMakePoint(
+            geometryCenter.x + phaseRadius, geometryCenter.y);
+        const BOOL beganPhaseGesture = [geometryPage
+            beginShapeGestureAtPoint:phaseHandle];
+        [geometryPage updateShapeGestureAtPoint:quarterTurn];
+        const BOOL phaseStayedPreviewOnly =
+            state.session.pattern.tracks[0u].noteColumn.phase
+                == phaseBeforeGeometry;
+        [geometryPage finishGeometryGesture];
+        check(beganPhaseGesture && phaseStayedPreviewOnly
+                && state.session.pattern.tracks[0u].noteColumn.phase == 16u
+                && patternChangeRequests == 1,
+            "dragging the phase handle should preview without mutation and commit one quarter-turn history change");
+
+        state.session.pattern.tracks[0u] = originalGeometryTrack;
+        patternChangeRequests = 0;
+        const auto densityBeforeGesture = s3g::tracker::geometryHitCount(
+            state.session.pattern.tracks[0u]);
+        const NSPoint densityHandle = [geometryPage densityHandlePoint];
+        const CGFloat densityDx = densityHandle.x - geometryCenter.x;
+        const CGFloat densityDy = densityHandle.y - geometryCenter.y;
+        const NSPoint densityQuarterTurn = NSMakePoint(
+            geometryCenter.x - densityDy,
+            geometryCenter.y + densityDx);
+        const BOOL beganDensityGesture = [geometryPage
+            beginShapeGestureAtPoint:densityHandle];
+        [geometryPage updateShapeGestureAtPoint:densityQuarterTurn];
+        const BOOL densityStayedPreviewOnly =
+            s3g::tracker::geometryHitCount(
+                state.session.pattern.tracks[0u]) == densityBeforeGesture;
+        [geometryPage finishGeometryGesture];
+        check(beganDensityGesture && densityStayedPreviewOnly
+                && s3g::tracker::geometryHitCount(
+                    state.session.pattern.tracks[0u])
+                    == densityBeforeGesture + 16u
+                && patternChangeRequests == 1,
+            "dragging the density handle should ghost sixteen added hits and commit once");
+        state.session.pattern.tracks[0u] = originalGeometryTrack;
         patternChangeRequests = 0;
         check(NSMinY(geometryViewMode.frame) >= 24.0,
             "Geometry view selector should sit below the title strip");
