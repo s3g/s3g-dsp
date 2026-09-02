@@ -37,7 +37,7 @@
           <li>Load or drop as many as four files. Each file is analysed off the audio thread for transient boundaries and tempo.</li>
           <li>Choose Host and a rhythmic Division, or choose Free and set the cut rate in hertz.</li>
           <li>Select Equal or Transient regions, then choose File Order and Source Order.</li>
-          <li>Set Steps / Regions from 1 to 64 and set Step Repeat. The shared count sets both the pattern length and the number of source regions. Click or drag the lower pattern to author file choices; Option-drag a step to author its manual source position.</li>
+          <li>Set Steps / Regions from 1 to 64 and set Step Repeat. The shared count sets both the pattern length and the number of source regions. Choose a File Order and see that complete order in the Cut Pattern graph. Click or drag the graph when you want to author Manual File Order; Option-drag refines a manual source position.</li>
           <li>Shape the edit with Gate, Join, Swing, timing variation, reverse chance, pitch variation, and level variation.</li>
         </ol>
 
@@ -62,11 +62,13 @@
 
         <h2 id="address">File and Source Addressing</h2>
 
-        <p>File Order offers Down, Up, Palindrome, Random, Random Cycle, and Manual. Random Cycle visits every loaded file once before reshuffling. A requested empty manual lane resolves to the nearest loaded lane rather than producing a silent hole.</p>
+        <p>File Order offers Down, Up, Palindrome, Pairs, Outside In, Center Out, Stagger, Random, Random Cycle, and Manual. The Cut Pattern graph previews every selected order, including the deterministic sequence produced by Random and Seed. Random Cycle visits every loaded file once before reshuffling. A requested empty manual lane resolves to the nearest loaded lane rather than producing a silent hole.</p>
 
         <p>Source Order offers Timeline, Forward, Reverse, Palindrome, Random, Walk, and Manual. <strong>Steps / Regions</strong> is the shared pattern and region count. Equal mode divides the shared Start–End window into that many pieces, and each waveform displays those equal boundaries. Transient mode instead displays and uses up to that many analysed boundaries inside the window. Timeline continues from the current read position; Manual maps the source position stored in each pattern step to the available region set.</p>
 
         <p>The pattern editor’s X axis is step number and Y axis is file lane. Clicking selects Manual File Order and quantizes the step to one of four lanes. Option-clicking or Option-dragging selects Manual Source Order and writes a proportional source location; the dark line within each step shows that location. Up to 64 steps are stored in plug-in state.</p>
+
+        <p><strong>Poly Path</strong> controls how simultaneous notes relate to the primary File Order. Together keeps every voice on the same path. Step Offset starts notes two through four one, two, and three steps farther along. Quarter Spread spaces the four paths around the selected order’s cycle. Mirror Pairs combines a reversed path with half-cycle shifted forward and reversed paths. These relationships affect file choice only, so every voice retains its own timing and source-region progression; Mono and Legato use the primary path.</p>
 
         <h2 id="playback">Cut Playback</h2>
 
@@ -93,7 +95,7 @@
 
         <h2 id="storage">Storage and Recall</h2>
 
-        <p>The sixteen-step pattern, parameters, and four source references return with the project. <code>PROJECT</code>, <code>LINK</code>, and <code>EMBED</code> use the same storage rules as the other Sample instruments. Analysis metadata is safely regenerated from restored audio rather than being trusted as opaque state.</p>
+        <p>The pattern of up to 64 steps, parameters, and four source references return with the project. <code>PROJECT</code>, <code>LINK</code>, and <code>EMBED</code> use the same storage rules as the other Sample instruments. Analysis metadata is safely regenerated from restored audio rather than being trusted as opaque state.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-grains.html"><span>Previous</span>Sample Grains</a>

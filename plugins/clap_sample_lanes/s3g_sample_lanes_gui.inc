@@ -111,12 +111,19 @@ NSString* const kRateBasisItems[] = {
     @"1/1", @"1/2", @"1/4", @"1/8", @"1/16", @"1/32", @"1/8T", @"1/16T",
 };
 NSString* const kPathItems[] = {
-    @"Down", @"Up", @"Palindrome", @"Random", @"Random Cycle", @"Manual",
+    @"Down", @"Up", @"Palindrome", @"Pairs", @"Outside In",
+    @"Center Out", @"Stagger", @"Random", @"Random Cycle", @"Manual",
 };
+constexpr std::array<int, 10u> kCutupsPathMenuValues {{
+    0, 1, 2, 6, 7, 9, 8, 3, 4, 5,
+}};
 NSString* const kBlendItems[] = {
     @"Timeline", @"Forward", @"Reverse", @"Palindrome", @"Random", @"Walk", @"Manual",
 };
 NSString* const kShapeItems[] = { @"Equal", @"Transient" };
+NSString* const kCutPolyPathItems[] = {
+    @"Together", @"Step Offset", @"Quarter Spread", @"Mirror Pairs",
+};
 #else
 NSString* const kTransportItems[] = {
     @"Forward", @"Reverse", @"Ping Pong",
@@ -201,6 +208,8 @@ LanesMenuSpec lanesMenuSpec(clap_id id) noexcept
     case kShapeParamId: return { kShapeItems,
         static_cast<uint32_t>(std::size(kShapeItems)), 1u };
     #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    case kCutPolyPathParamId: return { kCutPolyPathItems,
+        static_cast<uint32_t>(std::size(kCutPolyPathItems)), 1u };
     case kTempoSyncParamId: return { kOnOffItems, 2u, 1u };
     #endif
     case kVoiceModeParamId: return { kVoiceItems, 3u, 1u };
@@ -244,6 +253,14 @@ LanesMenuSpec lanesMenuSpec(clap_id id) noexcept
 int lanesMenuIndex(clap_id id, double value) noexcept
 {
     const int index = static_cast<int>(std::lround(value));
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (id == kPathParamId) {
+        const auto found = std::find(kCutupsPathMenuValues.begin(),
+            kCutupsPathMenuValues.end(), index);
+        return found != kCutupsPathMenuValues.end()
+            ? static_cast<int>(found - kCutupsPathMenuValues.begin()) : 0;
+    }
+#endif
     if (id == kActiveOutputsParamId) return index - 2;
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
     if (id == kTriggerParamId) return index - 1;
@@ -253,6 +270,12 @@ int lanesMenuIndex(clap_id id, double value) noexcept
 
 double lanesMenuValue(clap_id id, int index) noexcept
 {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (id == kPathParamId)
+        return static_cast<double>(kCutupsPathMenuValues[
+            static_cast<std::size_t>(std::clamp(index, 0,
+                static_cast<int>(kCutupsPathMenuValues.size() - 1u)))]);
+#endif
     if (id == kActiveOutputsParamId)
         return static_cast<double>(index + 2);
 #if defined(S3G_SAMPLE_GRAINS_VARIANT)
@@ -312,14 +335,15 @@ constexpr UiRow kRows[] = {
     { kLaneSlewParamId, kLoopPanel, 298.0, "TIME VAR", false },
     { kPathParamId, kPathPanel, 402.0, "FILE ORDER", true },
     { kBlendParamId, kPathPanel, 426.0, "SOURCE ORDER", true },
-    { kShapeParamId, kPathPanel, 450.0, "REGION MODE", true },
-    { kOffsetParamId, kPathPanel, 474.0, "STEPS / REGIONS", false },
-    { kSkewParamId, kPathPanel, 498.0, "STEP REPEAT", false },
-    { kStartParamId, kPathPanel, 522.0, "START", false },
-    { kEndParamId, kPathPanel, 546.0, "END", false },
-    { kSeedParamId, kPathPanel, 570.0, "SEED", false },
-    { kTransientPrerollParamId, kPathPanel, 594.0,
-        "TRANSIENT PREROLL", false },
+    { kCutPolyPathParamId, kPathPanel, 450.0, "POLY PATH", true },
+    { kShapeParamId, kPathPanel, 474.0, "REGION MODE", true },
+    { kOffsetParamId, kPathPanel, 498.0, "STEPS / REGIONS", false },
+    { kSkewParamId, kPathPanel, 522.0, "STEP REPEAT", false },
+    { kStartParamId, kPathPanel, 546.0, "START", false },
+    { kEndParamId, kPathPanel, 570.0, "END", false },
+    { kSeedParamId, kPathPanel, 594.0, "SEED", false },
+    { kTransientPrerollParamId, kPathPanel, 618.0,
+        "ONSET PREROLL", false },
     { kLoopCrossfadeParamId, kCutPlaybackColumn1, 594.0, "JOIN", false },
     { kManualLaneParamId, kCutPlaybackColumn1, 618.0, "GATE", false },
     { kCutReverseChanceParamId, kCutPlaybackColumn2, 594.0,
@@ -1156,11 +1180,14 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         ? @"REGIONS: EQUAL DIVISIONS"
         : @"REGIONS: DETECTED TRANSIENTS";
     [rule drawAtPoint:NSMakePoint(30.0, 451.0) withAttributes:values];
-    [@"EMPTY FILE: USE NEAREST LOADED" drawAtPoint:NSMakePoint(30.0, 468.0)
-        withAttributes:values];
-    [@"CLICK / DRAG: SET FILE • OPTION: SOURCE"
+    [[NSString stringWithFormat:@"FILE ORDER: %s", pathName(static_cast<int>(
+        std::lround(paramValue(*_instance, kPathParamId))))]
+        drawAtPoint:NSMakePoint(30.0, 468.0) withAttributes:values];
+    [[NSString stringWithFormat:@"POLY PATH: %s", polyPathName(
+        static_cast<int>(std::lround(paramValue(*_instance,
+            kCutPolyPathParamId))))]
         drawAtPoint:NSMakePoint(30.0, 485.0) withAttributes:values];
-    [@"SOURCE ORDER CHOOSES CUT WITHIN FILE"
+    [@"DRAG: FILE • OPTION: SOURCE"
         drawAtPoint:NSMakePoint(30.0, 502.0) withAttributes:values];
 #else
     NSString* rule = paramValue(*_instance, kBlendParamId) < 0.5
@@ -1210,8 +1237,14 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     for (uint32_t index = 0u; index < manualPointCount; ++index) {
         const CGFloat x = NSMinX(kPathGraph)
             + static_cast<CGFloat>(index) * stepWidth;
-        const CGFloat lane = std::round(std::clamp<CGFloat>(
-            manualPoints[index].lane, 0.0, 1.0) * 3.0);
+        const uint32_t laneIndex = settings.fileOrder == CutFileOrder::Manual
+            ? static_cast<uint32_t>(std::lround(std::clamp<CGFloat>(
+                manualPoints[index].lane, 0.0, 1.0) * 3.0))
+            : s3g::sample::cutupsFileOrderIndex(settings.fileOrder, index,
+                static_cast<uint32_t>(
+                    s3g::sample::kSampleCutupsLaneCount),
+                settings.seed);
+        const CGFloat lane = static_cast<CGFloat>(laneIndex);
         const CGFloat y = NSMinY(kPathGraph)
             + lane * NSHeight(kPathGraph) / 3.0;
         NSRect step = NSMakeRect(x + 2.0, y - 6.0,
@@ -1223,6 +1256,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
         const CGFloat sourceX = NSMinX(step) + std::clamp<CGFloat>(
             manualPoints[index].phase, 0.0, 1.0) * NSWidth(step);
         NSBezierPath* sourceMarker = [NSBezierPath bezierPath];
+        [sourceMarker setLineWidth:2.0];
         [sourceMarker moveToPoint:NSMakePoint(sourceX, NSMinY(step))];
         [sourceMarker lineToPoint:NSMakePoint(sourceX, NSMaxY(step))];
         [sourceMarker stroke];
@@ -1889,6 +1923,7 @@ NSRect sliderHitRect(NSRect panel, CGFloat y) noexcept
     }
     for (const auto& row : kRows) if ([self rowIsVisible:row] && row.menu
         && NSPointInRect(point, [self menuRectForParam:row.id])) {
+        _presetMenuOpen = NO;
         _openMenuParam = row.id;
         _menuHover = -1;
         [self setNeedsDisplay:YES];

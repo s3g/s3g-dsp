@@ -104,6 +104,74 @@ int main()
     require(!settings.valid(), "invalid source window rejected");
     settings = {};
 
+    constexpr std::array<uint8_t, 8u> expectedDown {{
+        0u, 1u, 2u, 3u, 0u, 1u, 2u, 3u,
+    }};
+    constexpr std::array<uint8_t, 8u> expectedUp {{
+        3u, 2u, 1u, 0u, 3u, 2u, 1u, 0u,
+    }};
+    constexpr std::array<uint8_t, 8u> expectedPalindrome {{
+        0u, 1u, 2u, 3u, 2u, 1u, 0u, 1u,
+    }};
+    constexpr std::array<uint8_t, 8u> expectedPairs {{
+        0u, 0u, 1u, 1u, 2u, 2u, 3u, 3u,
+    }};
+    constexpr std::array<uint8_t, 8u> expectedOutsideIn {{
+        0u, 3u, 1u, 2u, 0u, 3u, 1u, 2u,
+    }};
+    constexpr std::array<uint8_t, 8u> expectedCenterOut {{
+        1u, 2u, 0u, 3u, 1u, 2u, 0u, 3u,
+    }};
+    constexpr std::array<uint8_t, 8u> expectedStagger {{
+        0u, 2u, 1u, 3u, 1u, 0u, 3u, 2u,
+    }};
+    const auto requireOrder = [](CutFileOrder order,
+                                  const std::array<uint8_t, 8u>& expected) {
+        for (uint32_t step = 0u; step < expected.size(); ++step)
+            require(cutupsFileOrderIndex(order, step, 4u, 4312u)
+                    == expected[step],
+                "file order pattern follows its displayed shape");
+    };
+    requireOrder(CutFileOrder::Down, expectedDown);
+    requireOrder(CutFileOrder::Up, expectedUp);
+    requireOrder(CutFileOrder::Palindrome, expectedPalindrome);
+    requireOrder(CutFileOrder::Pairs, expectedPairs);
+    requireOrder(CutFileOrder::OutsideIn, expectedOutsideIn);
+    requireOrder(CutFileOrder::CenterOut, expectedCenterOut);
+    requireOrder(CutFileOrder::Stagger, expectedStagger);
+    std::array<uint8_t, 64u> randomOrderA {};
+    std::array<uint8_t, 64u> randomOrderB {};
+    std::array<uint8_t, 64u> randomOrderC {};
+    for (uint32_t step = 0u; step < randomOrderA.size(); ++step) {
+        randomOrderA[step] = static_cast<uint8_t>(cutupsFileOrderIndex(
+            CutFileOrder::Random, step, 4u, 4312u));
+        randomOrderB[step] = static_cast<uint8_t>(cutupsFileOrderIndex(
+            CutFileOrder::Random, step, 4u, 4312u));
+        randomOrderC[step] = static_cast<uint8_t>(cutupsFileOrderIndex(
+            CutFileOrder::Random, step, 4u, 4313u));
+    }
+    require(randomOrderA == randomOrderB && randomOrderA != randomOrderC,
+        "random file order is deterministic and responds to Seed");
+    for (uint32_t cycle = 0u; cycle < 8u; ++cycle) {
+        std::array<bool, 4u> seen {};
+        for (uint32_t step = 0u; step < 4u; ++step)
+            seen[cutupsFileOrderIndex(CutFileOrder::RandomCycle,
+                cycle * 4u + step, 4u, 4312u)] = true;
+        require(std::all_of(seen.begin(), seen.end(), [](bool value) {
+                    return value;
+                }),
+            "random cycle visits each loaded file once per cycle");
+    }
+    require(cutupsRelatedFileOrderStep(CutPolyPathMode::Together,
+                5u, 3u, 16u) == 5u
+            && cutupsRelatedFileOrderStep(CutPolyPathMode::StepOffset,
+                5u, 3u, 16u) == 8u
+            && cutupsRelatedFileOrderStep(CutPolyPathMode::QuarterSpread,
+                5u, 3u, 16u) == 17u
+            && cutupsRelatedFileOrderStep(CutPolyPathMode::MirrorPairs,
+                5u, 1u, 16u) == 10u,
+        "poly paths derive the second through fourth paths from the primary");
+
     const auto wideAnalysis = analyzeCutupsAsset(makeWideTempoAsset());
     require(wideAnalysis.valid() && wideAnalysis.tempoValid
             && std::abs(wideAnalysis.analyzedBpm - 120.0) < 1.0,
@@ -172,6 +240,45 @@ int main()
     engine.render(settings, &note, 1u, left.data(), right.data(),
         static_cast<uint32_t>(left.size()));
     require(left == deterministic, "seeded cut stream is deterministic");
+
+    std::array<CutupsRenderEvent, 4u> chord {};
+    for (uint8_t voice = 0u; voice < chord.size(); ++voice) {
+        chord[voice].kind = CutupsEventKind::NoteOn;
+        chord[voice].noteId = static_cast<uint64_t>(100u + voice);
+        chord[voice].key = static_cast<uint8_t>(60u + voice);
+    }
+    settings = {};
+    settings.clockBasis = CutClockBasis::Hertz;
+    settings.cutRateHz = 8.0f;
+    settings.fileOrder = CutFileOrder::Down;
+    settings.sourceOrder = CutSourceOrder::Forward;
+    settings.polyPathMode = CutPolyPathMode::StepOffset;
+    settings.attackSeconds = 0.0f;
+    settings.outputGainDecibels = 0.0f;
+    engine.reset();
+    left.assign(1u, 0.0f);
+    right.assign(1u, 0.0f);
+    engine.render(settings, chord.data(), chord.size(), left.data(),
+        right.data(), 1u);
+    require(engine.voiceCursorCount() == 4u,
+        "polyphonic chord publishes all four paths");
+    std::array<bool, 4u> polyLanes {};
+    for (uint32_t voice = 0u; voice < engine.voiceCursorCount(); ++voice)
+        polyLanes[engine.voiceCursors()[voice].lane] = true;
+    require(std::all_of(polyLanes.begin(), polyLanes.end(), [](bool value) {
+                return value;
+            }),
+        "step offset sends notes two through four along related file paths");
+    settings.polyPathMode = CutPolyPathMode::Together;
+    engine.reset();
+    engine.render(settings, chord.data(), chord.size(), left.data(),
+        right.data(), 1u);
+    require(std::all_of(engine.voiceCursors().begin(),
+                engine.voiceCursors().begin() + engine.voiceCursorCount(),
+                [](const SampleCutupsVoiceCursor& cursor) {
+                    return cursor.lane == 0u;
+                }),
+        "together keeps all polyphonic notes on the primary file path");
 
     engine.reset();
     settings.fileOrder = CutFileOrder::Random;

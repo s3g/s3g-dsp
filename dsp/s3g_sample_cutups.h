@@ -46,6 +46,17 @@ enum class CutFileOrder : uint8_t {
     Random,
     RandomCycle,
     Manual,
+    Pairs,
+    OutsideIn,
+    Stagger,
+    CenterOut,
+};
+
+enum class CutPolyPathMode : uint8_t {
+    Together = 0u,
+    StepOffset,
+    QuarterSpread,
+    MirrorPairs,
 };
 
 enum class CutSourceOrder : uint8_t {
@@ -147,12 +158,127 @@ defaultCutupsPattern() noexcept
     return result;
 }
 
+inline uint32_t cutupsFileOrderIndex(CutFileOrder order, uint32_t step,
+    uint32_t count, uint32_t seed) noexcept
+{
+    count = std::min<uint32_t>(count,
+        static_cast<uint32_t>(kSampleCutupsLaneCount));
+    if (count <= 1u) return 0u;
+    const uint32_t position = step % count;
+    switch (order) {
+    case CutFileOrder::Up:
+        return count - 1u - position;
+    case CutFileOrder::Palindrome: {
+        const uint32_t period = (count - 1u) * 2u;
+        const uint32_t phase = step % period;
+        return phase < count ? phase : period - phase;
+    }
+    case CutFileOrder::Random: {
+        uint32_t state = seed ^ (step + 1u) * 0x9e3779b9u;
+        state ^= state << 13u;
+        state ^= state >> 17u;
+        state ^= state << 5u;
+        return state % count;
+    }
+    case CutFileOrder::RandomCycle: {
+        std::array<uint8_t, kSampleCutupsLaneCount> bag {{ 0u, 1u, 2u, 3u }};
+        uint32_t state = seed ^ (step / count + 1u) * 0x85ebca6bu;
+        for (uint32_t remaining = count; remaining > 1u; --remaining) {
+            state ^= state << 13u;
+            state ^= state >> 17u;
+            state ^= state << 5u;
+            std::swap(bag[remaining - 1u], bag[state % remaining]);
+        }
+        return bag[position];
+    }
+    case CutFileOrder::Pairs:
+        return (step / 2u) % count;
+    case CutFileOrder::OutsideIn:
+        return (position & 1u) == 0u
+            ? position / 2u : count - 1u - position / 2u;
+    case CutFileOrder::CenterOut: {
+        const uint32_t center = (count - 1u) / 2u;
+        if ((count & 1u) == 0u)
+            return (position & 1u) == 0u
+                ? center - position / 2u
+                : center + 1u + position / 2u;
+        if (position == 0u) return center;
+        return (position & 1u) != 0u
+            ? center - (position + 1u) / 2u
+            : center + position / 2u;
+    }
+    case CutFileOrder::Stagger: {
+        constexpr std::array<uint8_t, 8u> pattern {{
+            0u, 2u, 1u, 3u, 1u, 0u, 3u, 2u,
+        }};
+        return pattern[step % pattern.size()] % count;
+    }
+    case CutFileOrder::Manual:
+    case CutFileOrder::Down:
+    default:
+        return position;
+    }
+}
+
+inline uint32_t cutupsFileOrderPeriod(CutFileOrder order, uint32_t count,
+    uint32_t manualLength) noexcept
+{
+    count = std::max(1u, count);
+    switch (order) {
+    case CutFileOrder::Palindrome:
+        return count > 1u ? (count - 1u) * 2u : 1u;
+    case CutFileOrder::Pairs:
+        return count * 2u;
+    case CutFileOrder::Stagger:
+        return 8u;
+    case CutFileOrder::Manual:
+    case CutFileOrder::Random:
+        return std::max(1u, manualLength);
+    case CutFileOrder::Down:
+    case CutFileOrder::Up:
+    case CutFileOrder::RandomCycle:
+    case CutFileOrder::OutsideIn:
+    case CutFileOrder::CenterOut:
+    default:
+        return count;
+    }
+}
+
+inline uint32_t cutupsRelatedFileOrderStep(CutPolyPathMode mode,
+    uint32_t primaryStep, uint32_t voicePathIndex,
+    uint32_t period) noexcept
+{
+    period = std::max(1u, period);
+    const uint32_t path = voicePathIndex % kSampleCutupsLaneCount;
+    const uint32_t phase = primaryStep % period;
+    switch (mode) {
+    case CutPolyPathMode::StepOffset:
+        return primaryStep + path;
+    case CutPolyPathMode::QuarterSpread: {
+        const uint32_t spacing = std::max(1u, (period + 3u) / 4u);
+        return primaryStep + path * spacing;
+    }
+    case CutPolyPathMode::MirrorPairs: {
+        if (path == 0u) return primaryStep;
+        const uint32_t half = std::max(1u, (period + 1u) / 2u);
+        const uint32_t related = path >= 2u
+            ? (phase + half) % period : phase;
+        return (path & 1u) != 0u
+            ? period - 1u - related : related;
+    }
+    case CutPolyPathMode::Together:
+    default:
+        return primaryStep;
+    }
+}
+
 struct SampleCutupsSettings {
     CutClockBasis clockBasis = CutClockBasis::Host;
     CutDivision division = CutDivision::Sixteenth;
     CutRegionMode regionMode = CutRegionMode::Equal;
     CutFileOrder fileOrder = CutFileOrder::RandomCycle;
     CutSourceOrder sourceOrder = CutSourceOrder::Forward;
+    CutPolyPathMode polyPathMode = CutPolyPathMode::Together;
     CutOutputMode outputMode = CutOutputMode::Preserve;
     CutAllocationCadence allocationCadence = CutAllocationCadence::Note;
     VoiceMode voiceMode = VoiceMode::Poly;
@@ -197,9 +323,11 @@ struct SampleCutupsSettings {
             && static_cast<uint8_t>(regionMode)
                 <= static_cast<uint8_t>(CutRegionMode::Transient)
             && static_cast<uint8_t>(fileOrder)
-                <= static_cast<uint8_t>(CutFileOrder::Manual)
+                <= static_cast<uint8_t>(CutFileOrder::CenterOut)
             && static_cast<uint8_t>(sourceOrder)
                 <= static_cast<uint8_t>(CutSourceOrder::Manual)
+            && static_cast<uint8_t>(polyPathMode)
+                <= static_cast<uint8_t>(CutPolyPathMode::MirrorPairs)
             && static_cast<uint8_t>(outputMode)
                 <= static_cast<uint8_t>(CutOutputMode::Distribute)
             && static_cast<uint8_t>(allocationCadence)
@@ -448,6 +576,7 @@ private:
         uint64_t age = 0u;
         uint8_t key = 60u;
         uint8_t midiChannel = 0u;
+        uint8_t polyPathIndex = 0u;
         float velocityGain = 1.0f;
         float envelope = 0.0f;
         float releaseDecrement = 0.0f;
@@ -458,11 +587,6 @@ private:
         uint32_t repeatIndex = 0u;
         uint32_t walkRegion = 0u;
         uint32_t randomState = 1u;
-        std::array<uint8_t, kSampleCutupsLaneCount> laneBag {{
-            0u, 1u, 2u, 3u,
-        }};
-        uint8_t bagSize = 0u;
-        uint8_t bagPosition = 0u;
         Reader current {};
         Reader tail {};
         s3g::routing::VoiceOutputAssignment noteOutput {};
@@ -516,41 +640,19 @@ private:
         return phase < count ? phase : period - phase;
     }
 
-    void refillLaneBag(Voice& voice,
-        const std::array<uint8_t, kSampleCutupsLaneCount>& lanes,
-        uint32_t count) noexcept
-    {
-        voice.bagSize = static_cast<uint8_t>(count);
-        voice.bagPosition = 0u;
-        for (uint32_t index = 0u; index < count; ++index)
-            voice.laneBag[index] = lanes[index];
-        for (uint32_t index = count; index > 1u; --index) {
-            const uint32_t swapWith = nextRandom(voice.randomState) % index;
-            std::swap(voice.laneBag[index - 1u],
-                voice.laneBag[swapWith]);
-        }
-    }
-
     uint8_t chooseLane(Voice& voice,
         const SampleCutupsSettings& settings) noexcept
     {
         std::array<uint8_t, kSampleCutupsLaneCount> lanes {};
         const uint32_t count = loadedLanes(lanes);
         if (count == 0u) return 0u;
-        const uint32_t step = voice.patternStep;
-        switch (settings.fileOrder) {
-        case CutFileOrder::Up:
-            return lanes[count - 1u - step % count];
-        case CutFileOrder::Palindrome:
-            return lanes[palindromeIndex(step, count)];
-        case CutFileOrder::Random:
-            return lanes[nextRandom(voice.randomState) % count];
-        case CutFileOrder::RandomCycle:
-            if (voice.bagSize != count
-                || voice.bagPosition >= voice.bagSize)
-                refillLaneBag(voice, lanes, count);
-            return voice.laneBag[voice.bagPosition++];
-        case CutFileOrder::Manual: {
+        const uint32_t period = cutupsFileOrderPeriod(settings.fileOrder,
+            count, settings.patternLength);
+        const uint32_t step = cutupsRelatedFileOrderStep(
+            settings.voiceMode == VoiceMode::Poly
+                ? settings.polyPathMode : CutPolyPathMode::Together,
+            voice.patternStep, voice.polyPathIndex, period);
+        if (settings.fileOrder == CutFileOrder::Manual) {
             const uint8_t requested = settings.manualPattern[
                 step % settings.patternLength].lane;
             if (assets_[requested]) return requested;
@@ -569,10 +671,8 @@ private:
             }
             return nearest;
         }
-        case CutFileOrder::Down:
-        default:
-            return lanes[step % count];
-        }
+        return lanes[cutupsFileOrderIndex(settings.fileOrder, step,
+            count, settings.seed)];
     }
 
     uint32_t availableRegionCount(uint8_t lane,
@@ -992,6 +1092,20 @@ private:
             });
     }
 
+    uint8_t nextPolyPathIndex() const noexcept
+    {
+        std::array<bool, kSampleCutupsLaneCount> used {};
+        uint32_t activeCount = 0u;
+        for (const auto& voice : voices_) {
+            if (!voice.active) continue;
+            used[voice.polyPathIndex % used.size()] = true;
+            ++activeCount;
+        }
+        for (uint8_t index = 0u; index < used.size(); ++index)
+            if (!used[index]) return index;
+        return static_cast<uint8_t>(activeCount % used.size());
+    }
+
     void startVoice(const CutupsRenderEvent& event,
         const SampleCutupsSettings& settings) noexcept
     {
@@ -1017,12 +1131,15 @@ private:
         if (settings.voiceMode == VoiceMode::Mono) {
             for (auto& active : voices_) active = {};
         }
+        const uint8_t polyPathIndex = settings.voiceMode == VoiceMode::Poly
+            ? nextPolyPathIndex() : 0u;
         voice = allocateVoice();
         *voice = {};
         voice->active = true;
         voice->noteId = event.noteId;
         voice->key = event.key;
         voice->midiChannel = event.midiChannel;
+        voice->polyPathIndex = polyPathIndex;
         voice->age = ++ageCounter_;
         voice->velocityGain = 1.0f + (event.velocity - 1.0f)
             * settings.velocitySensitivity;

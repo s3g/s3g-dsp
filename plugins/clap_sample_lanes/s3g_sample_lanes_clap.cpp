@@ -165,10 +165,11 @@ const char* rateBasisName(int value) noexcept
 const char* pathName(int value) noexcept
 {
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-    constexpr std::array<const char*, 6u> names {{
+    constexpr std::array<const char*, 10u> names {{
         "Down", "Up", "Palindrome", "Random", "Random Cycle", "Manual",
+        "Pairs", "Outside In", "Stagger", "Center Out",
     }};
-    return names[static_cast<std::size_t>(std::clamp(value, 0, 5))];
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 9))];
 #else
     constexpr std::array<const char*, 8u> names {{
         "Down", "Up", "Triangle", "Sine", "Steps Down", "Steps Up",
@@ -177,6 +178,16 @@ const char* pathName(int value) noexcept
     return names[static_cast<std::size_t>(std::clamp(value, 0, 7))];
 #endif
 }
+
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+const char* polyPathName(int value) noexcept
+{
+    constexpr std::array<const char*, 4u> names {{
+        "Together", "Step Offset", "Quarter Spread", "Mirror Pairs",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 3))];
+}
+#endif
 
 const char* blendName(int value) noexcept
 {
@@ -393,6 +404,11 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value,
     else if (id == kShapeParamId)
         std::snprintf(display, size, "%s", shapeName(
             static_cast<int>(std::lround(value))));
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    else if (id == kCutPolyPathParamId)
+        std::snprintf(display, size, "%s", polyPathName(
+            static_cast<int>(std::lround(value))));
+#endif
     else if (id == kVoiceModeParamId)
         std::snprintf(display, size, "%s", voiceName(
             static_cast<int>(std::lround(value))));
@@ -576,7 +592,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     if (id == kPathParamId)
         return parseNamedValue(display, value,
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-            6,
+            10,
 #else
             8,
 #endif
@@ -597,6 +613,10 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
             4,
 #endif
             shapeName);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (id == kCutPolyPathParamId)
+        return parseNamedValue(display, value, 4, polyPathName);
+#endif
     if (id == kVoiceModeParamId)
         return parseNamedValue(display, value, 3, voiceName);
     if (id == kTriggerParamId) {
@@ -807,11 +827,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
         || (header.version != kStateVersion
             && header.version != kCutupsPreviousStateVersion
+            && header.version != kCutupsOlderStateVersion
             && header.version != kCutupsLegacyStateVersion)
         || (header.version == kStateVersion
             && header.parameterCount != kParamCount)
         || (header.version == kCutupsPreviousStateVersion
             && header.parameterCount != kCutupsPreviousParamCount)
+        || (header.version == kCutupsOlderStateVersion
+            && header.parameterCount != kCutupsOlderParamCount)
         || (header.version == kCutupsLegacyStateVersion
             && header.parameterCount != kCutupsLegacyParamCount)
 #elif defined(S3G_SAMPLE_GRAINS_VARIANT)
@@ -847,7 +870,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             saved.lanes.size() * sizeof(LaneState))) return false;
     if (
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-        header.version == kStateVersion
+        header.version >= kCutupsPreviousStateVersion
 #elif !defined(S3G_SAMPLE_GRAINS_VARIANT)
         header.version >= kRoutingPreviousStateVersion
 #else
@@ -856,7 +879,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         && !s3g::clap_state::readAll(stream, &saved.manualPath,
             sizeof(saved.manualPath))) return false;
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-    if (header.version != kStateVersion) {
+    if (header.version < kCutupsPreviousStateVersion) {
         CutupsLegacyManualPathState legacyPath;
         if (!s3g::clap_state::readAll(stream, &legacyPath,
                 sizeof(legacyPath))) return false;
@@ -1562,7 +1585,7 @@ const clap_plugin_descriptor_t stereoDescriptor {
     "s3g Sample Cutups 2",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.4.0",
+    "", "", "0.7.0",
     "Four-file cut-up instrument with transient regions and per-file tempo analysis.",
     stereoFeatures,
 };
@@ -1573,7 +1596,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Cutups 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.4.0",
+    "", "", "0.7.0",
     "Four-file cut-up instrument with transient regions and 32-channel allocation.",
     multichannelFeatures,
 };
@@ -1854,6 +1877,9 @@ InstrumentSettings settingsSnapshot(const Plugin& instance) noexcept
         std::lround(paramValue(instance, kPathParamId))));
     settings.sourceOrder = static_cast<CutSourceOrder>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kBlendParamId))));
+    settings.polyPathMode = static_cast<CutPolyPathMode>(
+        static_cast<uint8_t>(std::lround(
+            paramValue(instance, kCutPolyPathParamId))));
     settings.outputMode = static_cast<CutOutputMode>(static_cast<uint8_t>(
         std::lround(paramValue(instance, kOutputModeParamId))));
     settings.allocationCadence = static_cast<CutAllocationCadence>(

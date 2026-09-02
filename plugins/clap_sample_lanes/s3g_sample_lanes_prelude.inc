@@ -34,6 +34,7 @@ using s3g::sample::CutClockBasis;
 using s3g::sample::CutDivision;
 using s3g::sample::CutFileOrder;
 using s3g::sample::CutOutputMode;
+using s3g::sample::CutPolyPathMode;
 using s3g::sample::CutRegionMode;
 using s3g::sample::CutSourceOrder;
 using s3g::sample::CutupsLaneMetadata;
@@ -73,10 +74,12 @@ using s3g::sample_storage::StorageMode;
 
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
 constexpr uint32_t kStateMagic = 0x43553353u; // "S3UC"
-constexpr uint32_t kStateVersion = 3u;
-constexpr uint32_t kCutupsPreviousStateVersion = 2u;
+constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kCutupsPreviousStateVersion = 3u;
+constexpr uint32_t kCutupsOlderStateVersion = 2u;
 constexpr uint32_t kCutupsLegacyStateVersion = 1u;
 constexpr std::size_t kCutupsPreviousParamCount = 43u;
+constexpr std::size_t kCutupsOlderParamCount = 43u;
 constexpr std::size_t kCutupsLegacyParamCount = 42u;
 constexpr std::size_t kMaximumManualPathPoints
     = s3g::sample::kMaximumCutupsPatternSteps;
@@ -163,7 +166,8 @@ constexpr clap_id kOutputWidthParamId = 44u;
 constexpr clap_id kPairLayoutParamId = 45u;
 constexpr clap_id kAvoidAdjacentParamId = 46u;
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
-constexpr std::size_t kParamCount = 43u;
+constexpr clap_id kCutPolyPathParamId = 47u;
+constexpr std::size_t kParamCount = 44u;
 #elif defined(S3G_SAMPLE_GRAINS_VARIANT)
 constexpr clap_id kGrainSourceModeParamId = 47u;
 constexpr clap_id kGrainDensityParamId = 48u;
@@ -230,7 +234,7 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
     { kEndParamId, "End", "Source Field", 0.0, 1.0, 1.0, false },
     { kLoopCrossfadeParamId, "Join", "Cut Playback", 0.0, 100.0, 5.0,
         false },
-    { kPathParamId, "File Order", "Cut Address", 0.0, 5.0, 4.0, true },
+    { kPathParamId, "File Order", "Cut Address", 0.0, 9.0, 4.0, true },
     { kBlendParamId, "Source Order", "Cut Address", 0.0, 6.0, 1.0, true },
     { kShapeParamId, "Regions", "Cut Address", 0.0, 1.0, 0.0, true },
     // Serialized for older Cutups states; hidden from hosts and playback.
@@ -286,6 +290,9 @@ constexpr std::array<ParamDef, kParamCount> kParamDefs {{
         0.0, true },
     { kTransientPrerollParamId, "Transient Preroll", "Cut Address", 0.0,
         50.0, 1.0, false },
+    // Appended to preserve every earlier Cutups parameter index in states.
+    { kCutPolyPathParamId, "Poly Path", "Cut Address", 0.0, 3.0, 0.0,
+        true },
 }};
 #else
 constexpr std::array<ParamDef, kParamCount> kParamDefs {{

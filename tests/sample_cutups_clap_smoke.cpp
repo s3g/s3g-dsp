@@ -18,14 +18,16 @@
 namespace {
 
 constexpr uint32_t kStateMagic = 0x43553353u;
-constexpr uint32_t kStateVersion = 3u;
-constexpr uint32_t kPreviousStateVersion = 2u;
+constexpr uint32_t kStateVersion = 4u;
+constexpr uint32_t kPreviousStateVersion = 3u;
+constexpr uint32_t kOlderStateVersion = 2u;
 constexpr uint32_t kLegacyStateVersion = 1u;
-constexpr std::size_t kParamCount = 43u;
+constexpr std::size_t kParamCount = 44u;
 constexpr std::size_t kPreviousParamCount = 43u;
+constexpr std::size_t kOlderParamCount = 43u;
 constexpr std::size_t kLegacyParamCount = 42u;
-constexpr std::size_t kStereoParamCount = 35u;
-constexpr std::size_t kWideParamCount = 42u;
+constexpr std::size_t kStereoParamCount = 36u;
+constexpr std::size_t kWideParamCount = 43u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
 constexpr std::size_t kMaximumPatternSteps = 64u;
 constexpr uint32_t kFrames = 4096u;
@@ -70,6 +72,7 @@ struct SavedState {
         120.0, 100.0, 140.0, 90.0, 1.0, 0.15, 2.0, 0.1,
         0.0, 32.0, 0.0, 0.0, 1.0, 0.0, 0.0,
         1.0,
+        0.0,
     }};
     std::array<LaneState, 4u> lanes {};
     ManualPathState manualPath;
@@ -145,9 +148,11 @@ MemoryInput embeddedFixture(uint32_t version = kStateVersion)
     saved.version = version;
     if (version == kPreviousStateVersion)
         saved.parameterCount = static_cast<uint32_t>(kPreviousParamCount);
+    else if (version == kOlderStateVersion)
+        saved.parameterCount = static_cast<uint32_t>(kOlderParamCount);
     else if (version == kLegacyStateVersion)
         saved.parameterCount = static_cast<uint32_t>(kLegacyParamCount);
-    if (version != kStateVersion) saved.parameters[11u] = 16.0;
+    if (version <= kOlderStateVersion) saved.parameters[11u] = 16.0;
     MemoryInput input;
     const auto append = [&input](const void* data, std::size_t size) {
         const auto* first = static_cast<const uint8_t*>(data);
@@ -158,7 +163,7 @@ MemoryInput embeddedFixture(uint32_t version = kStateVersion)
     append(saved.parameters.data(), static_cast<std::size_t>(
         saved.parameterCount) * sizeof(double));
     append(saved.lanes.data(), saved.lanes.size() * sizeof(LaneState));
-    if (version == kStateVersion)
+    if (version >= kPreviousStateVersion)
         append(&saved.manualPath, sizeof(saved.manualPath));
     else {
         LegacyManualPathState legacyPath;
@@ -308,10 +313,10 @@ int main(int argc, char** argv)
     ok = ok && stereo && wide
         && std::strcmp(stereo->id, "org.s3g.s3g-dsp.sample-cutups") == 0
         && std::strcmp(stereo->name, "s3g Sample Cutups 2") == 0
-        && std::strcmp(stereo->version, "0.4.0") == 0
+        && std::strcmp(stereo->version, "0.7.0") == 0
         && std::strcmp(wide->id, "org.s3g.s3g-dsp.sample-cutups-32") == 0
         && std::strcmp(wide->name, "s3g Sample Cutups 32") == 0
-        && std::strcmp(wide->version, "0.4.0") == 0;
+        && std::strcmp(wide->version, "0.7.0") == 0;
     checkpoint("descriptors");
 
     clap_host_t host {
@@ -342,6 +347,10 @@ int main(int argc, char** argv)
             && std::strcmp(info.name, names[index]) == 0
             && (index != 10u || info.max_value == 64.0);
     }
+    clap_param_info_t finalInfo {};
+    ok = ok && params->get_info(plugin,
+            static_cast<uint32_t>(kStereoParamCount - 1u), &finalInfo)
+        && std::strcmp(finalInfo.name, "Poly Path") == 0;
     char text[64] {};
     double parsed = -1.0;
     ok = ok && params->value_to_text(plugin, 3u, 4.0, text, sizeof(text))
@@ -350,6 +359,10 @@ int main(int argc, char** argv)
         && std::strcmp(text, "Transient") == 0
         && params->text_to_value(plugin, 8u, "Random Cycle", &parsed)
         && parsed == 4.0
+        && params->text_to_value(plugin, 8u, "Center Out", &parsed)
+        && parsed == 9.0
+        && params->value_to_text(plugin, 47u, 3.0, text, sizeof(text))
+        && std::strcmp(text, "Mirror Pairs") == 0
         && params->value_to_text(plugin, 36u, 7.5, text, sizeof(text))
         && std::strcmp(text, "7.5 ms") == 0;
 #if defined(__APPLE__)
@@ -362,6 +375,9 @@ int main(int argc, char** argv)
     checkpoint("version 1 state migration");
     auto previousFixture = embeddedFixture(kPreviousStateVersion);
     ok = ok && state->load(plugin, &previousFixture.stream);
+    checkpoint("version 3 state migration");
+    auto olderFixture = embeddedFixture(kOlderStateVersion);
+    ok = ok && state->load(plugin, &olderFixture.stream);
     checkpoint("version 2 state migration");
     auto fixture = embeddedFixture();
     ok = ok && state->load(plugin, &fixture.stream);
@@ -382,7 +398,8 @@ int main(int argc, char** argv)
             && std::abs(roundTrip.manualPath.points[63u].phase - 59.0f / 64.0f)
                 < 1.0e-6f
             && roundTrip.parameters[11u] == 64.0
-            && std::abs(roundTrip.parameters[42u] - 1.0) < 1.0e-9;
+            && std::abs(roundTrip.parameters[42u] - 1.0) < 1.0e-9
+            && roundTrip.parameters[43u] == 0.0;
     }
     checkpoint("state and manual pattern round trip");
 
