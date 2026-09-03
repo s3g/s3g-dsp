@@ -30,6 +30,7 @@ constexpr bool isTimingExpansionAction(SequencerAction action) noexcept
     case SequencerAction::RepeatPrevious:
     case SequencerAction::Euclid:
     case SequencerAction::Condition:
+    case SequencerAction::Energy:
     case SequencerAction::Count:
         return false;
     }

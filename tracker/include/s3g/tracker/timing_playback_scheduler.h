@@ -76,6 +76,11 @@ public:
     {
         sequencer_.setSongConditionContext(passIndex, passCount);
     }
+    void setSongConditionContext(
+        const SequencerConditionContext& context) noexcept
+    {
+        sequencer_.setSongConditionContext(context);
+    }
     void clearSongConditionContext() noexcept
     {
         sequencer_.clearSongConditionContext();

@@ -319,13 +319,13 @@ void testHelpCatalogCoversAuditedParserVerbs()
     // queries, masks, direction, and operation shorthand.
     const std::set<std::string> auditedParserVerbs {
         "@", "?", "accent", "actions", "alias", "aliases", "autoalias", "delay", "demo",
-        "condition", "cond", "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
+        "condition", "cond", "density", "dir", "drumscene", "e", "en", "energy", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
         "defaultnote", "gate", "help", "hit", "hold", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "pitch", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset", "interp", "interpolation",
-        "variation", "vary", "warps", "track", "burst",
+        "variation", "vary", "warps", "track", "burst", "pattern",
     };
 
     std::set<std::string> documentedVerbs;
@@ -1474,6 +1474,7 @@ void testFxCommands()
             && result.message.find("MT=Microtime") != std::string::npos
             && result.message.find("EU=Euclidean Gate") != std::string::npos
             && result.message.find("CD=Condition") != std::string::npos
+            && result.message.find("EN=Song Energy") != std::string::npos
             && result.message.find("CC0..CC127") != std::string::npos
             && result.message.find("membrane") == std::string::npos,
         "actions should expose only MIDI-product sequencing choices");
@@ -1493,6 +1494,20 @@ void testFxCommands()
                 session.pattern.tracks[0u].fxPairs[0u].values[8u]
                     .normalized) == s3g::tracker::SequencerCondition::Fill,
         "condition shorthand should write CD into the first available SEQ pair");
+    result = CommandEngine::execute(session, "cond 1 10 SLAST");
+    check(result.ok
+            && s3g::tracker::sequencerConditionFromNormalized(
+                session.pattern.tracks[0u].fxPairs[0u].values[9u]
+                    .normalized) == s3g::tracker::SequencerCondition::SongLast,
+        "condition shorthand should author arrangement-aware CD values");
+    result = CommandEngine::execute(session, "energy 1 11 65%");
+    check(result.ok
+            && session.pattern.tracks[0u].fxPairs[0u].actions[10u]
+                    .sequencerAction
+                == s3g::tracker::SequencerAction::Energy
+            && std::abs(session.pattern.tracks[0u].fxPairs[0u]
+                    .values[10u].normalized - 0.65f) < 1.0e-6f,
+        "energy shorthand should write an EN threshold into a free SEQ pair");
     check(CommandEngine::execute(session,
                 "fx2 1 CD FIRST,LAST,!FILL").ok,
         "compact FX entry should accept a sequence of named CD conditions");
@@ -1736,6 +1751,73 @@ void testBurstCommands()
         "quick Burst authoring should allocate the first empty slot and place it");
 }
 
+void testPatternReshapeCommands()
+{
+    auto session = makeSession();
+    check(CommandEngine::execute(session, "vel 1 1 40").ok
+            && CommandEngine::execute(session, "vel 1 2 120").ok
+            && CommandEngine::execute(session,
+                "fx 1 1 1 microtime 0.60").ok
+            && CommandEngine::execute(session,
+                "fx 1 1 2 microtime 0.70").ok,
+        "reshape fixture commands should author MT and velocity values");
+    auto result = CommandEngine::execute(session, "pattern analyze 2");
+    check(result.ok && result.message.find("2 MT values")
+                != std::string::npos
+            && !result.hasEffect(CommandEffect::PatternChanged),
+        "pattern analyze should report without editing the pattern");
+
+    result = CommandEngine::execute(session,
+        "pattern reshape pocket 0 range 0 accents 100 balance 0 outliers off cycle 2");
+    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
+            && session.pattern.tracks[0u].velocities[0u].state
+                == ValueCellState::Value
+            && std::abs(session.pattern.tracks[0u].velocities[0u].normalized
+                    - session.pattern.tracks[0u].velocities[1u].normalized)
+                < 0.0001f,
+        "pattern reshape should apply a full-pattern dynamics transform");
+
+    auto writable = makeSession();
+    result = CommandEngine::execute(writable,
+        "pattern reshape cycle 4 pocket 100 mtwrite missing "
+        "mtoutliers soft velwrite defaults veloutliers strong");
+    check(result.ok
+            && result.message.find("velocity values") != std::string::npos,
+        "pattern reshape should expose independent MT/velocity write and outlier options");
+
+    auto mutationSession = makeSession();
+    check(CommandEngine::execute(mutationSession,
+            "mask 1 x---x---x---x---").ok,
+        "reshape mutation should establish source hits");
+    result = CommandEngine::execute(mutationSession,
+        "pattern reshape mutate 100 density 100 syncopate 80 shift 2 "
+        "bursts 30 cycledrift 100 seed 1729 pocket 0");
+    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
+            && result.message.find("hits +") != std::string::npos
+            && result.message.find("cycles") != std::string::npos,
+        "pattern reshape should expose deterministic statistical rhythm mutation options");
+
+    auto variationSession = makeSession();
+    check(CommandEngine::execute(variationSession,
+            "mask 1 x---x---x---x---").ok,
+        "reshape variation should establish source hits");
+    const auto variationSource = noteFingerprint(variationSession);
+    result = CommandEngine::execute(variationSession,
+        "variation reshape mutate 100 density 100 syncopate 80 shift 2 "
+        "cycledrift 100 seed 1729 pocket 0");
+    check(result.ok && result.patternVariation
+            && noteFingerprint(variationSession) == variationSource
+            && noteFingerprint(result.patternVariation->generatedSession)
+                != variationSource,
+        "variation reshape should return a new deterministic bank candidate without changing its source");
+
+    const auto fingerprint = sessionFingerprint(session);
+    result = CommandEngine::execute(session,
+        "pattern reshape depth 140");
+    check(!result.ok && sessionFingerprint(session) == fingerprint,
+        "invalid reshape options should leave the session transactional");
+}
+
 } // namespace
 
 int main()
@@ -1759,6 +1841,7 @@ int main()
     testSoloUnmuteAndNames();
     testFxCommands();
     testBurstCommands();
+    testPatternReshapeCommands();
     testDemoAndErrors();
 
     if (failures == 0) {

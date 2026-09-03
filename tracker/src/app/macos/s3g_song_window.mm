@@ -30,6 +30,7 @@ NSString* const S3GSongColumnPatternLoop = @"patternLoop";
 NSString* const S3GSongColumnRepeats = @"repeats";
 NSString* const S3GSongColumnTicks = @"ticks";
 NSString* const S3GSongColumnSwing = @"swing";
+NSString* const S3GSongColumnEnergy = @"energy";
 NSString* const S3GSongColumnMutes = @"mutes";
 NSString* const S3GSongColumnDelete = @"delete";
 
@@ -48,6 +49,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 @property(nonatomic, copy) NSString* pattern;
 @property(nonatomic) NSInteger repeats;
 @property(nonatomic) NSInteger ticks;
+@property(nonatomic) NSInteger energy;
 @property(nonatomic) double swing;
 @property(nonatomic) BOOL hasSwingOverride;
 @property(nonatomic) NSInteger warpSlot;
@@ -562,7 +564,6 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 @property(nonatomic, strong) S3GTrackerPopupButton* launchQuantizationPopup;
 @property(nonatomic, strong) S3GTrackerActionButton* queueButton;
 @property(nonatomic, strong) S3GTrackerPopupButton* projectFileMenu;
-@property(nonatomic, strong) NSTextField* arrangementHintLabel;
 @property(nonatomic, copy) NSString* arrangementName;
 @property(nonatomic, copy) NSArray<NSString*>* availablePatternIds;
 @property(nonatomic, copy) NSArray<NSString*>* availablePatternNames;
@@ -641,6 +642,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     row.pattern = pattern;
     row.repeats = 1;
     row.ticks = 4;
+    row.energy = 100;
     row.swing = 56.0;
     row.hasSwingOverride = YES;
     row.warpSlot = 0;
@@ -656,6 +658,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     S3GTrackerSongRow* row = [self newRowWithPattern:source.pattern.copy];
     row.repeats = source.repeats;
     row.ticks = source.ticks;
+    row.energy = source.energy;
     row.swing = source.swing;
     row.hasSwingOverride = source.hasSwingOverride;
     row.warpSlot = source.warpSlot;
@@ -781,11 +784,6 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
             fixedWidth + muteColumn.width);
         [self.tableView setFrameSize:tableSize];
     }
-    const CGFloat hintWidth = std::min<CGFloat>(610.0,
-        NSWidth(self.arrangementPanel.bounds) * 0.58);
-    self.arrangementHintLabel.frame = NSMakeRect(
-        NSWidth(self.arrangementPanel.bounds) - hintWidth - 10.0,
-        3.0, hintWidth, 16.0);
 }
 
 - (void)buildInterface
@@ -846,19 +844,20 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _tableView.allowsColumnResizing = NO;
     _tableView.allowsMultipleSelection = NO;
 
-    [self addColumn:S3GSongColumnRow title:@"ROW" width:44.0 minWidth:40.0];
-    [self addColumn:S3GSongColumnPattern title:@"PATTERN" width:124.0 minWidth:100.0];
-    [self addColumn:S3GSongColumnWarp title:@"WARP" width:110.0 minWidth:92.0];
+    [self addColumn:S3GSongColumnRow title:@"ROW" width:40.0 minWidth:40.0];
+    [self addColumn:S3GSongColumnPattern title:@"PATTERN" width:110.0 minWidth:100.0];
+    [self addColumn:S3GSongColumnWarp title:@"WARP" width:92.0 minWidth:92.0];
     [self addColumn:S3GSongColumnPatternLoop title:@"LOOP IN–OUT"
-        width:152.0 minWidth:152.0];
-    [self addColumn:S3GSongColumnRepeats title:@"REP" width:52.0 minWidth:48.0];
+        width:140.0 minWidth:140.0];
+    [self addColumn:S3GSongColumnRepeats title:@"REP" width:48.0 minWidth:48.0];
     [self addColumn:S3GSongColumnTicks title:@"TICKS / SPAN"
-        width:78.0 minWidth:68.0];
-    [self addColumn:S3GSongColumnSwing title:@"SWING %" width:84.0 minWidth:78.0];
+        width:68.0 minWidth:68.0];
+    [self addColumn:S3GSongColumnSwing title:@"SWING %" width:78.0 minWidth:78.0];
+    [self addColumn:S3GSongColumnEnergy title:@"EN %" width:58.0 minWidth:58.0];
     [self addColumn:S3GSongColumnMutes
         title:@"LANE MUTES  1–16 TOP · 17–32 BOTTOM"
         width:344.0 minWidth:344.0];
-    [self addColumn:S3GSongColumnDelete title:@"DEL" width:44.0 minWidth:40.0];
+    [self addColumn:S3GSongColumnDelete title:@"DEL" width:40.0 minWidth:40.0];
     CGFloat tableWidth = 0.0;
     for (NSTableColumn* column in _tableView.tableColumns)
         tableWidth += column.width + _tableView.intercellSpacing.width;
@@ -938,12 +937,6 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _projectFileMenu.accessibilityLabel = @"Song and pattern project file";
     [self.projectPanel addSubview:_projectFileMenu];
 
-    self.arrangementHintLabel = [self label:
-        @"TICKS = ROWS / PASS · MENU SHOWS PATTERN SPAN · LOOP USES LONGEST COLUMN · — = BASE"
-        size:9.0 color:s3gSongColor(0x737879) weight:NSFontWeightMedium];
-    self.arrangementHintLabel.alignment = NSTextAlignmentRight;
-    self.arrangementHintLabel.lineBreakMode = NSLineBreakByTruncatingHead;
-    [self.arrangementPanel addSubview:self.arrangementHintLabel];
     [self layoutSongInterface];
 
     [_tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
@@ -1372,6 +1365,27 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         field.accessibilityLabel = [NSString stringWithFormat:
             @"Song row %ld swing percentage", rowIndex + 1];
         [cell addSubview:field];
+    } else if ([column isEqualToString:S3GSongColumnEnergy]) {
+        S3GTrackerPopupButton* energy = [self cellPopupForColumn:tableColumn
+            row:rowIndex action:@selector(energyPopupChanged:)
+            accessibilityLabel:[NSString stringWithFormat:
+                @"Song row %ld energy percentage", rowIndex + 1]];
+        for (NSInteger value = 0; value <= 100; value += 5) {
+            [energy addItemWithTitle:[NSString stringWithFormat:@"%ld%%",
+                value]];
+            energy.lastItem.representedObject = @(value);
+        }
+        NSInteger selection = [energy indexOfItemWithRepresentedObject:
+            @(row.energy)];
+        if (selection < 0) {
+            [energy addItemWithTitle:[NSString stringWithFormat:
+                @"%ld%% · SAVED", row.energy]];
+            energy.lastItem.representedObject = @(row.energy);
+            selection = energy.numberOfItems - 1;
+        }
+        [energy selectItemAtIndex:selection];
+        energy.toolTip = @"Song intensity available to EN threshold cells; 100% reveals every EN-gated event";
+        [cell addSubview:energy];
     } else if ([column isEqualToString:S3GSongColumnMutes]) {
         const NSInteger laneCount = [self patternLaneCountForPatternId:
             row.pattern];
@@ -1522,6 +1536,21 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     if (changed) [self songDidChange];
 }
 
+- (void)energyPopupChanged:(S3GTrackerPopupButton*)sender
+{
+    const NSInteger rowIndex = sender.tag;
+    if (rowIndex < 0 || rowIndex >= static_cast<NSInteger>(self.rows.count))
+        return;
+    NSNumber* represented = sender.selectedItem.representedObject;
+    const NSInteger value = [represented isKindOfClass:NSNumber.class]
+        ? represented.integerValue : -1;
+    if (value < 0 || value > 100) return;
+    S3GTrackerSongRow* row = self.rows[static_cast<NSUInteger>(rowIndex)];
+    if (row.energy == value) return;
+    row.energy = value;
+    [self songDidChange];
+}
+
 - (void)patternPopupChanged:(S3GTrackerPopupButton*)sender
 {
     const NSInteger rowIndex = sender.tag;
@@ -1574,6 +1603,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     if (insertion > 0 && insertion <= (NSInteger)self.rows.count) {
         S3GTrackerSongRow* prior = self.rows[(NSUInteger)insertion - 1u];
         row.ticks = prior.ticks;
+        row.energy = prior.energy;
         row.swing = prior.swing;
         row.hasSwingOverride = prior.hasSwingOverride;
         row.warpSlot = prior.warpSlot;
@@ -1946,6 +1976,8 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
             source.ticks, 1, 1 << 20));
         row.repeats = static_cast<uint32_t>(std::clamp<NSInteger>(
             source.repeats, 1, 65535));
+        row.energy = static_cast<float>(std::clamp<NSInteger>(
+            source.energy, 0, 100)) * 0.01f;
         if (source.hasSwingOverride)
             row.swing = std::clamp(source.swing * 0.01, 0.5, 0.75);
         if (source.warpSlot > 0)
@@ -1991,6 +2023,8 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
             pattern ? pattern : @"A01"];
         row.ticks = static_cast<NSInteger>(source.durationTicks);
         row.repeats = static_cast<NSInteger>(source.repeats);
+        row.energy = static_cast<NSInteger>(std::lround(
+            std::clamp(source.energy, 0.0f, 1.0f) * 100.0f));
         row.swing = source.swing.value_or(0.56) * 100.0;
         row.hasSwingOverride = source.swing.has_value();
         row.warpSlot = source.timingWarpLibraryIndex

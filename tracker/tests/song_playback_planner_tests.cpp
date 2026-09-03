@@ -31,6 +31,7 @@ SongArrangement arrangement(bool loop = false)
     a.patternId = "A01";
     a.durationTicks = 3u;
     a.repeats = 2u;
+    a.energy = 0.65f;
     a.bpm = 132.0;
     a.swing = 0.57;
     a.mutedTracks = 1u << 3u;
@@ -67,6 +68,7 @@ void testValidationAndTransactionalInstall()
         "a valid arrangement should install at row zero in stopped state");
     check(planner.currentRow() && planner.currentRow()->patternId == "A01"
             && planner.currentRow()->bpm == 132.0
+            && planner.currentRow()->energy == 0.65f
             && planner.currentRow()->mutedTracks == (1u << 3u),
         "native song rows should retain pattern and performance metadata");
 
@@ -109,6 +111,11 @@ void testValidationAndTransactionalInstall()
     check(validateSongArrangement(invalidBpm).code
             == SongValidationCode::InvalidBpm,
         "non-finite row tempo overrides should be rejected");
+    auto invalidEnergy = song;
+    invalidEnergy.rows[0].energy = 1.01f;
+    check(validateSongArrangement(invalidEnergy).code
+            == SongValidationCode::InvalidEnergy,
+        "Song energy should remain a normalized arrangement value");
     auto invalidSwing = song;
     invalidSwing.rows[0].swing = 0.49;
     check(validateSongArrangement(invalidSwing).code
@@ -203,8 +210,12 @@ void testLoopWrap()
             && result.transition->reason == SongTransitionReason::LoopWrap
             && planner.isRunning() && !planner.isFinished()
             && planner.absoluteTick() == 1u
-            && planner.ticksCompletedInRow() == 0u,
+            && planner.ticksCompletedInRow() == 0u
+            && planner.songLoopPassIndex() == 1u,
         "a one-row loop should report an explicit same-row relaunch");
+    planner.advanceTick();
+    check(planner.songLoopPassIndex() == 2u,
+        "the full-song loop pass should advance on every arrangement wrap");
 }
 
 void testLiveLoopChangesPreservePlaybackPosition()
@@ -384,7 +395,8 @@ void testStartResetAndCancelContracts()
     check(!planner.isRunning() && !planner.isFinished()
             && planner.currentRowIndex() == 0u
             && planner.absoluteTick() == 0u
-            && planner.ticksCompletedInRow() == 0u,
+            && planner.ticksCompletedInRow() == 0u
+            && planner.songLoopPassIndex() == 0u,
         "reset should restore the installed arrangement's initial stopped state");
 }
 

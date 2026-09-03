@@ -640,11 +640,11 @@ int main(int argc, char** argv)
             if (shown) {
                 [parent setFrameSize:NSMakeSize(resizedWidth, resizedHeight)];
                 [parent layoutSubtreeIfNeeded];
-                NSView* routeStatusView = findAccessibleView(parent,
-                    @"Tracker route status");
-                NSTextField* routeStatus =
-                    [routeStatusView isKindOfClass:NSTextField.class]
-                        ? static_cast<NSTextField*>(routeStatusView) : nil;
+                NSView* midiEventView = findAccessibleView(parent,
+                    @"MIDI event statistics");
+                NSTextField* midiEventStatus =
+                    [midiEventView isKindOfClass:NSTextField.class]
+                        ? static_cast<NSTextField*>(midiEventView) : nil;
                 NSView* hostBpmView = findAccessibleView(parent,
                     @"Host tempo in beats per minute");
                 NSTextField* hostBpm =
@@ -653,11 +653,16 @@ int main(int argc, char** argv)
                 const NSRect hostBpmFrame = hostBpm
                     ? [hostBpm convertRect:hostBpm.bounds toView:parent]
                     : NSZeroRect;
-                ok &= expect([routeStatus.stringValue
-                            containsString:@"1 OUT • 1 REC IN • CH 1–16"]
-                        && ![routeStatus.stringValue
-                            containsString:@"8 REAPER MIDI BUSES"],
-                    "routing status did not reflect the single CLAP MIDI port");
+                const NSRect midiEventFrame = midiEventStatus
+                    ? [midiEventStatus convertRect:midiEventStatus.bounds
+                        toView:parent] : NSZeroRect;
+                ok &= expect(midiEventStatus
+                        && [midiEventStatus.stringValue
+                            containsString:@"SEND 0  DROP 0  LATE 0  CLK 0"]
+                        && NSMaxX(midiEventFrame) < NSMinX(hostBpmFrame)
+                        && findAccessibleView(parent,
+                            @"Tracker route status") == nil,
+                    "the obsolete Tracker route line remained or MIDI event statistics did not move beside HOST BPM");
                 ok &= expect([hostBpm.stringValue hasPrefix:@"HOST BPM"]
                         && NSMaxX(hostBpmFrame)
                             >= NSWidth(parent.bounds) - 20.0,
@@ -797,9 +802,19 @@ int main(int argc, char** argv)
                 }
                 ok &= expect(previewAudioOk,
                     "stopped Burst Preview did not emit substeps at project-BPM row positions");
-                ok &= expect(geometryModesAvailable
+                const bool reshapeSelected = clickButton(
+                    parent, nil, @"RESHAPE page", nil);
+                [parent layoutSubtreeIfNeeded];
+                NSView* reshapeProfile = findAccessibleView(parent,
+                    @"Pattern reshape profile");
+                NSView* reshapeCycle = findAccessibleView(parent,
+                    @"Reshape analysis cycle");
+                NSView* reshapeDepth = findAccessibleView(parent,
+                    @"Reshape timing depth");
+                ok &= expect(geometryModesAvailable && reshapeSelected
+                        && reshapeProfile && reshapeCycle && reshapeDepth
                         && clickButton(parent, nil, @"TRACKER page", nil),
-                    "Geometry Ring Field and diagnostic view selector is incomplete");
+                    "Geometry or Reshape workspace controls are incomplete");
                 NSView* pageWorkspace = findAccessibleView(parent,
                     @"s3g Tracker REAPER page workspace");
                 [hostWindow makeFirstResponder:nil];
@@ -1095,6 +1110,106 @@ int main(int argc, char** argv)
                             to:songPatternClickMenu.target]
                         && clickButton(parent, nil, @"TRACKER page", nil),
                     "embedded Song row menus did not dispatch through the plug-in coordinator");
+
+                // A Song edit made while REAPER is running must be handed to
+                // the scheduler at the next Song-row boundary. Editing row 2
+                // from one to three repetitions makes that behavior directly
+                // observable: after its first pass row 2 must still be active.
+                const bool songLiveEditPage = clickButton(
+                    parent, nil, @"SONG page", nil);
+                const bool songLiveMode = songLiveEditPage
+                    && clickButton(parent, @"SONG: OFF", nil, nil);
+                context.playState = 1;
+                bool songLiveProcessing = songLiveMode
+                    && plugin->activate(plugin, 48000.0, 16u, 32768u)
+                    && plugin->start_processing(plugin);
+                clap_event_transport_t songLiveTransport {};
+                songLiveTransport.header.size = sizeof(songLiveTransport);
+                songLiveTransport.header.space_id =
+                    CLAP_CORE_EVENT_SPACE_ID;
+                songLiveTransport.header.type = CLAP_EVENT_TRANSPORT;
+                songLiveTransport.flags = CLAP_TRANSPORT_HAS_TEMPO
+                    | CLAP_TRANSPORT_IS_PLAYING;
+                songLiveTransport.tempo = 120.0;
+                OutputEvents songLiveOutput;
+                clap_process_t songLiveProcess {};
+                songLiveProcess.transport = &songLiveTransport;
+                songLiveProcess.out_events = &songLiveOutput.interface;
+                const auto processSongBlock = [&](uint32_t frames) {
+                    songLiveOutput.count = 0u;
+                    songLiveProcess.frames_count = frames;
+                    const bool processed = plugin->process(plugin,
+                        &songLiveProcess) == CLAP_PROCESS_CONTINUE;
+                    songLiveProcess.steady_time += frames;
+                    return processed;
+                };
+                if (songLiveProcessing)
+                    songLiveProcessing &= processSongBlock(128u);
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.06]];
+                NSView* liveRepeatsView = findAccessibleView(parent,
+                    @"Song row 2 repetitions");
+                NSPopUpButton* liveRepeats =
+                    [liveRepeatsView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(liveRepeatsView) : nil;
+                const NSInteger threeRepeats = [liveRepeats
+                    indexOfItemWithRepresentedObject:@3];
+                const uint32_t dirtyBeforeLiveSongEdit = context.dirtyMarks;
+                bool repetitionsDispatched = threeRepeats >= 0;
+                if (repetitionsDispatched) {
+                    [liveRepeats selectItemAtIndex:threeRepeats];
+                    repetitionsDispatched = [liveRepeats sendAction:
+                        liveRepeats.action to:liveRepeats.target];
+                }
+                if (songLiveProcessing)
+                    songLiveProcessing &= processSongBlock(128u);
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.06]];
+                NSView* queueStatusView = findAccessibleView(parent,
+                    @"Song queue status");
+                NSTextField* queueStatus =
+                    [queueStatusView isKindOfClass:NSTextField.class]
+                        ? static_cast<NSTextField*>(queueStatusView) : nil;
+                const bool editDidNotClaimPerformanceQueue =
+                    ![queueStatus.stringValue containsString:@"QUEUED"];
+                if (songLiveProcessing) {
+                    for (unsigned pass = 0u; pass < 4u; ++pass)
+                        songLiveProcessing &= processSongBlock(24000u);
+                    songLiveProcessing &= processSongBlock(128u);
+                    for (unsigned pass = 0u; pass < 4u; ++pass)
+                        songLiveProcessing &= processSongBlock(24000u);
+                    songLiveProcessing &= processSongBlock(128u);
+                }
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.08]];
+                liveRepeatsView = findAccessibleView(parent,
+                    @"Song row 2 repetitions");
+                liveRepeats = [liveRepeatsView
+                        isKindOfClass:NSPopUpButton.class]
+                    ? static_cast<NSPopUpButton*>(liveRepeatsView) : nil;
+                NSView* liveRowView = liveRepeats;
+                while (liveRowView
+                    && ![liveRowView isKindOfClass:NSTableRowView.class]) {
+                    liveRowView = liveRowView.superview;
+                }
+                ok &= expect(songLiveProcessing && repetitionsDispatched
+                        && context.dirtyMarks > dirtyBeforeLiveSongEdit
+                        && editDidNotClaimPerformanceQueue
+                        && [liveRepeats.selectedItem.representedObject
+                            integerValue] == 3
+                        && [liveRowView.accessibilityValue
+                            isEqualToString:@"Playing"],
+                    "an edit to a future Song row did not enter playback at the next row boundary");
+                if (songLiveProcessing) {
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+                }
+                context.playState = 0;
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.06]];
+                ok &= expect(clickButton(parent, @"SONG: ON", nil, nil)
+                        && clickButton(parent, nil, @"TRACKER page", nil),
+                    "Song live-edit test could not restore pattern playback mode");
                 const bool consoleSelected = clickButton(parent, nil,
                     @"CONSOLE page", nil);
                 [parent layoutSubtreeIfNeeded];

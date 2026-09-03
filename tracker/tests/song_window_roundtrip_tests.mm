@@ -201,7 +201,7 @@ void testSharedToolboxLayout(
             && [[launchMenu itemAtIndex:3u].title
                 isEqualToString:@"END OF ROW"]
             && launchMenu.indexOfSelectedItem == 3u
-            && NSMaxX([table rectOfColumn:8])
+            && NSMaxX([table rectOfColumn:9])
                 <= NSWidth(tableScroll.contentView.bounds) + 1.0
             && queueStatus.font.pointSize <= 10.0
             && [project isKindOfClass:
@@ -347,7 +347,7 @@ void testArrangementEditingRemainsAvailableDuringPlayback(
     NSControl* swing = firstSwingControl(
         [table viewAtColumn:6 row:0 makeIfNecessary:YES]);
     NSControl* deleteRow = controlWithAction(
-        [table viewAtColumn:8 row:0 makeIfNecessary:YES],
+        [table viewAtColumn:9 row:0 makeIfNecessary:YES],
         NSSelectorFromString(@"deleteRowButton:"));
     NSButton* add = [controller valueForKey:@"addButton"];
     NSButton* duplicate = [controller valueForKey:@"duplicateButton"];
@@ -532,7 +532,7 @@ void testMuteMatrixMatchesEachPatternLaneCount(
     [controller showWindow:nil];
     [controller.window.contentView layoutSubtreeIfNeeded];
     NSTableView* table = [controller valueForKey:@"tableView"];
-    NSView* muteCell = [table viewAtColumn:7 row:0 makeIfNecessary:YES];
+    NSView* muteCell = [table viewAtColumn:8 row:0 makeIfNecessary:YES];
     NSButton* lane4 = muteButtonForLane(muteCell, 0, 3);
     NSButton* lane5 = muteButtonForLane(muteCell, 0, 4);
     NSButton* lane7 = muteButtonForLane(muteCell, 0, 6);
@@ -552,7 +552,7 @@ void testMuteMatrixMatchesEachPatternLaneCount(
         NSSelectorFromString(@"patternPopupChanged:"));
     [pattern selectItemAtIndex:[pattern indexOfItemWithRepresentedObject:@"A02"]];
     [pattern sendAction:pattern.action to:pattern.target];
-    muteCell = [table viewAtColumn:7 row:0 makeIfNecessary:YES];
+    muteCell = [table viewAtColumn:8 row:0 makeIfNecessary:YES];
     lane7 = muteButtonForLane(muteCell, 0, 6);
     NSButton* lane8 = muteButtonForLane(muteCell, 0, 7);
     check(lane7.enabled && !lane8.enabled,
@@ -664,6 +664,7 @@ void testSelectedRowDuplicateAndMove(
     source.durationTicks = 12u;
     source.repeats = 3u;
     source.swing = 0.625;
+    source.energy = 0.65f;
     source.mutedTracks = 0x15u;
     source.patternLoop = s3g::tracker::SongPatternLoop { 2u, 8u };
     [controller setSongArrangement:arrangement];
@@ -683,6 +684,7 @@ void testSelectedRowDuplicateAndMove(
             && copy.durationTicks == source.durationTicks
             && copy.repeats == source.repeats
             && copy.swing == source.swing
+            && copy.energy == source.energy
             && copy.mutedTracks == source.mutedTracks
             && copy.patternLoop && source.patternLoop
             && copy.patternLoop->startRow
@@ -745,7 +747,7 @@ void testPatternLoopColumnAndRoundTrip(
     NSPopUpButton* loopTicks = popupWithAction(
         [table viewAtColumn:5 row:1 makeIfNecessary:YES],
         NSSelectorFromString(@"ticksPopupChanged:"));
-    check(table.tableColumns.count == 9u
+    check(table.tableColumns.count == 10u
             && [table.tableColumns[3u].title isEqualToString:@"LOOP IN–OUT"]
             && offIn.numberOfItems == 17u
             && [offIn.titleOfSelectedItem isEqualToString:@"OFF"]
@@ -802,6 +804,7 @@ void testMenuTimingAndScrollableSwing(
     row.durationTicks = 8u;
     row.repeats = 1u;
     row.swing = 0.56;
+    row.energy = 0.65f;
     arrangement.rows.push_back(row);
     [controller setSongArrangement:arrangement];
     [controller showWindow:nil];
@@ -815,6 +818,9 @@ void testMenuTimingAndScrollableSwing(
         NSSelectorFromString(@"ticksPopupChanged:"));
     NSControl* swing = firstSwingControl(
         [table viewAtColumn:6 row:0 makeIfNecessary:YES]);
+    NSPopUpButton* energy = popupWithAction(
+        [table viewAtColumn:7 row:0 makeIfNecessary:YES],
+        NSSelectorFromString(@"energyPopupChanged:"));
     check(repeats.numberOfItems == 64u
             && repeats.indexOfSelectedItem == 0
             && [[[ticks itemAtIndex:0u] title]
@@ -835,8 +841,17 @@ void testMenuTimingAndScrollableSwing(
             && !swing.acceptsFirstResponder
             && swing.s3gHasOverride
             && near(swing.s3gSwingValue, 56.0, 0.001)
-            && [swing.stringValue isEqualToString:@"56.0"],
-        "REP and TICKS should be constrained menus while SWING uses a non-editing suite slider with a persistent value readout");
+            && [swing.stringValue isEqualToString:@"56.0"]
+            && [energy isKindOfClass:S3GTrackerPopupButton.class]
+            && static_cast<S3GTrackerPopupButton*>(energy).s3gUsesCanvasMenu
+            && [[energy selectedItem].representedObject isEqualToNumber:@65],
+        "REP, TICKS, and EN should be suite menus while SWING uses a non-editing suite slider with a persistent value readout");
+
+    [energy selectItemAtIndex:[energy
+        indexOfItemWithRepresentedObject:@40]];
+    [energy sendAction:energy.action to:energy.target];
+    check(near([controller songArrangement].rows[0u].energy, 0.40, 0.0001),
+        "the Song EN menu should publish the row's sequencing energy");
 
     const BOOL scrolled = [swing adjustByScrollDelta:1.0 modifierFlags:0u];
     const auto scrolledArrangement = [controller songArrangement];

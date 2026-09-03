@@ -645,8 +645,15 @@ struct Runtime {
             scheduler.clearSongConditionContext();
             return;
         }
-        scheduler.setSongConditionContext(
-            songPlanner.currentRepeatIndex(), row->repeats);
+        s3g::tracker::SequencerConditionContext context;
+        context.passIndex = songPlanner.currentRepeatIndex();
+        context.passCount = row->repeats;
+        context.songActive = true;
+        context.songRowIndex = songPlanner.currentRowIndex().value_or(0u);
+        context.songRowCount = songPlanner.arrangement().rows.size();
+        context.songLoopPassIndex = songPlanner.songLoopPassIndex();
+        context.songEnergy = row->energy;
+        scheduler.setSongConditionContext(context);
     }
 
     bool arm(double hostBeat, double tempo, double sampleRate,
@@ -917,6 +924,9 @@ struct Plugin {
     std::atomic<uint32_t> songLaunchQuantization { 0u };
     std::atomic<uint32_t> songLaunchRevision { 0u };
     uint32_t consumedSongLaunchRevision = 0u;
+    // Arrangement edits use the variation-runtime handoff for audio-thread
+    // safety, but they are not an explicit Song-row performance queue.
+    std::atomic<bool> songArrangementUpdatePending { false };
     std::atomic<bool> songLoopEnabled { false };
     std::atomic<uint32_t> songLoopRevision { 0u };
     uint32_t consumedSongLoopRevision = 0u;
@@ -1166,6 +1176,8 @@ void drainRetiredRuntimes(Plugin& plugin)
 
 void cancelQueuedVariation(Plugin& plugin)
 {
+    plugin.songArrangementUpdatePending.store(false,
+        std::memory_order_release);
     plugin.patternLaunch.revision.store(0u, std::memory_order_release);
     plugin.patternLaunch.dueRevision.store(0u, std::memory_order_release);
     plugin.patternLaunch.consumedRevision.store(0u,
@@ -1227,12 +1239,15 @@ bool queueRuntimeDocument(Plugin& plugin, ProjectDocument document,
 bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
     PatternVariationLaunch quantization, bool markDirty)
 {
+    plugin.songArrangementUpdatePending.store(false,
+        std::memory_order_release);
     return queueRuntimeDocument(plugin, std::move(document), quantization,
         std::nullopt, markDirty);
 }
 
 bool queueSongDocument(Plugin& plugin, ProjectDocument document,
-    std::size_t row, SongLaunchQuantization quantization)
+    std::size_t row, SongLaunchQuantization quantization,
+    bool markDirty = false)
 {
     PatternVariationLaunch boundary = PatternVariationLaunch::NextSongRow;
     switch (quantization) {
@@ -1249,7 +1264,7 @@ bool queueSongDocument(Plugin& plugin, ProjectDocument document,
         break;
     }
     return queueRuntimeDocument(plugin, std::move(document), boundary,
-        row, false);
+        row, markDirty);
 }
 
 void publishDocument(Plugin& plugin, ProjectDocument document,
@@ -1275,6 +1290,26 @@ void publishDocument(Plugin& plugin, ProjectDocument document,
     if (markDirty) markHostStateDirty(plugin);
     else if (plugin.host && plugin.host->request_process)
         plugin.host->request_process(plugin.host);
+}
+
+bool publishPreviewDocumentRuntime(Plugin& plugin, ProjectDocument document)
+{
+    normalizeMidiOnlyDocument(document);
+    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
+        &plugin.patternLaunch, &plugin.visualNoteHits,
+        &plugin.midiStepClock);
+    if (!runtime || !runtime->valid) {
+        delete runtime;
+        return false;
+    }
+    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
+    cancelQueuedVariation(plugin);
+    Runtime* superseded = plugin.pendingRuntime.exchange(runtime,
+        std::memory_order_acq_rel);
+    delete superseded;
+    if (plugin.host && plugin.host->request_process)
+        plugin.host->request_process(plugin.host);
+    return true;
 }
 
 bool publishStoredDocumentRuntime(Plugin& plugin)
@@ -1717,6 +1752,8 @@ void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
     const uint32_t runtimeLaunchRevision = plugin.patternLaunch.revision.load(
         std::memory_order_acquire);
     if (runtime.songEnabled && runtimeLaunchRevision != 0u
+        && !plugin.songArrangementUpdatePending.load(
+            std::memory_order_acquire)
         && plugin.queuedVariationRuntime.load(std::memory_order_acquire)) {
         pendingSongRow = static_cast<std::size_t>(
             plugin.songLaunchRow.load(std::memory_order_relaxed));
@@ -1780,6 +1817,8 @@ bool swapQueuedVariationRuntime(Plugin& plugin,
     plugin.patternLaunch.revision.store(0u, std::memory_order_release);
     plugin.patternLaunch.consumedRevision.store(0u,
         std::memory_order_relaxed);
+    plugin.songArrangementUpdatePending.store(false,
+        std::memory_order_release);
     if (plugin.host && plugin.host->request_callback)
         plugin.host->request_callback(plugin.host);
     return true;
@@ -1952,6 +1991,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     S3GTrackerClapPageTracker = 0,
     S3GTrackerClapPageSong,
     S3GTrackerClapPageGeometry,
+    S3GTrackerClapPageReshape,
     S3GTrackerClapPageWarps,
     S3GTrackerClapPageConsole,
     S3GTrackerClapPageHelp,
@@ -1963,6 +2003,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 @property(nonatomic, copy) NSArray<NSTextField*>* detachedPlaceholders;
 @property(nonatomic, copy) NSArray<S3GTrackerActionButton*>* pageButtons;
 @property(nonatomic, strong) S3GTrackerActionButton* popoutButton;
+@property(nonatomic, strong) NSTextField* midiEventDisplay;
 @property(nonatomic, strong) NSTextField* hostBpmDisplay;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSWindow*>*
     detachedWindows;
@@ -1970,6 +2011,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (instancetype)initWithPages:(NSArray<NSView*>*)pages;
 - (void)showPage:(S3GTrackerClapPage)page;
 - (void)setHostBpm:(double)bpm;
+- (void)setMidiEventText:(NSString*)text;
 - (BOOL)pageCanDetach:(S3GTrackerClapPage)page;
 - (void)toggleDetachPage:(S3GTrackerClapPage)page;
 - (void)reattachPage:(S3GTrackerClapPage)page closeWindow:(BOOL)closeWindow;
@@ -1994,7 +2036,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.detachedWindows = [[NSMutableDictionary alloc] init];
 
     NSArray<NSString*>* titles = @[
-        @"TRACKER", @"SONG", @"GEOMETRY", @"WARPS", @"CONSOLE", @"HELP",
+        @"TRACKER", @"SONG", @"GEOMETRY", @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
     ];
     NSMutableArray<S3GTrackerActionButton*>* buttons =
         [[NSMutableArray alloc] initWithCapacity:titles.count];
@@ -2054,6 +2096,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.popoutButton.action = @selector(popoutPressed:);
     self.popoutButton.accessibilityLabel = @"Detach selected tool page";
     [self addSubview:self.popoutButton];
+    self.midiEventDisplay = [NSTextField labelWithString:
+        @"0 MIDI EVENTS  •  SEND 0  DROP 0  LATE 0  CLK 0"];
+    self.midiEventDisplay.font = s3g::clap_gui::uiFont(8.5);
+    self.midiEventDisplay.textColor = S3GTrackerThemeColor(
+        S3GTrackerThemeRole::TextMuted);
+    self.midiEventDisplay.alignment = NSTextAlignmentRight;
+    self.midiEventDisplay.lineBreakMode = NSLineBreakByTruncatingHead;
+    self.midiEventDisplay.accessibilityElement = YES;
+    self.midiEventDisplay.accessibilityRole = NSAccessibilityStaticTextRole;
+    self.midiEventDisplay.accessibilityLabel = @"MIDI event statistics";
+    [self addSubview:self.midiEventDisplay];
     self.hostBpmDisplay = [NSTextField labelWithString:@"HOST BPM  —"];
     self.hostBpmDisplay.font = s3g::clap_gui::uiFont(10.0);
     self.hostBpmDisplay.textColor = s3g::clap_gui::color(0x929292);
@@ -2115,8 +2168,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [super layout];
     constexpr CGFloat navigationHeight = 40.0;
     CGFloat x = 12.0;
-    const std::array<CGFloat, 6u> widths {{
-        92.0, 68.0, 96.0, 72.0, 88.0, 64.0,
+    const std::array<CGFloat, 7u> widths {{
+        88.0, 64.0, 90.0, 88.0, 68.0, 82.0, 60.0,
     }};
     for (NSUInteger index = 0u; index < self.pageButtons.count; ++index) {
         const CGFloat width = widths[std::min<std::size_t>(
@@ -2130,9 +2183,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         6.0, 36.0, navigationHeight - 12.0);
     const CGFloat bpmRightInset = self.popoutButton.hidden ? 18.0 : 62.0;
     const CGFloat bpmWidth = 138.0;
-    self.hostBpmDisplay.frame = NSMakeRect(std::max<CGFloat>(
-            x + 8.0, NSWidth(self.bounds) - bpmRightInset - bpmWidth),
+    const CGFloat bpmX = std::max<CGFloat>(
+        x + 8.0, NSWidth(self.bounds) - bpmRightInset - bpmWidth);
+    self.hostBpmDisplay.frame = NSMakeRect(bpmX,
         10.0, bpmWidth, 20.0);
+    const CGFloat eventX = x + 8.0;
+    const CGFloat eventWidth = std::max<CGFloat>(0.0, bpmX - eventX - 10.0);
+    self.midiEventDisplay.hidden = eventWidth < 40.0;
+    self.midiEventDisplay.frame = NSMakeRect(eventX, 10.0,
+        eventWidth, 20.0);
     const NSRect contentFrame = NSMakeRect(0.0, navigationHeight,
         NSWidth(self.bounds), std::max<CGFloat>(0.0,
             NSHeight(self.bounds) - navigationHeight));
@@ -2157,6 +2216,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.hostBpmDisplay.accessibilityValue = text;
 }
 
+- (void)setMidiEventText:(NSString*)text
+{
+    NSString* display = text.length > 0u ? text : @"0 MIDI EVENTS";
+    if (![self.midiEventDisplay.stringValue isEqualToString:display])
+        self.midiEventDisplay.stringValue = display;
+    self.midiEventDisplay.toolTip = display;
+    self.midiEventDisplay.accessibilityValue = display;
+}
+
 - (void)pagePressed:(NSButton*)sender
 {
     const auto page = static_cast<S3GTrackerClapPage>(
@@ -2170,6 +2238,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (BOOL)pageCanDetach:(S3GTrackerClapPage)page
 {
     return page == S3GTrackerClapPageGeometry
+        || page == S3GTrackerClapPageReshape
         || page == S3GTrackerClapPageWarps
         || page == S3GTrackerClapPageConsole
         || page == S3GTrackerClapPageHelp;
@@ -2202,8 +2271,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
         backing:NSBackingStoreBuffered defer:NO];
     NSArray<NSString*>* names = @[
-        @"Tracker", @"Song", @"Rhythm Geometry", @"Timing Warps",
-        @"Console", @"Help",
+        @"Tracker", @"Song", @"Rhythm Geometry", @"Pattern Reshape",
+        @"Timing Warps", @"Console", @"Help",
     ];
     window.title = [@"s3g Tracker — " stringByAppendingString:
         names[static_cast<NSUInteger>(index)]];
@@ -2444,12 +2513,68 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _callbacks->showGeometryPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageGeometry];
     };
+    _callbacks->showReshapePage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPageReshape];
+    };
     _callbacks->showTrackerPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageTracker];
         [weakSelf.workspace focusTracker];
     };
     _callbacks->showWarpPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageWarps];
+    };
+    _callbacks->previewPattern = [weakSelf](
+        const s3g::tracker::Pattern& pattern) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        [owner cancelRuntimePublication];
+        ProjectDocument document = [owner currentDocument];
+        auto* entry = document.patternBank.findEntry(
+            document.patternBank.activePatternId);
+        if (!entry) return;
+        entry->pattern = pattern;
+        if (!publishPreviewDocumentRuntime(*owner->_plugin,
+                std::move(document))) {
+            owner->_state->status = "Pattern reshape preview failed";
+            [owner.workspace reloadModel];
+        }
+    };
+    _callbacks->clearPatternPreview = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        [owner cancelRuntimePublication];
+        if (!publishStoredDocumentRuntime(*owner->_plugin)) {
+            owner->_state->status = "Could not restore stored pattern";
+            [owner.workspace reloadModel];
+        }
+    };
+    _callbacks->createPatternVariant = [weakSelf](
+        const s3g::tracker::Pattern& pattern) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        [owner cancelRuntimePublication];
+        if (owner->_state->patternBank.entries.size()
+                >= s3g::tracker::kMaximumPatternBankEntries
+            || !syncSessionToActivePattern(*owner->_state)) {
+            owner->_state->status = "Pattern bank is full; variant not created";
+            [owner.workspace reloadModel];
+            return;
+        }
+        const std::string sourceId = owner->_state->patternBank.activePatternId;
+        const auto* source = owner->_state->patternBank.findEntry(sourceId);
+        const std::string id = nextPatternId(owner->_state->patternBank);
+        if (!source || id.empty()) return;
+        auto entry = newPatternEntry(*source, id, true);
+        entry.pattern = pattern;
+        entry.pattern.name = source->pattern.name.empty()
+            ? "VAR " + id : source->pattern.name + " VAR " + id;
+        owner->_state->patternBank.entries.push_back(std::move(entry));
+        owner->_state->patternBank.activePatternId = id;
+        if (!loadActivePatternIntoSession(*owner->_state)) return;
+        owner->_state->session.selectedRow = 0u;
+        owner->_state->status = "Created and selected variation " + id;
+        [owner refreshSongPatterns];
+        [owner commitProject:YES];
     };
     _callbacks->showConsoleHelp = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageHelp];
@@ -2555,11 +2680,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         self.workspace.view,
         self.songWindow.window.contentView,
         [self.workspace geometryPageView],
+        [self.workspace reshapePageView],
         [self.workspace warpPageView],
         [self.workspace consolePageView],
         self.helpWindow.window.contentView,
     ]];
     [self.pageView setHostBpm:_state->hostBpm];
+    [self.pageView setMidiEventText:
+        @"0 MIDI EVENTS  •  SEND 0  DROP 0  LATE 0  CLK 0"];
 
     self.songWindow.changeHandler = ^(NSString* summary) {
         S3GTrackerClapCoordinator* owner = weakSelf;
@@ -2617,6 +2745,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         owner->_plugin->songLaunchQuantization.store(
             static_cast<uint32_t>(launch), std::memory_order_relaxed);
         [owner cancelRuntimePublication];
+        owner->_plugin->songArrangementUpdatePending.store(false,
+            std::memory_order_release);
         ProjectDocument document = [owner currentDocument];
         if (!queueSongDocument(*owner->_plugin, document,
                 static_cast<std::size_t>(row), launch)) {
@@ -3046,17 +3176,60 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         return;
     }
 
-    // Replacing the DSP runtime while Song playback is active would arm a new
-    // planner at row zero. Keep the editor responsive, store every edit and
-    // publish the final arrangement once the host transport has stopped.
+    // Hand an edited arrangement over at the next Song-row boundary. A fresh
+    // runtime starts on the row that naturally follows the one currently
+    // sounding, so future-row edits are heard without restarting the Song or
+    // mutating scheduler-owned vectors on the audio thread.
     [self cancelRuntimePublication];
-    // An edit after SELECT QUEUE supersedes the prepared handoff so the
-    // button can rebuild it from the latest Song state on the next press.
     cancelQueuedVariation(*_plugin);
-    [self commitProjectWithoutRuntime:dirty];
+    ProjectDocument document = [self currentDocument];
+    _state->patternBank = document.patternBank;
+    _state->instrumentRack = document.instrumentRack;
+    _state->selectedRackInstrument = document.instrumentRack.selectedNode;
+    (void)loadActivePatternIntoSession(*_state);
+    [self updateMidiMonitorChannel];
+    [self refreshSongPatterns];
+    if (dirty) [self recordHistory:document];
+
+    const int32_t audibleRow = _plugin->visualSongRow.load(
+        std::memory_order_acquire);
+    const std::size_t currentRow = audibleRow >= 0
+        ? static_cast<std::size_t>(audibleRow)
+        : _state->songPlaybackRow;
+    const bool hasNextRow = currentRow + 1u < document.song.rows.size();
+    const bool wraps = !document.song.rows.empty() && document.song.loop;
+    if (hasNextRow || wraps) {
+        const std::size_t nextRow = hasNextRow ? currentRow + 1u : 0u;
+        _plugin->songLaunchRow.store(static_cast<uint32_t>(nextRow),
+            std::memory_order_relaxed);
+        _plugin->songLaunchQuantization.store(static_cast<uint32_t>(
+            SongLaunchQuantization::NextSongRow),
+            std::memory_order_relaxed);
+        const SongArrangement updatedArrangement = document.song;
+        _plugin->songArrangementUpdatePending.store(true,
+            std::memory_order_release);
+        if (queueSongDocument(*_plugin, std::move(document), nextRow,
+                SongLaunchQuantization::NextSongRow, dirty)) {
+            _playingSongArrangement = updatedArrangement;
+            _playingSongArrangementValid = true;
+            _deferredSongRuntimePublication = false;
+            _state->status = "Song update scheduled for row "
+                + std::to_string(nextRow + 1u);
+            [self.workspace appendConsoleMessage:_state->status error:NO];
+            [self.workspace reloadModel];
+            return;
+        }
+        _plugin->songArrangementUpdatePending.store(false,
+            std::memory_order_release);
+        document = [self currentDocument];
+    }
+
+    // A non-looping final row has no future boundary to hand over to. Keep
+    // the edit persistent and prepare it once REAPER stops.
+    storeDocumentWithoutRuntime(*_plugin, std::move(document), dirty);
     _deferredSongRuntimePublication = true;
-    _state->status =
-        "Song edit saved • playback update waits for REAPER stop";
+    _state->status = "Song edit saved • no future row before REAPER stop";
+    [self.workspace reloadModel];
 }
 
 - (void)scheduleRuntimePublication
@@ -3560,6 +3733,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         : "REAPER STOPPED • MIDI output ready";
     _state->lastEvent = std::to_string(_state->sentEventCount)
         + " MIDI EVENTS";
+    [self.pageView setMidiEventText:[NSString stringWithFormat:
+        @"%@  •  SEND %llu  DROP %llu  LATE %llu  CLK %llu",
+        [NSString stringWithUTF8String:_state->lastEvent.c_str()],
+        _state->sentEventCount, _state->droppedEventCount,
+        _state->audioLateEventCount, _state->audioClockFaultCount]];
     [self.workspace refreshPlaybackDisplay];
 }
 

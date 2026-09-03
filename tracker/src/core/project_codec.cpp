@@ -733,7 +733,7 @@ constexpr std::array<std::pair<std::string_view, ParameterScope>, 3u>
         { "channel", ParameterScope::Channel },
         { "note", ParameterScope::Note },
     }};
-constexpr std::array<std::pair<std::string_view, SequencerAction>, 13u>
+constexpr std::array<std::pair<std::string_view, SequencerAction>, 14u>
     kSequencerActions {{
         { "ratchet", SequencerAction::Ratchet },
         { "microtime", SequencerAction::MicroTime },
@@ -748,6 +748,7 @@ constexpr std::array<std::pair<std::string_view, SequencerAction>, 13u>
         { "repeat-previous", SequencerAction::RepeatPrevious },
         { "euclid", SequencerAction::Euclid },
         { "condition", SequencerAction::Condition },
+        { "energy", SequencerAction::Energy },
     }};
 static_assert(kSequencerActions.size() == kSequencerActionCount,
     "project schema must explicitly name every sequencing action");
@@ -1914,6 +1915,7 @@ JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
         if (row.bpm.has_value())
             encoded.object["bpm"] = JsonValue::numberValue(*row.bpm);
         encoded.object["durationTicks"] = number(row.durationTicks);
+        encoded.object["energy"] = JsonValue::numberValue(row.energy);
         encoded.object["mutedTracks"] = number(row.mutedTracks);
         encoded.object["patternId"] = encodeCheckedString(row.patternId,
             kMaximumNameBytes, path + ".patternId", result);
@@ -2001,6 +2003,13 @@ bool decodeSong(const JsonValue& input, SongArrangement& destination,
             if (!checkedNumber(bpm->second, value, 20.0, 400.0,
                     path + ".bpm", result)) return false;
             row.bpm = value;
+        }
+        const auto energy = inputRow.object.find("energy");
+        if (energy != inputRow.object.end()) {
+            double value = 0.0;
+            if (!checkedNumber(energy->second, value, 0.0, 1.0,
+                    path + ".energy", result)) return false;
+            row.energy = static_cast<float>(value);
         }
         const auto swing = inputRow.object.find("swing");
         if (swing != inputRow.object.end()) {

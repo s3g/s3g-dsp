@@ -9,11 +9,11 @@ namespace s3g::tracker::app {
 // AppKit consumes the resulting values as points.
 inline constexpr double kWorkspaceMinimumContentWidth = 760.0;
 inline constexpr double kWorkspaceMinimumContentHeight = 620.0;
-// One standard toolbox header, one compact control row, and one status line.
-// The former two-row header left dead vertical space above the tracker grid.
+// One standard toolbox header and one compact control row, vertically centered
+// in the available band. Runtime status belongs in the shared page header.
 inline constexpr double kWorkspaceToolbarHeight = 69.0;
 inline constexpr double kWorkspaceConsoleInputHeight = 44.0;
-inline constexpr double kWorkspaceTransportFooterHeight = 57.0;
+inline constexpr double kWorkspaceTransportFooterHeight = 69.0;
 inline constexpr double kTrackerGridHeaderHeight = 86.0;
 inline constexpr double kTrackerGridRowHeight = 25.0;
 // Tracker opens at literal actual size. Keep this aligned with the 100%

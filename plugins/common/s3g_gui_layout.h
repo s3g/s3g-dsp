@@ -350,6 +350,17 @@ struct TrackerWarpFamilyLayout {
     Panel transform {};
 };
 
+struct TrackerReshapeFamilyLayout {
+    Canvas canvas {};
+    Rect profilePanel {};
+    Panel mutation {};
+    Column inspectorColumn {};
+    Panel targetAnalyze {};
+    Panel timing {};
+    Panel dynamics {};
+    Panel previewApply {};
+};
+
 struct TrackerSongFamilyLayout {
     Canvas canvas {};
     Panel project {};
@@ -1348,6 +1359,45 @@ constexpr TrackerWarpFamilyLayout trackerWarpFamilyLayout(Canvas canvas)
     return { canvas, field, inspector, library, stack, transform };
 }
 
+constexpr TrackerReshapeFamilyLayout trackerReshapeFamilyLayout(
+    Canvas canvas)
+{
+    const double inspectorWidth = trackerGeometryInspectorWidth(canvas);
+    const Column inspector {
+        canvas.width - kTrackerPageHorizontalInset - inspectorWidth,
+        inspectorWidth,
+        kTrackerPageContentTop,
+    };
+    const double mutationHeight = toolboxHeightForRows(4u);
+    const double mutationY = canvas.height - kTrackerPageBottomInset
+        - mutationHeight;
+    const Rect profile {
+        kTrackerPageHorizontalInset,
+        kTrackerPageContentTop,
+        inspector.x - kStandardMetrics.panelGap - kTrackerPageHorizontalInset,
+        mutationY - kStandardMetrics.panelGap - kTrackerPageContentTop,
+    };
+    const Column mutationColumn {
+        profile.x, profile.width, mutationY,
+    };
+    const Panel mutation = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Modulation, mutationColumn, mutationY,
+        mutationHeight, 4u);
+    const Panel target = fittedPanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Capture, inspector, inspector.top, 5u);
+    const Panel timing = fittedStackPanel(PanelRole::EventTiming,
+        target, 5u);
+    const Panel dynamics = fittedStackPanel(PanelRole::Relationships,
+        timing, 5u);
+    const double previewY = dynamics.frame.y + dynamics.frame.height
+        + kStandardMetrics.panelGap;
+    const Panel preview = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Utility, inspector, previewY,
+        canvas.height - kTrackerPageBottomInset - previewY, 4u);
+    return { canvas, profile, mutation, inspector, target, timing,
+        dynamics, preview };
+}
+
 constexpr TrackerSongFamilyLayout trackerSongFamilyLayout(Canvas canvas)
 {
     const double available = canvas.width - kTrackerPageHorizontalInset * 2.0
@@ -1406,6 +1456,24 @@ static_assert(kTrackerWarpNativeLayout.fieldPanel.y
     == kTrackerPageContentTop);
 static_assert(kTrackerWarpNativeLayout.transform.frame.y
     + kTrackerWarpNativeLayout.transform.frame.height == 762.0);
+
+inline constexpr TrackerReshapeFamilyLayout kTrackerReshapeNativeLayout =
+    trackerReshapeFamilyLayout({ 1320.0, 780.0 });
+static_assert(kTrackerReshapeNativeLayout.profilePanel.y
+    == kTrackerPageContentTop);
+static_assert(kTrackerReshapeNativeLayout.profilePanel.y
+        + kTrackerReshapeNativeLayout.profilePanel.height
+        + kStandardMetrics.panelGap
+    == kTrackerReshapeNativeLayout.mutation.frame.y);
+static_assert(kTrackerReshapeNativeLayout.mutation.frame.y
+        + kTrackerReshapeNativeLayout.mutation.frame.height
+    == 762.0);
+static_assert(kTrackerReshapeNativeLayout.inspectorColumn.x
+    == kTrackerReshapeNativeLayout.profilePanel.x
+        + kTrackerReshapeNativeLayout.profilePanel.width
+        + kStandardMetrics.panelGap);
+static_assert(kTrackerReshapeNativeLayout.previewApply.frame.y
+    + kTrackerReshapeNativeLayout.previewApply.frame.height == 762.0);
 
 inline constexpr TrackerSongFamilyLayout kTrackerSongNativeLayout =
     trackerSongFamilyLayout({ 1320.0, 780.0 });

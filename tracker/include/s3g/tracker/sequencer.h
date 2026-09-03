@@ -210,6 +210,7 @@ enum class SequencerAction : uint8_t {
     RepeatPrevious,
     Euclid,
     Condition,
+    Energy,
     Count,
 };
 
@@ -239,6 +240,24 @@ enum class SequencerCondition : uint8_t {
     Last,
     Fill,
     NotFill,
+    SongFirst,
+    SongLast,
+    RowOdd,
+    RowEven,
+    SongFirstOf2,
+    SongSecondOf2,
+    SongFirstOf4,
+    SongSecondOf4,
+    SongThirdOf4,
+    SongFourthOf4,
+    SongFirstOf8,
+    SongSecondOf8,
+    SongThirdOf8,
+    SongFourthOf8,
+    SongFifthOf8,
+    SongSixthOf8,
+    SongSeventhOf8,
+    SongEighthOf8,
     Count,
 };
 
@@ -258,6 +277,11 @@ struct SequencerConditionContext {
     // repeat count, which makes LAST exact; free-running patterns leave it 0.
     uint64_t passCount = 0u;
     bool fill = false;
+    bool songActive = false;
+    std::size_t songRowIndex = 0u;
+    std::size_t songRowCount = 0u;
+    uint64_t songLoopPassIndex = 0u;
+    float songEnergy = 1.0f;
 };
 
 const SequencerConditionDefinition* sequencerCondition(
@@ -606,6 +630,14 @@ public:
     {
         songConditionContext_.passIndex = passIndex;
         songConditionContext_.passCount = passCount;
+        songConditionContext_.songActive = true;
+        songConditionContextActive_ = true;
+    }
+    void setSongConditionContext(
+        const SequencerConditionContext& context) noexcept
+    {
+        songConditionContext_ = context;
+        songConditionContext_.songActive = true;
         songConditionContextActive_ = true;
     }
     void clearSongConditionContext() noexcept

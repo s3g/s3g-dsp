@@ -2,6 +2,7 @@ add_library(s3g_tracker_clap MODULE
   s3g_tracker_clap.cpp
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_controls.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_help_window.mm
+  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_reshape_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_warp_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_workspace.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_song_window.mm

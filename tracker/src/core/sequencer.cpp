@@ -79,7 +79,44 @@ constexpr std::array<SequencerConditionDefinition,
     { SequencerCondition::Last, "LAST", "LAST PASS" },
     { SequencerCondition::Fill, "FILL", "FILL ON" },
     { SequencerCondition::NotFill, "!FILL", "FILL OFF" },
+    { SequencerCondition::SongFirst, "SFIRST", "SONG FIRST" },
+    { SequencerCondition::SongLast, "SLAST", "SONG LAST" },
+    { SequencerCondition::RowOdd, "RODD", "ROW ODD" },
+    { SequencerCondition::RowEven, "REVEN", "ROW EVEN" },
+    { SequencerCondition::SongFirstOf2, "S1:2", "SONG LOOP 1 OF 2" },
+    { SequencerCondition::SongSecondOf2, "S2:2", "SONG LOOP 2 OF 2" },
+    { SequencerCondition::SongFirstOf4, "S1:4", "SONG LOOP 1 OF 4" },
+    { SequencerCondition::SongSecondOf4, "S2:4", "SONG LOOP 2 OF 4" },
+    { SequencerCondition::SongThirdOf4, "S3:4", "SONG LOOP 3 OF 4" },
+    { SequencerCondition::SongFourthOf4, "S4:4", "SONG LOOP 4 OF 4" },
+    { SequencerCondition::SongFirstOf8, "S1:8", "SONG LOOP 1 OF 8" },
+    { SequencerCondition::SongSecondOf8, "S2:8", "SONG LOOP 2 OF 8" },
+    { SequencerCondition::SongThirdOf8, "S3:8", "SONG LOOP 3 OF 8" },
+    { SequencerCondition::SongFourthOf8, "S4:8", "SONG LOOP 4 OF 8" },
+    { SequencerCondition::SongFifthOf8, "S5:8", "SONG LOOP 5 OF 8" },
+    { SequencerCondition::SongSixthOf8, "S6:8", "SONG LOOP 6 OF 8" },
+    { SequencerCondition::SongSeventhOf8, "S7:8", "SONG LOOP 7 OF 8" },
+    { SequencerCondition::SongEighthOf8, "S8:8", "SONG LOOP 8 OF 8" },
 }};
+
+constexpr std::size_t kLegacySequencerConditionCount =
+    static_cast<std::size_t>(SequencerCondition::NotFill) + 1u;
+
+float conditionStorageValue(SequencerCondition condition) noexcept
+{
+    const auto index = static_cast<std::size_t>(condition);
+    if (index < kLegacySequencerConditionCount) {
+        return static_cast<float>(index)
+            / static_cast<float>(kLegacySequencerConditionCount - 1u);
+    }
+    // Legacy CD values occupied index / 17 over the full normalized range.
+    // Interleave new exact menu values without moving any saved condition.
+    const auto extension = index - kLegacySequencerConditionCount;
+    const auto extensionCount = kSequencerConditionCount
+        - kLegacySequencerConditionCount;
+    return static_cast<float>(extension * 2u + 1u)
+        / static_cast<float>(extensionCount * 2u);
+}
 
 bool equalFold(std::string_view left, std::string_view right) noexcept
 {
@@ -134,20 +171,29 @@ const SequencerConditionDefinition* findSequencerCondition(
 SequencerCondition sequencerConditionFromNormalized(float value) noexcept
 {
     if (!std::isfinite(value)) value = 0.0f;
-    constexpr auto last = kSequencerConditionCount - 1u;
-    const auto index = static_cast<std::size_t>(std::clamp<long>(
-        std::lround(std::clamp(value, 0.0f, 1.0f)
-            * static_cast<float>(last)), 0l, static_cast<long>(last)));
-    return static_cast<SequencerCondition>(index);
+    value = std::clamp(value, 0.0f, 1.0f);
+    std::size_t nearest = 0u;
+    float distance = std::numeric_limits<float>::max();
+    for (std::size_t index = 0u;
+         index < kSequencerConditionCount; ++index) {
+        const float candidate = conditionStorageValue(
+            static_cast<SequencerCondition>(index));
+        const float candidateDistance = std::abs(value - candidate);
+        if (candidateDistance < distance) {
+            nearest = index;
+            distance = candidateDistance;
+        }
+    }
+    return static_cast<SequencerCondition>(nearest);
 }
 
 float normalizedFromSequencerCondition(
     SequencerCondition condition) noexcept
 {
-    constexpr auto last = kSequencerConditionCount - 1u;
     const auto index = std::min<std::size_t>(
-        static_cast<std::size_t>(condition), last);
-    return static_cast<float>(index) / static_cast<float>(last);
+        static_cast<std::size_t>(condition),
+        kSequencerConditionCount - 1u);
+    return conditionStorageValue(static_cast<SequencerCondition>(index));
 }
 
 bool sequencerConditionPasses(SequencerCondition condition,
@@ -155,6 +201,10 @@ bool sequencerConditionPasses(SequencerCondition condition,
 {
     const auto ratio = [&](uint64_t numerator, uint64_t denominator) {
         return context.passIndex % denominator + 1u == numerator;
+    };
+    const auto songRatio = [&](uint64_t numerator, uint64_t denominator) {
+        return context.songActive
+            && context.songLoopPassIndex % denominator + 1u == numerator;
     };
     switch (condition) {
     case SequencerCondition::FirstOf2: return ratio(1u, 2u);
@@ -177,6 +227,29 @@ bool sequencerConditionPasses(SequencerCondition condition,
             && context.passIndex + 1u >= context.passCount;
     case SequencerCondition::Fill: return context.fill;
     case SequencerCondition::NotFill: return !context.fill;
+    case SequencerCondition::SongFirst:
+        return context.songActive && context.songRowIndex == 0u;
+    case SequencerCondition::SongLast:
+        return context.songActive && context.songRowCount > 0u
+            && context.songRowIndex + 1u >= context.songRowCount;
+    case SequencerCondition::RowOdd:
+        return context.songActive && context.songRowIndex % 2u == 0u;
+    case SequencerCondition::RowEven:
+        return context.songActive && context.songRowIndex % 2u == 1u;
+    case SequencerCondition::SongFirstOf2: return songRatio(1u, 2u);
+    case SequencerCondition::SongSecondOf2: return songRatio(2u, 2u);
+    case SequencerCondition::SongFirstOf4: return songRatio(1u, 4u);
+    case SequencerCondition::SongSecondOf4: return songRatio(2u, 4u);
+    case SequencerCondition::SongThirdOf4: return songRatio(3u, 4u);
+    case SequencerCondition::SongFourthOf4: return songRatio(4u, 4u);
+    case SequencerCondition::SongFirstOf8: return songRatio(1u, 8u);
+    case SequencerCondition::SongSecondOf8: return songRatio(2u, 8u);
+    case SequencerCondition::SongThirdOf8: return songRatio(3u, 8u);
+    case SequencerCondition::SongFourthOf8: return songRatio(4u, 8u);
+    case SequencerCondition::SongFifthOf8: return songRatio(5u, 8u);
+    case SequencerCondition::SongSixthOf8: return songRatio(6u, 8u);
+    case SequencerCondition::SongSeventhOf8: return songRatio(7u, 8u);
+    case SequencerCondition::SongEighthOf8: return songRatio(8u, 8u);
     case SequencerCondition::Count: return false;
     }
     return false;
@@ -1149,6 +1222,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
     SequencerConditionContext conditionContext = songConditionContext_;
     conditionContext.fill = fillActive_;
     if (!songConditionContextActive_) {
+        conditionContext.songActive = false;
+        conditionContext.songEnergy = 1.0f;
         const uint64_t cycleLength = transport_.loopEnabled
             ? std::max<uint64_t>(transport_.loopEndRow
                     - transport_.loopStartRow, 1u)
@@ -1390,6 +1465,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             bool euclidEnabled = false;
             bool offsetEnabled = false;
             bool skipEnabled = false;
+            bool energyEnabled = false;
+            float energyThreshold = 0.0f;
             bool conditionAccepted = true;
         } noteFx;
         for (const auto& pending : pendingFx) {
@@ -1429,6 +1506,10 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                     && sequencerConditionPasses(
                         sequencerConditionFromNormalized(value),
                         conditionContext);
+                break;
+            case SequencerAction::Energy:
+                noteFx.energyEnabled = true;
+                noteFx.energyThreshold = value;
                 break;
             default:
                 break;
@@ -1499,6 +1580,10 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
 
         bool accepted = candidate.trigger && !candidate.hardRelease
             && noteFx.conditionAccepted;
+        if (accepted && noteFx.energyEnabled) {
+            accepted = conditionContext.songEnergy + 0.000001f
+                >= noteFx.energyThreshold;
+        }
         if (noteFx.probabilityEnabled) {
             const bool probabilityPassed = chancePassed(
                 noteFx.probability, 0.999f, false, false);

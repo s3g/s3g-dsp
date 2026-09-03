@@ -123,6 +123,7 @@ struct WorkspaceCallbacks {
     // CLAP hosts provide page callbacks so the same workspace actions stay
     // inside the plug-in editor.
     std::function<void()> showGeometryPage;
+    std::function<void()> showReshapePage;
     std::function<void()> showTrackerPage;
     std::function<void()> showWarpPage;
     std::function<void()> showInstrumentWindow;
@@ -136,6 +137,13 @@ struct WorkspaceCallbacks {
     // the audio thread never reaches back into the editor model.
     std::function<void(const BurstDefinition&, uint8_t, double, uint32_t)>
         previewBurst;
+    // Reshape audition swaps only the immutable audio-thread runtime. It does
+    // not touch the stored document until the page commits with patternChanged.
+    std::function<void(const Pattern&)> previewPattern;
+    std::function<void()> clearPatternPreview;
+    // Stores and selects an immutable Reshape result as a new pattern-bank
+    // entry, preserving the source pattern.
+    std::function<void(const Pattern&)> createPatternVariant;
     std::function<void(uint32_t)> resetInstrumentPatch;
     std::function<void()> instrumentRackChanged;
     // Republishes derived runtime assets (for example decoded sample PCM)
@@ -181,6 +189,7 @@ struct WorkspaceCallbacks {
 - (void)showMixerPage:(id)sender;
 - (void)showTrackerPage:(id)sender;
 - (NSView*)geometryPageView;
+- (NSView*)reshapePageView;
 - (NSView*)warpPageView;
 - (NSView*)consolePageView;
 - (void)focusConsole;

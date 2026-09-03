@@ -148,7 +148,11 @@ void testConditionalSequencingGate()
     check(s3g::tracker::findSequencerCondition("2:4")
                 ->condition == SequencerCondition::SecondOf4
             && s3g::tracker::findSequencerCondition("!fill")
-                ->condition == SequencerCondition::NotFill,
+                ->condition == SequencerCondition::NotFill
+            && s3g::tracker::findSequencerCondition("SFIRST")
+                ->condition == SequencerCondition::SongFirst
+            && s3g::tracker::findSequencerCondition("S7:8")
+                ->condition == SequencerCondition::SongSeventhOf8,
         "condition tokens should parse case-insensitively with stable musical names");
     for (std::size_t index = 0u;
          index < s3g::tracker::kSequencerConditionCount; ++index) {
@@ -157,6 +161,14 @@ void testConditionalSequencingGate()
                 s3g::tracker::normalizedFromSequencerCondition(condition))
                 == condition,
             "every discrete condition must round-trip through the normalized V cell");
+    }
+    for (std::size_t index = 0u;
+         index <= static_cast<std::size_t>(SequencerCondition::NotFill);
+         ++index) {
+        check(std::abs(s3g::tracker::normalizedFromSequencerCondition(
+                static_cast<SequencerCondition>(index))
+                    - static_cast<float>(index) / 17.0f) < 0.000001f,
+            "adding Song conditions must preserve every legacy CD storage value");
     }
 
     Track ratioTrack = makeTrack({ 36u });
@@ -225,6 +237,64 @@ void testConditionalSequencingGate()
             && !s3g::tracker::sequencerConditionPasses(
                 SequencerCondition::First, context),
         "LAST and !FILL should use exact Song repetition context");
+
+    context.songActive = true;
+    context.songRowIndex = 0u;
+    context.songRowCount = 3u;
+    context.songLoopPassIndex = 1u;
+    context.songEnergy = 0.60f;
+    check(s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::SongFirst, context)
+            && !s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::SongLast, context)
+            && s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::RowOdd, context)
+            && !s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::RowEven, context)
+            && s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::SongSecondOf2, context)
+            && !s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::SongFirstOf2, context),
+        "Song CD conditions should use one-based row parity and whole-arrangement loop passes");
+    context.songRowIndex = 2u;
+    check(s3g::tracker::sequencerConditionPasses(
+            SequencerCondition::SongLast, context),
+        "SONG LAST should identify the final arrangement row");
+    context.songActive = false;
+    check(!s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::SongFirst, context)
+            && !s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::SongSecondOf2, context),
+        "Song-only CD conditions should remain closed in Pattern playback");
+
+    Track energyTrack = makeTrack({ 42u });
+    energyTrack.fxPairs[0u].actions = { FxActionCell::sequencer(
+        SequencerAction::Energy) };
+    energyTrack.fxPairs[0u].values = { FxValueCell::withValue(0.65f) };
+    energyTrack.fxPairs[0u].actionColumn.length = 1u;
+    energyTrack.fxPairs[0u].valueColumn.length = 1u;
+    Pattern energyPattern;
+    energyPattern.visibleRows = 1u;
+    energyPattern.tracks.push_back(std::move(energyTrack));
+    Sequencer energy;
+    energy.setPattern(std::move(energyPattern));
+    energy.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    s3g::tracker::SequencerConditionContext energyContext;
+    energyContext.songActive = true;
+    energyContext.songRowCount = 1u;
+    energyContext.songEnergy = 0.60f;
+    energy.setSongConditionContext(energyContext);
+    energy.start();
+    std::array<ScheduledEvent, 8u> energyEvents {};
+    check(energy.process(1u, energyEvents.data(), energyEvents.size()) == 0u,
+        "EN should suppress a note below its Song-row energy threshold");
+    energyContext.songEnergy = 0.65f;
+    energy.setSongConditionContext(energyContext);
+    const auto energyCount = energy.process(6000u, energyEvents.data(),
+        energyEvents.size());
+    check(energyCount == 1u
+            && energyEvents[0u].kind == ScheduledEventKind::NoteOn,
+        "EN should admit a note when Song-row energy equals its threshold");
 }
 
 void testInstrumentColumnPolymeterAndMemory()

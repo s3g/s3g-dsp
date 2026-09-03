@@ -41,6 +41,9 @@ struct SongRow {
     std::string patternId;
     uint32_t durationTicks = 16u;
     uint32_t repeats = 1u;
+    // Arrangement intensity consumed by the EN sequencing action. One keeps
+    // legacy and ordinary Song rows fully enabled.
+    float energy = 1.0f;
     std::optional<double> bpm;
     std::optional<double> swing;
     uint32_t mutedTracks = 0u;
@@ -65,6 +68,7 @@ enum class SongValidationCode : uint8_t {
     EmptyPatternId,
     InvalidDurationTicks,
     InvalidRepeats,
+    InvalidEnergy,
     InvalidBpm,
     InvalidSwing,
     InvalidTimingWarpLibraryIndex,
@@ -171,6 +175,9 @@ public:
     // across arbitrary row jumps.
     uint64_t absoluteTick() const noexcept { return absoluteTick_; }
     uint64_t ticksCompletedInRow() const noexcept { return ticksInRow_; }
+    // Zero-based traversal of the complete arrangement. This advances only
+    // when LOOP SONG wraps the final row back to row one.
+    uint64_t songLoopPassIndex() const noexcept { return songLoopPassIndex_; }
     uint32_t currentRepeatIndex() const noexcept;
     uint32_t tickInPatternCycle() const noexcept;
 
@@ -192,6 +199,7 @@ private:
     std::size_t currentRow_ = 0u;
     uint64_t absoluteTick_ = 0u;
     uint64_t ticksInRow_ = 0u;
+    uint64_t songLoopPassIndex_ = 0u;
     bool running_ = false;
     bool finished_ = false;
 };

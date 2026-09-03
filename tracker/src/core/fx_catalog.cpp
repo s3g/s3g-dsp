@@ -56,7 +56,9 @@ constexpr std::array<SequencerActionDefinition,
     { SequencerAction::Euclid, "seq.euclid", "EU", "Euclidean Gate",
         "gate the NOTE row with one through NOTE-length Euclidean hits" },
     { SequencerAction::Condition, "seq.condition", "CD", "Condition",
-        "play on selected cycle visits, first/last pass, or live FILL state" },
+        "play on selected cycle, Song-row, Song-loop, or live FILL conditions" },
+    { SequencerAction::Energy, "seq.energy", "EN", "Song Energy",
+        "play when the active Song row energy meets this zero-to-one threshold" },
 }};
 
 bool equalFold(std::string_view left, std::string_view right) noexcept

@@ -1,5 +1,6 @@
 #import "s3g_tracker_workspace.h"
 #import "s3g_tracker_controls.h"
+#import "s3g_tracker_reshape_window.h"
 #import "s3g_tracker_warp_window.h"
 #include "s3g_tracker_grid_input.h"
 #include "s3g_tracker_grid_selection.h"
@@ -849,6 +850,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerGeometryView* geometryView;
 @property(nonatomic, strong) S3GTrackerGeometryWindowController*
     geometryWindowController;
+@property(nonatomic, strong) S3GTrackerReshapeWindowController*
+    reshapeWindowController;
 @property(nonatomic, strong) S3GTrackerWarpWindowController*
     warpWindowController;
 @property(nonatomic, strong) S3GTrackerEnvelopeView* envelopeView;
@@ -886,8 +889,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerPopupButton* loopStartField;
 @property(nonatomic, strong) S3GTrackerPopupButton* loopEndField;
 @property(nonatomic, strong) NSPopUpButton* audioPopup;
-@property(nonatomic, strong) NSTextField* routeStatus;
-@property(nonatomic, strong) NSTextField* eventStatus;
 @property(nonatomic, strong) NSLayoutConstraint* envelopeHeightConstraint;
 - (void)modulePatternChanged;
 - (void)moduleTransportChanged;
@@ -1895,7 +1896,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         if (index == static_cast<std::size_t>(
                 s3g::tracker::SequencerCondition::First)
             || index == static_cast<std::size_t>(
-                s3g::tracker::SequencerCondition::Fill)) {
+                s3g::tracker::SequencerCondition::Fill)
+            || index == static_cast<std::size_t>(
+                s3g::tracker::SequencerCondition::SongFirst)
+            || index == static_cast<std::size_t>(
+                s3g::tracker::SequencerCondition::SongFirstOf2)) {
             [menu addItem:NSMenuItem.separatorItem];
         }
         NSMenuItem* item = [[NSMenuItem alloc]
@@ -7874,7 +7879,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 static_cast<unsigned long>(model->session.selectedRow + 1u)],
         geometry.trackerBridge, 0u,
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary));
-    drawBurstInfo(@"SEQ", @"CD / PR / SK / EU GATE WHOLE BURST",
+    drawBurstInfo(@"SEQ", @"CD / EN / PR / SK / EU GATE WHOLE BURST",
         geometry.trackerBridge, 1u,
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted));
     drawBurstInfo(@"TIMING", @"MT / DL SHIFT WHOLE BURST",
@@ -8955,11 +8960,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [pointColor setFill];
         [point fill];
     }
-    drawText(model->songPlaybackActive
-            ? @"SONG PLAYBACK FOLLOW  /  READ ONLY"
-            : @"BRIGHT CYAN: NOTE HIT   DARK GRAY: NO NOTE   CLICK/DRAG: PAINT   OPTION: PREVIOUS",
-        NSMakeRect(left, NSHeight(self.bounds) - 17.0, width, 12.0),
-        trackerColor(0x737a80), 7.0);
+    if (model->songPlaybackActive) {
+        drawText(@"SONG PLAYBACK FOLLOW  /  READ ONLY",
+            NSMakeRect(left, NSHeight(self.bounds) - 17.0, width, 12.0),
+            trackerColor(0x737a80), 7.0);
+    }
 }
 
 - (void)drawPlaybackOverlay
@@ -9406,25 +9411,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         patternPrimary, transportPrimary, inputPrimary,
     ]];
 
-    self.routeStatus = [self label:@"MIDI ROUTE" size:8.0
-        color:trackerColor(0xa0a0a0)];
-    self.routeStatus.accessibilityLabel = @"Tracker route status";
-    self.routeStatus.lineBreakMode = NSLineBreakByTruncatingMiddle;
-    self.routeStatus.toolTip = self.routeStatus.stringValue;
-    [self.routeStatus setContentCompressionResistancePriority:1.0
-        forOrientation:NSLayoutConstraintOrientationHorizontal];
-    self.routeStatus.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.toolbar addSubview:self.routeStatus];
-    self.eventStatus = [self label:@"NO EVENTS" size:8.0
-        color:trackerColor(0x737a80)];
-    self.eventStatus.alignment = NSTextAlignmentRight;
-    self.eventStatus.lineBreakMode = NSLineBreakByTruncatingTail;
-    self.eventStatus.toolTip = self.eventStatus.stringValue;
-    [self.eventStatus setContentCompressionResistancePriority:1.0
-        forOrientation:NSLayoutConstraintOrientationHorizontal];
-    self.eventStatus.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.toolbar addSubview:self.eventStatus];
-
     self.gridView = [[S3GTrackerGridView alloc] initWithState:self.trackerState
         owner:self];
     self.gridScroll = [[S3GTrackerGridScrollView alloc]
@@ -9454,6 +9440,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.geometryWindowController = [[S3GTrackerGeometryWindowController alloc]
         initWithState:self.trackerState owner:self];
     self.geometryView = self.geometryWindowController.geometryView;
+    self.reshapeWindowController = [[S3GTrackerReshapeWindowController alloc]
+        initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.warpWindowController = [[S3GTrackerWarpWindowController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.envelopeView = [[S3GTrackerEnvelopeView alloc]
@@ -9556,15 +9544,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             s3g::tracker::app::kWorkspaceToolbarHeight],
         [self.transportScroll.leadingAnchor constraintEqualToAnchor:self.toolbar.leadingAnchor],
         [self.transportScroll.trailingAnchor constraintEqualToAnchor:self.toolbar.trailingAnchor],
-        [self.transportScroll.topAnchor constraintEqualToAnchor:self.toolbar.topAnchor constant:2.0],
+        [self.transportScroll.topAnchor constraintEqualToAnchor:self.toolbar.topAnchor constant:9.0],
         [self.transportScroll.heightAnchor constraintEqualToConstant:51.0],
-        [self.routeStatus.leadingAnchor constraintEqualToAnchor:self.toolbar.leadingAnchor constant:14.0],
-        [self.routeStatus.trailingAnchor constraintLessThanOrEqualToAnchor:self.toolbar.centerXAnchor constant:-8.0],
-        [self.routeStatus.bottomAnchor constraintEqualToAnchor:self.toolbar.bottomAnchor constant:-3.0],
-        [self.eventStatus.trailingAnchor constraintEqualToAnchor:self.toolbar.trailingAnchor constant:-14.0],
-        [self.eventStatus.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.toolbar.centerXAnchor constant:8.0],
-        [self.eventStatus.bottomAnchor constraintEqualToAnchor:self.toolbar.bottomAnchor constant:-3.0],
-        [self.eventStatus.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.routeStatus.trailingAnchor constant:16.0],
 
         [self.consolePanel.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
         [self.consolePanel.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
@@ -9585,7 +9566,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self.transportPanel.trailingAnchor constraintEqualToAnchor:
             root.trailingAnchor constant:-18.0],
         [self.transportPanel.bottomAnchor constraintEqualToAnchor:
-            root.bottomAnchor constant:-4.0],
+            root.bottomAnchor constant:-12.0],
         [self.transportPanel.heightAnchor constraintEqualToConstant:51.0],
 
         [consoleTitle.leadingAnchor constraintEqualToAnchor:self.consolePanel.leadingAnchor constant:12.0],
@@ -9659,14 +9640,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.gridView.frame = NSMakeRect(0.0, 0.0, width,
         std::max(height, NSHeight(self.gridScroll.contentView.bounds)));
     [self.rowGutterView refreshFrameAndDisplay];
-}
-
-- (void)refreshStatusMetadata
-{
-    self.routeStatus.toolTip = self.routeStatus.stringValue;
-    self.eventStatus.toolTip = self.eventStatus.stringValue;
-    self.routeStatus.accessibilityValue = self.routeStatus.stringValue;
-    self.eventStatus.accessibilityValue = self.eventStatus.stringValue;
 }
 
 - (void)refreshPlaybackFollowControls
@@ -9867,16 +9840,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         nearestTempoScaleIndex(state->tempoScale))];
     [self.swingField setSwingValue:
         state->session.transport.swing * 100.0 hasOverride:YES];
-    self.routeStatus.stringValue = [NSString stringWithFormat:
-        @"HOST: REAPER  •  MIDI: %@  •  WARP %lu/%u  •  %@",
-        nsString(state->midiRoute),
-        static_cast<unsigned long>(state->session.transport.timingWarp.size()),
-        state->session.transport.warpCycleTicks, nsString(state->status)];
-    self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  LATE %llu  CLK %llu",
-        nsString(state->lastEvent), state->sentEventCount,
-        state->droppedEventCount, state->audioLateEventCount,
-        state->audioClockFaultCount];
-    [self refreshStatusMetadata];
     [self refreshPlaybackFollowControls];
     [self.gridView setNeedsDisplay:YES];
     [self.gridView refreshAccessibilityValue];
@@ -9884,6 +9847,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self applyWorkspaceMode];
     [self.geometryView setNeedsDisplay:YES];
     [self.geometryView.playbackOverlay setNeedsDisplay:YES];
+    [self.reshapeWindowController reloadModel];
     [self.warpWindowController reloadModel];
     [self.envelopeView setNeedsDisplay:YES];
     [self.envelopeView.playbackOverlay setNeedsDisplay:YES];
@@ -9906,25 +9870,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             = self.trackerState->session.transport.loopEnabled
                 ? NSControlStateValueOn : NSControlStateValueOff;
         [self.loopButton setNeedsDisplay:YES];
-        self.routeStatus.stringValue = [NSString stringWithFormat:
-            @"HOST: REAPER  •  MIDI: %@  •  WARP %lu/%u  •  %@",
-            nsString(self.trackerState->midiRoute),
-            static_cast<unsigned long>(
-                self.trackerState->session.transport.timingWarp.size()),
-            self.trackerState->session.transport.warpCycleTicks,
-            nsString(self.trackerState->status)];
-        self.eventStatus.stringValue = [NSString stringWithFormat:@"%@  •  SENT %llu  DROP %llu  LATE %llu  CLK %llu",
-            nsString(self.trackerState->lastEvent),
-            self.trackerState->sentEventCount,
-            self.trackerState->droppedEventCount,
-            self.trackerState->audioLateEventCount,
-            self.trackerState->audioClockFaultCount];
-        [self refreshStatusMetadata];
         [self.gridView refreshPlaybackDisplay];
         [self.envelopeView refreshPlaybackDisplay];
     }
     if (viewCanPresentPlayback(self.geometryView))
         [self.geometryView refreshPlaybackDisplay];
+    [self.reshapeWindowController refreshPlaybackDisplay];
     // The Warps content view is reparented into the CLAP page stack, so its
     // original controller window is not a reliable visibility signal. This
     // redraw is small and must run on every display tick for the curve marker.
@@ -10020,6 +9971,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     (void)self.view;
     return self.geometryView;
+}
+
+- (NSView*)reshapePageView
+{
+    (void)self.view;
+    [self.reshapeWindowController reloadModel];
+    return self.reshapeWindowController.window.contentView;
 }
 
 - (NSView*)warpPageView

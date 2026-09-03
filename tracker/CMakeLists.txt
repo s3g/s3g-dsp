@@ -6,6 +6,7 @@ add_library(s3g_tracker_core STATIC
   src/core/instrument_rack.cpp
   src/core/midi_step_recorder.cpp
   src/core/pattern_bank.cpp
+  src/core/pattern_reshape.cpp
   src/core/atomic_project_store.cpp
   src/core/project_codec.cpp
   src/core/project_history.cpp
@@ -53,6 +54,7 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_stereo_slice_sampler_tests tests/stereo_slice_sampler_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_project_codec_tests tests/project_codec_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_bank_tests tests/pattern_bank_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_pattern_reshape_tests tests/pattern_reshape_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_timing_runtime_tests tests/song_timing_runtime_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_visual_note_hit_mailbox_tests tests/visual_note_hit_mailbox_tests.cpp)
@@ -96,6 +98,7 @@ if(BUILD_TESTING)
       tests/workspace_layout_appkit_tests.mm
       src/app/macos/s3g_tracker_workspace.mm
       src/app/macos/s3g_tracker_controls.mm
+      src/app/macos/s3g_tracker_reshape_window.mm
       src/app/macos/s3g_tracker_warp_window.mm)
     target_include_directories(s3g_tracker_workspace_layout_appkit_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos

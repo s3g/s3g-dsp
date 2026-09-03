@@ -1,5 +1,6 @@
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/fx_catalog.h"
+#include "s3g/tracker/pattern_reshape.h"
 
 #include <algorithm>
 #include <array>
@@ -886,7 +887,7 @@ bool makeFxSequenceCell(std::string_view atom,
         && selectedAction.sequencerAction == SequencerAction::Condition) {
         const auto* condition = findSequencerCondition(atom);
         if (!condition) {
-            error = "CD values must be 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, or !FILL.";
+            error = "CD values must be a local ratio, FIRST/LAST, FILL/!FILL, SFIRST/SLAST, RODD/REVEN, or S1:2..S8:8.";
             return false;
         }
         cell.action = selectedAction;
@@ -1047,6 +1048,47 @@ bool parseFxAmount(std::string_view token, float& normalized)
     if (value > 1.0) return false;
     normalized = static_cast<float>(value);
     return true;
+}
+
+bool parsePercentRange(std::string_view token, double minimum,
+    double maximum, float& normalized)
+{
+    if (!token.empty() && token.back() == '%') token.remove_suffix(1u);
+    double value = 0.0;
+    if (!parseFiniteDouble(token, value)
+        || value < minimum || value > maximum) return false;
+    normalized = static_cast<float>(value * 0.01);
+    return true;
+}
+
+std::string patternAnalysisText(const PatternReshapeAnalysis& analysis)
+{
+    std::ostringstream stream;
+    stream << "Pattern analysis: " << analysis.rows << " rows · cycle "
+           << analysis.cycleRows << " · " << analysis.passes
+           << " pass" << (analysis.passes == 1u ? "" : "es")
+           << " · " << analysis.noteEvents << " note events · "
+           << analysis.timingValues << " MT values · "
+           << analysis.velocityValues << " velocity values · "
+           << analysis.writableTimingOnsets << " writable MT onsets · "
+           << analysis.defaultVelocityValues << " default velocity cells"
+           << " · confidence "
+           << std::lround(analysis.confidence * 100.0f) << "%";
+    if (analysis.timingValues > 0u) {
+        stream << " · MT center "
+               << std::lround(analysis.timingMedian * 100.0f) << "%"
+               << " ±" << std::lround(analysis.timingMad * 100.0f) << "%";
+    }
+    if (analysis.velocityValues > 0u) {
+        stream << " · velocity "
+               << std::lround(analysis.velocityMedian * 127.0f)
+               << " ±" << std::lround(analysis.velocityMad * 127.0f);
+    }
+    if (analysis.unsupportedTimingValues > 0u)
+        stream << " · " << analysis.unsupportedTimingValues
+               << " polymetric MT values protected";
+    stream << '.';
+    return stream.str();
 }
 
 bool fxCellNamesAction(const FxActionCell& cell,
@@ -2240,9 +2282,179 @@ CommandResult executeTokens(TrackerSession& session,
         stream << '.';
         return success(stream.str(), CommandEffect::PatternChanged);
     }
+    if (verb == "pattern") {
+        if (tokens.size() < 2u)
+            return failure("Usage: pattern <analyze|reshape> ...");
+        const auto operation = asciiLower(tokens[1u]);
+        if (operation == "analyze" || operation == "analyse") {
+            std::size_t cycle = 0u;
+            if (tokens.size() > 3u)
+                return failure("Usage: pattern analyze [cycle rows]");
+            if (tokens.size() == 3u
+                && (asciiLower(tokens[2u]) != "auto"
+                    && (!parseUnsigned(tokens[2u], cycle)
+                        || cycle == 0u || cycle > kMaximumRows))) {
+                return failure("Analysis cycle must be AUTO or 1..256 rows.");
+            }
+            return success(patternAnalysisText(
+                analyzePatternReshape(session.pattern, cycle)));
+        }
+        if (operation != "reshape")
+            return failure("Pattern operation must be analyze or reshape.");
+
+        PatternReshapeSettings settings;
+        for (std::size_t index = 2u; index < tokens.size();) {
+            const auto option = asciiLower(tokens[index++]);
+            if (index >= tokens.size())
+                return failure("Every pattern reshape option requires a value.");
+            const auto value = asciiLower(tokens[index++]);
+            if (option == "cycle") {
+                if (value != "auto"
+                    && (!parseUnsigned(value, settings.cycleRows)
+                        || settings.cycleRows == 0u
+                        || settings.cycleRows > kMaximumRows)) {
+                    return failure("Reshape cycle must be AUTO or 1..256 rows.");
+                }
+            } else if (option == "pocket") {
+                if (!parsePercentRange(value, 0.0, 100.0,
+                        settings.pocket))
+                    return failure("Pocket must be 0..100 percent.");
+            } else if (option == "tighten") {
+                if (!parsePercentRange(value, 0.0, 100.0,
+                        settings.tighten))
+                    return failure("Tighten must be 0..100 percent.");
+            } else if (option == "depth") {
+                if (!parsePercentRange(value, -100.0, 100.0,
+                        settings.timingDepth))
+                    return failure("Timing depth must be -100..100 percent.");
+            } else if (option == "range") {
+                if (!parsePercentRange(value, 0.0, 200.0,
+                        settings.velocityRange))
+                    return failure("Velocity range must be 0..200 percent.");
+            } else if (option == "accents" || option == "accent") {
+                if (!parsePercentRange(value, 0.0, 200.0,
+                        settings.accentDepth))
+                    return failure("Accent depth must be 0..200 percent.");
+            } else if (option == "balance") {
+                if (!parsePercentRange(value, 0.0, 100.0,
+                        settings.laneBalance))
+                    return failure("Lane balance must be 0..100 percent.");
+            } else if (option == "mutate" || option == "mutation"
+                || option == "amount") {
+                if (!parsePercentRange(value, 0.0, 100.0,
+                        settings.mutationAmount))
+                    return failure("Mutation amount must be 0..100 percent.");
+            } else if (option == "density") {
+                if (!parsePercentRange(value, -100.0, 100.0,
+                        settings.densityChange))
+                    return failure("Mutation density must be -100..100 percent.");
+            } else if (option == "syncopate"
+                || option == "syncopation") {
+                if (!parsePercentRange(value, -100.0, 100.0,
+                        settings.syncopation))
+                    return failure("Syncopation must be -100..100 percent.");
+            } else if (option == "shift" || option == "displace") {
+                std::size_t rows = 0u;
+                if (!parseUnsigned(value, rows) || rows > 4u)
+                    return failure("Mutation shift must be 0..4 rows.");
+                settings.displacementRows = static_cast<uint32_t>(rows);
+            } else if (option == "bursts" || option == "burst") {
+                if (!parsePercentRange(value, 0.0, 100.0,
+                        settings.burstChance))
+                    return failure("Burst mutation must be 0..100 percent.");
+            } else if (option == "cycledrift"
+                || option == "cycle-drift") {
+                if (!parsePercentRange(value, 0.0, 100.0,
+                        settings.cycleDrift))
+                    return failure("Cycle drift must be 0..100 percent.");
+            } else if (option == "seed") {
+                std::size_t seed = 0u;
+                if (!parseUnsigned(value, seed) || seed == 0u)
+                    return failure("Mutation seed must be a positive integer.");
+                settings.mutationSeed = static_cast<uint64_t>(seed);
+            } else if (option == "outliers") {
+                if (value == "off") {
+                    settings.timingOutlierThreshold = 0.0f;
+                    settings.velocityOutlierThreshold = 0.0f;
+                } else if (value == "soft") {
+                    settings.timingOutlierThreshold = 3.0f;
+                    settings.velocityOutlierThreshold = 3.0f;
+                } else if (value == "strong") {
+                    settings.timingOutlierThreshold = 2.0f;
+                    settings.velocityOutlierThreshold = 2.0f;
+                }
+                else return failure("Outliers must be OFF, SOFT, or STRONG.");
+            } else if (option == "mtoutliers"
+                || option == "timing-outliers") {
+                if (value == "off") settings.timingOutlierThreshold = 0.0f;
+                else if (value == "soft")
+                    settings.timingOutlierThreshold = 3.0f;
+                else if (value == "strong")
+                    settings.timingOutlierThreshold = 2.0f;
+                else return failure(
+                    "MT outliers must be OFF, SOFT, or STRONG.");
+            } else if (option == "veloutliers"
+                || option == "velocity-outliers") {
+                if (value == "off") settings.velocityOutlierThreshold = 0.0f;
+                else if (value == "soft")
+                    settings.velocityOutlierThreshold = 3.0f;
+                else if (value == "strong")
+                    settings.velocityOutlierThreshold = 2.0f;
+                else return failure(
+                    "Velocity outliers must be OFF, SOFT, or STRONG.");
+            } else if (option == "mtwrite"
+                || option == "write-mt") {
+                if (value == "existing")
+                    settings.microTimingWrite =
+                        PatternReshapeWriteMode::ExistingOnly;
+                else if (value == "missing" || value == "onsets")
+                    settings.microTimingWrite =
+                        PatternReshapeWriteMode::FillMissing;
+                else return failure(
+                    "MT write must be EXISTING or MISSING.");
+            } else if (option == "velwrite"
+                || option == "write-vel") {
+                if (value == "existing")
+                    settings.velocityWrite =
+                        PatternReshapeWriteMode::ExistingOnly;
+                else if (value == "missing" || value == "defaults")
+                    settings.velocityWrite =
+                        PatternReshapeWriteMode::FillMissing;
+                else return failure(
+                    "Velocity write must be EXISTING or DEFAULTS.");
+            } else {
+                return failure("Pattern reshape options: cycle, pocket, tighten, depth, mtwrite, mtoutliers, range, accents, balance, velwrite, veloutliers, mutate, density, syncopate, shift, bursts, cycledrift, seed.");
+            }
+        }
+        settings.laneDefaultNotes = session.laneDefaultNotes;
+        const auto reshaped = reshapePattern(session.pattern, settings);
+        if (reshaped.changed()) session.pattern = reshaped.pattern;
+        std::ostringstream stream;
+        stream << "Pattern reshape changed " << reshaped.timingChanged
+               << " MT and " << reshaped.velocityChanged
+               << " velocity values";
+        if (reshaped.timingCreated > 0u
+            || reshaped.velocityCreated > 0u) {
+            stream << " (added " << reshaped.timingCreated << " MT and "
+                   << reshaped.velocityCreated << " velocity values)";
+        }
+        if (reshaped.timingSkipped > 0u)
+            stream << "; protected " << reshaped.timingSkipped
+                   << " polymetric MT values";
+        if (settings.mutationAmount > 0.0f) {
+            stream << "; hits +" << reshaped.notesAdded << " -"
+                   << reshaped.notesRemoved << ", moved "
+                   << reshaped.notesMoved << ", Bursts "
+                   << reshaped.burstsCreated << ", cycles "
+                   << reshaped.cyclesChanged;
+        }
+        stream << '.';
+        return success(stream.str(), reshaped.changed()
+                ? CommandEffect::PatternChanged : CommandEffect::None);
+    }
     if (verb == "variation" || verb == "vary") {
         if (tokens.size() < 2u) {
-            return failure("Usage: variation <generate|generateseed|scene|mutate|drumscene> ... [launch <tick|beat|cycle>]");
+            return failure("Usage: variation <generate|generateseed|scene|mutate|drumscene|reshape> ... [launch <tick|beat|cycle>]");
         }
         auto generatorEnd = tokens.size();
         PatternVariationLaunch launch = PatternVariationLaunch::None;
@@ -2265,11 +2477,14 @@ CommandResult executeTokens(TrackerSession& session,
             tokens.begin() + static_cast<std::ptrdiff_t>(generatorEnd));
         if (generatorTokens.empty())
             return failure("Variation requires a generation or mutation command.");
-        const auto generatorVerb = asciiLower(generatorTokens.front());
-        if (generatorVerb != "generate" && generatorVerb != "generateseed"
+        auto generatorVerb = asciiLower(generatorTokens.front());
+        if (generatorVerb == "reshape") {
+            generatorTokens.insert(generatorTokens.begin(), "pattern");
+            generatorVerb = "pattern";
+        } else if (generatorVerb != "generate" && generatorVerb != "generateseed"
             && generatorVerb != "scene" && generatorVerb != "mutate"
             && generatorVerb != "drumscene") {
-            return failure("Variation accepts generate, generateseed, scene, mutate, or drumscene.");
+            return failure("Variation accepts generate, generateseed, scene, mutate, drumscene, or reshape.");
         }
 
         TrackerSession generated = session;
@@ -2980,9 +3195,10 @@ CommandResult executeTokens(TrackerSession& session,
             CommandEffect::PatternChanged);
     }
 
-    if (verb == "prob" || verb == "probability") {
+    if (verb == "prob" || verb == "probability"
+        || verb == "energy" || verb == "en") {
         if (tokens.size() != 4u)
-            return failure("Usage: prob|probability <target> <row> <0..1|0..100%|clear>");
+            return failure("Usage: prob|probability|energy|en <target> <row> <0..1|0..100%|clear>");
         std::size_t lane = 0u;
         std::size_t row = 0u;
         std::string error;
@@ -2990,13 +3206,16 @@ CommandResult executeTokens(TrackerSession& session,
             return failure(std::move(error));
         if (!parseRow(tokens[2], row, error))
             return failure(std::move(error));
+        const bool writesEnergy = verb == "energy" || verb == "en";
         return writeSequencerFxCell(session, lane, row,
-            SequencerAction::Probability, tokens[3], "probability");
+            writesEnergy ? SequencerAction::Energy
+                         : SequencerAction::Probability,
+            tokens[3], writesEnergy ? "energy" : "probability");
     }
 
         if (verb == "condition" || verb == "cond") {
             if (tokens.size() != 4u)
-                return failure("Usage: condition|cond <target> <row> <1:2..8:8|FIRST|LAST|FILL|!FILL|clear>");
+                return failure("Usage: condition|cond <target> <row> <local condition|Song condition|clear>");
             std::size_t lane = 0u;
             std::size_t row = 0u;
             std::string error;
@@ -3009,7 +3228,7 @@ CommandResult executeTokens(TrackerSession& session,
                     SequencerAction::Condition, "clear", "condition");
             const auto* condition = findSequencerCondition(tokens[3]);
             if (!condition)
-                return failure("Condition must be 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, or !FILL.");
+                return failure("Condition must be a local ratio, FIRST, LAST, FILL, !FILL, SFIRST, SLAST, RODD, REVEN, or S1:2..S8:8.");
             return writeSequencerFxCell(session, lane, row,
                 SequencerAction::Condition,
                 std::to_string(normalizedFromSequencerCondition(
@@ -3090,7 +3309,7 @@ CommandResult executeTokens(TrackerSession& session,
                     : selectedAction.state == FxActionCellState::Sequencer
                             && selectedAction.sequencerAction
                                 == SequencerAction::Condition
-                        ? "CD values must be 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, or !FILL."
+                        ? "CD values must be a local ratio, FIRST/LAST, FILL/!FILL, SFIRST/SLAST, RODD/REVEN, or S1:2..S8:8."
                         : "FX values must be normalized between 0 and 1.");
             ensureFxStorage(session, target, false, row + 1u);
             target.actions[row] = selectedAction;
@@ -3184,7 +3403,7 @@ CommandResult executeTokens(TrackerSession& session,
                     : valueAction.state == FxActionCellState::Sequencer
                             && valueAction.sequencerAction
                                 == SequencerAction::Condition
-                        ? "CD values must be 1:2..8:8, FIRST, LAST, FILL, or !FILL."
+                        ? "CD values must be a local ratio, FIRST/LAST, FILL/!FILL, SFIRST/SLAST, RODD/REVEN, or S1:2..S8:8."
                         : "FX values must be normalized between 0 and 1.");
             }
             target.values[row] = FxValueCell::withValue(value);
@@ -4095,12 +4314,16 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "track remove <target>", "Remove one lane; at least one remains.", "", "track remove 4" },
         } },
         { "GENERATION & VARIATION", {
-            { "variation|vary <generator...> [launch <tick|beat|cycle>]", "Create a generated bank entry and optionally request a quantized launch.", "variation vary", "variation scene sparse 101 launch beat" },
+            { "variation|vary <generator...> [launch <tick|beat|cycle>]", "Create a generated bank entry; generators include reshape for deterministic statistical rhythm variants.", "variation vary", "variation reshape mutate 60 density 15 syncopate 40 shift 1 bursts 20 cycledrift 20 seed 733" },
             { "generate [density chaos symbols]", "Generate every native column using the session random stream.", "generate", "generate 0.5 0.5 0.1" },
             { "generateseed <seed> [density chaos symbols]", "Generate a repeatable whole pattern without consuming the session stream.", "generateseed", "generateseed orchard 1 0.5 0" },
             { "scene <sparse|balanced|dense|drift|weird> [seed]", "Generate a repeatable named whole-pattern scene.", "scene", "scene balanced 733" },
             { "mutate [amount] [all|notes|drums|values|fx|symbols|structure|meta]", "Vary the current pattern within one typed native scope.", "mutate", "mutate 0.25 notes" },
             { "drumscene <techno|broken|sparse|blast|ritual> [seed]", "Generate seeded rhythms for recognized kit lanes.", "drumscene", "drumscene techno 101" },
+        } },
+        { "PATTERN ANALYSIS & RESHAPE", {
+            { "pattern analyze [auto|cycle rows]", "Report the active pattern's cycle, timing, velocity, and statistical confidence without changing it.", "pattern", "pattern analyze 16" },
+            { "pattern reshape [option value ...]", "Reshape MT/VOL and optionally mutate hits. Rhythm options: mutate, density, syncopate, shift, bursts, cycledrift, seed. Use variation reshape ... to preserve the source.", "", "pattern reshape cycle 16 mutate 60 density 15 syncopate 40 shift 1 bursts 20 cycledrift 20 seed 733 pocket 75 tighten 20 mtwrite missing" },
         } },
         { "PITCH, RHYTHM & NOTE CELLS", {
             { "pitch|defaultnote <target> <MIDI|note name>", "Set the lane's default pitch and replace every explicit NOTE pitch while preserving symbols.", "pitch defaultnote", "pitch @kick C-2" },
@@ -4147,7 +4370,8 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "actions", "List sequencing action codes and CC0..CC127 accepted by SEQ1 and SEQ2.", "actions", "actions" },
             { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx", "fx @kick 1 1 previous" },
             { "fx <target> <pair> <row> <action|CC0..CC127> <value>", "Write a sequencing behavior or MIDI control change. CC values accept 0..127 integers or normalized decimals.", "", "fx @kick 1 5 cc74 96" },
-            { "condition|cond <target> <row> <condition|clear>", "Write CD into the first available SEQ pair. Conditions: 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, !FILL.", "condition cond", "cond @snare 5 2:4" },
+            { "condition|cond <target> <row> <condition|clear>", "Write CD into the first available SEQ pair. Song forms: SFIRST, SLAST, RODD, REVEN, and S1:2..S8:8; local ratios, FIRST/LAST, and FILL remain available.", "condition cond", "cond @snare 5 S2:4" },
+            { "energy|en <target> <row> <threshold|clear>", "Write EN into the first available SEQ pair. The note plays when the active Song row EN percentage meets this threshold; ordinary Pattern playback uses 100%.", "energy en", "en @kick 13 65%" },
             { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value. CC lanes accept 0..127 integers or normalized decimals.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
             { "fx1|f1|fx2|f2 <target> <action|CC0..CC127> <sequence>", "Replace a compact FX/value sequence; MIDI CC sequences also accept 0..127 integers.", "fx1 f1 fx2 f2", "fx1 @kick cc74 24 64 96 127" },
             { "interp|interpolation <target> <v1|v2> <step|linear>", "Choose stepped values or bounded between-row MIDI CC interpolation for one value column.", "interp interpolation", "interp @kick v1 linear" },

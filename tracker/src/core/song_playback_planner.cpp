@@ -48,6 +48,9 @@ SongValidationResult validateSongArrangement(
         }
         if (row.repeats == 0u || row.repeats > kMaximumSongRepeats)
             return { SongValidationCode::InvalidRepeats, index };
+        if (!std::isfinite(row.energy)
+            || row.energy < 0.0f || row.energy > 1.0f)
+            return { SongValidationCode::InvalidEnergy, index };
         if (row.bpm && (!std::isfinite(*row.bpm)
                 || *row.bpm < kMinimumSongBpm
                 || *row.bpm > kMaximumSongBpm)) {
@@ -83,6 +86,7 @@ SongValidationResult SongPlaybackPlanner::setArrangement(
     currentRow_ = 0u;
     absoluteTick_ = 0u;
     ticksInRow_ = 0u;
+    songLoopPassIndex_ = 0u;
     pending_.reset();
     running_ = false;
     finished_ = false;
@@ -95,6 +99,7 @@ bool SongPlaybackPlanner::start(std::size_t rowIndex) noexcept
     currentRow_ = rowIndex;
     absoluteTick_ = 0u;
     ticksInRow_ = 0u;
+    songLoopPassIndex_ = 0u;
     pending_.reset();
     running_ = true;
     finished_ = false;
@@ -113,6 +118,7 @@ void SongPlaybackPlanner::reset() noexcept
     currentRow_ = 0u;
     absoluteTick_ = 0u;
     ticksInRow_ = 0u;
+    songLoopPassIndex_ = 0u;
     pending_.reset();
     running_ = false;
     finished_ = false;
@@ -243,6 +249,7 @@ SongTickResult SongPlaybackPlanner::advanceTick() noexcept
         return result;
     }
     if (arrangement_.loop) {
+        songLoopPassIndex_ = saturatingIncrement(songLoopPassIndex_);
         result.transition = launch(0u, SongTransitionReason::LoopWrap);
         return result;
     }

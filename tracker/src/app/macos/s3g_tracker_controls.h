@@ -108,6 +108,18 @@ void S3GTrackerDrawSuiteActionButton(NSRect bounds, NSString* title,
     modifierFlags:(NSEventModifierFlags)modifierFlags;
 @end
 
+// Full-width suite processor slider with an integrated value readout. It
+// inherits vertical number dragging and adds direct left/right track dragging.
+@interface S3GTrackerProcessorSliderField : S3GTrackerDragNumberField
+@end
+
+// One constructor-level contract for native Tracker pages that host the
+// suite's processor slider drawing in an AppKit control.
+void S3GTrackerConfigureProcessorSlider(
+    S3GTrackerProcessorSliderField* slider,
+    double minimum, double maximum, NSUInteger fractionDigits,
+    id target, SEL action);
+
 // Shared compact Swing control used by both the Tracker transport and Song
 // rows. It follows the suite's thin-track/value treatment, publishes once on
 // mouse-up, supports wheel adjustment, and can optionally represent an

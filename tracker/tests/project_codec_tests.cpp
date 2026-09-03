@@ -92,6 +92,7 @@ ProjectDocument makeDocument()
         SequencerAction::RepeatPrevious,
         SequencerAction::Euclid,
         SequencerAction::Condition,
+        SequencerAction::Energy,
     }};
     auto& firstFx = track.fxPairs[0u];
     firstFx.actions.resize(actions.size());
@@ -202,6 +203,7 @@ ProjectDocument makeDocument()
     firstRow.patternId = "A01";
     firstRow.durationTicks = 24u;
     firstRow.repeats = 3u;
+    firstRow.energy = 0.65f;
     firstRow.bpm = 145.0;
     firstRow.swing = 0.63;
     firstRow.mutedTracks = 0x80000000u;
@@ -309,6 +311,8 @@ void testCompleteDeterministicRoundTrip()
         "instrument-owned MIDI destination and channel should round trip");
     check(decoded.song.rows.size() == 2u
             && decoded.song.rows[0u].bpm == 145.0
+            && decoded.song.rows[0u].energy == 0.65f
+            && decoded.song.rows[1u].energy == 1.0f
             && decoded.song.rows[0u].timingWarpLibraryIndex
                 == std::optional<std::size_t>(6u)
             && decoded.song.rows[0u].patternLoop
@@ -351,6 +355,71 @@ void testDefaultAppDemoIsSaveable()
     std::string encoded;
     check(demo.ok && encodeProjectDocument(document, encoded).ok(),
         "the app's initial demo/session/rack/song state should save without normalization repair");
+}
+
+void testPolymetricRapDemoLoadsAsNativeProject()
+{
+    std::string sourceDirectory = __FILE__;
+    const auto filename = sourceDirectory.find_last_of('/');
+    if (filename != std::string::npos)
+        sourceDirectory.erase(filename);
+    const std::string demoPath = sourceDirectory
+        + "/../../examples/tracker/rap-beat-polymetric-demo.s3gt";
+    ProjectDocument demo;
+    const auto loaded = loadProjectDocument(demoPath, demo);
+    check(loaded.ok(),
+        "the polymetric rap demo should load through the native project codec");
+    if (!loaded.ok()) return;
+
+    const auto* verse = demo.patternBank.findEntry("P02");
+    bool hasBurst = false;
+    bool hasSequencerAction = false;
+    bool hasOneBarLaneMute = false;
+    std::size_t shortestNoteCycle = kMaximumSongPatternRows;
+    std::size_t longestNoteCycle = 0u;
+    for (const auto& entry : demo.patternBank.entries) {
+        for (const auto& burst : entry.pattern.bursts)
+            hasBurst |= burst.eventCount != 0u;
+        for (const auto& track : entry.pattern.tracks) {
+            shortestNoteCycle = std::min(shortestNoteCycle,
+                track.noteColumn.length);
+            longestNoteCycle = std::max(longestNoteCycle,
+                track.noteColumn.length);
+            for (const auto& pair : track.fxPairs) {
+                for (const auto& action : pair.actions) {
+                    hasSequencerAction |= action.state
+                        == FxActionCellState::Sequencer;
+                }
+            }
+        }
+    }
+    for (const auto& row : demo.song.rows) {
+        hasOneBarLaneMute |= row.durationTicks == 16u
+            && row.repeats == 1u && row.mutedTracks != 0u;
+    }
+    check(demo.session.songPlaybackEnabled
+            && demo.song.name == "RAP POLYMETER / CONTROLLED CYCLES"
+            && demo.song.rows.size() == 19u
+            && demo.patternBank.entries.size() == 7u
+            && demo.patternBank.activePatternId == "P02"
+            && verse && verse->pattern.tracks.size() == 4u,
+        "the polymetric demo should retain its complete rap arrangement");
+    if (verse && verse->pattern.tracks.size() == 4u) {
+        check(verse->pattern.visibleRows == 24u
+                && verse->pattern.tracks[0u].notes.size() >= 24u
+                && verse->pattern.tracks[0u].noteColumn.length == 24u
+                && verse->pattern.tracks[1u].noteColumn.length == 16u
+                && verse->pattern.tracks[2u].noteColumn.length == 12u
+                && verse->pattern.tracks[3u].noteColumn.length == 20u
+                && verse->pattern.tracks[0u].velocityColumn.length == 7u
+                && verse->pattern.tracks[1u].velocityColumn.length == 9u
+                && verse->pattern.tracks[2u].velocityColumn.length == 5u
+                && verse->pattern.tracks[3u].velocityColumn.length == 11u,
+            "the verse should expose independent 24:16:12:20 note and 7:9:5:11 velocity cycles");
+    }
+    check(hasBurst && hasSequencerAction && hasOneBarLaneMute
+            && shortestNoteCycle == 4u && longestNoteCycle == 24u,
+        "the polymetric rap demo should keep Burst and SEQ composition, intentional 4..24-step cycles, and one-bar lane-mute variations");
 }
 
 void testUnknownFieldsAreSafelyIgnored()
@@ -664,6 +733,7 @@ int main()
     testCompleteDeterministicRoundTrip();
     testEmptyOptionalSongIsAValidProject();
     testDefaultAppDemoIsSaveable();
+    testPolymetricRapDemoLoadsAsNativeProject();
     testUnknownFieldsAreSafelyIgnored();
     testStrictTransactionalRejection();
     testAtomicStorePublishesCompleteReplacement();

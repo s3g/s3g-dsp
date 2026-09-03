@@ -676,6 +676,127 @@ void S3GTrackerDrawSuiteActionButton(NSRect bounds, NSString* title,
 
 @end
 
+@implementation S3GTrackerProcessorSliderField
+
+- (NSRect)sliderTrackRect
+{
+    const auto& metrics = s3g::gui_layout::kStandardMetrics;
+    const double panelWidth = static_cast<double>(NSWidth(self.bounds))
+        + metrics.controlInset + metrics.panelRightInset;
+    return NSMakeRect(0.0, 9.0, static_cast<CGFloat>(
+        s3g::gui_layout::processorTrackWidth(panelWidth)), 9.0);
+}
+
+- (NSRect)valueTextRect
+{
+    const CGFloat valueWidth = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.processorValueWidth);
+    return NSMakeRect(NSWidth(self.bounds) - valueWidth, 6.0,
+        valueWidth, 15.0);
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const NSRect track = [self sliderTrackRect];
+    const double minimum = std::min(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const double maximum = std::max(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const CGFloat normalized = maximum > minimum
+        ? static_cast<CGFloat>(std::clamp(
+            (self.doubleValue - minimum) / (maximum - minimum), 0.0, 1.0))
+        : 0.0;
+    auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
+    if (!self.enabled) {
+        style.fill = s3g::clap_gui::color(0x333333);
+        style.text = s3g::clap_gui::color(0x656565);
+        valueAttrs = s3g::clap_gui::textAttrs(
+            s3g::clap_gui::color(0x656565), 10.0);
+    }
+    const NSRect value = [self valueTextRect];
+    s3g::clap_gui::drawSlider(@"", self.stringValue, normalized, 8.0,
+        s3g::clap_gui::softLabelAttrs(), valueAttrs, style,
+        -100.0, NSMinX(track), NSMinX(value), NSWidth(track),
+        NSWidth(value));
+}
+
+- (void)resetCursorRects
+{
+    if (!self.enabled) return;
+    [self addCursorRect:[self sliderTrackRect]
+        cursor:NSCursor.resizeLeftRightCursor];
+}
+
+- (BOOL)acceptsFirstResponder { return NO; }
+
+- (void)mouseDown:(NSEvent*)event
+{
+    const NSPoint initialPoint = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    if (!self.enabled || !self.window) return;
+    const NSRect track = [self sliderTrackRect];
+    if (!NSPointInRect(initialPoint, NSInsetRect(track, 0.0, -7.0))) return;
+    const double minimum = std::min(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const double maximum = std::max(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const double scale = std::pow(10.0, static_cast<double>(
+        std::min<NSUInteger>(self.s3gFractionDigits, 9u)));
+    const auto applyEvent = ^(NSEvent* trackedEvent) {
+        const NSPoint point = [self convertPoint:trackedEvent.locationInWindow
+            fromView:nil];
+        const double normalized = std::clamp(static_cast<double>(
+            (point.x - NSMinX(track)) / std::max<CGFloat>(1.0,
+                NSWidth(track))), 0.0, 1.0);
+        double value = minimum + normalized * (maximum - minimum);
+        if (scale > 0.0) value = std::round(value * scale) / scale;
+        if (value == self.doubleValue) return;
+        self.doubleValue = value;
+        [self setNeedsDisplay:YES];
+        [self sendAction:self.action to:self.target];
+    };
+    applyEvent(event);
+    const NSEventMask mask = NSEventMaskLeftMouseDragged
+        | NSEventMaskLeftMouseUp;
+    for (;;) {
+        NSEvent* next = [self.window nextEventMatchingMask:mask
+            untilDate:NSDate.distantFuture
+            inMode:NSEventTrackingRunLoopMode dequeue:YES];
+        if (!next || next.type == NSEventTypeLeftMouseUp) break;
+        applyEvent(next);
+    }
+}
+
+@end
+
+void S3GTrackerConfigureProcessorSlider(
+    S3GTrackerProcessorSliderField* slider,
+    double minimum, double maximum, NSUInteger fractionDigits,
+    id target, SEL action)
+{
+    if (!slider) return;
+    S3GTrackerStyleSuiteTextField(slider, NSTextAlignmentRight);
+    slider.editable = NO;
+    slider.selectable = NO;
+    slider.drawsBackground = NO;
+    slider.backgroundColor = NSColor.clearColor;
+    slider.layer.backgroundColor = NSColor.clearColor.CGColor;
+    slider.layer.borderWidth = 0.0;
+    slider.s3gMinimumValue = minimum;
+    slider.s3gMaximumValue = maximum;
+    slider.s3gFractionDigits = fractionDigits;
+    const double unit = std::pow(10.0, -static_cast<double>(
+        std::min<NSUInteger>(fractionDigits, 9u)));
+    slider.s3gDragIncrement = std::max(unit,
+        std::abs(maximum - minimum) / 240.0);
+    slider.target = target;
+    slider.action = action;
+    slider.accessibilityHelp =
+        @"Click or drag the standard s3g-dsp slider track; the value at right is a readout.";
+}
+
 @class S3GTrackerPopupButton;
 
 @interface S3GTrackerCanvasMenuOverlay : NSView

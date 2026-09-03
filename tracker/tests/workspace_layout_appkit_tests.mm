@@ -181,6 +181,11 @@ int main()
         int stepRecordModeRequests = 0;
         int trackerRevealRequests = 0;
         int burstPreviewRequests = 0;
+        int patternPreviewRequests = 0;
+        int patternPreviewClearRequests = 0;
+        int patternVariantRequests = 0;
+        s3g::tracker::Pattern previewedPattern;
+        s3g::tracker::Pattern createdVariant;
         s3g::tracker::BurstDefinition previewedBurst;
         uint8_t previewedChannel = 0u;
         double previewedBpm = 0.0;
@@ -220,6 +225,17 @@ int main()
             previewedChannel = channel;
             previewedBpm = bpm;
             previewedTicksPerBeat = ticksPerBeat;
+        };
+        callbacks.previewPattern = [&](const s3g::tracker::Pattern& pattern) {
+            ++patternPreviewRequests;
+            previewedPattern = pattern;
+        };
+        callbacks.clearPatternPreview = [&] {
+            ++patternPreviewClearRequests;
+        };
+        callbacks.createPatternVariant = [&](const s3g::tracker::Pattern& pattern) {
+            ++patternVariantRequests;
+            createdVariant = pattern;
         };
 
         S3GTrackerWorkspaceController* controller =
@@ -304,6 +320,7 @@ int main()
         NSTextField* consoleLiveCode = [controller
             valueForKey:@"consolePageInput"];
         NSView* geometryPage = [controller geometryPageView];
+        NSView* reshapePage = [controller reshapePageView];
         NSView* warpPage = [controller warpPageView];
         NSPopUpButton* geometryViewMode = [geometryPage
             valueForKey:@"viewModePopup"];
@@ -335,10 +352,10 @@ int main()
             "compact tracker should use the full embedded page width");
         check(near(NSHeight(envelope.frame), 111.6),
             "compact AppKit layout should shrink the envelope");
-        check(consoleOutput && geometryPage && warpPage
+        check(consoleOutput && geometryPage && reshapePage && warpPage
                 && consoleOutput != geometryPage
-                && geometryPage != warpPage,
-            "console, geometry, and warp modules should expose distinct pages");
+                && geometryPage != reshapePage && reshapePage != warpPage,
+            "console, geometry, reshape, and warp modules should expose distinct pages");
         [consoleOutput layoutSubtreeIfNeeded];
         check([consoleToolbox isKindOfClass:
                     NSClassFromString(@"S3GTrackerToolboxView")]
@@ -699,7 +716,7 @@ int main()
                     NSClassFromString(@"S3GTrackerToolboxView")],
             "Warps should use shared toolboxes plus one suite font and vertical center for labels, text entry, and canvas menus");
         check([warpCycleSlider isKindOfClass:
-                    NSClassFromString(@"S3GTrackerWarpSliderField")]
+                    NSClassFromString(@"S3GTrackerProcessorSliderField")]
                 && near(NSHeight(warpCycleSlider.frame),
                     s3g::gui_layout::kStandardMetrics.hitHeight)
                 && near(NSMinY(warpCycleTrack), 9.0)
@@ -720,7 +737,7 @@ int main()
                 && near(warpCycleSlider.layer.borderWidth, 0.0),
             "Warps sliders should use the exact shared 9-point track, capped processor width, 24-point hit row, and read-only value display");
         check(![warpNameField isKindOfClass:
-                    NSClassFromString(@"S3GTrackerWarpSliderField")]
+                    NSClassFromString(@"S3GTrackerProcessorSliderField")]
                 && warpNameField.editable && warpNameField.selectable
                 && warpNameField.drawsBackground
                 && near(warpNameField.layer.borderWidth, 1.0)
@@ -808,6 +825,212 @@ int main()
                     isEqualToString:@"Warp playback inactive"],
             "the Warps curve playhead should disappear when playback or warp mode is inactive");
         transportChangeRequests = 0;
+
+        auto& reshapeTrack = state.session.pattern.tracks[0u];
+        reshapeTrack.velocities[0u] =
+            s3g::tracker::ValueCell::withValue(0.35f);
+        reshapeTrack.velocities[4u] =
+            s3g::tracker::ValueCell::withValue(0.85f);
+        auto& reshapePair = reshapeTrack.fxPairs[0u];
+        reshapePair.actions.assign(64u,
+            s3g::tracker::FxActionCell::empty());
+        reshapePair.values.assign(64u,
+            s3g::tracker::FxValueCell::previous());
+        reshapePair.actionColumn.length = 64u;
+        reshapePair.valueColumn.length = 64u;
+        reshapePair.actions[0u] = s3g::tracker::FxActionCell::sequencer(
+            s3g::tracker::SequencerAction::MicroTime);
+        reshapePair.actions[4u] = s3g::tracker::FxActionCell::sequencer(
+            s3g::tracker::SequencerAction::MicroTime);
+        reshapePair.values[0u] =
+            s3g::tracker::FxValueCell::withValue(0.55f);
+        reshapePair.values[4u] =
+            s3g::tracker::FxValueCell::withValue(0.70f);
+        id reshapeController = [reshapePage valueForKey:@"layoutOwner"];
+        [reshapeController performSelector:@selector(reloadModel)];
+        reshapePage.frame = NSMakeRect(0.0, 0.0, 1320.0, 780.0);
+        [reshapePage layoutSubtreeIfNeeded];
+        S3GTrackerToolboxView* reshapeProfile = [reshapeController
+            valueForKey:@"profilePanel"];
+        NSView* reshapeProfileView = [reshapeController
+            valueForKey:@"profileView"];
+        S3GTrackerToolboxView* reshapeMutation = [reshapeController
+            valueForKey:@"mutationPanel"];
+        S3GTrackerToolboxView* reshapeTarget = [reshapeController
+            valueForKey:@"targetPanel"];
+        S3GTrackerToolboxView* reshapeTiming = [reshapeController
+            valueForKey:@"timingPanel"];
+        S3GTrackerToolboxView* reshapeDynamics = [reshapeController
+            valueForKey:@"dynamicsPanel"];
+        S3GTrackerPopupButton* reshapePatternMenu = [reshapeController
+            valueForKey:@"patternPopup"];
+        S3GTrackerPopupButton* reshapeCycleMenu = [reshapeController
+            valueForKey:@"cyclePopup"];
+        S3GTrackerPopupButton* reshapeTimingWrite = [reshapeController
+            valueForKey:@"timingWritePopup"];
+        S3GTrackerPopupButton* reshapeTimingOutliers = [reshapeController
+            valueForKey:@"timingOutlierPopup"];
+        S3GTrackerPopupButton* reshapeVelocityWrite = [reshapeController
+            valueForKey:@"velocityWritePopup"];
+        S3GTrackerPopupButton* reshapeVelocityOutliers =
+            [reshapeController valueForKey:@"velocityOutlierPopup"];
+        NSArray<NSTextField*>* reshapeTimingLabels = [reshapeController
+            valueForKey:@"timingLabels"];
+        NSArray<NSTextField*>* reshapeDynamicsLabels = [reshapeController
+            valueForKey:@"dynamicsLabels"];
+        NSArray<NSTextField*>* reshapeMutationLeftLabels = [reshapeController
+            valueForKey:@"mutationLeftLabels"];
+        NSArray<NSTextField*>* reshapeMutationRightLabels = [reshapeController
+            valueForKey:@"mutationRightLabels"];
+        S3GTrackerProcessorSliderField* reshapeMutationAmount =
+            [reshapeController valueForKey:@"mutationAmountField"];
+        S3GTrackerProcessorSliderField* reshapeDensity = [reshapeController
+            valueForKey:@"densityField"];
+        S3GTrackerProcessorSliderField* reshapeSyncopation = [reshapeController
+            valueForKey:@"syncopationField"];
+        S3GTrackerPopupButton* reshapeDisplacement = [reshapeController
+            valueForKey:@"displacementPopup"];
+        S3GTrackerProcessorSliderField* reshapeBurstChance =
+            [reshapeController valueForKey:@"burstChanceField"];
+        S3GTrackerProcessorSliderField* reshapeCycleDrift =
+            [reshapeController valueForKey:@"cycleDriftField"];
+        S3GTrackerActionButton* reshapeReseed = [reshapeController
+            valueForKey:@"reseedButton"];
+        NSTextField* reshapeAnchors = [reshapeController
+            valueForKey:@"anchorValueLabel"];
+        S3GTrackerProcessorSliderField* reshapePocket = [reshapeController
+            valueForKey:@"pocketField"];
+        S3GTrackerProcessorSliderField* reshapeTighten = [reshapeController
+            valueForKey:@"tightenField"];
+        S3GTrackerProcessorSliderField* reshapeDepth = [reshapeController
+            valueForKey:@"depthField"];
+        S3GTrackerActionButton* reshapePreview = [reshapeController
+            valueForKey:@"previewButton"];
+        S3GTrackerActionButton* reshapeApply = [reshapeController
+            valueForKey:@"applyButton"];
+        S3GTrackerActionButton* reshapeCreateVariant = [reshapeController
+            valueForKey:@"createVariantButton"];
+        check([reshapeProfile.toolboxTitle
+                    isEqualToString:@"PATTERN PROFILE  /  ORIGINAL → VARIANT"]
+                && [reshapeMutation.toolboxTitle
+                    isEqualToString:@"RHYTHM MUTATION / STATISTICAL"]
+                && [reshapeTarget.toolboxTitle
+                    isEqualToString:@"TARGET / ANALYZE"]
+                && reshapePatternMenu.s3gUsesCanvasMenu
+                && reshapeCycleMenu.s3gUsesCanvasMenu
+                && reshapeTimingWrite.s3gUsesCanvasMenu
+                && reshapeTimingOutliers.s3gUsesCanvasMenu
+                && reshapeVelocityWrite.s3gUsesCanvasMenu
+                && reshapeVelocityOutliers.s3gUsesCanvasMenu
+                && reshapeTiming.toolboxIndex == 0
+                && reshapeDynamics.toolboxIndex == 0
+                && reshapeMutation.toolboxIndex == 0
+                && near(NSHeight(reshapeMutation.frame),
+                    s3g::gui_layout::toolboxHeightForRows(4u))
+                && near(NSHeight(reshapeTiming.frame),
+                    s3g::gui_layout::toolboxHeightForRows(5u))
+                && near(NSHeight(reshapeDynamics.frame),
+                    s3g::gui_layout::toolboxHeightForRows(5u))
+                && reshapeTimingLabels.count == 5u
+                && reshapeDynamicsLabels.count == 5u
+                && reshapeMutationLeftLabels.count == 4u
+                && reshapeMutationRightLabels.count == 4u
+                && [reshapeTimingLabels[3u]
+                    isKindOfClass:S3GTrackerSuiteLabel.class]
+                && [reshapeDynamicsLabels[4u]
+                    isKindOfClass:S3GTrackerSuiteLabel.class]
+                && [reshapeTimingLabels[3u].font.fontName
+                    isEqualToString:reshapeTimingWrite.font.fontName]
+                && [reshapeDynamicsLabels[4u].font.fontName
+                    isEqualToString:reshapeVelocityOutliers.font.fontName]
+                && near(NSMidY(reshapeTimingLabels[3u].frame),
+                    NSMidY(reshapeTimingWrite.frame), 0.01)
+                && near(NSMidY(reshapeDynamicsLabels[4u].frame),
+                    NSMidY(reshapeVelocityOutliers.frame), 0.01)
+                && [reshapeDepth isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && [reshapePocket isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && [reshapeMutationAmount isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && [reshapeDensity isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && [reshapeSyncopation isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && [reshapeBurstChance isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && [reshapeCycleDrift isKindOfClass:
+                    S3GTrackerProcessorSliderField.class]
+                && reshapeDisplacement.s3gUsesCanvasMenu
+                && [reshapeDisplacement.titleOfSelectedItem
+                    isEqualToString:@"1 ROW"]
+                && [reshapeReseed.title hasPrefix:@"RESEED · "]
+                && [reshapeAnchors.stringValue
+                    isEqualToString:@"DOWNBEAT / HIGH CONF"]
+                && near(reshapeMutationAmount.doubleValue, 55.0)
+                && !reshapeDepth.editable && !reshapeDepth.selectable
+                && !reshapeDepth.drawsBackground
+                && near(reshapeDepth.layer.borderWidth, 0.0)
+                && near(NSHeight(reshapeDepth.frame),
+                    s3g::gui_layout::kStandardMetrics.hitHeight)
+                && near(NSWidth([reshapeDepth sliderTrackRect]),
+                    s3g::gui_layout::processorTrackWidth(
+                        reshapeTiming.frame.size.width))
+                && [reshapeTimingWrite.titleOfSelectedItem
+                    isEqualToString:@"ADD TO ONSETS"]
+                && [reshapeProfileView.accessibilityValue
+                    containsString:@"hits"]
+                && [reshapeProfileView.accessibilityHelp
+                    containsString:@"signed microtime in milliseconds"]
+                && [reshapeProfileView.accessibilityHelp
+                    containsString:@"median velocity per lane"]
+                && near(NSMinX(reshapeProfile.frame),
+                    s3g::gui_layout::kTrackerPageHorizontalInset)
+                && near(NSMinY(reshapeProfile.frame),
+                    s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMaxY(reshapeProfile.frame)
+                    + s3g::gui_layout::kStandardMetrics.panelGap,
+                    NSMinY(reshapeMutation.frame))
+                && near(NSMaxY(reshapeMutation.frame),
+                    NSHeight(reshapePage.bounds)
+                        - s3g::gui_layout::kTrackerPageBottomInset)
+                && near(NSMinX(reshapeTarget.frame)
+                    - NSMaxX(reshapeProfile.frame), 12.0),
+            "Reshape Variations should use shared toolbox rows, menus, sliders, columns, and page gutters");
+        reshapeProfileView.needsDisplay = NO;
+        reshapeTighten.doubleValue = 100.0;
+        [reshapeTighten sendAction:reshapeTighten.action
+            to:reshapeTighten.target];
+        check(reshapeProfileView.needsDisplay,
+            "a Reshape slider should immediately redraw the HITS/MT/VEL/LANE profile");
+        [reshapePreview performClick:nil];
+        check(patternPreviewRequests > 0
+                && previewedPattern.tracks[0u].notes[0u].note
+                    == state.session.pattern.tracks[0u].notes[0u].note
+                && near(previewedPattern.tracks[0u].fxPairs[0u]
+                    .values[0u].normalized, 0.5, 0.0001),
+            "Reshape preview should audition tightened MT at the row grid while preserving authored notes");
+        [reshapePreview performClick:nil];
+        check(patternPreviewClearRequests == 1,
+            "turning Reshape preview off should restore the stored runtime");
+        [reshapeCreateVariant performClick:nil];
+        check(patternVariantRequests == 1
+                && createdVariant.tracks.size()
+                    == state.session.pattern.tracks.size()
+                && near(createdVariant.tracks[0u].fxPairs[0u]
+                    .values[0u].normalized, 0.5, 0.0001)
+                && !near(createdVariant.tracks[0u].fxPairs[0u]
+                    .values[0u].normalized,
+                    state.session.pattern.tracks[0u].fxPairs[0u]
+                        .values[0u].normalized, 0.0001),
+            "Create Variant should publish a changed pattern while leaving the source available");
+        const int reshapeHistoryBefore = patternChangeRequests;
+        [reshapeApply performClick:nil];
+        check(patternChangeRequests == reshapeHistoryBefore + 1
+                && state.session.pattern.tracks[0u].fxPairs[0u]
+                    .values[0u].normalized != 0.55f,
+            "Reshape Apply should commit the transformed pattern as one history request");
+        patternChangeRequests = 0;
 
         const auto originalSecondGeometryTrack =
             state.session.pattern.tracks[1u];
@@ -1078,6 +1301,7 @@ int main()
                 && [transportPanel.toolboxTitle isEqualToString:@"TRANSPORT"]
                 && near(NSMinX(transportPanel.frame), 18.0)
                 && near(NSMaxX(transportPanel.frame), NSWidth(root.bounds) - 18.0)
+                && near(NSMinY(transportPanel.frame), 12.0)
                 && NSMaxY(transportPanel.frame) < NSMinY(envelope.frame)
                 && patternPanel.toolboxIndex == 0
                 && [patternPanel.toolboxTitle isEqualToString:@"PATTERN"]
@@ -1606,8 +1830,8 @@ int main()
         const auto& conditionPair = state.session.pattern.tracks[0u]
             .fxPairs[0u];
         check(conditionMenu.numberOfItems
-                    == static_cast<NSInteger>(
-                        s3g::tracker::kSequencerConditionCount + 4u)
+                == static_cast<NSInteger>(
+                        s3g::tracker::kSequencerConditionCount + 6u)
                 && lastItem != nil
                 && s3g::tracker::sequencerConditionFromNormalized(
                     conditionPair.values[5u].normalized)
@@ -1813,6 +2037,7 @@ int main()
         state.songPlaybackPatternId.clear();
 
         [[controller valueForKey:@"geometryWindowController"] close];
+        [[controller valueForKey:@"reshapeWindowController"] close];
         [[controller valueForKey:@"warpWindowController"] close];
     }
 
