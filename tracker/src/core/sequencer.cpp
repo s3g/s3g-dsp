@@ -7,6 +7,26 @@
 #include <utility>
 
 namespace s3g::tracker {
+
+std::string burstSlotToken(std::size_t index)
+{
+    if (index >= kBurstDefinitionCount) return {};
+    const auto oneBased = index + 1u;
+    return std::string("B") + (oneBased < 10u ? "0" : "")
+        + std::to_string(oneBased);
+}
+
+bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept
+{
+    if (text.size() != 3u || (text.front() != 'B' && text.front() != 'b')
+        || text[1] < '0' || text[1] > '9'
+        || text[2] < '0' || text[2] > '9') return false;
+    const auto value = static_cast<std::size_t>(text[1] - '0') * 10u
+        + static_cast<std::size_t>(text[2] - '0');
+    if (value == 0u || value > kBurstDefinitionCount) return false;
+    index = value - 1u;
+    return true;
+}
 namespace {
 
 // Authored project/console tempo remains constrained to 20..400, while the
@@ -21,6 +41,41 @@ constexpr uint32_t kMaximumTicksPerBeat = 64u;
 constexpr uint32_t kMaximumWarpCycleTicks = 1024u;
 constexpr uint32_t kMaximumLoopRow = 65535u;
 constexpr double kMaximumTimingMilliseconds = 500.0;
+
+constexpr std::array<SequencerConditionDefinition,
+    kSequencerConditionCount> kSequencerConditions {{
+    { SequencerCondition::FirstOf2, "1:2", "1 OF 2" },
+    { SequencerCondition::SecondOf2, "2:2", "2 OF 2" },
+    { SequencerCondition::FirstOf4, "1:4", "1 OF 4" },
+    { SequencerCondition::SecondOf4, "2:4", "2 OF 4" },
+    { SequencerCondition::ThirdOf4, "3:4", "3 OF 4" },
+    { SequencerCondition::FourthOf4, "4:4", "4 OF 4" },
+    { SequencerCondition::FirstOf8, "1:8", "1 OF 8" },
+    { SequencerCondition::SecondOf8, "2:8", "2 OF 8" },
+    { SequencerCondition::ThirdOf8, "3:8", "3 OF 8" },
+    { SequencerCondition::FourthOf8, "4:8", "4 OF 8" },
+    { SequencerCondition::FifthOf8, "5:8", "5 OF 8" },
+    { SequencerCondition::SixthOf8, "6:8", "6 OF 8" },
+    { SequencerCondition::SeventhOf8, "7:8", "7 OF 8" },
+    { SequencerCondition::EighthOf8, "8:8", "8 OF 8" },
+    { SequencerCondition::First, "FIRST", "FIRST PASS" },
+    { SequencerCondition::Last, "LAST", "LAST PASS" },
+    { SequencerCondition::Fill, "FILL", "FILL ON" },
+    { SequencerCondition::NotFill, "!FILL", "FILL OFF" },
+}};
+
+bool equalFold(std::string_view left, std::string_view right) noexcept
+{
+    if (left.size() != right.size()) return false;
+    for (std::size_t index = 0u; index < left.size(); ++index) {
+        const auto lower = [](char value) noexcept {
+            return value >= 'A' && value <= 'Z'
+                ? static_cast<char>(value - 'A' + 'a') : value;
+        };
+        if (lower(left[index]) != lower(right[index])) return false;
+    }
+    return true;
+}
 
 float normalizedVelocity(float value) noexcept
 {
@@ -41,6 +96,74 @@ float normalizedVelocityScale(float value) noexcept
 }
 
 } // namespace
+
+const SequencerConditionDefinition* sequencerCondition(
+    std::size_t index) noexcept
+{
+    return index < kSequencerConditions.size()
+        ? &kSequencerConditions[index] : nullptr;
+}
+
+const SequencerConditionDefinition* findSequencerCondition(
+    std::string_view token) noexcept
+{
+    for (const auto& definition : kSequencerConditions) {
+        if (equalFold(definition.token, token)
+            || equalFold(definition.displayName, token)) return &definition;
+    }
+    return nullptr;
+}
+
+SequencerCondition sequencerConditionFromNormalized(float value) noexcept
+{
+    if (!std::isfinite(value)) value = 0.0f;
+    constexpr auto last = kSequencerConditionCount - 1u;
+    const auto index = static_cast<std::size_t>(std::clamp<long>(
+        std::lround(std::clamp(value, 0.0f, 1.0f)
+            * static_cast<float>(last)), 0l, static_cast<long>(last)));
+    return static_cast<SequencerCondition>(index);
+}
+
+float normalizedFromSequencerCondition(
+    SequencerCondition condition) noexcept
+{
+    constexpr auto last = kSequencerConditionCount - 1u;
+    const auto index = std::min<std::size_t>(
+        static_cast<std::size_t>(condition), last);
+    return static_cast<float>(index) / static_cast<float>(last);
+}
+
+bool sequencerConditionPasses(SequencerCondition condition,
+    const SequencerConditionContext& context) noexcept
+{
+    const auto ratio = [&](uint64_t numerator, uint64_t denominator) {
+        return context.passIndex % denominator + 1u == numerator;
+    };
+    switch (condition) {
+    case SequencerCondition::FirstOf2: return ratio(1u, 2u);
+    case SequencerCondition::SecondOf2: return ratio(2u, 2u);
+    case SequencerCondition::FirstOf4: return ratio(1u, 4u);
+    case SequencerCondition::SecondOf4: return ratio(2u, 4u);
+    case SequencerCondition::ThirdOf4: return ratio(3u, 4u);
+    case SequencerCondition::FourthOf4: return ratio(4u, 4u);
+    case SequencerCondition::FirstOf8: return ratio(1u, 8u);
+    case SequencerCondition::SecondOf8: return ratio(2u, 8u);
+    case SequencerCondition::ThirdOf8: return ratio(3u, 8u);
+    case SequencerCondition::FourthOf8: return ratio(4u, 8u);
+    case SequencerCondition::FifthOf8: return ratio(5u, 8u);
+    case SequencerCondition::SixthOf8: return ratio(6u, 8u);
+    case SequencerCondition::SeventhOf8: return ratio(7u, 8u);
+    case SequencerCondition::EighthOf8: return ratio(8u, 8u);
+    case SequencerCondition::First: return context.passIndex == 0u;
+    case SequencerCondition::Last:
+        return context.passCount > 0u
+            && context.passIndex + 1u >= context.passCount;
+    case SequencerCondition::Fill: return context.fill;
+    case SequencerCondition::NotFill: return !context.fill;
+    case SequencerCondition::Count: return false;
+    }
+    return false;
+}
 
 bool parseMidiNote(std::string_view text, uint8_t& note) noexcept
 {
@@ -898,6 +1021,20 @@ FxPlaybackMemorySnapshot Sequencer::fxMemorySnapshot(std::size_t track,
 void Sequencer::normalizePattern(Pattern& pattern)
 {
     pattern.visibleRows = std::max<std::size_t>(pattern.visibleRows, 1u);
+    for (auto& burst : pattern.bursts) {
+        if (burst.name.size() > kMaximumBurstNameBytes)
+            burst.name.resize(kMaximumBurstNameBytes);
+        burst.eventCount = static_cast<uint8_t>(std::min<std::size_t>(
+            burst.eventCount, kMaximumBurstEvents));
+        for (std::size_t event = 0u; event < burst.eventCount; ++event) {
+            burst.events[event].note = static_cast<uint8_t>(std::min<int>(
+                burst.events[event].note, 127));
+            burst.events[event].velocity = static_cast<uint8_t>(
+                std::clamp<int>(burst.events[event].velocity, 1, 127));
+            burst.events[event].gatePercent = static_cast<uint8_t>(
+                std::clamp<int>(burst.events[event].gatePercent, 1, 100));
+        }
+    }
     for (auto& track : pattern.tracks) {
         track.velocityScale = normalizedVelocityScale(track.velocityScale);
         track.midiChannel = static_cast<uint8_t>(std::clamp<int>(
@@ -917,6 +1054,18 @@ void Sequencer::normalizePattern(Pattern& pattern)
             track.velocities.size());
         track.noteColumn.phase = track.noteColumn.length == 0u ? 0u
             : track.noteColumn.phase % track.noteColumn.length;
+        for (auto& cell : track.notes) {
+            if (cell.state == NoteCellState::Note && cell.note <= 127u)
+                continue;
+            if (cell.state == NoteCellState::Burst
+                && cell.note < kBurstDefinitionCount
+                && !pattern.bursts[cell.note].empty()) continue;
+            if (cell.state != NoteCellState::Rest
+                && cell.state != NoteCellState::RetriggerPrevious
+                && cell.state != NoteCellState::Kill
+                && cell.state != NoteCellState::Hold)
+                cell = NoteCell::rest();
+        }
         track.instrumentColumn.phase = track.instrumentColumn.length == 0u
             ? 0u : track.instrumentColumn.phase
                 % track.instrumentColumn.length;
@@ -980,6 +1129,17 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
     }
     pendingBoundaryReleaseCount_ = 0u;
 
+    SequencerConditionContext conditionContext = songConditionContext_;
+    conditionContext.fill = fillActive_;
+    if (!songConditionContextActive_) {
+        const uint64_t cycleLength = transport_.loopEnabled
+            ? std::max<uint64_t>(transport_.loopEndRow
+                    - transport_.loopStartRow, 1u)
+            : std::max<uint64_t>(pattern_.visibleRows, 1u);
+        conditionContext.passIndex = tickIndex_ / cycleLength;
+        conditionContext.passCount = 0u;
+    }
+
     for (std::size_t trackIndex = 0u; trackIndex < pattern_.tracks.size();
          ++trackIndex) {
         auto& track = pattern_.tracks[trackIndex];
@@ -1002,6 +1162,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             uint32_t nodeId = kInvalidInstrumentNode;
             EventDestination destination = EventDestination::None;
             std::size_t sourceRow = 0u;
+            uint8_t burstDefinition = kNoBurstDefinition;
             bool trigger = false;
             bool retrigger = false;
             bool hardRelease = false;
@@ -1047,6 +1208,12 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.note = static_cast<uint8_t>(std::min<int>(
                     cell.note, 127));
                 candidate.trigger = true;
+            } else if (cell.state == NoteCellState::Burst
+                && cell.note < pattern_.bursts.size()
+                && !pattern_.bursts[cell.note].empty()) {
+                candidate.note = pattern_.bursts[cell.note].events[0u].note;
+                candidate.burstDefinition = cell.note;
+                candidate.trigger = true;
             } else if (cell.state == NoteCellState::RetriggerPrevious) {
                 candidate.trigger = memory.hasNote && !memory.noteMuted;
                 candidate.retrigger = candidate.trigger;
@@ -1074,7 +1241,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                                    uint8_t channel,
                                    float velocity,
                                    EventDestination destination,
-                                   uint64_t durationSamples = 0u) {
+                                   uint64_t durationSamples = 0u,
+                                   uint8_t burstDefinition
+                                       = kNoBurstDefinition) {
             ScheduledEvent event;
             event.absoluteSampleTime = absoluteSampleTime;
             event.noteId = noteId;
@@ -1087,6 +1256,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 ? normalizedVelocity(velocity * track.velocityScale)
                 : velocity;
             event.note = note;
+            event.burstDefinition = burstDefinition;
             event.channel = channel;
             event.kind = kind;
             event.destination = destination;
@@ -1203,6 +1373,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             bool euclidEnabled = false;
             bool offsetEnabled = false;
             bool skipEnabled = false;
+            bool conditionAccepted = true;
         } noteFx;
         for (const auto& pending : pendingFx) {
             if (!pending.execute
@@ -1233,6 +1404,14 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             case SequencerAction::Euclid:
                 noteFx.euclidEnabled = true;
                 noteFx.euclideanDensity = value;
+                break;
+            case SequencerAction::Condition:
+                // Both SEQ pairs are independent, so two active CD actions
+                // naturally form an AND gate for the same candidate note.
+                noteFx.conditionAccepted = noteFx.conditionAccepted
+                    && sequencerConditionPasses(
+                        sequencerConditionFromNormalized(value),
+                        conditionContext);
                 break;
             default:
                 break;
@@ -1272,6 +1451,15 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.sourceRow = offsetRow;
                 candidate.trigger = true;
                 candidate.retrigger = false;
+                candidate.burstDefinition = kNoBurstDefinition;
+            } else if (source.state == NoteCellState::Burst
+                && source.note < pattern_.bursts.size()
+                && !pattern_.bursts[source.note].empty()) {
+                candidate.note = pattern_.bursts[source.note].events[0u].note;
+                candidate.burstDefinition = source.note;
+                candidate.sourceRow = offsetRow;
+                candidate.trigger = true;
+                candidate.retrigger = false;
             }
         }
         if (!candidate.trigger && !candidate.hold
@@ -1285,12 +1473,15 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.velocity = memory.lastEmittedVelocity;
                 candidate.nodeId = memory.lastEmittedNodeId;
                 candidate.destination = memory.lastEmittedDestination;
+                candidate.burstDefinition
+                    = memory.lastEmittedBurstDefinition;
                 candidate.trigger = true;
                 candidate.retrigger = false;
             }
         }
 
-        bool accepted = candidate.trigger && !candidate.hardRelease;
+        bool accepted = candidate.trigger && !candidate.hardRelease
+            && noteFx.conditionAccepted;
         if (noteFx.probabilityEnabled) {
             const bool probabilityPassed = chancePassed(
                 noteFx.probability, 0.999f, false, false);
@@ -1316,7 +1507,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         state.lastNoteTriggered = accepted;
 
         bool sustainOnset = false;
-        if (accepted && noteLength > 0u) {
+        if (accepted && candidate.burstDefinition == kNoBurstDefinition
+            && noteLength > 0u) {
             auto nextNoteColumn = state.noteColumn;
             advance(track.noteColumn, nextNoteColumn);
             const auto& nextCell = track.notes[
@@ -1471,12 +1663,14 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             memory.lastEmittedVelocity = candidate.velocity;
             memory.lastEmittedNodeId = candidate.nodeId;
             memory.lastEmittedDestination = candidate.destination;
+            memory.lastEmittedBurstDefinition = candidate.burstDefinition;
             memory.hasLastEmitted = true;
             memory.sustainHeld = sustainOnset;
             writeNote(ScheduledEventKind::NoteOn, onsetNoteId,
                 candidate.nodeId, candidate.note, candidate.channel,
                 candidate.velocity, candidate.destination,
-                sustainOnset ? kSustainUntilExplicitNoteOff : 0u);
+                sustainOnset ? kSustainUntilExplicitNoteOff : 0u,
+                candidate.burstDefinition);
         }
 
         advance(track.noteColumn, state.noteColumn);

@@ -144,13 +144,19 @@ void testSharedToolboxLayout(
     S3GTrackerPopupButton* launchMenu = [controller
         valueForKey:@"launchQuantizationPopup"];
     NSButton* queueButton = [controller valueForKey:@"queueButton"];
+    S3GTrackerToolboxView* projectPanel = [controller
+        valueForKey:@"projectPanel"];
     S3GTrackerToolboxView* transportPanel = [controller
         valueForKey:@"transportPanel"];
-    NSArray<NSTextField*>* transportLabels = [controller
-        valueForKey:@"transportLabels"];
-    NSArray<NSTextField*>* projectLabels = [controller
-        valueForKey:@"projectLabels"];
-    NSTextField* summary = [controller valueForKey:@"summaryLabel"];
+    S3GTrackerToolboxView* rowToolsPanel = [controller
+        valueForKey:@"rowToolsPanel"];
+    NSButton* songMode = [controller valueForKey:@"songModeButton"];
+    NSButton* songLoop = [controller valueForKey:@"songLoopButton"];
+    NSButton* addButton = [controller valueForKey:@"addButton"];
+    NSButton* duplicateButton = [controller valueForKey:@"duplicateButton"];
+    NSButton* removeButton = [controller valueForKey:@"removeButton"];
+    NSButton* moveUpButton = [controller valueForKey:@"moveUpButton"];
+    NSButton* moveDownButton = [controller valueForKey:@"moveDownButton"];
     NSTextField* queueStatus = [controller
         valueForKey:@"queueStatusLabel"];
     check(near(NSMinY(project.frame),
@@ -172,20 +178,23 @@ void testSharedToolboxLayout(
                 isEqualToString:@"Queue selected Song row"]
             && [transportPanel.toolboxTitle
                 isEqualToString:@"TRANSPORT / QUEUE"]
-            && transportLabels.count == 2u
-            && [transportLabels[1u].stringValue isEqualToString:@"QUEUE"]
-            && [transportLabels[1u]
-                isKindOfClass:S3GTrackerSuiteLabel.class]
-            && [projectLabels[1u]
-                isKindOfClass:S3GTrackerSuiteLabel.class]
-            && [transportLabels[1u].font.fontName
-                isEqualToString:launchMenu.font.fontName]
-            && [projectLabels[1u].font.fontName
-                isEqualToString:fileMenu.font.fontName]
-            && near(NSMidY(transportLabels[1u].frame),
-                NSMidY(launchMenu.frame), 0.01)
-            && near(NSMidY(projectLabels[1u].frame),
-                NSMidY(fileMenu.frame), 0.01)
+            && projectPanel.toolboxIndex == 0u
+            && transportPanel.toolboxIndex == 0u
+            && rowToolsPanel.toolboxIndex == 0u
+            && near(NSHeight(project.frame),
+                s3g::gui_layout::toolboxHeightForRows(1u))
+            && near(NSMidY(fileMenu.frame), NSMidY(songMode.frame), 0.01)
+            && near(NSMidY(songMode.frame), NSMidY(songLoop.frame), 0.01)
+            && near(NSMidY(songLoop.frame), NSMidY(launchMenu.frame), 0.01)
+            && near(NSMidY(launchMenu.frame), NSMidY(queueButton.frame), 0.01)
+            && near(NSMidY(queueButton.frame), NSMidY(queueStatus.frame), 0.01)
+            && queueStatus.superview == transportPanel
+            && NSMinX(queueStatus.frame) > NSMaxX(queueButton.frame)
+            && NSMaxX(queueStatus.frame) <= NSWidth(transportPanel.bounds) - 7.0
+            && near(NSMidY(addButton.frame), NSMidY(duplicateButton.frame), 0.01)
+            && near(NSMidY(duplicateButton.frame), NSMidY(removeButton.frame), 0.01)
+            && near(NSMidY(removeButton.frame), NSMidY(moveUpButton.frame), 0.01)
+            && near(NSMidY(moveUpButton.frame), NSMidY(moveDownButton.frame), 0.01)
             && launchMenu.numberOfItems == 4u
             && [[launchMenu itemAtIndex:2u].title
                 isEqualToString:@"END OF PASS"]
@@ -194,14 +203,14 @@ void testSharedToolboxLayout(
             && launchMenu.indexOfSelectedItem == 3u
             && NSMaxX([table rectOfColumn:8])
                 <= NSWidth(tableScroll.contentView.bounds) + 1.0
-            && summary.font.pointSize <= 10.0
             && queueStatus.font.pointSize <= 10.0
             && [project isKindOfClass:
                 NSClassFromString(@"S3GTrackerToolboxView")],
         "Song should use the shared toolbox/menu contract and keep DEL visible without horizontal scrolling at its default width");
-    NSButton* songMode = [controller valueForKey:@"songModeButton"];
     check([songMode.identifier isEqualToString:@"binary-status"]
-            && songMode.state == NSControlStateValueOff,
+            && songMode.state == NSControlStateValueOff
+            && [songMode.title isEqualToString:@"SONG: OFF"]
+            && [songLoop.title isEqualToString:@"LOOP: OFF"],
         "Song transport should use the shared red-off/green-on button semantic");
 }
 

@@ -210,11 +210,11 @@ NSAttributedString* helpDocument()
     appendGuideSection(document, @"TRACKER GRID WORKFLOW", @[
         @[ @"COLUMNS", @"Compact lanes show NOTE and VOL. EXPAND SEQ reveals SEQ1, V1, SEQ2, and V2. Double-click a length to enter a stride such as 24x2; double-click READ to set its one-based starting row." ],
         @[ @"NOTE DISPLAY", @"NOTE: NAME shows pitches such as C-4. NOTE: MIDI shows the same stored pitch as decimal value 60." ],
-        @[ @"CELL SYMBOLS", @"NOTE: --- rest, RPT retrigger previous, HLD continue the active note, KIL kill. VOL: DEF default. VOL/SEQ: PRV previous." ],
+        @[ @"CELL SYMBOLS", @"NOTE: --- rest, RPT retrigger previous, HLD continue the active note, KIL kill, B01–B32 reusable sub-row Burst. VOL: DEF default. VOL/SEQ: PRV previous." ],
         @[ @"QUICK ENTRY", @"In NOTE, X toggles an anchored hit; R writes RPT; H writes HLD; K writes KIL. Delete clears the active cell or drag selection. [ and ] adjust VOL/V values. M toggles the selected column mute." ],
         @[ @"SEQUENCING + VALUES", @"Right-click SEQ1/SEQ2 to choose an action or CC, or double-click and type its code. VOL and sequence values use 0.000–1.000; CC also accepts 0–127. STP holds values; LIN emits bounded intermediate CC values." ],
         @[ @"SELECTION + HISTORY", @"Drag cells for a rectangle. Control-A/C/X/V selects all, copies, cuts, and pastes. Control-Z and Control-Shift-Z undo and redo Tracker states; Command-Z remains REAPER's." ],
-        @[ @"NAVIGATION", @"Left/Right moves between fields; Up/Down moves rows; Shift-Left/Right moves lanes. Page Up/Down, Home/End, and F9–F12 jump through the pattern. Control-=/−/0 changes zoom." ],
+        @[ @"NAVIGATION", @"Left/Right moves between fields; Up/Down moves rows; Shift-Left/Right moves lanes. Page Up/Down, Home/End, and F9–F12 jump through the pattern. Control-=/−/0 changes zoom. < and > switch to the previous or next panel unless text entry or a menu is active." ],
         @[ @"DIRECTIONS + LOOP", @"FORWARD (>), REVERSE (<), PALINDROME (<>), RANDOM (header: RND). Drag the fixed row-number gutter or use Shift-Up/Down to set the global loop region." ],
     ]);
     appendGuideSection(document, @"MIDI + LANE ROUTING", @[

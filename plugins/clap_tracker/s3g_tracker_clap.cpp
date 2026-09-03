@@ -593,6 +593,17 @@ struct Runtime {
         return row && row->patternLoop ? row->patternLoop->startRow : 0u;
     }
 
+    void updateSongConditionContext() noexcept
+    {
+        const auto* row = songPlanner.currentRow();
+        if (!songEnabled || !row) {
+            scheduler.clearSongConditionContext();
+            return;
+        }
+        scheduler.setSongConditionContext(
+            songPlanner.currentRepeatIndex(), row->repeats);
+    }
+
     bool arm(double hostBeat, double tempo, double sampleRate,
         uint64_t absoluteStartFrame, bool forceAllRows = false) noexcept
     {
@@ -613,8 +624,10 @@ struct Runtime {
             const auto* row = songPlanner.currentRow();
             clock = songRowClock(row, clock);
             scheduler.setRuntimeTrackMuteMask(row ? row->mutedTracks : 0u);
+            updateSongConditionContext();
         } else {
             scheduler.setRuntimeTrackMuteMask(0u);
+            scheduler.clearSongConditionContext();
         }
         scheduler.setTransport(std::move(clock));
         scheduler.setLogicalTickObserver(&Runtime::advanceLogicalTick, this);
@@ -684,6 +697,7 @@ struct Runtime {
             return advancePatternLaunch(context, boundary);
         const bool wasFinished = runtime.songPlanner.isFinished();
         const auto result = runtime.songPlanner.advanceTick();
+        runtime.updateSongConditionContext();
         if (runtime.patternLaunch) {
             auto& mailbox = *runtime.patternLaunch;
             const uint32_t revision = mailbox.revision.load(
@@ -829,6 +843,7 @@ struct Plugin {
     bool runtimeArmed = false;
     std::atomic<bool> requestPanic { false };
     std::atomic<bool> requestRestart { false };
+    std::atomic<bool> fillActive { false };
     std::atomic<uint32_t> requestTrackResyncMask { 0u };
     std::atomic<uint32_t> auditionNode { s3g::tracker::kInvalidInstrumentNode };
     std::atomic<uint32_t> auditionData { 0u };
@@ -1568,6 +1583,8 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     }
     Runtime* runtime = plugin.audioRuntime;
     if (!runtime) return;
+    runtime->scheduler.setFillActive(plugin.fillActive.load(
+        std::memory_order_relaxed));
     if (plugin.requestPanic.exchange(false, std::memory_order_acq_rel))
         emitPanic(plugin, output, blockOffset);
     handleAudition(plugin, *runtime, output, blockOffset);
@@ -1738,6 +1755,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)toggleDetachPage:(S3GTrackerClapPage)page;
 - (void)reattachPage:(S3GTrackerClapPage)page closeWindow:(BOOL)closeWindow;
 - (void)detachFromPlugin;
+- (BOOL)navigatePageForEvent:(NSEvent*)event;
 @end
 
 @implementation S3GTrackerClapPageView
@@ -1832,6 +1850,46 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 }
 
 - (BOOL)isFlipped { return YES; }
+
+- (BOOL)navigatePageForEvent:(NSEvent*)event
+{
+    const auto modifiers = event.modifierFlags
+        & (NSEventModifierFlagCommand | NSEventModifierFlagControl
+            | NSEventModifierFlagOption | NSEventModifierFlagShift);
+    if (modifiers != NSEventModifierFlagShift) return NO;
+    NSString* characters = event.characters;
+    const BOOL previous = event.keyCode == 43u
+        || [characters isEqualToString:@"<"];
+    const BOOL next = event.keyCode == 47u
+        || [characters isEqualToString:@">"];
+    if (!previous && !next) return NO;
+
+    NSResponder* responder = self.window.firstResponder;
+    if ([responder isKindOfClass:NSTextView.class]
+        || [NSStringFromClass(responder.class) containsString:@"MenuOverlay"])
+        return NO;
+
+    const NSInteger count = static_cast<NSInteger>(self.pageViews.count);
+    if (count <= 0) return NO;
+    NSInteger index = static_cast<NSInteger>(self.selectedPage)
+        + (next ? 1 : -1);
+    if (index < 0) index = count - 1;
+    if (index >= count) index = 0;
+    [self showPage:static_cast<S3GTrackerClapPage>(index)];
+    return YES;
+}
+
+- (BOOL)performKeyEquivalent:(NSEvent*)event
+{
+    if ([self navigatePageForEvent:event]) return YES;
+    return [super performKeyEquivalent:event];
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+    if ([self navigatePageForEvent:event]) return;
+    [super keyDown:event];
+}
 
 - (void)layout
 {
@@ -2095,6 +2153,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _playingSongArrangementValid = false;
     _state->midiStepInputAvailable = true;
     _state->midiStepRecordMode = MidiStepRecordMode::Off;
+    _state->fillActive = _plugin->fillActive.load(
+        std::memory_order_acquire);
     _plugin->midiStepRecordMode.store(
         static_cast<uint8_t>(MidiStepRecordMode::Off),
         std::memory_order_relaxed);
@@ -2200,6 +2260,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _callbacks->transportChanged = [weakSelf] {
         [weakSelf refreshSongWarps];
         [weakSelf commitProject:YES];
+    };
+    _callbacks->fillChanged = [weakSelf](bool active) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        owner->_plugin->fillActive.store(active, std::memory_order_release);
+        if (owner->_plugin->host && owner->_plugin->host->request_process)
+            owner->_plugin->host->request_process(owner->_plugin->host);
     };
     _callbacks->outputChanged = [weakSelf] {
         [weakSelf commitProject:YES];

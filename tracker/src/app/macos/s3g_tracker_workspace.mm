@@ -23,6 +23,8 @@
 namespace {
 
 using s3g::tracker::Direction;
+using s3g::tracker::BurstDefinition;
+using s3g::tracker::BurstEvent;
 using s3g::tracker::ColumnDefinition;
 using s3g::tracker::EventDestination;
 using s3g::tracker::FxActionCell;
@@ -41,6 +43,10 @@ using s3g::tracker::Track;
 using s3g::tracker::ValueCell;
 using s3g::tracker::ValueCellState;
 using s3g::tracker::ValueInterpolation;
+using s3g::tracker::burstSlotToken;
+using s3g::tracker::kBurstDefinitionCount;
+using s3g::tracker::kMaximumBurstEvents;
+using s3g::tracker::kMaximumBurstNameBytes;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
 namespace layout = s3g::gui_layout;
@@ -252,12 +258,51 @@ NSString* noteText(const NoteCell& cell, bool showMidiValue)
             ? [NSString stringWithFormat:@"%u",
                 static_cast<unsigned int>(cell.note)]
             : midiNoteName(cell.note);
+    case NoteCellState::Burst:
+        return nsString(s3g::tracker::burstSlotToken(cell.note));
     case NoteCellState::RetriggerPrevious: return @"RPT";
     case NoteCellState::Kill: return @"KIL";
     case NoteCellState::Hold: return @"HLD";
     case NoteCellState::Rest:
     default: return @"---";
     }
+}
+
+bool noteCellIsActivePulse(const NoteCell& cell) noexcept
+{
+    return cell.state == NoteCellState::Note
+        || cell.state == NoteCellState::RetriggerPrevious
+        || cell.state == NoteCellState::Burst;
+}
+
+void setGeometryBurstTiming(BurstDefinition& burst,
+    std::string_view shape) noexcept
+{
+    const auto count = static_cast<std::size_t>(burst.eventCount);
+    if (count == 0u) return;
+    for (std::size_t index = 0u; index < count; ++index) {
+        const double phase = static_cast<double>(index)
+            / static_cast<double>(count);
+        double shaped = phase;
+        if (shape == "accelerate")
+            shaped = 1.0 - (1.0 - phase) * (1.0 - phase);
+        else if (shape == "decelerate") shaped = phase * phase;
+        burst.events[index].position = static_cast<uint16_t>(std::clamp<long>(
+            std::lround(shaped * 65536.0), 0l, 65535l));
+    }
+}
+
+std::size_t geometryBurstUsageCount(const Pattern& pattern,
+    std::size_t slot) noexcept
+{
+    std::size_t count = 0u;
+    for (const auto& track : pattern.tracks)
+        count += static_cast<std::size_t>(std::count_if(
+            track.notes.begin(), track.notes.end(), [slot](const NoteCell& cell) {
+                return cell.state == NoteCellState::Burst
+                    && cell.note == slot;
+            }));
+    return count;
 }
 
 float resolvedVelocity(const Track& track, std::size_t row)
@@ -346,6 +391,16 @@ NSString* fxValueText(const Track& track, std::size_t pair,
         || row >= track.fxPairs[pair].values.size()) return @"PRV";
     const auto& cell = track.fxPairs[pair].values[row];
     if (cell.state == FxValueCellState::Previous) return @"PRV";
+    const auto& actions = track.fxPairs[pair].actions;
+    if (row < actions.size()
+        && actions[row].state == FxActionCellState::Sequencer
+        && actions[row].sequencerAction == SequencerAction::Condition) {
+        const auto condition = s3g::tracker::sequencerConditionFromNormalized(
+            cell.normalized);
+        const auto* definition = s3g::tracker::sequencerCondition(
+            static_cast<std::size_t>(condition));
+        if (definition) return nsString(std::string(definition->token));
+    }
     return [NSString stringWithFormat:@"%.3f",
         static_cast<double>(
             std::clamp(cell.normalized, 0.0f, 1.0f))];
@@ -674,6 +729,7 @@ void deletePatternColumnRows(ColumnDefinition& column, std::size_t row,
 @interface S3GTrackerRowGutterView : NSView
 @property(nonatomic, weak) NSScrollView* scrollView;
 @property(nonatomic, weak) S3GTrackerGridView* gridView;
+@property(nonatomic) BOOL selectingRowRange;
 - (instancetype)initWithScrollView:(NSScrollView*)scrollView
     gridView:(S3GTrackerGridView*)gridView;
 - (void)refreshFrameAndDisplay;
@@ -687,6 +743,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryViewMode) {
     S3GTrackerGeometryViewModePhaseSpokes,
     S3GTrackerGeometryViewModeLaneFocus,
     S3GTrackerGeometryViewModeCompositeRing,
+    S3GTrackerGeometryViewModeBurst,
 };
 
 typedef NS_ENUM(NSInteger, S3GTrackerGeometryTool) {
@@ -705,6 +762,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryGestureKind) {
     S3GTrackerGeometryGestureLength,
     S3GTrackerGeometryGestureRotate,
     S3GTrackerGeometryGestureDensity,
+    S3GTrackerGeometryGestureBurstPosition,
+    S3GTrackerGeometryGestureBurstNote,
+    S3GTrackerGeometryGestureBurstVelocity,
+    S3GTrackerGeometryGestureBurstGate,
 };
 
 typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
@@ -713,10 +774,56 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     S3GTrackerGeometryMenuDirection,
     S3GTrackerGeometryMenuView,
     S3GTrackerGeometryMenuMorphTarget,
+    S3GTrackerGeometryMenuBurstSlot,
+    S3GTrackerGeometryMenuBurstEvent,
 };
 @class S3GTrackerGeometryWindowController;
 @class S3GTrackerEnvelopeView;
 @class S3GTrackerInstrumentToolboxView;
+
+// Normal clicks latch FILL. Shift-hold supplies a performance momentary mode
+// without adding another transport control or changing the suite button look.
+@interface S3GTrackerFillButton : S3GTrackerActionButton
+@end
+
+@implementation S3GTrackerFillButton
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self) self.buttonType = NSButtonTypePushOnPushOff;
+    return self;
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    if ((event.modifierFlags & NSEventModifierFlagShift) == 0u) {
+        [super mouseDown:event];
+        return;
+    }
+    const NSControlStateValue previous = self.state;
+    self.state = NSControlStateValueOn;
+    self.highlighted = YES;
+    [self setNeedsDisplay:YES];
+    [NSApp sendAction:self.action to:self.target from:self];
+    for (;;) {
+        NSEvent* next = [self.window nextEventMatchingMask:
+            (NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged)
+            untilDate:NSDate.distantFuture
+            inMode:NSEventTrackingRunLoopMode dequeue:YES];
+        if (!next || next.type == NSEventTypeLeftMouseUp) break;
+        const NSPoint point = [self convertPoint:next.locationInWindow
+            fromView:nil];
+        self.highlighted = NSPointInRect(point, self.bounds);
+        [self setNeedsDisplay:YES];
+    }
+    self.highlighted = NO;
+    self.state = previous;
+    [self setNeedsDisplay:YES];
+    [NSApp sendAction:self.action to:self.target from:self];
+}
+
+@end
 
 @interface S3GTrackerWorkspaceController () <NSTextFieldDelegate>
 @property(nonatomic, assign) TrackerViewState* trackerState;
@@ -750,6 +857,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, copy) NSString* consoleDraft;
 @property(nonatomic, strong) NSButton* playButton;
 @property(nonatomic, strong) NSButton* loopButton;
+@property(nonatomic, strong) NSButton* fillButton;
 @property(nonatomic, strong) NSButton* restartButton;
 @property(nonatomic, strong) NSButton* sequenceColumnsButton;
 @property(nonatomic, strong) NSButton* trackAddButton;
@@ -791,6 +899,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)moduleFocusConsole;
 - (void)tempoScaleChanged:(id)sender;
 - (void)loopPressed:(id)sender;
+- (void)fillPressed:(id)sender;
 - (void)applyWorkspaceMode;
 - (void)assignTrackInstrument:(uint32_t)nodeId;
 - (void)editRackInstrument:(uint32_t)nodeId;
@@ -798,6 +907,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)zoomTrackerIn;
 - (void)zoomTrackerOut;
 - (void)resetTrackerZoom;
+- (void)editBurstSlot:(std::size_t)slot;
 @end
 
 @interface S3GTrackerGridView : NSView <NSTextFieldDelegate> {
@@ -808,7 +918,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     BOOL _presentedPlaying;
     std::string _presentedPatternId;
     uint32_t _presentedSongMuteMask;
-    Pattern _rowClipboard;
+    s3g::tracker::Pattern _rowClipboard;
     BOOL _hasRowClipboard;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
@@ -831,6 +941,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)deletePatternRows:(NSMenuItem*)sender;
 - (void)copyPatternRows:(NSMenuItem*)sender;
 - (void)pastePatternRows:(NSMenuItem*)sender;
+- (BOOL)isWholeRowSelected:(std::size_t)row;
+- (NSDictionary*)rowActionPayloadForRow:(std::size_t)row;
+- (std::size_t)wholeRowSelectionAnchor;
+- (BOOL)hasRowClipboard;
+- (NSMenu*)sequenceConditionMenuForTrack:(std::size_t)track
+    row:(std::size_t)row field:(std::size_t)field;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic, strong) NSTextField* cellEditor;
@@ -867,6 +983,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
 - (void)sequenceActionSelected:(NSMenuItem*)sender;
+- (NSMenu*)burstMenuForTrack:(std::size_t)track row:(std::size_t)row;
+- (void)burstMenuSelected:(NSMenuItem*)sender;
 @end
 
 @implementation S3GTrackerGridView
@@ -883,7 +1001,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. During Song playback Tracker follows the sounding pattern and becomes read-only, then returns to the editor pattern when playback stops. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length and stride, read start, direction, and MUTE rows. Double-click length to enter forms such as 24x2, or double-click READ to set its one-based starting row. Click DIR to cycle direction or MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop; right-click a row number to insert or delete that pattern row. NOTE accepts a MIDI number, note name, RPT, HLD, or KIL; H writes HLD directly. VOL and sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. During Song playback Tracker follows the sounding pattern and becomes read-only, then returns to the editor pattern when playback stops. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length and stride, read start, direction, and MUTE rows. Double-click length to enter forms such as 24x2, or double-click READ to set its one-based starting row. Click DIR to cycle direction or MUTE to toggle that column. Left and right move across visible fields; up and down move between rows. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. Shift-click row numbers to select multiple complete rows, then right-click a selected number to insert, delete, copy, or paste those pattern rows. NOTE accepts a MIDI number, note name, RPT, HLD, or KIL; H writes HLD directly. VOL and sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -923,81 +1041,186 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)clearGridSelection
 {
     _gridSelection.active = false;
+    self.selectingWholeRows = NO;
     [self setNeedsDisplay:YES];
 }
 
-- (void)insertPatternRow:(NSMenuItem*)sender
+- (void)selectWholeRowsFrom:(std::size_t)anchor to:(std::size_t)focus
 {
     auto* model = self.trackerState;
-    if (!model || model->songPlaybackActive) return;
+    if (!model || model->session.pattern.tracks.empty()) return;
+    const std::size_t rows = visibleRows(model);
+    anchor = std::min(anchor, rows - 1u);
+    focus = std::min(focus, rows - 1u);
+    _gridSelection.page = 0u;
+    _gridSelection.anchorTrack = 0u;
+    _gridSelection.focusTrack = model->session.pattern.tracks.size() - 1u;
+    _gridSelection.anchorField = 0u;
+    _gridSelection.focusField = gridFieldCount(
+        model->sequenceColumnsExpanded) - 1u;
+    _gridSelection.anchorRow = anchor;
+    _gridSelection.focusRow = focus;
+    _gridSelection.active = true;
+    self.selectingWholeRows = YES;
+    model->session.selectedRow = focus;
+    [self.owner moduleSelectionChanged];
+    [self setNeedsDisplay:YES];
+}
+
+- (BOOL)isWholeRowSelected:(std::size_t)row
+{
+    if (!self.selectingWholeRows || !_gridSelection.active) return NO;
+    const auto range = _gridSelection.range();
+    return row >= range.firstRow && row <= range.lastRow;
+}
+
+- (std::size_t)wholeRowSelectionAnchor
+{
+    return self.selectingWholeRows ? _gridSelection.anchorRow
+                                   : self.trackerState->session.selectedRow;
+}
+
+- (BOOL)hasRowClipboard { return _hasRowClipboard; }
+
+- (NSDictionary*)rowActionPayloadForRow:(std::size_t)row
+{
+    auto* model = self.trackerState;
+    if (!model) return @{ @"row": @0, @"count": @0 };
+    row = std::min(row, visibleRows(model) - 1u);
+    if (self.selectingWholeRows && _gridSelection.active) {
+        const auto range = _gridSelection.range();
+        if (row >= range.firstRow && row <= range.lastRow) {
+            return @{
+                @"row": @(range.firstRow),
+                @"count": @(range.lastRow - range.firstRow + 1u),
+            };
+        }
+    }
+    [self selectWholeRowsFrom:row to:row];
+    return @{ @"row": @(row), @"count": @1 };
+}
+
+- (NSDictionary*)rowActionPayload:(NSMenuItem*)sender
+{
+    return [sender.representedObject isKindOfClass:NSDictionary.class]
+        ? sender.representedObject : @{};
+}
+
+- (void)insertRowsAt:(std::size_t)row count:(std::size_t)requested
+    pasteClipboard:(BOOL)pasteClipboard
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive || requested == 0u) return;
     auto& pattern = model->session.pattern;
     const std::size_t oldRows = std::clamp<std::size_t>(
         pattern.visibleRows, 1u, kGridMaximumRows);
     if (oldRows >= kGridMaximumRows) return;
-    const std::size_t row = std::min<std::size_t>(
-        static_cast<std::size_t>(std::max<NSInteger>(0, sender.tag)),
-        oldRows);
+    row = std::min(row, oldRows);
+    const std::size_t count = std::min(requested,
+        kGridMaximumRows - oldRows);
     for (auto& track : pattern.tracks) {
-        insertPatternRowCell(track.notes, row, oldRows, NoteCell::rest());
-        insertPatternRowCell(track.instruments, row, oldRows,
+        insertPatternRowCell(track.notes, row, oldRows, count,
+            NoteCell::rest());
+        insertPatternRowCell(track.instruments, row, oldRows, count,
             InstrumentCell::empty());
-        insertPatternRowCell(track.velocities, row, oldRows,
+        insertPatternRowCell(track.velocities, row, oldRows, count,
             ValueCell::defaultValue());
-        insertPatternColumnRow(track.noteColumn, row);
-        insertPatternColumnRow(track.instrumentColumn, row);
-        insertPatternColumnRow(track.velocityColumn, row);
+        insertPatternColumnRows(track.noteColumn, row, count);
+        insertPatternColumnRows(track.instrumentColumn, row, count);
+        insertPatternColumnRows(track.velocityColumn, row, count);
         for (auto& pair : track.fxPairs) {
-            insertPatternRowCell(pair.actions, row, oldRows,
+            insertPatternRowCell(pair.actions, row, oldRows, count,
                 FxActionCell::empty());
-            insertPatternRowCell(pair.values, row, oldRows,
+            insertPatternRowCell(pair.values, row, oldRows, count,
                 FxValueCell::previous());
-            insertPatternColumnRow(pair.actionColumn, row);
-            insertPatternColumnRow(pair.valueColumn, row);
+            insertPatternColumnRows(pair.actionColumn, row, count);
+            insertPatternColumnRows(pair.valueColumn, row, count);
         }
     }
-    pattern.visibleRows = oldRows + 1u;
+    if (pasteClipboard && _hasRowClipboard) {
+        const std::size_t lanes = std::min(
+            pattern.tracks.size(), _rowClipboard.tracks.size());
+        for (std::size_t lane = 0u; lane < lanes; ++lane) {
+            auto& destination = pattern.tracks[lane];
+            const auto& source = _rowClipboard.tracks[lane];
+            const auto paste = [row, count](auto& into, const auto& from) {
+                const std::size_t cells = std::min(count, from.size());
+                for (std::size_t index = 0u; index < cells; ++index)
+                    into[row + index] = from[index];
+            };
+            paste(destination.notes, source.notes);
+            paste(destination.instruments, source.instruments);
+            paste(destination.velocities, source.velocities);
+            for (std::size_t pair = 0u;
+                 pair < destination.fxPairs.size(); ++pair) {
+                paste(destination.fxPairs[pair].actions,
+                    source.fxPairs[pair].actions);
+                paste(destination.fxPairs[pair].values,
+                    source.fxPairs[pair].values);
+            }
+        }
+    }
+    pattern.visibleRows = oldRows + count;
     auto& transport = model->session.transport;
-    if (transport.loopStartRow >= row) ++transport.loopStartRow;
-    if (transport.loopEndRow > row) ++transport.loopEndRow;
+    if (transport.loopStartRow >= row) transport.loopStartRow += count;
+    if (transport.loopEndRow > row) transport.loopEndRow += count;
     model->session.selectedRow = row;
-    [self clearGridSelection];
+    [self selectWholeRowsFrom:row to:row + count - 1u];
     [self.owner modulePatternChanged];
 }
 
-- (void)deletePatternRow:(NSMenuItem*)sender
+- (void)insertPatternRows:(NSMenuItem*)sender
+{
+    NSDictionary* payload = [self rowActionPayload:sender];
+    [self insertRowsAt:[payload[@"row"] unsignedIntegerValue]
+        count:[payload[@"count"] unsignedIntegerValue]
+        pasteClipboard:NO];
+}
+
+- (void)deletePatternRows:(NSMenuItem*)sender
 {
     auto* model = self.trackerState;
     if (!model || model->songPlaybackActive) return;
     auto& pattern = model->session.pattern;
     const std::size_t oldRows = std::clamp<std::size_t>(
         pattern.visibleRows, 1u, kGridMaximumRows);
-    // The grid's compact contract always presents at least sixteen rows.
     if (oldRows <= 16u) return;
+    NSDictionary* payload = [self rowActionPayload:sender];
     const std::size_t row = std::min<std::size_t>(
-        static_cast<std::size_t>(std::max<NSInteger>(0, sender.tag)),
-        oldRows - 1u);
+        [payload[@"row"] unsignedIntegerValue], oldRows - 1u);
+    const std::size_t count = std::min<std::size_t>({
+        [payload[@"count"] unsignedIntegerValue], oldRows - row,
+        oldRows - 16u });
+    if (count == 0u) return;
     for (auto& track : pattern.tracks) {
-        deletePatternRowCell(track.notes, row, oldRows, NoteCell::rest());
-        deletePatternRowCell(track.instruments, row, oldRows,
+        deletePatternRowCell(track.notes, row, oldRows, count,
+            NoteCell::rest());
+        deletePatternRowCell(track.instruments, row, oldRows, count,
             InstrumentCell::empty());
-        deletePatternRowCell(track.velocities, row, oldRows,
+        deletePatternRowCell(track.velocities, row, oldRows, count,
             ValueCell::defaultValue());
-        deletePatternColumnRow(track.noteColumn, row);
-        deletePatternColumnRow(track.instrumentColumn, row);
-        deletePatternColumnRow(track.velocityColumn, row);
+        deletePatternColumnRows(track.noteColumn, row, count);
+        deletePatternColumnRows(track.instrumentColumn, row, count);
+        deletePatternColumnRows(track.velocityColumn, row, count);
         for (auto& pair : track.fxPairs) {
-            deletePatternRowCell(pair.actions, row, oldRows,
+            deletePatternRowCell(pair.actions, row, oldRows, count,
                 FxActionCell::empty());
-            deletePatternRowCell(pair.values, row, oldRows,
+            deletePatternRowCell(pair.values, row, oldRows, count,
                 FxValueCell::previous());
-            deletePatternColumnRow(pair.actionColumn, row);
-            deletePatternColumnRow(pair.valueColumn, row);
+            deletePatternColumnRows(pair.actionColumn, row, count);
+            deletePatternColumnRows(pair.valueColumn, row, count);
         }
     }
-    pattern.visibleRows = oldRows - 1u;
+    pattern.visibleRows = oldRows - count;
     auto& transport = model->session.transport;
-    if (transport.loopStartRow > row) --transport.loopStartRow;
-    if (transport.loopEndRow > row) --transport.loopEndRow;
+    if (transport.loopStartRow >= row + count)
+        transport.loopStartRow -= count;
+    else if (transport.loopStartRow >= row)
+        transport.loopStartRow = static_cast<uint32_t>(row);
+    if (transport.loopEndRow >= row + count)
+        transport.loopEndRow -= count;
+    else if (transport.loopEndRow > row)
+        transport.loopEndRow = static_cast<uint32_t>(row);
     transport.loopStartRow = std::min<uint32_t>(transport.loopStartRow,
         static_cast<uint32_t>(pattern.visibleRows - 1u));
     transport.loopEndRow = std::clamp<uint32_t>(transport.loopEndRow,
@@ -1006,6 +1229,47 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     model->session.selectedRow = std::min(row, pattern.visibleRows - 1u);
     [self clearGridSelection];
     [self.owner modulePatternChanged];
+}
+
+- (void)copyPatternRows:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model) return;
+    NSDictionary* payload = [self rowActionPayload:sender];
+    const std::size_t rows = std::max<std::size_t>(
+        model->session.pattern.visibleRows, 1u);
+    const std::size_t row = std::min<std::size_t>(
+        [payload[@"row"] unsignedIntegerValue], rows - 1u);
+    const std::size_t count = std::min<std::size_t>(
+        [payload[@"count"] unsignedIntegerValue], rows - row);
+    if (count == 0u) return;
+    _rowClipboard = model->session.pattern;
+    _rowClipboard.visibleRows = count;
+    const auto copyRange = [row, count, rows](auto& cells, const auto& blank) {
+        cells.resize(rows, blank);
+        std::vector<std::decay_t<decltype(cells.front())>> copied(
+            cells.begin() + static_cast<std::ptrdiff_t>(row),
+            cells.begin() + static_cast<std::ptrdiff_t>(row + count));
+        cells = std::move(copied);
+    };
+    for (auto& track : _rowClipboard.tracks) {
+        copyRange(track.notes, NoteCell::rest());
+        copyRange(track.instruments, InstrumentCell::empty());
+        copyRange(track.velocities, ValueCell::defaultValue());
+        for (auto& pair : track.fxPairs) {
+            copyRange(pair.actions, FxActionCell::empty());
+            copyRange(pair.values, FxValueCell::previous());
+        }
+    }
+    _hasRowClipboard = YES;
+}
+
+- (void)pastePatternRows:(NSMenuItem*)sender
+{
+    if (!_hasRowClipboard) return;
+    NSDictionary* payload = [self rowActionPayload:sender];
+    [self insertRowsAt:[payload[@"row"] unsignedIntegerValue]
+        count:_rowClipboard.visibleRows pasteClipboard:YES];
 }
 
 - (void)beginGridSelectionAtTrack:(std::size_t)track
@@ -1556,8 +1820,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         pair.actions[row] = FxActionCell::sequencer(action->action);
         if (pair.values.size() <= row)
             pair.values.resize(row + 1u, FxValueCell::previous());
-        if (pair.values[row].state == FxValueCellState::Previous)
-            pair.values[row] = FxValueCell::withValue(0.5f);
+        if (pair.values[row].state == FxValueCellState::Previous) {
+            pair.values[row] = FxValueCell::withValue(
+                action->action == SequencerAction::Condition
+                    ? s3g::tracker::normalizedFromSequencerCondition(
+                        s3g::tracker::SequencerCondition::FirstOf2)
+                    : 0.5f);
+        }
         pair.valueColumn.length = std::max(
             pair.valueColumn.length, row + 1u);
     } else if ([kind isEqualToString:@"cc"]) {
@@ -1580,6 +1849,310 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     model->session.selectedTrack = trackIndex;
     model->session.selectedRow = row;
     model->session.selectedField = field;
+    [self clearGridSelection];
+    [self.owner modulePatternChanged];
+    [self.window makeFirstResponder:self];
+}
+
+- (NSMenu*)sequenceConditionMenuForTrack:(std::size_t)trackIndex
+    row:(std::size_t)row field:(std::size_t)field
+{
+    auto* model = self.trackerState;
+    if (!model || trackIndex >= model->session.pattern.tracks.size()
+        || !gridFieldIsSequence(field)
+        || gridFieldIsSequenceAction(field)) return nil;
+    const auto pairIndex = gridSequencePair(field);
+    const auto& pair = model->session.pattern.tracks[trackIndex]
+        .fxPairs[pairIndex];
+    if (row >= pair.actions.size()
+        || pair.actions[row].state != FxActionCellState::Sequencer
+        || pair.actions[row].sequencerAction
+            != SequencerAction::Condition) return nil;
+    const auto current = row < pair.values.size()
+            && pair.values[row].state == FxValueCellState::Value
+        ? s3g::tracker::sequencerConditionFromNormalized(
+            pair.values[row].normalized)
+        : s3g::tracker::SequencerCondition::FirstOf2;
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"CONDITION"];
+    menu.autoenablesItems = NO;
+    menu.font = trackerFont(9.5, NSFontWeightMedium);
+    NSMenuItem* heading = [[NSMenuItem alloc]
+        initWithTitle:@"CD  ·  PLAY THIS NOTE WHEN"
+        action:nil keyEquivalent:@""];
+    heading.enabled = NO;
+    [menu addItem:heading];
+    [menu addItem:NSMenuItem.separatorItem];
+    for (std::size_t index = 0u;
+         index < s3g::tracker::kSequencerConditionCount; ++index) {
+        const auto* condition = s3g::tracker::sequencerCondition(index);
+        if (!condition) continue;
+        if (index == static_cast<std::size_t>(
+                s3g::tracker::SequencerCondition::First)
+            || index == static_cast<std::size_t>(
+                s3g::tracker::SequencerCondition::Fill)) {
+            [menu addItem:NSMenuItem.separatorItem];
+        }
+        NSMenuItem* item = [[NSMenuItem alloc]
+            initWithTitle:[NSString stringWithFormat:@"%@   %@",
+                nsString(std::string(condition->token)),
+                nsString(std::string(condition->displayName))]
+            action:@selector(sequenceConditionSelected:)
+            keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = @{
+            @"track": @(trackIndex), @"row": @(row), @"field": @(field),
+            @"condition": @(index),
+        };
+        item.state = current == condition->condition
+            ? NSControlStateValueOn : NSControlStateValueOff;
+        [menu addItem:item];
+    }
+    return menu;
+}
+
+- (void)sequenceConditionSelected:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    NSDictionary* value = sender.representedObject;
+    if (!model || model->songPlaybackActive
+        || ![value isKindOfClass:NSDictionary.class]) return;
+    const auto trackIndex = [value[@"track"] unsignedIntegerValue];
+    const auto row = [value[@"row"] unsignedIntegerValue];
+    const auto field = [value[@"field"] unsignedIntegerValue];
+    const auto conditionIndex = [value[@"condition"] unsignedIntegerValue];
+    const auto* condition = s3g::tracker::sequencerCondition(conditionIndex);
+    if (!condition || trackIndex >= model->session.pattern.tracks.size()
+        || row >= kGridMaximumRows || !gridFieldIsSequence(field)
+        || gridFieldIsSequenceAction(field)) return;
+    auto& pair = model->session.pattern.tracks[trackIndex]
+        .fxPairs[gridSequencePair(field)];
+    if (pair.values.size() <= row)
+        pair.values.resize(row + 1u, FxValueCell::previous());
+    pair.values[row] = FxValueCell::withValue(
+        s3g::tracker::normalizedFromSequencerCondition(
+            condition->condition));
+    pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
+    model->session.selectedTrack = trackIndex;
+    model->session.selectedRow = row;
+    model->session.selectedField = field;
+    [self clearGridSelection];
+    [self.owner modulePatternChanged];
+    [self.window makeFirstResponder:self];
+}
+
+- (NSMenu*)burstMenuForTrack:(std::size_t)trackIndex
+    row:(std::size_t)row
+{
+    auto* model = self.trackerState;
+    if (!model || trackIndex >= model->session.pattern.tracks.size())
+        return nil;
+    auto& pattern = model->session.pattern;
+    const auto firstEmpty = std::find_if(pattern.bursts.begin(),
+        pattern.bursts.end(), [](const BurstDefinition& burst) {
+            return burst.empty();
+        });
+    const BOOL hasEmpty = firstEmpty != pattern.bursts.end();
+    const auto& track = pattern.tracks[trackIndex];
+    const NoteCell current = row < track.notes.size()
+        ? track.notes[row] : NoteCell::rest();
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"BURST"];
+    menu.autoenablesItems = NO;
+    menu.font = trackerFont(9.5, NSFontWeightMedium);
+    const auto add = ^(NSString* title, NSString* kind, BOOL enabled,
+                       NSInteger slot, NSDictionary* extra) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+            action:@selector(burstMenuSelected:) keyEquivalent:@""];
+        item.target = self;
+        NSMutableDictionary* payload = [@{
+            @"track": @(trackIndex), @"row": @(row), @"kind": kind,
+            @"slot": @(slot),
+        } mutableCopy];
+        if (extra) [payload addEntriesFromDictionary:extra];
+        item.representedObject = payload;
+        item.enabled = enabled;
+        [menu addItem:item];
+    };
+    for (const NSUInteger count : { 2u, 3u, 4u, 6u, 8u }) {
+        add([NSString stringWithFormat:@"CREATE %lu EVEN SUBSTEPS",
+                static_cast<unsigned long>(count)], @"create", hasEmpty,
+            -1, @{ @"count": @(count) });
+    }
+
+    const auto range = [self effectiveGridSelection];
+    const BOOL convertibleSelection = _gridSelection.active
+        && range.firstTrack == range.lastTrack
+        && range.firstField == 0u && range.lastField == 0u
+        && range.rowCount() >= 2u && range.rowCount() <= kMaximumBurstEvents;
+    add(@"CREATE FROM SELECTED NOTE ROWS", @"capture",
+        hasEmpty && convertibleSelection, -1, @{
+            @"firstRow": @(range.firstRow), @"lastRow": @(range.lastRow),
+        });
+    [menu addItem:NSMenuItem.separatorItem];
+
+    NSMenuItem* useRoot = [[NSMenuItem alloc] initWithTitle:@"USE BURST"
+        action:nil keyEquivalent:@""];
+    NSMenu* useMenu = [[NSMenu alloc] initWithTitle:@"USE BURST"];
+    for (std::size_t slot = 0u; slot < pattern.bursts.size(); ++slot) {
+        const auto& burst = pattern.bursts[slot];
+        if (burst.empty()) continue;
+        NSString* title = [NSString stringWithFormat:@"%@  ·  %@  ·  %u STEPS",
+            nsString(burstSlotToken(slot)), nsString(burst.name),
+            static_cast<unsigned int>(burst.eventCount)];
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+            action:@selector(burstMenuSelected:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = @{
+            @"track": @(trackIndex), @"row": @(row), @"kind": @"use",
+            @"slot": @(slot),
+        };
+        item.state = current.state == NoteCellState::Burst
+                && current.note == slot
+            ? NSControlStateValueOn : NSControlStateValueOff;
+        [useMenu addItem:item];
+    }
+    useRoot.submenu = useMenu;
+    useRoot.enabled = useMenu.numberOfItems > 0;
+    [menu addItem:useRoot];
+
+    if (current.state == NoteCellState::Burst
+        && current.note < pattern.bursts.size()
+        && !pattern.bursts[current.note].empty()) {
+        [menu addItem:NSMenuItem.separatorItem];
+        add([NSString stringWithFormat:@"EDIT %@ IN GEOMETRY",
+                nsString(burstSlotToken(current.note))], @"edit", YES,
+            current.note, nil);
+        add(@"DUPLICATE AND EDIT", @"duplicate", hasEmpty,
+            current.note, nil);
+        add(@"EXPAND TO TRACKER ROWS", @"expand", YES,
+            current.note, nil);
+        add(@"CONVERT TO FIRST NOTE", @"convert", YES,
+            current.note, nil);
+    }
+    return menu;
+}
+
+- (void)burstMenuSelected:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    NSDictionary* payload = sender.representedObject;
+    if (!model || model->songPlaybackActive
+        || ![payload isKindOfClass:NSDictionary.class]) return;
+    auto& pattern = model->session.pattern;
+    const auto trackIndex = [payload[@"track"] unsignedIntegerValue];
+    const auto row = [payload[@"row"] unsignedIntegerValue];
+    NSString* kind = payload[@"kind"];
+    if (trackIndex >= pattern.tracks.size() || row >= kGridMaximumRows
+        || ![kind isKindOfClass:NSString.class]) return;
+    auto& track = pattern.tracks[trackIndex];
+    const auto findEmpty = [&]() -> std::size_t {
+        const auto found = std::find_if(pattern.bursts.begin(),
+            pattern.bursts.end(), [](const BurstDefinition& burst) {
+                return burst.empty();
+            });
+        return found == pattern.bursts.end() ? pattern.bursts.size()
+                                             : static_cast<std::size_t>(
+                                                   found - pattern.bursts.begin());
+    };
+    std::size_t slot = [payload[@"slot"] integerValue] < 0
+        ? pattern.bursts.size()
+        : [payload[@"slot"] unsignedIntegerValue];
+    if ([kind isEqualToString:@"create"]
+        || [kind isEqualToString:@"capture"]) {
+        slot = findEmpty();
+        if (slot >= pattern.bursts.size()) return;
+        BurstDefinition burst;
+        burst.name = [kind isEqualToString:@"capture"]
+            ? "ROW CAPTURE" : "EVEN "
+                + std::to_string([payload[@"count"] unsignedIntegerValue]);
+        if ([kind isEqualToString:@"create"]) {
+            const auto count = std::clamp<NSUInteger>(
+                [payload[@"count"] unsignedIntegerValue], 1u,
+                kMaximumBurstEvents);
+            burst.eventCount = static_cast<uint8_t>(count);
+            const auto note = laneDefaultNote(model->session, trackIndex);
+            for (std::size_t index = 0u; index < count; ++index) {
+                burst.events[index] = {
+                    static_cast<uint16_t>(index * 65536u / count),
+                    note, 127u, 70u,
+                };
+            }
+        } else {
+            const auto first = [payload[@"firstRow"] unsignedIntegerValue];
+            const auto last = [payload[@"lastRow"] unsignedIntegerValue];
+            const auto span = std::max<std::size_t>(last - first + 1u, 1u);
+            for (std::size_t sourceRow = first; sourceRow <= last
+                 && burst.eventCount < kMaximumBurstEvents; ++sourceRow) {
+                if (sourceRow >= track.notes.size()
+                    || track.notes[sourceRow].state != NoteCellState::Note)
+                    continue;
+                auto& event = burst.events[burst.eventCount++];
+                event.position = static_cast<uint16_t>(
+                    (sourceRow - first) * 65536u / span);
+                event.note = track.notes[sourceRow].note;
+                event.velocity = static_cast<uint8_t>(std::clamp<long>(
+                    std::lround(resolvedVelocity(track, sourceRow) * 127.0f),
+                    1l, 127l));
+                event.gatePercent = 70u;
+            }
+            if (burst.empty()) return;
+            if (track.notes.size() <= last)
+                track.notes.resize(last + 1u, NoteCell::rest());
+            for (std::size_t clear = first; clear <= last; ++clear)
+                track.notes[clear] = NoteCell::rest();
+        }
+        pattern.bursts[slot] = burst;
+        if (track.notes.size() <= row)
+            track.notes.resize(row + 1u, NoteCell::rest());
+        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
+    } else if ([kind isEqualToString:@"use"] && slot < pattern.bursts.size()
+        && !pattern.bursts[slot].empty()) {
+        if (track.notes.size() <= row)
+            track.notes.resize(row + 1u, NoteCell::rest());
+        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
+    } else if ([kind isEqualToString:@"duplicate"]
+        && slot < pattern.bursts.size()) {
+        const auto destination = findEmpty();
+        if (destination >= pattern.bursts.size()) return;
+        pattern.bursts[destination] = pattern.bursts[slot];
+        pattern.bursts[destination].name += " COPY";
+        [self.owner modulePatternChanged];
+        [self.owner editBurstSlot:destination];
+        return;
+    } else if ([kind isEqualToString:@"edit"]
+        && slot < pattern.bursts.size()) {
+        [self.owner editBurstSlot:slot];
+        return;
+    } else if ([kind isEqualToString:@"expand"]
+        && slot < pattern.bursts.size()) {
+        const auto burst = pattern.bursts[slot];
+        const auto required = std::min<std::size_t>(kGridMaximumRows,
+            row + burst.eventCount);
+        track.notes.resize(std::max(track.notes.size(), required),
+            NoteCell::rest());
+        track.velocities.resize(std::max(track.velocities.size(), required),
+            ValueCell::defaultValue());
+        for (std::size_t index = 0u; index < burst.eventCount
+             && row + index < required; ++index) {
+            track.notes[row + index] = NoteCell::withNote(
+                burst.events[index].note);
+            track.velocities[row + index] = ValueCell::withValue(
+                static_cast<float>(burst.events[index].velocity) / 127.0f);
+        }
+        pattern.visibleRows = std::max(pattern.visibleRows, required);
+        track.noteColumn.length = std::max(track.noteColumn.length, required);
+        track.velocityColumn.length = std::max(
+            track.velocityColumn.length, required);
+    } else if ([kind isEqualToString:@"convert"]
+        && slot < pattern.bursts.size()
+        && !pattern.bursts[slot].empty()) {
+        track.notes[row] = NoteCell::withNote(
+            pattern.bursts[slot].events[0u].note);
+    } else return;
+    track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
+    pattern.visibleRows = std::max(pattern.visibleRows, row + 1u);
+    model->session.selectedTrack = trackIndex;
+    model->session.selectedRow = row;
+    model->session.selectedField = 0u;
     [self clearGridSelection];
     [self.owner modulePatternChanged];
     [self.window makeFirstResponder:self];
@@ -1622,16 +2195,27 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const auto row = static_cast<std::size_t>(rawRow);
     const auto field = gridFieldAtX(localFieldX, fieldWidth,
         model->sequenceColumnsExpanded);
-    if (!gridFieldIsSequenceAction(field)) {
+    const bool conditionValue = gridFieldIsSequence(field)
+        && !gridFieldIsSequenceAction(field)
+        && [self sequenceConditionMenuForTrack:lane row:row field:field]
+            != nil;
+    const bool noteField = field == 0u;
+    if (!noteField && !gridFieldIsSequenceAction(field) && !conditionValue) {
         [super rightMouseDown:event];
         return;
     }
     model->session.selectedField = field;
     [self selectTrack:lane row:row];
-    [self clearGridSelection];
+    const auto selection = _gridSelection.range();
+    const bool preserveNoteRows = noteField && _gridSelection.active
+        && selection.contains(0u, lane, field, row);
+    if (!preserveNoteRows) [self clearGridSelection];
     [self.window makeFirstResponder:self];
-    NSMenu* menu = [self sequenceActionMenuForTrack:lane row:row
-        field:field];
+    NSMenu* menu = noteField
+        ? [self burstMenuForTrack:lane row:row]
+        : conditionValue
+        ? [self sequenceConditionMenuForTrack:lane row:row field:field]
+        : [self sequenceActionMenuForTrack:lane row:row field:field];
     if (menu) [NSMenu popUpContextMenu:menu withEvent:event forView:self];
 }
 
@@ -1794,11 +2378,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         row:static_cast<std::size_t>(row)];
     [self.window makeFirstResponder:self];
     if (event.clickCount >= 2) {
-        [self beginCellEditing];
+        NSMenu* conditionMenu = [self sequenceConditionMenuForTrack:lane
+            row:static_cast<std::size_t>(row) field:field];
+        if (conditionMenu)
+            [NSMenu popUpContextMenu:conditionMenu withEvent:event
+                forView:self];
+        else
+            [self beginCellEditing];
     } else if ((event.modifierFlags & NSEventModifierFlagControl) == 0u
         && (field == 1u || (gridFieldIsSequence(field)
             && !gridFieldIsSequenceAction(field)))) {
         const auto& track = model->session.pattern.tracks[lane];
+        if ([self sequenceConditionMenuForTrack:lane
+                row:static_cast<std::size_t>(row) field:field]) return;
         self.numericDragCandidate = YES;
         self.numericDragOrigin = point;
         self.numericDragStartValue = field == 1u
@@ -2143,6 +2735,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
         uint8_t value = 0u;
+        std::size_t burstSlot = 0u;
         const char* noteUtf8 = lower.UTF8String;
         if ([lower isEqualToString:@"---"] || [lower isEqualToString:@"rest"]
             || lower.length == 0u) track.notes[row] = NoteCell::rest();
@@ -2156,6 +2749,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             || [lower isEqualToString:@"hold"]
             || [lower isEqualToString:@"~"])
             track.notes[row] = NoteCell::hold();
+        else if (noteUtf8 && s3g::tracker::parseBurstSlot(noteUtf8,
+                burstSlot) && burstSlot < model->session.pattern.bursts.size()
+            && !model->session.pattern.bursts[burstSlot].empty())
+            track.notes[row] = NoteCell::withBurst(
+                static_cast<uint8_t>(burstSlot));
         else if (noteUtf8 && s3g::tracker::parseMidiNote(noteUtf8, value))
             track.notes[row] = NoteCell::withNote(value);
         else return NO;
@@ -2219,10 +2817,26 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     else {
         const std::string_view entered(
             lower.UTF8String ? lower.UTF8String : "");
-        const bool parsed = pairContainsMidiControlChange(pair)
-            ? s3g::tracker::app::parseGridMidiOrNormalizedValue(
-                entered, value)
-            : s3g::tracker::app::parseGridNormalizedValue(entered, value);
+        const bool conditionValue = row < pair.actions.size()
+            && pair.actions[row].state == FxActionCellState::Sequencer
+            && pair.actions[row].sequencerAction
+                == SequencerAction::Condition;
+        bool parsed = false;
+        if (conditionValue) {
+            const auto* condition = s3g::tracker::findSequencerCondition(
+                entered);
+            if (condition) {
+                value = s3g::tracker::normalizedFromSequencerCondition(
+                    condition->condition);
+                parsed = true;
+            }
+        } else if (pairContainsMidiControlChange(pair)) {
+            parsed = s3g::tracker::app::parseGridMidiOrNormalizedValue(
+                entered, value);
+        } else {
+            parsed = s3g::tracker::app::parseGridNormalizedValue(
+                entered, value);
+        }
         if (!parsed) return NO;
         pair.values[row] = FxValueCell::withValue(value);
     }
@@ -3500,6 +4114,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 S3GTrackerThemeRole::Live,
                 model->session.transport.loopEnabled ? 0.075 : 0.035));
         }
+        if ([self.gridView isWholeRowSelected:row]) {
+            fillRect(rowRect, S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Selection, 0.52));
+        }
         if (row == selectedRow) {
             fillRect(rowRect, S3GTrackerThemeColor(
                 S3GTrackerThemeRole::Focus, 0.11));
@@ -3555,11 +4173,22 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)mouseDown:(NSEvent*)event
 {
     const NSInteger row = [self rowForEvent:event clamp:NO];
-    if (row >= 0) [self.gridView beginLoopSelectionAtRow:row];
+    if (row < 0) return;
+    if ((event.modifierFlags & NSEventModifierFlagShift) != 0u) {
+        const std::size_t anchor = [self.gridView wholeRowSelectionAnchor];
+        self.selectingRowRange = YES;
+        [self.gridView selectWholeRowsFrom:anchor
+            to:static_cast<std::size_t>(row)];
+        return;
+    }
+    self.selectingRowRange = NO;
+    [self.gridView clearGridSelection];
+    [self.gridView beginLoopSelectionAtRow:row];
 }
 
 - (void)mouseDragged:(NSEvent*)event
 {
+    if (self.selectingRowRange) return;
     [self.gridView continueLoopSelectionAtRow:
         [self rowForEvent:event clamp:YES]];
 }
@@ -3567,7 +4196,53 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)mouseUp:(NSEvent*)event
 {
     (void)event;
-    [self.gridView finishLoopSelection];
+    if (!self.selectingRowRange) [self.gridView finishLoopSelection];
+    self.selectingRowRange = NO;
+}
+
+- (NSMenu*)menuForEvent:(NSEvent*)event
+{
+    auto* model = self.gridView.trackerState;
+    const NSInteger clicked = [self rowForEvent:event clamp:NO];
+    if (!model || clicked < 0) return nil;
+    NSDictionary* payload = [self.gridView rowActionPayloadForRow:
+        static_cast<std::size_t>(clicked)];
+    const NSUInteger count = [payload[@"count"] unsignedIntegerValue];
+    const BOOL editable = !model->songPlaybackActive;
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"PATTERN ROWS"];
+    menu.autoenablesItems = NO;
+    const auto addItem = ^NSMenuItem*(NSString* title, SEL action,
+        BOOL enabled) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+            action:action keyEquivalent:@""];
+        item.target = self.gridView;
+        item.representedObject = payload;
+        item.enabled = enabled;
+        [menu addItem:item];
+        return item;
+    };
+    NSString* insertTitle = count > 1u
+        ? [NSString stringWithFormat:@"INSERT %lu ROWS ABOVE",
+            static_cast<unsigned long>(count)]
+        : @"INSERT ROW ABOVE";
+    NSString* deleteTitle = count > 1u
+        ? [NSString stringWithFormat:@"DELETE %lu ROWS",
+            static_cast<unsigned long>(count)]
+        : @"DELETE ROW";
+    NSString* copyTitle = count > 1u
+        ? [NSString stringWithFormat:@"COPY %lu ROWS",
+            static_cast<unsigned long>(count)]
+        : @"COPY ROW";
+    addItem(insertTitle, @selector(insertPatternRows:), editable
+        && model->session.pattern.visibleRows < kGridMaximumRows);
+    addItem(deleteTitle, @selector(deletePatternRows:), editable
+        && model->session.pattern.visibleRows > 16u);
+    [menu addItem:NSMenuItem.separatorItem];
+    addItem(copyTitle, @selector(copyPatternRows:), YES);
+    addItem(@"PASTE ROWS ABOVE", @selector(pastePatternRows:), editable
+        && [self.gridView hasRowClipboard]
+        && model->session.pattern.visibleRows < kGridMaximumRows);
+    return menu;
 }
 
 - (void)scrollWheel:(NSEvent*)event
@@ -3875,7 +4550,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, weak) S3GTrackerGeometryView* geometryView;
 @end
 
-@interface S3GTrackerGeometryView : NSView {
+@interface S3GTrackerGeometryView : NSView <NSTextFieldDelegate> {
     std::array<CGFloat, s3g::tracker::kMaximumTrackCount>
         _readHeadHaloStrength;
     std::array<std::size_t, s3g::tracker::kMaximumTrackCount>
@@ -3911,6 +4586,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     S3GTrackerGeometryMenu _openGeometryMenu;
     NSInteger _geometryMenuHoverIndex;
     NSTrackingArea* _geometryTrackingArea;
+    std::size_t _selectedBurstSlot;
+    std::size_t _selectedBurstEvent;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
@@ -3922,6 +4599,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSUInteger)displayedLaneCount;
 - (NSUInteger)displayedMutedLaneCount;
 - (CGFloat)ringRadiusForLane:(std::size_t)lane;
+- (void)selectBurstSlot:(std::size_t)slot;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic) CGFloat geometryZoom;
@@ -3943,6 +4621,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerActionButton* revealButton;
 @property(nonatomic, strong) S3GTrackerGeometryPlaybackOverlayView*
     playbackOverlay;
+@property(nonatomic, strong) NSTextField* burstNameEditor;
 @end
 
 @implementation S3GTrackerGeometryView
@@ -3957,6 +4636,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.geometryZoom = 1.0;
         self.geometryViewMode = S3GTrackerGeometryViewModeRingField;
         self.geometryTool = S3GTrackerGeometryToolSelect;
+        _selectedBurstSlot = 0u;
+        _selectedBurstEvent = 0u;
         self.linkVelocityLength = YES;
         _lastGestureRow = -1;
         self.playbackOverlay = [[S3GTrackerGeometryPlaybackOverlayView alloc]
@@ -3974,7 +4655,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.viewModePopup.autoresizingMask = NSViewMaxXMargin;
         [self.viewModePopup addItemsWithTitles:@[
             @"RING FIELD", @"ACTIVE PULSES", @"ALL STEPS UNDERLAY",
-            @"PHASE SPOKES", @"LANE FOCUS", @"COMPOSITE RING"
+            @"PHASE SPOKES", @"LANE FOCUS", @"COMPOSITE RING",
+            @"BURST EDITOR"
         ]];
         self.viewModePopup.target = self;
         self.viewModePopup.action = @selector(viewModeChanged:);
@@ -4242,6 +4924,48 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self geometryLayout].laneCycle, 6u));
 }
 
+- (NSRect)burstSlotMenuBoxRect
+{
+    return s3g::clap_gui::cocoaRect(layout::processorMenuBoxRect(
+        [self geometryLayout].laneCycle, 0u));
+}
+
+- (NSRect)burstEventMenuBoxRect
+{
+    return s3g::clap_gui::cocoaRect(layout::processorMenuBoxRect(
+        [self geometryLayout].editShape, 0u));
+}
+
+- (NSRect)burstNameBoxRect
+{
+    return s3g::clap_gui::cocoaRect(layout::processorMenuBoxRect(
+        [self geometryLayout].laneCycle, 1u));
+}
+
+- (NSRect)burstSliderTrackForRow:(uint32_t)row
+{
+    const auto panel = [self geometryLayout].editShape;
+    return NSMakeRect(static_cast<CGFloat>(layout::processorControlX(
+            panel.frame.x)), static_cast<CGFloat>(layout::rowY(panel, row))
+            + 1.0, static_cast<CGFloat>(layout::processorTrackWidth(
+            panel.frame.width, 72.0)), 9.0);
+}
+
+- (NSRect)burstActionRectForRow:(uint32_t)row index:(NSUInteger)index
+    count:(NSUInteger)count
+{
+    const auto panel = [self geometryLayout].laneCycle;
+    const NSRect controls = s3g::clap_gui::cocoaRect(
+        layout::processorMenuBoxRect(panel, row));
+    const CGFloat gap = 3.0;
+    const CGFloat width = (NSWidth(controls)
+        - gap * static_cast<CGFloat>(count - 1u))
+        / static_cast<CGFloat>(count);
+    return NSMakeRect(NSMinX(controls)
+            + static_cast<CGFloat>(index) * (width + gap),
+        NSMinY(controls), width, NSHeight(controls));
+}
+
 - (NSRect)editToolButtonRect:(NSUInteger)index
 {
     const auto panel = [self geometryLayout].editShape;
@@ -4375,6 +5099,28 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (NSArray<NSString*>*)itemsForGeometryMenu:(S3GTrackerGeometryMenu)menu
 {
+    if (menu == S3GTrackerGeometryMenuBurstSlot) {
+        NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
+        const auto* model = self.trackerState;
+        for (std::size_t slot = 0u; slot < kBurstDefinitionCount; ++slot) {
+            const auto& burst = model->session.pattern.bursts[slot];
+            [titles addObject:[NSString stringWithFormat:@"%@  ·  %@",
+                nsString(burstSlotToken(slot)), burst.empty()
+                    ? @"EMPTY" : nsString(burst.name)]];
+        }
+        return titles;
+    }
+    if (menu == S3GTrackerGeometryMenuBurstEvent) {
+        NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
+        const auto& burst = self.trackerState->session.pattern.bursts[
+            _selectedBurstSlot];
+        for (std::size_t event = 0u; event < burst.eventCount; ++event)
+            [titles addObject:[NSString stringWithFormat:
+                @"STEP %lu  ·  %@ · %03u", static_cast<unsigned long>(event + 1u),
+                midiNoteName(burst.events[event].note),
+                static_cast<unsigned int>(burst.events[event].note)]];
+        return titles;
+    }
     NSPopUpButton* popup = menu == S3GTrackerGeometryMenuLane
         ? self.lanePopup : menu == S3GTrackerGeometryMenuDirection
         ? self.directionPopup : menu == S3GTrackerGeometryMenuMorphTarget
@@ -4389,6 +5135,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (NSInteger)selectedIndexForGeometryMenu:(S3GTrackerGeometryMenu)menu
 {
+    if (menu == S3GTrackerGeometryMenuBurstSlot)
+        return static_cast<NSInteger>(_selectedBurstSlot);
+    if (menu == S3GTrackerGeometryMenuBurstEvent)
+        return static_cast<NSInteger>(_selectedBurstEvent);
     if (menu == S3GTrackerGeometryMenuLane)
         return self.lanePopup.indexOfSelectedItem;
     if (menu == S3GTrackerGeometryMenuDirection)
@@ -4400,6 +5150,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (NSRect)sourceRectForGeometryMenu:(S3GTrackerGeometryMenu)menu
 {
+    if (menu == S3GTrackerGeometryMenuBurstSlot)
+        return [self burstSlotMenuBoxRect];
+    if (menu == S3GTrackerGeometryMenuBurstEvent)
+        return [self burstEventMenuBoxRect];
     if (menu == S3GTrackerGeometryMenuLane) return [self laneMenuBoxRect];
     if (menu == S3GTrackerGeometryMenuDirection)
         return [self directionMenuBoxRect];
@@ -4417,6 +5171,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     CGFloat y = NSMaxY(source) + 2.0;
     if (y + height > NSHeight(self.bounds) - 8.0)
         y = NSMinY(source) - height - 2.0;
+    y = std::clamp<CGFloat>(y, 8.0,
+        std::max<CGFloat>(8.0, NSHeight(self.bounds) - height - 8.0));
     return NSMakeRect(NSMinX(source), y, NSWidth(source), height);
 }
 
@@ -4446,10 +5202,234 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuView) {
         [self.viewModePopup selectItemAtIndex:index];
         [self viewModeChanged:self.viewModePopup];
+    } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstSlot) {
+        _selectedBurstSlot = static_cast<std::size_t>(index);
+        _selectedBurstEvent = 0u;
+    } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstEvent) {
+        _selectedBurstEvent = static_cast<std::size_t>(index);
     }
     _openGeometryMenu = S3GTrackerGeometryMenuNone;
     _geometryMenuHoverIndex = -1;
     [self setNeedsDisplay:YES];
+}
+
+- (void)selectBurstSlot:(std::size_t)slot
+{
+    _selectedBurstSlot = std::min<std::size_t>(slot,
+        kBurstDefinitionCount - 1u);
+    _selectedBurstEvent = 0u;
+    self.geometryViewMode = S3GTrackerGeometryViewModeBurst;
+    [self.viewModePopup selectItemAtIndex:
+        S3GTrackerGeometryViewModeBurst];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)initializeBurstAtSlot:(std::size_t)slot
+{
+    if (!self.trackerState || slot >= kBurstDefinitionCount) return;
+    auto& burst = self.trackerState->session.pattern.bursts[slot];
+    burst = {};
+    burst.name = "BURST " + burstSlotToken(slot);
+    burst.eventCount = 4u;
+    uint8_t note = 60u;
+    if (!self.trackerState->session.pattern.tracks.empty())
+        note = laneDefaultNote(self.trackerState->session,
+            std::min(self.trackerState->session.selectedTrack,
+                self.trackerState->session.pattern.tracks.size() - 1u));
+    for (std::size_t index = 0u; index < burst.eventCount; ++index)
+        burst.events[index] = {
+            static_cast<uint16_t>(index * 65536u / burst.eventCount),
+            note, 127u, 70u,
+        };
+}
+
+- (std::size_t)firstEmptyBurstSlot
+{
+    const auto& bursts = self.trackerState->session.pattern.bursts;
+    const auto found = std::find_if(bursts.begin(), bursts.end(),
+        [](const BurstDefinition& burst) { return burst.empty(); });
+    return found == bursts.end() ? bursts.size()
+                                 : static_cast<std::size_t>(found - bursts.begin());
+}
+
+- (void)beginBurstNameEditing
+{
+    if (![self canEditDisplayedPattern] || !self.trackerState) return;
+    auto& burst = self.trackerState->session.pattern.bursts[_selectedBurstSlot];
+    if (burst.empty()) return;
+    [self.burstNameEditor removeFromSuperview];
+    self.burstNameEditor = [[NSTextField alloc]
+        initWithFrame:NSInsetRect([self burstNameBoxRect], 1.0, 0.0)];
+    S3GTrackerStyleTextField(self.burstNameEditor, NSTextAlignmentLeft);
+    self.burstNameEditor.font = trackerFont(9.5, NSFontWeightMedium);
+    self.burstNameEditor.stringValue = nsString(burst.name);
+    self.burstNameEditor.delegate = self;
+    self.burstNameEditor.target = self;
+    self.burstNameEditor.action = @selector(commitBurstName:);
+    self.burstNameEditor.accessibilityLabel = @"Burst name";
+    [self addSubview:self.burstNameEditor positioned:NSWindowAbove
+        relativeTo:self.playbackOverlay];
+    [self.window makeFirstResponder:self.burstNameEditor];
+    [self.burstNameEditor selectText:nil];
+}
+
+- (void)commitBurstName:(id)sender
+{
+    (void)sender;
+    if (!self.trackerState || !self.burstNameEditor) return;
+    auto& burst = self.trackerState->session.pattern.bursts[_selectedBurstSlot];
+    NSString* value = [self.burstNameEditor.stringValue
+        stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSData* utf8 = [value dataUsingEncoding:NSUTF8StringEncoding];
+    if (value.length > 0u && utf8.length <= kMaximumBurstNameBytes) {
+        const std::string next(value.UTF8String ? value.UTF8String : "");
+        if (next != burst.name) {
+            burst.name = next;
+            [self.owner modulePatternChanged];
+        }
+    }
+    [self.burstNameEditor removeFromSuperview];
+    self.burstNameEditor = nil;
+    [self.window makeFirstResponder:self];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)controlTextDidEndEditing:(NSNotification*)notification
+{
+    if (notification.object == self.burstNameEditor)
+        [self commitBurstName:self.burstNameEditor];
+}
+
+- (BOOL)handleBurstToolboxClickAtPoint:(NSPoint)point
+{
+    if (NSPointInRect(point, [self burstSlotMenuBoxRect])) {
+        [self openGeometryMenu:S3GTrackerGeometryMenuBurstSlot];
+        return YES;
+    }
+    if (NSPointInRect(point, [self burstEventMenuBoxRect])) {
+        const auto& burst = self.trackerState->session.pattern.bursts[
+            _selectedBurstSlot];
+        if (!burst.empty())
+            [self openGeometryMenu:S3GTrackerGeometryMenuBurstEvent];
+        return YES;
+    }
+    if (NSPointInRect(point, [self burstNameBoxRect])) {
+        [self beginBurstNameEditing];
+        return YES;
+    }
+    auto& pattern = self.trackerState->session.pattern;
+    auto& burst = pattern.bursts[_selectedBurstSlot];
+    BOOL changed = NO;
+    for (NSUInteger index = 0u; index < 2u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:2u index:index count:2u]))
+            continue;
+        if (index == 0u && burst.eventCount > 1u) {
+            const auto remove = std::min<std::size_t>(_selectedBurstEvent,
+                burst.eventCount - 1u);
+            std::move(burst.events.begin()
+                    + static_cast<std::ptrdiff_t>(remove + 1u),
+                burst.events.begin()
+                    + static_cast<std::ptrdiff_t>(burst.eventCount),
+                burst.events.begin() + static_cast<std::ptrdiff_t>(remove));
+            --burst.eventCount;
+            _selectedBurstEvent = std::min<std::size_t>(_selectedBurstEvent,
+                burst.eventCount - 1u);
+            changed = YES;
+        } else if (index == 1u && !burst.empty()
+            && burst.eventCount < kMaximumBurstEvents) {
+            auto& event = burst.events[burst.eventCount];
+            event = burst.events[burst.eventCount - 1u];
+            ++burst.eventCount;
+            _selectedBurstEvent = burst.eventCount - 1u;
+            changed = YES;
+        }
+        if (changed) {
+            setGeometryBurstTiming(burst, "even");
+            [self.owner modulePatternChanged];
+        }
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    for (NSUInteger index = 0u; index < 3u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:4u index:index count:3u]))
+            continue;
+        if (index == 0u) {
+            const auto slot = [self firstEmptyBurstSlot];
+            if (slot < pattern.bursts.size()) {
+                _selectedBurstSlot = slot;
+                _selectedBurstEvent = 0u;
+                [self initializeBurstAtSlot:slot];
+                changed = YES;
+            }
+        } else if (index == 1u && !burst.empty()) {
+            const auto slot = [self firstEmptyBurstSlot];
+            if (slot < pattern.bursts.size()) {
+                pattern.bursts[slot] = burst;
+                pattern.bursts[slot].name += " COPY";
+                _selectedBurstSlot = slot;
+                _selectedBurstEvent = 0u;
+                changed = YES;
+            }
+        } else if (index == 2u && !burst.empty()
+            && geometryBurstUsageCount(pattern, _selectedBurstSlot) == 0u) {
+            burst = {};
+            _selectedBurstEvent = 0u;
+            changed = YES;
+        }
+        if (changed) [self.owner modulePatternChanged];
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    if (burst.empty()) return NO;
+    for (NSUInteger index = 0u; index < 3u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:5u index:index count:3u]))
+            continue;
+        const auto shape = index == 0u ? "even"
+            : index == 1u ? "accelerate" : "decelerate";
+        setGeometryBurstTiming(burst, shape);
+        [self.owner modulePatternChanged];
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    for (NSUInteger index = 0u; index < 3u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:6u index:index count:3u]))
+            continue;
+        if (index == 0u) {
+            std::reverse(burst.events.begin(),
+                burst.events.begin() + burst.eventCount);
+        } else {
+            const auto count = static_cast<std::size_t>(burst.eventCount);
+            const auto amount = index == 1u ? count - 1u : 1u;
+            std::rotate(burst.events.begin(),
+                burst.events.begin() + static_cast<std::ptrdiff_t>(amount),
+                burst.events.begin() + static_cast<std::ptrdiff_t>(count));
+        }
+        setGeometryBurstTiming(burst, "even");
+        [self.owner modulePatternChanged];
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    if (NSPointInRect(point, [self revealHeaderButtonRect])) {
+        if (self.trackerState->session.pattern.tracks.empty()) return YES;
+        auto& session = self.trackerState->session;
+        const auto lane = std::min(session.selectedTrack,
+            session.pattern.tracks.size() - 1u);
+        auto& track = session.pattern.tracks[lane];
+        const auto row = session.selectedRow;
+        if (track.notes.size() <= row)
+            track.notes.resize(row + 1u, NoteCell::rest());
+        track.notes[row] = NoteCell::withBurst(
+            static_cast<uint8_t>(_selectedBurstSlot));
+        track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
+        [self.owner modulePatternChanged];
+        return YES;
+    }
+    return NO;
 }
 
 - (BOOL)handleToolboxClickAtPoint:(NSPoint)point
@@ -4475,6 +5455,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self openGeometryMenu:S3GTrackerGeometryMenuView];
         return YES;
     }
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst)
+        return [self handleBurstToolboxClickAtPoint:point];
     const BOOL editable = [self canEditDisplayedPattern];
     if (editable && NSPointInRect(point, [self laneMenuBoxRect])) {
         [self openGeometryMenu:S3GTrackerGeometryMenuLane];
@@ -4586,13 +5568,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)viewModeChanged:(S3GTrackerPopupButton*)sender
 {
     self.geometryViewMode = static_cast<S3GTrackerGeometryViewMode>(
-        std::clamp<NSInteger>(sender.indexOfSelectedItem, 0, 5));
+        std::clamp<NSInteger>(sender.indexOfSelectedItem, 0, 6));
     static NSArray<NSString*>* descriptions = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         descriptions = @[ @"Ring field", @"Active pulses",
             @"All steps underlay", @"Phase spokes", @"Lane focus",
-            @"Composite ring" ];
+            @"Composite ring", @"Burst editor" ];
     });
     self.accessibilityValue = descriptions[
         static_cast<NSUInteger>(self.geometryViewMode)];
@@ -4689,9 +5671,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             NoteCell::rest());
         const auto isHit = [&track](std::size_t row) {
             return row < track.notes.size()
-                && (track.notes[row].state == NoteCellState::Note
-                    || track.notes[row].state
-                        == NoteCellState::RetriggerPrevious);
+                && noteCellIsActivePulse(track.notes[row]);
         };
         std::size_t authoredHits = 0u;
         for (std::size_t row = 0u; row < length; ++row)
@@ -5110,8 +6090,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     std::size_t density = 0u;
     for (std::size_t row = 0u; row < length; ++row) {
         if (row < track.notes.size()
-            && (track.notes[row].state == NoteCellState::Note
-                || track.notes[row].state == NoteCellState::RetriggerPrevious))
+            && noteCellIsActivePulse(track.notes[row]))
             ++density;
     }
     density = _geometryGestureActive
@@ -5178,6 +6157,29 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (BOOL)beginSliderGestureAtPoint:(NSPoint)point
 {
     if (![self canEditDisplayedPattern]) return NO;
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
+        const auto& burst = self.trackerState->session.pattern.bursts[
+            _selectedBurstSlot];
+        if (burst.empty()) return NO;
+        const std::array<S3GTrackerGeometryGestureKind, 3u> kinds {{
+            S3GTrackerGeometryGestureBurstNote,
+            S3GTrackerGeometryGestureBurstVelocity,
+            S3GTrackerGeometryGestureBurstGate,
+        }};
+        for (std::size_t index = 0u; index < kinds.size(); ++index) {
+            const auto row = static_cast<uint32_t>(index + 1u);
+            const NSRect hit = s3g::clap_gui::cocoaRect(
+                layout::sliderHitRect([self geometryLayout].editShape, row));
+            if (!NSPointInRect(point, hit)) continue;
+            _geometryGestureActive = YES;
+            _geometryGestureChanged = NO;
+            _geometrySliderGesture = YES;
+            _geometryGestureKind = kinds[index];
+            [self updateSliderGestureAtPoint:point];
+            return YES;
+        }
+        return NO;
+    }
     S3GTrackerGeometryGestureKind kind = S3GTrackerGeometryGestureNone;
     if (NSPointInRect(point,
             [self sliderHitRect:[self defaultNoteSliderTrack]]))
@@ -5206,6 +6208,41 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (!_geometryGestureActive || !_geometrySliderGesture
         || !self.trackerState) return;
     auto& pattern = self.trackerState->session.pattern;
+    if (_geometryGestureKind == S3GTrackerGeometryGestureBurstNote
+        || _geometryGestureKind == S3GTrackerGeometryGestureBurstVelocity
+        || _geometryGestureKind == S3GTrackerGeometryGestureBurstGate) {
+        auto& burst = pattern.bursts[_selectedBurstSlot];
+        if (burst.empty()) return;
+        auto& event = burst.events[std::min<std::size_t>(
+            _selectedBurstEvent, burst.eventCount - 1u)];
+        const uint32_t row = _geometryGestureKind
+                == S3GTrackerGeometryGestureBurstNote
+            ? 1u : _geometryGestureKind
+                    == S3GTrackerGeometryGestureBurstVelocity ? 2u : 3u;
+        const NSRect slider = [self burstSliderTrackForRow:row];
+        const CGFloat normalized = std::clamp(
+            (point.x - NSMinX(slider))
+                / std::max<CGFloat>(1.0, NSWidth(slider)), 0.0, 1.0);
+        if (_geometryGestureKind == S3GTrackerGeometryGestureBurstNote) {
+            const auto value = static_cast<uint8_t>(std::lround(
+                normalized * 127.0));
+            _geometryGestureChanged |= event.note != value;
+            event.note = value;
+        } else if (_geometryGestureKind
+                == S3GTrackerGeometryGestureBurstVelocity) {
+            const auto value = static_cast<uint8_t>(std::clamp<long>(
+                std::lround(normalized * 127.0), 1l, 127l));
+            _geometryGestureChanged |= event.velocity != value;
+            event.velocity = value;
+        } else {
+            const auto value = static_cast<uint8_t>(std::clamp<long>(
+                std::lround(normalized * 100.0), 1l, 100l));
+            _geometryGestureChanged |= event.gatePercent != value;
+            event.gatePercent = value;
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (_gestureLane >= pattern.tracks.size()) return;
     auto& track = pattern.tracks[_gestureLane];
     NSRect slider = _geometryGestureKind
@@ -5325,6 +6362,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)finishGeometryGesture
 {
     if (!_geometryGestureActive) return;
+    if (_geometryGestureKind == S3GTrackerGeometryGestureBurstPosition
+        || _geometryGestureKind == S3GTrackerGeometryGestureBurstNote
+        || _geometryGestureKind == S3GTrackerGeometryGestureBurstVelocity
+        || _geometryGestureKind == S3GTrackerGeometryGestureBurstGate) {
+        const BOOL changed = _geometryGestureChanged;
+        _geometryGestureActive = NO;
+        _geometrySliderGesture = NO;
+        _geometryGestureKind = S3GTrackerGeometryGestureNone;
+        _geometryGestureChanged = NO;
+        if (changed) [self.owner modulePatternChanged];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     auto* model = self.trackerState;
     BOOL changed = _geometryGestureChanged;
     if (model && _gestureLane < model->session.pattern.tracks.size()) {
@@ -5360,6 +6410,61 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     _gesturePreviewNotes.clear();
     [self commitGeometryChange:changed];
     [self.owner moduleSelectionChanged];
+    [self setNeedsDisplay:YES];
+}
+
+- (NSInteger)burstEventAtPoint:(NSPoint)point
+{
+    const auto& burst = self.trackerState->session.pattern.bursts[
+        _selectedBurstSlot];
+    if (burst.empty() || !NSPointInRect(point, [self canvasPlotRect]))
+        return -1;
+    const NSRect plot = [self canvasPlotRect];
+    const NSPoint center = NSMakePoint(NSMidX(plot), NSMidY(plot) - 4.0);
+    const CGFloat radius = std::max<CGFloat>(50.0,
+        std::min(NSWidth(plot), NSHeight(plot)) * 0.34 * self.geometryZoom);
+    CGFloat best = 14.0;
+    NSInteger result = -1;
+    for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+        const auto& event = burst.events[index];
+        const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+            + static_cast<CGFloat>(event.position) / 65536.0
+                * 2.0 * static_cast<CGFloat>(M_PI);
+        const CGFloat eventRadius = radius
+            + (static_cast<CGFloat>(event.note) / 127.0 - 0.5) * 30.0;
+        const NSPoint marker = NSMakePoint(center.x + std::cos(angle)
+                * eventRadius, center.y + std::sin(angle) * eventRadius);
+        const CGFloat distance = std::hypot(
+            point.x - marker.x, point.y - marker.y);
+        if (distance >= best) continue;
+        best = distance;
+        result = static_cast<NSInteger>(index);
+    }
+    return result;
+}
+
+- (void)updateBurstPositionAtPoint:(NSPoint)point
+{
+    auto& burst = self.trackerState->session.pattern.bursts[
+        _selectedBurstSlot];
+    if (burst.empty() || _selectedBurstEvent >= burst.eventCount) return;
+    const NSRect plot = [self canvasPlotRect];
+    const NSPoint center = NSMakePoint(NSMidX(plot), NSMidY(plot) - 4.0);
+    CGFloat angle = std::atan2(point.y - center.y, point.x - center.x)
+        + static_cast<CGFloat>(M_PI_2);
+    const CGFloat fullCircle = 2.0 * static_cast<CGFloat>(M_PI);
+    while (angle < 0.0) angle += fullCircle;
+    while (angle >= fullCircle) angle -= fullCircle;
+    uint16_t position = static_cast<uint16_t>(std::clamp<long>(
+        std::lround(angle / fullCircle * 65536.0), 0l, 65535l));
+    const uint16_t minimum = _selectedBurstEvent == 0u ? 0u
+        : burst.events[_selectedBurstEvent - 1u].position;
+    const uint16_t maximum = _selectedBurstEvent + 1u >= burst.eventCount
+        ? 65535u : burst.events[_selectedBurstEvent + 1u].position;
+    position = std::clamp(position, minimum, maximum);
+    auto& authored = burst.events[_selectedBurstEvent].position;
+    _geometryGestureChanged |= authored != position;
+    authored = position;
     [self setNeedsDisplay:YES];
 }
 
@@ -5466,6 +6571,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return;
     }
     if ([self beginSliderGestureAtPoint:point]) return;
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
+        [self.window makeFirstResponder:self];
+        const NSInteger hit = [self burstEventAtPoint:point];
+        if (hit >= 0) {
+            _selectedBurstEvent = static_cast<std::size_t>(hit);
+            _geometryGestureActive = YES;
+            _geometryGestureChanged = NO;
+            _geometrySliderGesture = NO;
+            _geometryGestureKind = S3GTrackerGeometryGestureBurstPosition;
+            [self setNeedsDisplay:YES];
+        }
+        return;
+    }
     const auto visible = visibleGeometryLanes(model);
     if (visible.count == 0u) return;
     [self.window makeFirstResponder:self];
@@ -5518,6 +6636,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     if (_geometrySliderGesture) {
         [self updateSliderGestureAtPoint:point];
+        return;
+    }
+    if (_geometryGestureKind == S3GTrackerGeometryGestureBurstPosition) {
+        [self updateBurstPositionAtPoint:point];
         return;
     }
     if (_geometryGestureKind == S3GTrackerGeometryGestureRotate
@@ -5769,9 +6891,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             const CGFloat x = cx + std::cos(angle) * radius;
             const CGFloat y = cy + std::sin(angle) * radius;
             const bool hit = step < track.notes.size()
-                && (track.notes[step].state == NoteCellState::Note
-                    || track.notes[step].state
-                        == NoteCellState::RetriggerPrevious);
+                && noteCellIsActivePulse(track.notes[step]);
             if (hit) {
                 if (!started) { [polygon moveToPoint:NSMakePoint(x, y)]; started = true; }
                 else [polygon lineToPoint:NSMakePoint(x, y)];
@@ -5795,9 +6915,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         std::size_t hits = 0u;
         for (std::size_t row = 0u; row < length; ++row)
             if (row < track.notes.size()
-                && (track.notes[row].state == NoteCellState::Note
-                    || track.notes[row].state
-                        == NoteCellState::RetriggerPrevious)) ++hits;
+                && noteCellIsActivePulse(track.notes[row])) ++hits;
         drawText([NSString stringWithFormat:@"%lu/%lu%@",
             static_cast<unsigned long>(hits),
             static_cast<unsigned long>(length),
@@ -5824,6 +6942,226 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     return static_cast<NSUInteger>(count);
 }
 
+- (void)drawBurstWorkspace
+{
+    auto* model = self.trackerState;
+    if (!model) return;
+    const auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* labels = s3g::clap_gui::softLabelAttrs();
+    NSDictionary* values = s3g::clap_gui::softValueAttrs();
+    const auto geometry = [self geometryLayout];
+    const NSRect canvas = [self canvasRect];
+    const NSRect plot = [self canvasPlotRect];
+    auto& pattern = model->session.pattern;
+    auto& burst = pattern.bursts[_selectedBurstSlot];
+    _selectedBurstEvent = burst.empty() ? 0u
+        : std::min<std::size_t>(_selectedBurstEvent, burst.eventCount - 1u);
+
+    const NSPoint center = NSMakePoint(NSMidX(plot), NSMidY(plot) - 4.0);
+    const CGFloat radius = std::max<CGFloat>(50.0,
+        std::min(NSWidth(plot), NSHeight(plot)) * 0.34 * self.geometryZoom);
+    for (std::size_t index = 0u; index < 16u; ++index) {
+        const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+            + static_cast<CGFloat>(index) * 2.0 * static_cast<CGFloat>(M_PI)
+                / 16.0;
+        NSBezierPath* spoke = [NSBezierPath bezierPath];
+        [spoke moveToPoint:NSMakePoint(center.x + std::cos(angle)
+                * (radius - 8.0), center.y + std::sin(angle)
+                * (radius - 8.0))];
+        [spoke lineToPoint:NSMakePoint(center.x + std::cos(angle)
+                * (radius + (index % 4u == 0u ? 9.0 : 4.0)),
+            center.y + std::sin(angle)
+                * (radius + (index % 4u == 0u ? 9.0 : 4.0)))];
+        spoke.lineWidth = index % 4u == 0u ? 1.0 : 0.55;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Grid,
+            index % 4u == 0u ? 0.90 : 0.55) setStroke];
+        [spoke stroke];
+    }
+    NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+        center.x - radius, center.y - radius, radius * 2.0, radius * 2.0)];
+    ring.lineWidth = 1.2;
+    [S3GTrackerThemeColor(S3GTrackerThemeRole::BorderStrong) setStroke];
+    [ring stroke];
+    if (burst.empty()) {
+        drawCenteredText(@"EMPTY BURST SLOT", plot,
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 11.0,
+            NSFontWeightMedium);
+    } else {
+        NSBezierPath* phrase = [NSBezierPath bezierPath];
+        for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+            const auto& event = burst.events[index];
+            const CGFloat phase = static_cast<CGFloat>(event.position)
+                / 65536.0;
+            const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+                + phase * 2.0 * static_cast<CGFloat>(M_PI);
+            const CGFloat eventRadius = radius
+                + (static_cast<CGFloat>(event.note) / 127.0 - 0.5) * 30.0;
+            const NSPoint point = NSMakePoint(center.x + std::cos(angle)
+                    * eventRadius, center.y + std::sin(angle) * eventRadius);
+            if (index == 0u) [phrase moveToPoint:point];
+            else [phrase lineToPoint:point];
+            const CGFloat bead = 3.4
+                + static_cast<CGFloat>(event.velocity) / 127.0 * 4.2;
+            NSBezierPath* marker = [NSBezierPath bezierPathWithOvalInRect:
+                NSMakeRect(point.x - bead, point.y - bead,
+                    bead * 2.0, bead * 2.0)];
+            NSColor* identity = trackerColor(
+                kLaneColors[event.note % kLaneColors.size()], 1.0);
+            [S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.94) setFill];
+            [[NSBezierPath bezierPathWithOvalInRect:
+                NSInsetRect(marker.bounds, -1.8, -1.8)] fill];
+            [identity setFill];
+            [marker fill];
+            if (index == _selectedBurstEvent) {
+                NSBezierPath* halo = [NSBezierPath bezierPathWithOvalInRect:
+                    NSInsetRect(marker.bounds, -4.0, -4.0)];
+                halo.lineWidth = 1.4;
+                [S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary)
+                    setStroke];
+                [halo stroke];
+            }
+            drawCenteredText([NSString stringWithFormat:@"%lu",
+                    static_cast<unsigned long>(index + 1u)],
+                NSMakeRect(point.x - 8.0, point.y - 7.0, 16.0, 14.0),
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas), 6.4,
+                NSFontWeightBold);
+        }
+        phrase.lineWidth = 1.2;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted, 0.65)
+            setStroke];
+        [phrase stroke];
+        drawCenteredText(nsString(burst.name), NSMakeRect(
+                NSMinX(plot) + 12.0, NSMinY(plot) + 24.0,
+                NSWidth(plot) - 24.0, 16.0),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary), 9.0,
+            NSFontWeightSemibold);
+    }
+    drawCenteredText(@"ANGLE = SUBSTEP TIME  •  COLOR = MIDI NOTE  •  SIZE = VELOCITY  •  DRAG POINT TO RETIME",
+        NSMakeRect(NSMinX(canvas) + 10.0, NSMaxY(canvas) - 28.0,
+            NSWidth(canvas) - 20.0, 12.0),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 6.8,
+        NSFontWeightMedium);
+
+    const CGFloat libraryX = geometry.laneCycle.frame.x;
+    const CGFloat libraryWidth = geometry.laneCycle.frame.width;
+    const auto drawBurstInfo = [&](NSString* name, NSString* value,
+                                   const layout::Panel& toolbox,
+                                   uint32_t row, NSColor* infoColor) {
+        const CGFloat x = static_cast<CGFloat>(toolbox.frame.x);
+        const CGFloat width = static_cast<CGFloat>(toolbox.frame.width);
+        const CGFloat y = static_cast<CGFloat>(layout::rowY(toolbox, row));
+        const CGFloat labelX = static_cast<CGFloat>(
+            layout::processorLabelX(x));
+        const CGFloat controlX = static_cast<CGFloat>(
+            layout::processorControlX(x));
+        const CGFloat controlWidth = static_cast<CGFloat>(
+            layout::processorMenuWidth(width));
+        [[name uppercaseString] drawAtPoint:NSMakePoint(labelX, y - 2.0)
+            withAttributes:labels];
+        NSColor* color = infoColor ? infoColor
+            : S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted);
+        NSDictionary* infoAttrs = @{
+            NSForegroundColorAttributeName: color,
+            NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
+        };
+        [color setFill];
+        NSRectFill(NSMakeRect(controlX, y, 2.0, 12.0));
+        NSString* display = s3g::clap_gui::menuDisplayText(value,
+            std::max<CGFloat>(0.0, controlWidth - 12.0), infoAttrs);
+        [display drawAtPoint:NSMakePoint(controlX + 8.0, y - 2.0)
+            withAttributes:infoAttrs];
+    };
+    drawTrackerProcessorMenu(@"BURST",
+        [NSString stringWithFormat:@"%@  ·  %@",
+            nsString(burstSlotToken(_selectedBurstSlot)),
+            burst.empty() ? @"EMPTY" : nsString(burst.name)],
+        layout::rowY(geometry.laneCycle, 0u), libraryX, libraryWidth,
+        labels, values, style);
+    drawTrackerProcessorMenu(@"NAME", burst.empty() ? @"—" : nsString(burst.name),
+        layout::rowY(geometry.laneCycle, 1u), libraryX, libraryWidth,
+        labels, values, style);
+    [@"EVENTS" drawAtPoint:NSMakePoint(layout::processorLabelX(libraryX),
+        layout::rowY(geometry.laneCycle, 2u) - 2.0) withAttributes:labels];
+    for (NSUInteger index = 0u; index < 2u; ++index)
+        s3g::clap_gui::drawHeaderButton(
+            [self burstActionRectForRow:2u index:index count:2u],
+            [self laneCyclePanelRect], index == 0u
+                ? [NSString stringWithFormat:@"−  %u", burst.eventCount]
+                : [NSString stringWithFormat:@"%u  +", burst.eventCount],
+            false, values, style);
+    drawBurstInfo(@"USAGE", [NSString stringWithFormat:@"%lu NOTE CELLS",
+            static_cast<unsigned long>(geometryBurstUsageCount(pattern,
+                _selectedBurstSlot))], geometry.laneCycle, 3u,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted));
+    const NSArray<NSArray<NSString*>*>* actionRows = @[
+        @[ @"NEW", @"DUP", @"DELETE" ],
+        @[ @"EVEN", @"ACCEL", @"DECEL" ],
+        @[ @"REVERSE", @"ROT <", @"ROT >" ],
+    ];
+    for (NSUInteger rowIndex = 0u; rowIndex < actionRows.count; ++rowIndex) {
+        const auto row = static_cast<uint32_t>(4u + rowIndex);
+        const auto rowLabels = actionRows[rowIndex];
+        for (NSUInteger index = 0u; index < rowLabels.count; ++index)
+            s3g::clap_gui::drawHeaderButton(
+                [self burstActionRectForRow:row index:index
+                    count:rowLabels.count], [self laneCyclePanelRect],
+                rowLabels[index], false, values, style);
+    }
+
+    const CGFloat subX = geometry.editShape.frame.x;
+    const CGFloat subWidth = geometry.editShape.frame.width;
+    NSString* eventTitle = burst.empty() ? @"—" : [NSString stringWithFormat:
+        @"STEP %lu OF %u", static_cast<unsigned long>(_selectedBurstEvent + 1u),
+        static_cast<unsigned int>(burst.eventCount)];
+    drawTrackerProcessorMenu(@"SUBSTEP", eventTitle,
+        layout::rowY(geometry.editShape, 0u), subX, subWidth,
+        labels, values, style);
+    const BurstEvent event = burst.empty() ? BurstEvent {}
+        : burst.events[_selectedBurstEvent];
+    s3g::clap_gui::drawProcessorSliderWithValueWidth(@"NOTE",
+        [NSString stringWithFormat:@"%@ · %03u", midiNoteName(event.note),
+            static_cast<unsigned int>(event.note)],
+        static_cast<CGFloat>(event.note) / 127.0,
+        layout::rowY(geometry.editShape, 1u), subX, subWidth, 72.0,
+        labels, values, style);
+    s3g::clap_gui::drawProcessorSliderWithValueWidth(@"VELOCITY",
+        [NSString stringWithFormat:@"%03u", event.velocity],
+        static_cast<CGFloat>(event.velocity) / 127.0,
+        layout::rowY(geometry.editShape, 2u), subX, subWidth, 72.0,
+        labels, values, style);
+    s3g::clap_gui::drawProcessorSliderWithValueWidth(@"GATE",
+        [NSString stringWithFormat:@"%03u%%", event.gatePercent],
+        static_cast<CGFloat>(event.gatePercent) / 100.0,
+        layout::rowY(geometry.editShape, 3u), subX, subWidth, 72.0,
+        labels, values, style);
+
+    NSString* selectedViewTitle = self.viewModePopup.titleOfSelectedItem;
+    drawTrackerProcessorMenu(@"MODE",
+        selectedViewTitle ? selectedViewTitle : @"BURST EDITOR",
+        layout::rowY(geometry.view, 0u), geometry.view.frame.x,
+        geometry.view.frame.width, labels, values, style);
+    s3g::clap_gui::drawToolboxHeaderActionButton(
+        [self revealHeaderButtonRect], [self bridgePanelRect],
+        @"PLACE IN TRACKER", values, style);
+    const auto lane = pattern.tracks.empty() ? 0u
+        : std::min(model->session.selectedTrack, pattern.tracks.size() - 1u);
+    drawBurstInfo(@"TARGET", pattern.tracks.empty() ? @"NO LANES"
+            : [NSString stringWithFormat:@"T%02lu · ROW %03lu",
+                static_cast<unsigned long>(lane + 1u),
+                static_cast<unsigned long>(model->session.selectedRow + 1u)],
+        geometry.trackerBridge, 0u,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary));
+    drawBurstInfo(@"SEQ", @"CD / PR / SK / EU GATE WHOLE BURST",
+        geometry.trackerBridge, 1u,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted));
+    drawBurstInfo(@"TIMING", @"MT / DL SHIFT WHOLE BURST",
+        geometry.trackerBridge, 2u,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted));
+    drawBurstInfo(@"EXPAND", @"RR / ST / FL / GL DISABLED",
+        geometry.trackerBridge, 3u,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::Warning));
+}
+
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
@@ -5845,9 +7183,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         @"PHASE SPOKES  /  PLAYHEAD ALIGNMENT",
         @"LANE FOCUS  /  SELECTED CYCLE",
         @"COMPOSITE RING  /  PHASE COMPARISON",
+        @"BURST EDITOR  /  SUB-ROW MIDI PHRASES",
     ];
     NSString* fieldTitle = fieldTitles[static_cast<NSUInteger>(
-        std::clamp<NSInteger>(self.geometryViewMode, 0, 5))];
+        std::clamp<NSInteger>(self.geometryViewMode, 0, 6))];
     s3g::clap_gui::drawPanelFrame(NSMinX(canvas), NSMinY(canvas),
         NSWidth(canvas), NSHeight(canvas), style);
     s3g::clap_gui::drawPanelHeader(fieldTitle, true, NSMinX(canvas),
@@ -5857,8 +7196,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         const layout::Panel* panel;
         NSString* title;
     } panels[] {
-        { &geometry.laneCycle, @"LANE / CYCLE" },
-        { &geometry.editShape, @"EDIT / SHAPE" },
+        { &geometry.laneCycle, self.geometryViewMode
+                == S3GTrackerGeometryViewModeBurst ? @"BURST LIBRARY"
+                                                   : @"LANE / CYCLE" },
+        { &geometry.editShape, self.geometryViewMode
+                == S3GTrackerGeometryViewModeBurst ? @"SUBSTEPS"
+                                                   : @"EDIT / SHAPE" },
         { &geometry.view, @"VIEW" },
         { &geometry.trackerBridge, @"TRACKER BRIDGE" },
     };
@@ -5879,6 +7222,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             zoomLabels[index], index == 1u, labels, style);
     }
     [self syncToolboxControls];
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
+        [self drawBurstWorkspace];
+        [self drawOpenGeometryMenu];
+        return;
+    }
 
     const BOOL editable = [self canEditDisplayedPattern];
     for (NSUInteger index = 0u; index < self.toolButtons.count; ++index)
@@ -5995,19 +7343,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             const CGFloat cosine = std::cos(angle);
             const CGFloat sine = std::sin(angle);
             const bool originalHit = row < track.notes.size()
-                && (track.notes[row].state == NoteCellState::Note
-                    || track.notes[row].state
-                        == NoteCellState::RetriggerPrevious);
+                && noteCellIsActivePulse(track.notes[row]);
             const bool rotatedHit = rotationPreview
                 && row < _gesturePreviewNotes.size()
-                && (_gesturePreviewNotes[row].state == NoteCellState::Note
-                    || _gesturePreviewNotes[row].state
-                        == NoteCellState::RetriggerPrevious);
+                && noteCellIsActivePulse(_gesturePreviewNotes[row]);
             const bool previewHit = densityPreview
                 && row < _gesturePreviewNotes.size()
-                && (_gesturePreviewNotes[row].state == NoteCellState::Note
-                    || _gesturePreviewNotes[row].state
-                        == NoteCellState::RetriggerPrevious);
+                && noteCellIsActivePulse(_gesturePreviewNotes[row]);
             const bool hit = densityPreview
                 ? originalHit || previewHit
                 : rotationPreview ? rotatedHit : originalHit;
@@ -6248,9 +7590,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (!selectedDensityPreview) {
         for (std::size_t row = 0u; row < selectedLength; ++row) {
             if (row < selectedTrack.notes.size()
-                && (selectedTrack.notes[row].state == NoteCellState::Note
-                    || selectedTrack.notes[row].state
-                        == NoteCellState::RetriggerPrevious)) ++hits;
+                && noteCellIsActivePulse(selectedTrack.notes[row])) ++hits;
         }
     }
 
@@ -6371,6 +7711,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 midiNoteName(cell.note),
                 static_cast<unsigned int>(cell.note)];
         }
+        else if (cell.state == NoteCellState::Burst)
+            cellName = nsString(burstSlotToken(cell.note));
         else if (cell.state == NoteCellState::RetriggerPrevious) cellName = @"RTR";
         else if (cell.state == NoteCellState::Hold) cellName = @"HLD";
         else if (cell.state == NoteCellState::Kill) cellName = @"KIL";
@@ -6427,6 +7769,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)drawPlaybackOverlay
 {
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) return;
     auto* model = self.trackerState;
     const auto* pattern = geometryPattern(model);
     if (!model || !pattern || pattern->tracks.empty()) return;
@@ -6799,9 +8142,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         const CGFloat y = top + (1.0 - value) * height;
         const bool notePresent = row < track.noteColumn.length
             && row < track.notes.size()
-            && (track.notes[row].state == NoteCellState::Note
-                || track.notes[row].state
-                    == NoteCellState::RetriggerPrevious);
+            && noteCellIsActivePulse(track.notes[row]);
         const bool selected = row == model->session.selectedRow;
         if (selected) {
             NSBezierPath* selection = [NSBezierPath bezierPathWithOvalInRect:
@@ -7069,7 +8410,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSStackView* transportPrimary = self.transportPrimaryControls;
     NSStackView* inputPrimary = self.inputPrimaryControls;
     patternPrimary.spacing = 8.0;
-    transportPrimary.spacing = 8.0;
+    transportPrimary.spacing = 5.0;
     inputPrimary.spacing = 8.0;
 
     self.patternPopup = [[S3GTrackerPopupButton alloc]
@@ -7119,18 +8460,31 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.loopButton.accessibilityLabel = @"Loop";
     [self.loopButton.widthAnchor constraintEqualToConstant:32.0].active = YES;
     [transportPrimary addArrangedSubview:self.loopButton];
+    S3GTrackerFillButton* fillButton = [[S3GTrackerFillButton alloc]
+        initWithFrame:NSZeroRect];
+    fillButton.s3gUsesSuiteStyle = YES;
+    fillButton.s3gUsesNeutralTitle = YES;
+    fillButton.tag = 3;
+    fillButton.title = @"FILL";
+    fillButton.target = self;
+    fillButton.action = @selector(fillPressed:);
+    fillButton.toolTip = @"Click to latch FILL; Shift-hold for momentary FILL";
+    fillButton.accessibilityLabel = @"Performance fill";
+    self.fillButton = fillButton;
+    [self.fillButton.widthAnchor constraintEqualToConstant:48.0].active = YES;
+    [transportPrimary addArrangedSubview:self.fillButton];
     self.restartButton = [self button:@"SYNC ALL"
         action:@selector(restartPressed:)];
     self.restartButton.toolTip = @"Force every lane and column to row 1, ignoring phase, without stopping REAPER";
     self.restartButton.accessibilityLabel = @"Sync all tracker lanes and columns to row 1";
-    [self.restartButton.widthAnchor constraintEqualToConstant:72.0].active = YES;
+    [self.restartButton.widthAnchor constraintEqualToConstant:60.0].active = YES;
     [transportPrimary addArrangedSubview:self.restartButton];
     NSButton* panicButton = [self button:@"! PANIC"
         action:@selector(panicPressed:)];
     panicButton.tag = 2;
     panicButton.toolTip = @"Send tracked Note Offs and CC 123 All Notes Off on MIDI channels 1–16";
     panicButton.accessibilityLabel = @"Clear active MIDI notes";
-    [panicButton.widthAnchor constraintEqualToConstant:70.0].active = YES;
+    [panicButton.widthAnchor constraintEqualToConstant:55.0].active = YES;
     [transportPrimary addArrangedSubview:panicButton];
     self.tempoScalePopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
@@ -7144,7 +8498,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.tempoScalePopup.lastItem.representedObject =
             @(kTempoScales[index]);
     }
-    [self.tempoScalePopup.widthAnchor constraintEqualToConstant:70.0].active = YES;
+    [self.tempoScalePopup.widthAnchor constraintEqualToConstant:60.0].active = YES;
     [transportPrimary addArrangedSubview:self.tempoScalePopup];
     self.swingField = [[S3GTrackerSwingSlider alloc] initWithFrame:NSZeroRect];
     self.swingField.s3gLabel = @"SW";
@@ -7152,7 +8506,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.swingField.action = @selector(transportFieldChanged:);
     self.swingField.accessibilityLabel = @"Swing percentage";
     self.swingField.toolTip = @"Drag the short slider or scroll to set global swing from 50 to 75 percent";
-    [self.swingField.widthAnchor constraintEqualToConstant:110.0].active = YES;
+    [self.swingField.widthAnchor constraintEqualToConstant:90.0].active = YES;
     [transportPrimary addArrangedSubview:self.swingField];
     self.gateField = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
@@ -7160,7 +8514,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.gateField.target = self;
     self.gateField.action = @selector(gateFieldChanged:);
     self.gateField.accessibilityLabel = @"MIDI gate in milliseconds";
-    [self.gateField.widthAnchor constraintEqualToConstant:78.0].active = YES;
+    [self.gateField.widthAnchor constraintEqualToConstant:62.0].active = YES;
     [transportPrimary addArrangedSubview:self.gateField];
 
     self.loopStartField = [[S3GTrackerPopupButton alloc]
@@ -7170,7 +8524,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.loopStartField.action = @selector(transportFieldChanged:);
     self.loopStartField.toolTip = @"First loop row";
     self.loopStartField.accessibilityLabel = @"First loop row";
-    [self.loopStartField.widthAnchor constraintEqualToConstant:60.0].active = YES;
+    [self.loopStartField.widthAnchor constraintEqualToConstant:55.0].active = YES;
     [transportPrimary addArrangedSubview:self.loopStartField];
     self.loopEndField = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
@@ -7179,7 +8533,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.loopEndField.action = @selector(transportFieldChanged:);
     self.loopEndField.toolTip = @"Last loop row";
     self.loopEndField.accessibilityLabel = @"Last loop row";
-    [self.loopEndField.widthAnchor constraintEqualToConstant:60.0].active = YES;
+    [self.loopEndField.widthAnchor constraintEqualToConstant:55.0].active = YES;
     [transportPrimary addArrangedSubview:self.loopEndField];
 
     self.sequenceColumnsButton = [self button:@"EXPAND SEQ"
@@ -7233,7 +8587,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.midiStepRecordPopup.accessibilityLabel = @"MIDI recording mode";
     self.midiStepRecordPopup.toolTip = @"Armed modes monitor incoming notes on the selected lane's MIDI channel; STEP advances the cursor; live modes follow the written NOTE; LIVE MT preserves timing in a SEQ pair";
     [self.midiStepRecordPopup.widthAnchor
-        constraintEqualToConstant:100.0].active = YES;
+        constraintEqualToConstant:75.0].active = YES;
     [transportPrimary addArrangedSubview:self.midiStepRecordPopup];
 
     self.zoomOutButton = [self button:@"−" action:@selector(zoomOutPressed:)];
@@ -7595,14 +8949,16 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     [self.gateField selectItemAtIndex:gateSelection];
 
+    const NSInteger maximumRow = static_cast<NSInteger>(
+        maximumLoadedPatternRows(self.trackerState));
     const NSInteger loopStart = std::clamp<NSInteger>(
         static_cast<NSInteger>(
             self.trackerState->session.transport.loopStartRow) + 1,
-        1, 256);
+        1, maximumRow);
     const NSInteger loopEnd = std::clamp<NSInteger>(
         static_cast<NSInteger>(
             self.trackerState->session.transport.loopEndRow),
-        loopStart, 256);
+        loopStart, maximumRow);
     [self.loopStartField removeAllItems];
     for (NSInteger row = 1; row <= loopEnd; ++row) {
         [self.loopStartField addItemWithTitle:[NSString stringWithFormat:
@@ -7613,7 +8969,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         @"%02ld", static_cast<long>(loopStart)]];
 
     [self.loopEndField removeAllItems];
-    for (NSInteger row = loopStart; row <= 256; ++row) {
+    for (NSInteger row = loopStart; row <= maximumRow; ++row) {
         [self.loopEndField addItemWithTitle:[NSString stringWithFormat:
             @"%02ld", static_cast<long>(row)]];
         self.loopEndField.lastItem.representedObject = @(row);
@@ -7708,6 +9064,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.loopButton.state = state->session.transport.loopEnabled
         ? NSControlStateValueOn : NSControlStateValueOff;
     [self.loopButton setNeedsDisplay:YES];
+    self.fillButton.state = state->fillActive
+        ? NSControlStateValueOn : NSControlStateValueOff;
+    [self.fillButton setNeedsDisplay:YES];
     [self.tempoScalePopup selectItemAtIndex:static_cast<NSInteger>(
         nearestTempoScaleIndex(state->tempoScale))];
     [self.swingField setSwingValue:
@@ -7831,6 +9190,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)focusTracker
 {
     [self.view.window makeFirstResponder:self.gridView];
+}
+
+- (void)editBurstSlot:(std::size_t)slot
+{
+    (void)self.view;
+    [self.geometryView selectBurstSlot:slot];
+    [self showGeometryWindow:nil];
 }
 
 - (void)showGeometryWindow:(id)sender
@@ -8214,6 +9580,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self reloadModel];
 }
 
+- (void)fillPressed:(id)sender
+{
+    if (!self.trackerState) return;
+    NSButton* button = [sender isKindOfClass:NSButton.class]
+        ? static_cast<NSButton*>(sender) : self.fillButton;
+    self.trackerState->fillActive = button.state == NSControlStateValueOn;
+    if (self.trackerCallbacks && self.trackerCallbacks->fillChanged)
+        self.trackerCallbacks->fillChanged(self.trackerState->fillActive);
+    [self.fillButton setNeedsDisplay:YES];
+}
+
 - (void)restartPressed:(id)sender
 {
     (void)sender;
@@ -8288,15 +9665,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     } else if (sender == self.loopStartField) {
         NSNumber* value = self.loopStartField.selectedItem.representedObject;
         if (!value) return;
+        const auto maximum = static_cast<NSInteger>(
+            maximumLoadedPatternRows(self.trackerState));
         const uint32_t row = static_cast<uint32_t>(std::clamp<NSInteger>(
-            value.integerValue, 1, 256));
+            value.integerValue, 1, maximum));
         transport.loopStartRow = std::min(row - 1u,
             transport.loopEndRow - 1u);
     } else if (sender == self.loopEndField) {
         NSNumber* value = self.loopEndField.selectedItem.representedObject;
         if (!value) return;
+        const auto maximum = static_cast<NSInteger>(
+            maximumLoadedPatternRows(self.trackerState));
         const uint32_t row = static_cast<uint32_t>(std::clamp<NSInteger>(
-            value.integerValue, 1, 256));
+            value.integerValue, 1, maximum));
         transport.loopEndRow = std::max(row,
             transport.loopStartRow + 1u);
     } else {

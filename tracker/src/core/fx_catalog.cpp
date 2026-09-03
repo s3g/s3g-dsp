@@ -55,6 +55,8 @@ constexpr std::array<SequencerActionDefinition,
         "fill an empty NOTE source with the last emitted note by probability" },
     { SequencerAction::Euclid, "seq.euclid", "EU", "Euclidean Gate",
         "gate the NOTE row with one through NOTE-length Euclidean hits" },
+    { SequencerAction::Condition, "seq.condition", "CD", "Condition",
+        "play on selected cycle visits, first/last pass, or live FILL state" },
 }};
 
 bool equalFold(std::string_view left, std::string_view right) noexcept

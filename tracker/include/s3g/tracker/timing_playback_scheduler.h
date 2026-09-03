@@ -67,6 +67,19 @@ public:
     {
         return sequencer_.runtimeTrackMuteMask();
     }
+    void setFillActive(bool active) noexcept
+    {
+        sequencer_.setFillActive(active);
+    }
+    void setSongConditionContext(uint64_t passIndex,
+        uint64_t passCount) noexcept
+    {
+        sequencer_.setSongConditionContext(passIndex, passCount);
+    }
+    void clearSongConditionContext() noexcept
+    {
+        sequencer_.clearSongConditionContext();
+    }
     void relaunchColumnsAtTickBoundary(std::size_t row = 0u) noexcept
     {
         sequencer_.relaunchColumnsAtTickBoundary(row);

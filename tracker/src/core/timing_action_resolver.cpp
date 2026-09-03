@@ -84,6 +84,7 @@ TimingEventExpansion resolveTimingActions(
         case SequencerAction::Offset:
         case SequencerAction::RepeatPrevious:
         case SequencerAction::Euclid:
+        case SequencerAction::Condition:
         case SequencerAction::Count:
             break;
         }

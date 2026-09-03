@@ -1141,6 +1141,61 @@ void testBoundedMidiControlInterpolation()
         "STEP CC should emit only row endpoints without derived values");
 }
 
+void testBurstExpansionUsesSubRowTimingAndIgnoresDensityMultipliers()
+{
+    Pattern pattern;
+    pattern.visibleRows = 2u;
+    auto& burst = pattern.bursts[0u];
+    burst.name = "Break Rush";
+    burst.eventCount = 4u;
+    burst.events[0u] = { 0u, 48u, 127u, 50u };
+    burst.events[1u] = { 16384u, 52u, 96u, 40u };
+    burst.events[2u] = { 32768u, 50u, 64u, 30u };
+    burst.events[3u] = { 49152u, 55u, 32u, 20u };
+    Track track;
+    track.notes = { NoteCell::withBurst(0u), NoteCell::rest() };
+    track.velocities = { ValueCell::withValue(0.8f) };
+    track.noteColumn.length = 2u;
+    track.velocityColumn.length = 1u;
+    track.fxPairs[0u].actions = { FxActionCell::sequencer(
+        SequencerAction::Ratchet) };
+    track.fxPairs[0u].values = { FxValueCell::withValue(1.0f) };
+    track.fxPairs[0u].actionColumn.length = 1u;
+    track.fxPairs[0u].valueColumn.length = 1u;
+    track.fxPairs[1u].actions = { FxActionCell::sequencer(
+        SequencerAction::Accent) };
+    track.fxPairs[1u].values = { FxValueCell::withValue(0.5f) };
+    track.fxPairs[1u].actionColumn.length = 1u;
+    track.fxPairs[1u].valueColumn.length = 1u;
+    pattern.tracks.push_back(std::move(track));
+
+    TimingPlaybackScheduler scheduler;
+    scheduler.setPattern(std::move(pattern));
+    scheduler.setTransport(transport());
+    scheduler.start();
+    std::array<ScheduledEvent, 32u> events {};
+    const auto count = scheduler.process(8000u, events.data(), events.size());
+    check(count == 4u,
+        "a four-event Burst should not be multiplied by an RR action");
+    const std::array<uint64_t, 4u> expectedTimes { 0u, 2000u, 4000u, 6000u };
+    const std::array<uint8_t, 4u> expectedNotes { 48u, 52u, 50u, 55u };
+    const std::array<uint64_t, 4u> expectedDurations {
+        4000u, 3200u, 2400u, 1600u,
+    };
+    for (std::size_t index = 0u; index < count; ++index) {
+        check(events[index].absoluteSampleTime == expectedTimes[index]
+                && events[index].note == expectedNotes[index]
+                && events[index].durationSamples == expectedDurations[index]
+                && events[index].burstDefinition
+                    == s3g::tracker::kNoBurstDefinition,
+            "Burst expansion should preserve authored time, pitch, gate, and emit ordinary events");
+    }
+    check(count == 4u
+            && std::abs(events[1u].normalizedVelocity
+                - 0.8f * 96.0f / 127.0f) < 1.0e-5f,
+        "lane VOL and per-substep velocity should multiply before MIDI output");
+}
+
 } // namespace
 
 int main()
@@ -1167,6 +1222,7 @@ int main()
     testPreparedHostBeatStartUsesWarpedClock();
     testHeldNoteOffTraversesTimingTimeline();
     testBoundedMidiControlInterpolation();
+    testBurstExpansionUsesSubRowTimingAndIgnoresDensityMultipliers();
     if (failures != 0) return EXIT_FAILURE;
     std::cout << "timing playback scheduler tests passed\n";
     return EXIT_SUCCESS;

@@ -882,6 +882,18 @@ bool makeFxSequenceCell(std::string_view atom,
         cell.value = FxValueCell::withValue(compactFxValue(atom.front()));
         return true;
     }
+    if (selectedAction.state == FxActionCellState::Sequencer
+        && selectedAction.sequencerAction == SequencerAction::Condition) {
+        const auto* condition = findSequencerCondition(atom);
+        if (!condition) {
+            error = "CD values must be 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, or !FILL.";
+            return false;
+        }
+        cell.action = selectedAction;
+        cell.value = FxValueCell::withValue(
+            normalizedFromSequencerCondition(condition->condition));
+        return true;
+    }
     double numeric = 0.0;
     if (selectedAction.state == FxActionCellState::MidiControlChange
         && atom.find('.') == std::string_view::npos
@@ -997,6 +1009,14 @@ bool parseFxActionToken(std::string_view token, FxActionCell& action)
 bool parseFxValueForAction(std::string_view token,
     const FxActionCell& action, float& normalized)
 {
+    if (action.state == FxActionCellState::Sequencer
+        && action.sequencerAction == SequencerAction::Condition) {
+        const auto* condition = findSequencerCondition(token);
+        if (!condition) return false;
+        normalized = normalizedFromSequencerCondition(
+            condition->condition);
+        return true;
+    }
     if (action.state != FxActionCellState::MidiControlChange) {
         double value = 0.0;
         if (!parseFiniteDouble(token, value)
@@ -1327,7 +1347,8 @@ void reverseNotes(TrackerSession& session, std::size_t lane)
 bool noteCellIsHit(const NoteCell& cell) noexcept
 {
     return cell.state == NoteCellState::Note
-        || cell.state == NoteCellState::RetriggerPrevious;
+        || cell.state == NoteCellState::RetriggerPrevious
+        || cell.state == NoteCellState::Burst;
 }
 
 double nextRandom(uint64_t& state) noexcept
@@ -2011,6 +2032,60 @@ bool parseOptionalNoteField(const std::vector<std::string>& tokens,
     return false;
 }
 
+void setBurstTiming(BurstDefinition& burst, std::string_view shape) noexcept
+{
+    const auto count = static_cast<std::size_t>(burst.eventCount);
+    if (count == 0u) return;
+    for (std::size_t index = 0u; index < count; ++index) {
+        const double phase = static_cast<double>(index)
+            / static_cast<double>(count);
+        double shaped = phase;
+        if (shape == "accelerate")
+            shaped = 1.0 - (1.0 - phase) * (1.0 - phase);
+        else if (shape == "decelerate") shaped = phase * phase;
+        burst.events[index].position = static_cast<uint16_t>(std::clamp<long>(
+            std::lround(shaped * 65536.0), 0l, 65535l));
+    }
+}
+
+std::size_t burstUsageCount(const Pattern& pattern,
+    std::size_t slot) noexcept
+{
+    std::size_t result = 0u;
+    for (const auto& track : pattern.tracks)
+        result += static_cast<std::size_t>(std::count_if(
+            track.notes.begin(), track.notes.end(), [slot](const NoteCell& cell) {
+                return cell.state == NoteCellState::Burst
+                    && cell.note == slot;
+            }));
+    return result;
+}
+
+bool parseBurstNotes(const std::vector<std::string>& tokens,
+    std::size_t first, BurstDefinition& burst, std::string& error)
+{
+    const auto count = tokens.size() - first;
+    if (count == 0u || count > kMaximumBurstEvents) {
+        error = "Burst notes require 1..8 MIDI notes or note names.";
+        return false;
+    }
+    for (std::size_t index = 0u; index < count; ++index) {
+        uint8_t note = 0u;
+        if (!parseMidiNote(tokens[first + index], note)) {
+            error = "Burst notes must be MIDI 0..127 or names such as C-2.";
+            return false;
+        }
+        burst.events[index].note = note;
+        if (burst.events[index].velocity == 0u)
+            burst.events[index].velocity = 127u;
+        if (burst.events[index].gatePercent == 0u)
+            burst.events[index].gatePercent = 70u;
+    }
+    burst.eventCount = static_cast<uint8_t>(count);
+    setBurstTiming(burst, "even");
+    return true;
+}
+
 std::string joinWords(const std::vector<std::string>& tokens,
     std::size_t first)
 {
@@ -2605,6 +2680,205 @@ CommandResult executeTokens(TrackerSession& session,
         return success(stream.str(), CommandEffect::SelectionChanged);
     }
 
+    if (verb == "burst") {
+        if (tokens.size() < 2u)
+            return failure("Usage: burst <new|duplicate|delete|B01..B32|target> ...");
+        const auto operation = asciiLower(tokens[1]);
+        if (operation == "new") {
+            std::size_t slot = 0u;
+            if (tokens.size() < 3u || !parseBurstSlot(tokens[2], slot))
+                return failure("Usage: burst new <B01..B32> [name]");
+            auto& burst = session.pattern.bursts[slot];
+            if (!burst.empty())
+                return failure(burstSlotToken(slot) + " is already in use.");
+            burst = {};
+            burst.name = tokens.size() > 3u ? joinWords(tokens, 3u)
+                                            : "BURST " + burstSlotToken(slot);
+            burst.eventCount = 4u;
+            const uint8_t note = session.pattern.tracks.empty() ? 60u
+                : laneDefaultNote(session, std::min(session.selectedTrack,
+                      session.pattern.tracks.size() - 1u));
+            for (std::size_t index = 0u; index < burst.eventCount; ++index)
+                burst.events[index] = { 0u, note, 127u, 70u };
+            setBurstTiming(burst, "even");
+            return success("Created " + burstSlotToken(slot) + " · "
+                    + burst.name + " with four even substeps.",
+                CommandEffect::PatternChanged);
+        }
+        if (operation == "duplicate") {
+            std::size_t source = 0u;
+            std::size_t destination = 0u;
+            if (tokens.size() != 4u || !parseBurstSlot(tokens[2], source)
+                || !parseBurstSlot(tokens[3], destination))
+                return failure("Usage: burst duplicate <B01..B32> <B01..B32>");
+            if (session.pattern.bursts[source].empty())
+                return failure(burstSlotToken(source) + " is empty.");
+            if (!session.pattern.bursts[destination].empty())
+                return failure(burstSlotToken(destination) + " is already in use.");
+            session.pattern.bursts[destination]
+                = session.pattern.bursts[source];
+            session.pattern.bursts[destination].name += " COPY";
+            return success("Duplicated " + burstSlotToken(source) + " to "
+                    + burstSlotToken(destination) + '.',
+                CommandEffect::PatternChanged);
+        }
+        if (operation == "delete" || operation == "clear") {
+            std::size_t slot = 0u;
+            if (tokens.size() != 3u || !parseBurstSlot(tokens[2], slot))
+                return failure("Usage: burst delete <B01..B32>");
+            const auto uses = burstUsageCount(session.pattern, slot);
+            if (uses != 0u)
+                return failure(burstSlotToken(slot) + " is referenced by "
+                    + std::to_string(uses) + " NOTE cell(s); replace them first.");
+            session.pattern.bursts[slot] = {};
+            return success("Deleted " + burstSlotToken(slot) + '.',
+                CommandEffect::PatternChanged);
+        }
+
+        std::size_t slot = 0u;
+        if (parseBurstSlot(tokens[1], slot)) {
+            auto& burst = session.pattern.bursts[slot];
+            if (tokens.size() < 3u)
+                return failure("Usage: burst " + burstSlotToken(slot)
+                    + " <notes|velocity|gate|timing|name|reverse|rotate|usage> ...");
+            const auto edit = asciiLower(tokens[2]);
+            if (edit != "notes" && burst.empty())
+                return failure(burstSlotToken(slot)
+                    + " is empty; create it with burst new or burst Bxx notes.");
+            if (edit == "notes") {
+                std::string error;
+                if (!parseBurstNotes(tokens, 3u, burst, error))
+                    return failure(std::move(error));
+            } else if (edit == "velocity" || edit == "vel") {
+                if (tokens.size() != 4u
+                    && tokens.size() != 3u + burst.eventCount)
+                    return failure("Velocity accepts one value or one per substep.");
+                for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+                    uint32_t value = 0u;
+                    const auto tokenIndex = tokens.size() == 4u
+                        ? 3u : 3u + index;
+                    if (!parseUnsigned(tokens[tokenIndex], value)
+                        || value == 0u || value > 127u)
+                        return failure("Burst velocity must be 1..127.");
+                    burst.events[index].velocity = static_cast<uint8_t>(value);
+                }
+            } else if (edit == "gate") {
+                if (tokens.size() != 4u
+                    && tokens.size() != 3u + burst.eventCount)
+                    return failure("Gate accepts one percentage or one per substep.");
+                for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+                    auto token = std::string_view(tokens[tokens.size() == 4u
+                        ? 3u : 3u + index]);
+                    if (!token.empty() && token.back() == '%')
+                        token.remove_suffix(1u);
+                    uint32_t value = 0u;
+                    if (!parseUnsigned(token, value)
+                        || value == 0u || value > 100u)
+                        return failure("Burst gate must be 1..100 percent.");
+                    burst.events[index].gatePercent
+                        = static_cast<uint8_t>(value);
+                }
+            } else if (edit == "timing") {
+                if (tokens.size() < 4u)
+                    return failure("Timing is even, accelerate, decelerate, or a percentage per substep.");
+                const auto shape = asciiLower(tokens[3]);
+                if (tokens.size() == 4u && (shape == "even"
+                        || shape == "accelerate" || shape == "decelerate")) {
+                    setBurstTiming(burst, shape);
+                } else {
+                    if (tokens.size() != 3u + burst.eventCount)
+                        return failure("Custom timing needs one 0..99.999 percentage per substep.");
+                    uint16_t previous = 0u;
+                    for (std::size_t index = 0u; index < burst.eventCount;
+                         ++index) {
+                        auto token = std::string_view(tokens[3u + index]);
+                        if (!token.empty() && token.back() == '%')
+                            token.remove_suffix(1u);
+                        double value = 0.0;
+                        if (!parseFiniteDouble(token, value)
+                            || value < 0.0 || value >= 100.0)
+                            return failure("Custom burst positions must be 0..<100 percent.");
+                        const auto position = static_cast<uint16_t>(
+                            std::clamp<long>(std::lround(value * 655.36),
+                                0l, 65535l));
+                        if (index > 0u && position < previous)
+                            return failure("Custom burst positions must be in time order.");
+                        burst.events[index].position = position;
+                        previous = position;
+                    }
+                }
+            } else if (edit == "name" || edit == "rename") {
+                if (tokens.size() < 4u)
+                    return failure("Usage: burst B01 name <words...>");
+                const auto name = joinWords(tokens, 3u);
+                if (name.size() > kMaximumBurstNameBytes)
+                    return failure("Burst names may contain at most 64 UTF-8 bytes.");
+                burst.name = name;
+            } else if (edit == "reverse") {
+                if (tokens.size() != 3u)
+                    return failure("Usage: burst B01 reverse");
+                std::reverse(burst.events.begin(),
+                    burst.events.begin() + burst.eventCount);
+                setBurstTiming(burst, "even");
+            } else if (edit == "rotate") {
+                int64_t amount = 0;
+                if (tokens.size() != 4u || !parseSigned(tokens[3], amount))
+                    return failure("Usage: burst B01 rotate <signed substeps>");
+                const auto count = static_cast<std::size_t>(burst.eventCount);
+                const auto rotation = normalizedRotation(amount, count);
+                std::rotate(burst.events.begin(),
+                    burst.events.begin() + static_cast<std::ptrdiff_t>(
+                        count - rotation),
+                    burst.events.begin() + static_cast<std::ptrdiff_t>(count));
+                setBurstTiming(burst, "even");
+            } else if (edit == "usage") {
+                if (tokens.size() != 3u)
+                    return failure("Usage: burst B01 usage");
+                return success(burstSlotToken(slot) + " · " + burst.name
+                    + " · " + std::to_string(burst.eventCount)
+                    + " substeps · "
+                    + std::to_string(burstUsageCount(session.pattern, slot))
+                    + " NOTE cell use(s).");
+            } else {
+                return failure("Burst edit must be notes, velocity, gate, timing, name, reverse, rotate, or usage.");
+            }
+            return success("Updated " + burstSlotToken(slot) + " · "
+                    + burst.name + '.', CommandEffect::PatternChanged);
+        }
+
+        // Fast authoring form: allocate a recipe, fill it, and place its
+        // reference into the requested NOTE cell in one transaction.
+        std::size_t lane = 0u;
+        std::size_t row = 0u;
+        std::string error;
+        if (tokens.size() < 5u || !parseLane(session, tokens[1], lane, error)
+            || !parseRow(tokens[2], row, error)
+            || asciiLower(tokens[3]) != "notes")
+            return failure(error.empty()
+                ? "Usage: burst <target> <row> notes <1..8 MIDI notes>"
+                : std::move(error));
+        const auto empty = std::find_if(session.pattern.bursts.begin(),
+            session.pattern.bursts.end(), [](const BurstDefinition& burst) {
+                return burst.empty();
+            });
+        if (empty == session.pattern.bursts.end())
+            return failure("All 32 Burst slots are in use.");
+        slot = static_cast<std::size_t>(empty - session.pattern.bursts.begin());
+        BurstDefinition burst;
+        burst.name = "QUICK " + burstSlotToken(slot);
+        if (!parseBurstNotes(tokens, 4u, burst, error))
+            return failure(std::move(error));
+        session.pattern.bursts[slot] = burst;
+        auto& track = session.pattern.tracks[lane];
+        ensureNoteStorage(session, track, row + 1u);
+        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
+        track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
+        return success("Created " + burstSlotToken(slot) + " and wrote it to "
+                + laneLabel(session, lane) + ", row "
+                + std::to_string(row + 1u) + '.',
+            CommandEffect::PatternChanged);
+    }
+
     if (verb == "pitch" || verb == "defaultnote") {
         if (tokens.size() != 3u)
             return failure("Usage: pitch|defaultnote <lane|@alias> <MIDI note|note name>");
@@ -2712,6 +2986,28 @@ CommandResult executeTokens(TrackerSession& session,
             SequencerAction::Probability, tokens[3], "probability");
     }
 
+        if (verb == "condition" || verb == "cond") {
+            if (tokens.size() != 4u)
+                return failure("Usage: condition|cond <target> <row> <1:2..8:8|FIRST|LAST|FILL|!FILL|clear>");
+            std::size_t lane = 0u;
+            std::size_t row = 0u;
+            std::string error;
+            if (!parseLane(session, tokens[1], lane, error))
+                return failure(std::move(error));
+            if (!parseRow(tokens[2], row, error))
+                return failure(std::move(error));
+            if (asciiLower(tokens[3]) == "clear")
+                return writeSequencerFxCell(session, lane, row,
+                    SequencerAction::Condition, "clear", "condition");
+            const auto* condition = findSequencerCondition(tokens[3]);
+            if (!condition)
+                return failure("Condition must be 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, or !FILL.");
+            return writeSequencerFxCell(session, lane, row,
+                SequencerAction::Condition,
+                std::to_string(normalizedFromSequencerCondition(
+                    condition->condition)), "condition");
+        }
+
     if (verb == "ratchet" || verb == "retrig" || verb == "retrigger"
         || verb == "microtime" || verb == "micro" || verb == "delay"
         || verb == "flam" || verb == "stutter" || verb == "skip"
@@ -2774,7 +3070,7 @@ CommandResult executeTokens(TrackerSession& session,
             target.actions[row] = FxActionCell::previous();
         } else {
             if (tokens.size() != 6u)
-                return failure("A sequencing action requires a normalized value.");
+                return failure("A sequencing action requires a value.");
             FxActionCell selectedAction;
             if (!parseFxActionToken(tokens[4], selectedAction))
                 return failure("Unknown sequencing action or MIDI CC; use actions to list codes.");
@@ -2783,7 +3079,11 @@ CommandResult executeTokens(TrackerSession& session,
                 return failure(selectedAction.state
                         == FxActionCellState::MidiControlChange
                     ? "MIDI CC values must be integers 0..127 or normalized decimals 0..1."
-                    : "FX values must be normalized between 0 and 1.");
+                    : selectedAction.state == FxActionCellState::Sequencer
+                            && selectedAction.sequencerAction
+                                == SequencerAction::Condition
+                        ? "CD values must be 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, or !FILL."
+                        : "FX values must be normalized between 0 and 1.");
             ensureFxStorage(session, target, false, row + 1u);
             target.actions[row] = selectedAction;
             target.values[row] = FxValueCell::withValue(value);
@@ -2860,14 +3160,24 @@ CommandResult executeTokens(TrackerSession& session,
                     return action.state
                         == FxActionCellState::MidiControlChange;
                 });
-            const auto valueAction = midiValueLane
+            FxActionCell valueAction = midiValueLane
                 ? FxActionCell::midiControlChange(0u)
                 : FxActionCell::empty();
+            if (row < target.actions.size()
+                && target.actions[row].state == FxActionCellState::Sequencer
+                && target.actions[row].sequencerAction
+                    == SequencerAction::Condition) {
+                valueAction = target.actions[row];
+            }
             float value = 0.0f;
             if (!parseFxValueForAction(tokens[4], valueAction, value)) {
                 return failure(midiValueLane
                     ? "MIDI CC values must be integers 0..127 or normalized decimals 0..1."
-                    : "FX values must be normalized between 0 and 1.");
+                    : valueAction.state == FxActionCellState::Sequencer
+                            && valueAction.sequencerAction
+                                == SequencerAction::Condition
+                        ? "CD values must be 1:2..8:8, FIRST, LAST, FILL, or !FILL."
+                        : "FX values must be normalized between 0 and 1.");
             }
             target.values[row] = FxValueCell::withValue(value);
         }
@@ -3201,15 +3511,23 @@ CommandResult executeTokens(TrackerSession& session,
             NoteCell cell;
             const auto value = asciiLower(tokens[3]);
             uint8_t midiNote = 0u;
+            std::size_t burstSlot = 0u;
             if (value == "rest") cell = NoteCell::rest();
             else if (value == "rpt") cell = NoteCell::retriggerPrevious();
             else if (value == "kill") cell = NoteCell::kill();
             else if (value == "hold" || value == "hld")
                 cell = NoteCell::hold();
+            else if (parseBurstSlot(tokens[3], burstSlot)) {
+                if (session.pattern.bursts[burstSlot].empty())
+                    return failure(burstSlotToken(burstSlot)
+                        + " is empty; define it before placing a reference.");
+                cell = NoteCell::withBurst(
+                    static_cast<uint8_t>(burstSlot));
+            }
             else if (parseMidiNote(tokens[3], midiNote))
                 cell = NoteCell::withNote(midiNote);
             else
-                return failure("Note must be MIDI 0..127, a note name, rest, rpt, hold, or kill.");
+                return failure("Note must be MIDI 0..127, a note name, B01..B32, rest, rpt, hold, or kill.");
             auto& track = session.pattern.tracks[lane];
             ensureNoteStorage(session, track, row + 1u);
             track.notes[row] = cell;
@@ -3783,7 +4101,14 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat", "repeat @kick 3" },
             { "hold <target> <row>", "Continue the active note without reattacking it.", "hold", "hold @kick 4" },
             { "kill <target> <row>", "Write a NOTE kill cell.", "kill", "kill @kick 4" },
-            { "note <target> <row> <0..127|rest|rpt|hold|kill>", "Edit one NOTE cell directly.", "note", "note @kick 5 38" },
+            { "note <target> <row> <0..127|rest|rpt|hold|kill|B01..B32>", "Edit one NOTE cell directly, including a reusable Burst reference.", "note", "note @kick 5 B01" },
+            { "burst new <B01..B32> [name]", "Create a four-substep reusable pattern-local Burst.", "burst", "burst new B02 BREAK RUSH" },
+            { "burst Bxx notes <1..8 notes>", "Set the independently pitched MIDI events emitted inside one tracker row.", "", "burst B01 notes 48 52 50 55" },
+            { "burst Bxx velocity|gate <one|per-step values>", "Set one value for the phrase or one value for every substep.", "", "burst B01 velocity 127 104 82 116" },
+            { "burst Bxx timing <even|accelerate|decelerate|positions...>", "Shape sub-row positions; custom positions are percentages in ascending order.", "", "burst B01 timing accelerate" },
+            { "burst Bxx name|reverse|rotate|usage ...", "Rename or reshape a Burst and inspect shared NOTE-cell usage.", "", "burst B01 rotate 1" },
+            { "burst duplicate <source> <destination>  |  burst delete <Bxx>", "Copy a recipe or delete an unreferenced one.", "", "burst duplicate B01 B02" },
+            { "burst <target> <row> notes <1..8 notes>", "Allocate an empty Burst slot and place it in one NOTE cell.", "", "burst @kick 16 notes 48 52 50 55" },
             { "mask <target> <x---...> [direction]", "Replace the active NOTE mask: x/X is a hit and - is a rest.", "mask", "mask @kick x---x--- <>" },
             { "eu|e|euclid <target> <pulses> <steps> [rotate] [direction]", "Generate a Euclidean NOTE mask; pulses above steps automatically use aligned 2–8-way RR cells in an available SEQ pair.", "eu e euclid", "eu @kick 20 16 1 <>" },
             { "rotate|rot <target> <signed steps>", "Rotate active NOTE cells right; negative values move left.", "rotate rot", "rotate @kick -1" },
@@ -3814,6 +4139,7 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "actions", "List sequencing action codes and CC0..CC127 accepted by SEQ1 and SEQ2.", "actions", "actions" },
             { "fx <target> <pair> <row> <clear|previous>", "Clear or recall one FX action cell; pair accepts 1/fx1/f1 or 2/fx2/f2.", "fx", "fx @kick 1 1 previous" },
             { "fx <target> <pair> <row> <action|CC0..CC127> <value>", "Write a sequencing behavior or MIDI control change. CC values accept 0..127 integers or normalized decimals.", "", "fx @kick 1 5 cc74 96" },
+            { "condition|cond <target> <row> <condition|clear>", "Write CD into the first available SEQ pair. Conditions: 1:2..2:2, 1:4..4:4, 1:8..8:8, FIRST, LAST, FILL, !FILL.", "condition cond", "cond @snare 5 2:4" },
             { "fxvalue|fxv <target> <pair> <row> <value|previous>", "Edit a paired value. CC lanes accept 0..127 integers or normalized decimals.", "fxvalue fxv", "fxvalue @kick 1 5 0.8" },
             { "fx1|f1|fx2|f2 <target> <action|CC0..CC127> <sequence>", "Replace a compact FX/value sequence; MIDI CC sequences also accept 0..127 integers.", "fx1 f1 fx2 f2", "fx1 @kick cc74 24 64 96 127" },
             { "interp|interpolation <target> <v1|v2> <step|linear>", "Choose stepped values or bounded between-row MIDI CC interpolation for one value column.", "interp interpolation", "interp @kick v1 linear" },

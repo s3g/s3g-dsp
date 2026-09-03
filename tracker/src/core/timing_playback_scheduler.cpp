@@ -29,6 +29,7 @@ constexpr bool isTimingExpansionAction(SequencerAction action) noexcept
     case SequencerAction::Offset:
     case SequencerAction::RepeatPrevious:
     case SequencerAction::Euclid:
+    case SequencerAction::Condition:
     case SequencerAction::Count:
         return false;
     }
@@ -198,6 +199,18 @@ void TimingPlaybackScheduler::rebuildTimingState(
     timingSchedulerActive_ = false;
     microTimingCompensationActive_ = false;
     timing_.fill({});
+    for (const auto& track : sequencer_.pattern().tracks) {
+        const auto length = std::min(track.noteColumn.length,
+            track.notes.size());
+        if (std::any_of(track.notes.begin(), track.notes.begin()
+                    + static_cast<std::ptrdiff_t>(length),
+                [](const NoteCell& cell) {
+                    return cell.state == NoteCellState::Burst;
+                })) {
+            timingSchedulerActive_ = true;
+            break;
+        }
+    }
     const auto trackCount = std::min(sequencer_.pattern().tracks.size(),
         summary.size());
     for (std::size_t trackIndex = 0u; trackIndex < trackCount;
@@ -330,6 +343,9 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
             generatedEvents_.data(), generatedEvents_.size());
         const uint64_t advanced = sequencer_.tickIndex() - tickBefore;
         if (advanced == 0u) break;
+        const uint64_t burstTickDuration = std::max<uint64_t>(1u,
+            sequencer_.nextTickSampleFrame() >= tickSampleFrame
+                ? sequencer_.nextTickSampleFrame() - tickSampleFrame : 1u);
         resolveCurrentTick(nominalTick);
         const auto activeTimingTracks = std::min(
             sequencer_.pattern().tracks.size(), timing_.size());
@@ -421,6 +437,46 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
                     continue;
                 }
                 (void)timeline_.enqueue(shifted);
+                continue;
+            }
+            if (event.burstDefinition != kNoBurstDefinition) {
+                const auto& pattern = sequencer_.pattern();
+                if (event.burstDefinition >= pattern.bursts.size()) {
+                    ++timingDroppedEventCount_;
+                    continue;
+                }
+                const auto& burst = pattern.bursts[event.burstDefinition];
+                const auto eventCount = std::min<std::size_t>(
+                    burst.eventCount, kMaximumBurstEvents);
+                for (std::size_t burstEventIndex = 0u;
+                     burstEventIndex < eventCount; ++burstEventIndex) {
+                    const auto& authored = burst.events[burstEventIndex];
+                    ScheduledEvent expanded = event;
+                    expanded.burstDefinition = kNoBurstDefinition;
+                    expanded.note = authored.note;
+                    expanded.noteId = burstEventIndex == 0u
+                        ? event.noteId : allocateSecondaryNoteId();
+                    if (expanded.noteId == 0u) continue;
+                    const uint64_t substepOffset = burstTickDuration
+                        * static_cast<uint64_t>(authored.position) / 65536u;
+                    expanded.absoluteSampleTime = detail::saturatingSampleAdd(
+                        event.absoluteSampleTime,
+                        timing_[event.track].baseDelaySamples
+                            + substepOffset);
+                    expanded.frameOffset = detail::saturatingFrameOffsetAdd(
+                        event.frameOffset,
+                        timing_[event.track].baseDelaySamples
+                            + substepOffset);
+                    expanded.normalizedVelocity = detail::scaledTimingVelocity(
+                        event.normalizedVelocity,
+                        timing_[event.track].velocityScale
+                            * static_cast<float>(authored.velocity) / 127.0f);
+                    expanded.durationSamples = std::max<uint64_t>(1u,
+                        burstTickDuration
+                            * static_cast<uint64_t>(authored.gatePercent)
+                            / 100u);
+                    (void)timeline_.enqueue(expanded);
+                }
                 continue;
             }
             std::array<ScheduledEvent, 17u> expandedEvents {};

@@ -710,33 +710,35 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     constexpr CGFloat gap = 4.0;
     constexpr CGFloat controlY = 27.0;
     constexpr CGFloat controlHeight = 22.0;
-    const auto rowFrame = ^NSRect(S3GTrackerToolboxView* panel,
-        CGFloat x, CGFloat width) {
+    const auto rowFrame = ^NSRect(CGFloat x, CGFloat width) {
         return NSMakeRect(x, controlY,
             std::max<CGFloat>(20.0, width), controlHeight);
     };
 
     const CGFloat projectWidth = std::max<CGFloat>(20.0,
         NSWidth(self.projectPanel.bounds) - inset * 2.0);
-    self.projectFileMenu.frame = rowFrame(
-        self.projectPanel, inset, projectWidth);
+    self.projectFileMenu.frame = rowFrame(inset, projectWidth);
 
     const CGFloat transportWidth = std::max<CGFloat>(20.0,
         NSWidth(self.transportPanel.bounds) - inset * 2.0);
-    const CGFloat modeWidth = transportWidth * 0.28;
-    const CGFloat loopWidth = transportWidth * 0.24;
-    const CGFloat quantizeWidth = transportWidth * 0.25;
+    const CGFloat modeWidth = std::clamp<CGFloat>(
+        transportWidth * 0.18, 82.0, 108.0);
+    const CGFloat loopWidth = std::clamp<CGFloat>(
+        transportWidth * 0.16, 72.0, 96.0);
+    const CGFloat quantizeWidth = std::clamp<CGFloat>(
+        transportWidth * 0.20, 96.0, 120.0);
+    const CGFloat queueWidth = std::clamp<CGFloat>(
+        transportWidth * 0.20, 92.0, 120.0);
     CGFloat x = inset;
-    self.songModeButton.frame = rowFrame(
-        self.transportPanel, x, modeWidth);
+    self.songModeButton.frame = rowFrame(x, modeWidth);
     x += modeWidth + gap;
-    self.songLoopButton.frame = rowFrame(
-        self.transportPanel, x, loopWidth);
+    self.songLoopButton.frame = rowFrame(x, loopWidth);
     x += loopWidth + gap;
-    self.launchQuantizationPopup.frame = rowFrame(
-        self.transportPanel, x, quantizeWidth);
+    self.launchQuantizationPopup.frame = rowFrame(x, quantizeWidth);
     x += quantizeWidth + gap;
-    self.queueButton.frame = rowFrame(self.transportPanel, x,
+    self.queueButton.frame = rowFrame(x, queueWidth);
+    x += queueWidth + gap;
+    self.queueStatusLabel.frame = rowFrame(x,
         NSWidth(self.transportPanel.bounds) - inset - x);
 
     const CGFloat toolsWidth = std::max<CGFloat>(20.0,
@@ -747,22 +749,15 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     const CGFloat moveWidth = std::clamp<CGFloat>(
         toolsWidth * 0.09, 28.0, 38.0);
     x = inset;
-    self.addButton.frame = rowFrame(self.rowToolsPanel, x, addWidth);
+    self.addButton.frame = rowFrame(x, addWidth);
     x += addWidth + gap;
-    self.duplicateButton.frame = rowFrame(
-        self.rowToolsPanel, x, duplicateWidth);
+    self.duplicateButton.frame = rowFrame(x, duplicateWidth);
     x += duplicateWidth + gap;
-    self.removeButton.frame = rowFrame(
-        self.rowToolsPanel, x, deleteWidth);
+    self.removeButton.frame = rowFrame(x, deleteWidth);
     x += deleteWidth + gap;
-    self.moveUpButton.frame = rowFrame(
-        self.rowToolsPanel, x, moveWidth);
+    self.moveUpButton.frame = rowFrame(x, moveWidth);
     x += moveWidth + gap;
-    self.moveDownButton.frame = rowFrame(
-        self.rowToolsPanel, x, moveWidth);
-    x += moveWidth + gap;
-    self.queueStatusLabel.frame = rowFrame(self.rowToolsPanel, x,
-        NSWidth(self.rowToolsPanel.bounds) - inset - x);
+    self.moveDownButton.frame = rowFrame(x, moveWidth);
 
     const CGFloat header = static_cast<CGFloat>(
         s3g::gui_layout::kStandardMetrics.headerHeight);
@@ -822,7 +817,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         color:s3gSongColor(0x737879) weight:NSFontWeightSemibold];
     _queueStatusLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     _queueStatusLabel.accessibilityLabel = @"Song queue status";
-    [self.rowToolsPanel addSubview:_queueStatusLabel];
+    [self.transportPanel addSubview:_queueStatusLabel];
 
     self.tableScrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     self.tableScrollView.hasVerticalScroller = YES;

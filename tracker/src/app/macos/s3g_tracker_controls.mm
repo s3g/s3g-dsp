@@ -469,8 +469,9 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
 
 - (NSView*)hitTest:(NSPoint)point
 {
-    (void)point;
-    return self.enabled && !self.hidden ? self : nil;
+    // Let NSView enforce the slider's actual frame. Returning self
+    // unconditionally lets this slider steal clicks from preceding siblings.
+    return self.enabled && !self.hidden ? [super hitTest:point] : nil;
 }
 
 - (void)publishValue:(double)value

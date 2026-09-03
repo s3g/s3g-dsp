@@ -23,6 +23,9 @@
 - (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
 - (void)sequenceActionSelected:(NSMenuItem*)sender;
+- (NSMenu*)sequenceConditionMenuForTrack:(std::size_t)track
+    row:(std::size_t)row field:(std::size_t)field;
+- (void)sequenceConditionSelected:(NSMenuItem*)sender;
 - (NSString*)displayedPatternId;
 - (NSUInteger)displayedLaneCount;
 - (NSUInteger)displayedMutedLaneCount;
@@ -33,6 +36,8 @@
     field:(std::size_t)field row:(std::size_t)row page:(std::size_t)page;
 - (void)extendGridSelectionToTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row;
+- (void)selectWholeRowsFrom:(std::size_t)anchor to:(std::size_t)focus;
+- (BOOL)isWholeRowSelected:(std::size_t)row;
 - (NSPoint)geometryCenter;
 - (CGFloat)ringRadiusForLane:(std::size_t)lane;
 - (BOOL)selectedRingLane:(std::size_t*)lane radius:(CGFloat*)radius;
@@ -101,6 +106,15 @@ NSEvent* mouseDownEvent(NSWindow* window, NSPoint location,
         clickCount:clickCount pressure:1.0];
 }
 
+NSEvent* mouseEvent(NSWindow* window, NSEventType type, NSPoint location,
+    NSEventModifierFlags modifiers, NSInteger clickCount = 1)
+{
+    return [NSEvent mouseEventWithType:type location:location
+        modifierFlags:modifiers timestamp:0.0
+        windowNumber:window.windowNumber context:nil eventNumber:1
+        clickCount:clickCount pressure:1.0];
+}
+
 void seedTracks(s3g::tracker::app::TrackerViewState& state)
 {
     state.session.pattern.name = "P01";
@@ -152,6 +166,7 @@ int main()
         int deletePatternRequests = 0;
         int patternChangeRequests = 0;
         int transportChangeRequests = 0;
+        int fillChangeRequests = 0;
         int restartRequests = 0;
         int trackResyncRequests = 0;
         int stepRecordModeRequests = 0;
@@ -167,6 +182,10 @@ int main()
         callbacks.deletePattern = [&] { ++deletePatternRequests; };
         callbacks.patternChanged = [&] { ++patternChangeRequests; };
         callbacks.transportChanged = [&] { ++transportChangeRequests; };
+        callbacks.fillChanged = [&](bool active) {
+            ++fillChangeRequests;
+            state.fillActive = active;
+        };
         callbacks.restartPlayback = [&] { ++restartRequests; };
         callbacks.resyncTrack = [&](std::size_t track) {
             ++trackResyncRequests;
@@ -185,14 +204,14 @@ int main()
             [[S3GTrackerWorkspaceController alloc]
                 initWithState:&state callbacks:&callbacks];
         NSWindow* window = [[NSWindow alloc]
-            initWithContentRect:NSMakeRect(0.0, 0.0, 1320.0, 780.0)
+            initWithContentRect:NSMakeRect(0.0, 0.0, 1320.0, 840.0)
             styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
                 | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
             backing:NSBackingStoreBuffered defer:NO];
-        window.contentMinSize = NSMakeSize(760.0, 560.0);
+        window.contentMinSize = NSMakeSize(760.0, 620.0);
         window.contentViewController = controller;
         [window makeKeyAndOrderFront:nil];
-        [window setContentSize:NSMakeSize(760.0, 560.0)];
+        [window setContentSize:NSMakeSize(760.0, 620.0)];
         NSView* root = controller.view;
         [root layoutSubtreeIfNeeded];
         check(near(NSWidth(window.contentView.bounds), 760.0)
@@ -236,7 +255,12 @@ int main()
         NSButton* redoButton = [controller valueForKey:@"redoButton"];
         NSButton* noteDisplayButton = [controller
             valueForKey:@"noteDisplayButton"];
+        NSButton* zoomOutButton = [controller valueForKey:@"zoomOutButton"];
+        NSButton* zoomActualButton = [controller
+            valueForKey:@"zoomActualButton"];
+        NSButton* zoomInButton = [controller valueForKey:@"zoomInButton"];
         NSButton* playButton = [controller valueForKey:@"playButton"];
+        NSButton* fillButton = [controller valueForKey:@"fillButton"];
         NSPopUpButton* midiStepRecordPopup = [controller
             valueForKey:@"midiStepRecordPopup"];
         NSPopUpButton* tempoScalePopup = [controller
@@ -287,7 +311,7 @@ int main()
 
         check(near(NSWidth(grid.frame), NSWidth(root.bounds)),
             "compact tracker should use the full embedded page width");
-        check(near(NSHeight(envelope.frame), 100.8),
+        check(near(NSHeight(envelope.frame), 111.6),
             "compact AppKit layout should shrink the envelope");
         check(consoleOutput && geometryPage && warpPage
                 && consoleOutput != geometryPage
@@ -329,7 +353,7 @@ int main()
         check(envelopePlaybackOverlay.wantsLayer
                 && geometryPlaybackOverlay.wantsLayer,
             "animated envelope and geometry marks should use isolated overlays");
-        check(geometryViewMode.numberOfItems == 6u
+        check(geometryViewMode.numberOfItems == 7u
                 && [[geometryViewMode itemAtIndex:0].title
                     isEqualToString:@"RING FIELD"]
                 && [[geometryViewMode itemAtIndex:1].title
@@ -342,9 +366,11 @@ int main()
                     isEqualToString:@"LANE FOCUS"]
                 && [[geometryViewMode itemAtIndex:5].title
                     isEqualToString:@"COMPOSITE RING"]
+                && [[geometryViewMode itemAtIndex:6].title
+                    isEqualToString:@"BURST EDITOR"]
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == 0,
-            "Geometry should default to the editable Ring Field and retain five diagnostic views");
+            "Geometry should default to Ring Field and expose diagnostics plus the Burst workspace");
         check(geometryTools.count == 4u
                 && [geometryTools[0u].title isEqualToString:@"SELECT"]
                 && [geometryTools[1u].title isEqualToString:@"PAINT"]
@@ -804,10 +830,11 @@ int main()
             "Geometry should return to the editor pattern when Song playback stops");
         NSArray<NSString*>* geometryDescriptions = @[
             @"Ring field", @"Active pulses", @"All steps underlay",
-            @"Phase spokes", @"Lane focus", @"Composite ring"
+            @"Phase spokes", @"Lane focus", @"Composite ring",
+            @"Burst editor"
         ];
         BOOL geometryModesDispatch = YES;
-        for (NSInteger mode = 1; mode < 6; ++mode) {
+        for (NSInteger mode = 1; mode < 7; ++mode) {
             geometryPlaybackOverlay.needsDisplay = NO;
             [geometryPage openGeometryMenu:3];
             [geometryPage applyGeometryMenuSelection:mode];
@@ -899,20 +926,19 @@ int main()
         const CGFloat initialRemoveTrackX = NSMinX(trackRemoveButton.frame);
         NSStackView* toolboxStack = static_cast<NSStackView*>(
             transport.documentView);
-        check(transportPanel.toolboxIndex == 1
-                && [transportPanel.toolboxTitle
-                    containsString:@"TRANSPORT / RATE"]
-                && near(NSMinX(transportPanel.frame),
-                    s3g::gui_layout::kTrackerPageHorizontalInset)
-                && patternPanel.toolboxIndex == 2
+        check(transportPanel.toolboxIndex == 0
+                && [transportPanel.toolboxTitle isEqualToString:@"TRANSPORT"]
+                && near(NSMinX(transportPanel.frame), 18.0)
+                && near(NSMaxX(transportPanel.frame), NSWidth(root.bounds) - 18.0)
+                && NSMaxY(transportPanel.frame) < NSMinY(envelope.frame)
+                && patternPanel.toolboxIndex == 0
                 && [patternPanel.toolboxTitle isEqualToString:@"PATTERN"]
-                && inputViewPanel.toolboxIndex == 3
-                && [inputViewPanel.toolboxTitle
-                    isEqualToString:@"INPUT / VIEW"]
-                && toolboxStack.arrangedSubviews[0u] == transportPanel
-                && toolboxStack.arrangedSubviews[1u] == patternPanel
-                && toolboxStack.arrangedSubviews[2u] == inputViewPanel,
-            "tracker toolbar should use the standard three-toolbox hierarchy");
+                && inputViewPanel.toolboxIndex == 0
+                && [inputViewPanel.toolboxTitle isEqualToString:@"VIEW"]
+                && toolboxStack.arrangedSubviews.count == 2u
+                && toolboxStack.arrangedSubviews[0u] == patternPanel
+                && toolboxStack.arrangedSubviews[1u] == inputViewPanel,
+            "Tracker should keep Pattern and View at the top and place its unnumbered Transport toolbox below the breakpoint editor");
         check(patternPrimaryControls.arrangedSubviews.count == 9u
                 && patternPrimaryControls.arrangedSubviews[0u] == patternPopup
                 && patternPrimaryControls.arrangedSubviews[1u]
@@ -934,8 +960,16 @@ int main()
                 && [inputPrimaryControls.arrangedSubviews
                     containsObject:noteDisplayButton]
                 && [inputPrimaryControls.arrangedSubviews
+                    containsObject:zoomOutButton]
+                && [inputPrimaryControls.arrangedSubviews
+                    containsObject:zoomActualButton]
+                && [inputPrimaryControls.arrangedSubviews
+                    containsObject:zoomInButton]
+                && ![inputPrimaryControls.arrangedSubviews
                     containsObject:midiStepRecordPopup]
-                && transportPrimaryControls.arrangedSubviews.count == 9u
+                && transportPrimaryControls.arrangedSubviews.count == 11u
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:fillButton]
                 && [transportPrimaryControls.arrangedSubviews
                     containsObject:tempoScalePopup]
                 && [transportPrimaryControls.arrangedSubviews
@@ -945,8 +979,15 @@ int main()
                 && [transportPrimaryControls.arrangedSubviews
                     containsObject:loopStartField]
                 && [transportPrimaryControls.arrangedSubviews
-                    containsObject:loopEndField],
-            "all Pattern, Transport, and Input / View controls should occupy one compact row");
+                    containsObject:loopEndField]
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:midiStepRecordPopup],
+            "Pattern, View, and bottom Transport controls should each occupy one compact row");
+        fillButton.state = NSControlStateValueOn;
+        [fillButton sendAction:fillButton.action to:fillButton.target];
+        check(state.fillActive && fillChangeRequests == 1
+                && fillButton.tag == 3,
+            "Transport FILL should publish transient active state and use the green performance status rule");
         check([swingField isKindOfClass:S3GTrackerSwingSlider.class]
                 && [swingField.s3gLabel isEqualToString:@"SW"]
                 && [(S3GTrackerPopupButton*)gateField s3gUsesCanvasMenu]
@@ -955,8 +996,27 @@ int main()
                 && near(NSMidY(swingField.frame),
                     NSMidY(tempoScalePopup.frame), 0.01)
                 && near(NSMidY(gateField.frame),
+                    NSMidY(tempoScalePopup.frame), 0.01)
+                && near(NSMidY(midiStepRecordPopup.frame),
                     NSMidY(tempoScalePopup.frame), 0.01),
             "Tracker transport values should use the Song-style Swing slider and suite canvas menus");
+        bool everyTransportControlHit = true;
+        for (NSView* control in transportPrimaryControls.arrangedSubviews) {
+            const NSPoint center = [control convertPoint:NSMakePoint(
+                NSMidX(control.bounds), NSMidY(control.bounds)) toView:nil];
+            NSView* hit = [window.contentView hitTest:center];
+            if (hit != control) {
+                everyTransportControlHit = false;
+                std::cerr << "transport hit miss: "
+                    << NSStringFromClass(control.class).UTF8String << ' '
+                    << NSStringFromRect(control.frame).UTF8String
+                    << " intercepted by "
+                    << (hit ? NSStringFromClass(hit.class).UTF8String : "nil")
+                    << '\n';
+            }
+        }
+        check(everyTransportControlHit,
+            "every relocated Transport control should own its visible center hit target");
         check([(S3GTrackerPopupButton*)patternPopup s3gUsesCanvasMenu]
                 && [(S3GTrackerPopupButton*)tempoScalePopup
                     s3gUsesCanvasMenu]
@@ -1018,9 +1078,8 @@ int main()
         [grid.contentView scrollToPoint:NSMakePoint(420.0, 0.0)];
         [grid reflectScrolledClipView:grid.contentView];
         [root layoutSubtreeIfNeeded];
-        const NSPoint gutterHitPoint = NSMakePoint(
-            NSMinX(grid.contentView.frame) + 5.0,
-            NSMidY(grid.contentView.frame));
+        const NSPoint gutterHitPoint = [rowGutter convertPoint:NSMakePoint(
+            5.0, NSMidY(rowGutter.bounds)) toView:nil];
         const NSRect pinnedRowAfter = [rowGutter pinnedRectForGridRect:
             NSMakeRect(0.0, s3g::tracker::app::kTrackerGridHeaderHeight,
                 s3g::tracker::app::kTrackerRowNumberWidth,
@@ -1031,7 +1090,7 @@ int main()
                     NSMinX(grid.contentView.frame))
                 && NSWidth(rowGutter.frame) >=
                     s3g::tracker::app::kTrackerRowNumberWidth - 1.0
-                && [grid hitTest:gutterHitPoint] == rowGutter,
+                && [window.contentView hitTest:gutterHitPoint] == rowGutter,
             "the row-number gutter should remain frozen and interactive while lanes scroll horizontally");
         check(near(NSMinX(pinnedRowBefore), NSMinX(pinnedRowAfter), 0.01)
                 && near(NSWidth(pinnedRowBefore), NSWidth(pinnedRowAfter),
@@ -1055,8 +1114,72 @@ int main()
                 && state.session.transport.loopEndRow == 8u
                 && state.session.selectedRow == 7u,
             "the frozen row gutter should preserve drag-to-select loop behavior");
+
+        auto& rowEditTrack = state.session.pattern.tracks[0u];
+        for (std::size_t row = 7u; row <= 10u; ++row) {
+            rowEditTrack.notes[row] = s3g::tracker::NoteCell::withNote(
+                static_cast<uint8_t>(60u + row));
+        }
+        [rowGutter mouseDown:mouseEvent(window, NSEventTypeLeftMouseDown,
+            gutterRowPoint(10u), NSEventModifierFlagShift)];
+        [rowGutter mouseUp:mouseEvent(window, NSEventTypeLeftMouseUp,
+            gutterRowPoint(10u), NSEventModifierFlagShift)];
+        check([grid.documentView isWholeRowSelected:7u]
+                && [grid.documentView isWholeRowSelected:10u]
+                && ![grid.documentView isWholeRowSelected:6u]
+                && state.session.selectedRow == 10u,
+            "Shift-clicking a row number should select the inclusive range from the row anchor");
+        NSEvent* rowMenuEvent = mouseEvent(window, NSEventTypeRightMouseDown,
+            gutterRowPoint(8u), 0u);
+        NSMenu* rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        check(rowMenu.numberOfItems == 5u
+                && [rowMenu.itemArray[0u].title
+                    isEqualToString:@"INSERT 4 ROWS ABOVE"]
+                && [rowMenu.itemArray[1u].title
+                    isEqualToString:@"DELETE 4 ROWS"]
+                && [rowMenu.itemArray[3u].title
+                    isEqualToString:@"COPY 4 ROWS"]
+                && !rowMenu.itemArray[4u].enabled,
+            "the row-number menu should apply insert, delete, copy, and paste to the selected row range");
+        [NSApp sendAction:rowMenu.itemArray[3u].action
+            to:rowMenu.itemArray[3u].target from:rowMenu.itemArray[3u]];
+        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        const int changesBeforeRowPaste = patternChangeRequests;
+        [NSApp sendAction:rowMenu.itemArray[4u].action
+            to:rowMenu.itemArray[4u].target from:rowMenu.itemArray[4u]];
+        check(state.session.pattern.visibleRows == 68u
+                && state.session.pattern.tracks[0u].notes[7u].note == 67u
+                && state.session.pattern.tracks[0u].notes[10u].note == 70u
+                && patternChangeRequests == changesBeforeRowPaste + 1,
+            "pasting copied rows should insert the complete multi-row range once across the pattern");
+        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        [NSApp sendAction:rowMenu.itemArray[1u].action
+            to:rowMenu.itemArray[1u].target from:rowMenu.itemArray[1u]];
+        check(state.session.pattern.visibleRows == 64u
+                && state.session.pattern.tracks[0u].notes[7u].note == 67u
+                && state.session.pattern.tracks[0u].notes[10u].note == 70u,
+            "deleting a selected row range should close the gap and preserve following pattern data");
+        [rowGutter mouseDown:mouseEvent(window, NSEventTypeLeftMouseDown,
+            gutterRowPoint(10u), NSEventModifierFlagShift)];
+        [rowGutter mouseUp:mouseEvent(window, NSEventTypeLeftMouseUp,
+            gutterRowPoint(10u), NSEventModifierFlagShift)];
+        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        [NSApp sendAction:rowMenu.itemArray[0u].action
+            to:rowMenu.itemArray[0u].target from:rowMenu.itemArray[0u]];
+        check(state.session.pattern.visibleRows == 68u
+                && state.session.pattern.tracks[0u].notes[7u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && state.session.pattern.tracks[0u].notes[11u].note == 67u,
+            "inserting from a multi-row selection should create the same number of blank rows above it");
+        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        [NSApp sendAction:rowMenu.itemArray[1u].action
+            to:rowMenu.itemArray[1u].target from:rowMenu.itemArray[1u]];
+        check(state.session.pattern.visibleRows == 64u
+                && state.session.pattern.tracks[0u].notes[7u].note == 67u,
+            "deleting the inserted range should restore the original row positions");
         [grid.contentView scrollToPoint:NSZeroPoint];
         [grid reflectScrolledClipView:grid.contentView];
+        patternChangeRequests = 0;
         const CGFloat laneWidth = (NSWidth(grid.documentView.bounds)
                 - s3g::tracker::app::kTrackerRowNumberWidth
                 - 11.0 * s3g::tracker::app::kTrackerLaneGutter) / 12.0;
@@ -1156,6 +1279,8 @@ int main()
                 && near(state.session.transport.swing,
                     swingBefore + 0.005, 0.0001),
             "toolbar Swing should reuse Song's drag/scroll slider behavior");
+        state.patternBank.entries[1u].pattern.visibleRows = 96u;
+        [controller reloadModel];
         [gateField selectItemAtIndex:[gateField
             indexOfItemWithRepresentedObject:@100.0]];
         [gateField sendAction:gateField.action to:gateField.target];
@@ -1170,8 +1295,12 @@ int main()
         check(near(state.session.gateMilliseconds, 100.0, 0.0001)
                 && state.session.transport.loopStartRow == 3u
                 && state.session.transport.loopEndRow == 12u
-                && [loopEndField indexOfItemWithRepresentedObject:@3] < 0,
-            "Gate and conditioned loop boundaries should publish from compact menus");
+                && [loopEndField indexOfItemWithRepresentedObject:@3] < 0
+                && [loopEndField indexOfItemWithRepresentedObject:@96] >= 0
+                && [loopEndField indexOfItemWithRepresentedObject:@97] < 0,
+            "Gate and conditioned loop boundaries should publish from compact menus, capped by the longest loaded pattern");
+        state.patternBank.entries[1u].pattern.visibleRows = 32u;
+        [controller reloadModel];
         check([root isKindOfClass:S3GTrackerFocusReleaseView.class]
                 && [controller valueForKey:@"toolbar"] != nil,
             "workspace backgrounds should support click-away field release");
@@ -1291,6 +1420,51 @@ int main()
                 && patternChangeRequests == 3,
             "choosing a SEQ action should author it with a visible default value");
 
+        NSMenuItem* conditionActionItem = nil;
+        for (NSMenuItem* item in sequenceMenu.itemArray) {
+            NSDictionary* represented = item.representedObject;
+            if (![represented isKindOfClass:NSDictionary.class]
+                || ![represented[@"kind"] isEqualToString:@"action"])
+                continue;
+            const auto* action = s3g::tracker::sequencerAction(
+                [represented[@"action"] unsignedIntegerValue]);
+            if (action && action->action
+                    == s3g::tracker::SequencerAction::Condition) {
+                conditionActionItem = item;
+                break;
+            }
+        }
+        conditionActionItem.representedObject = @{
+            @"track": @0, @"row": @5, @"field": @2,
+            @"kind": @"action",
+            @"action": @(static_cast<NSUInteger>(
+                s3g::tracker::SequencerAction::Condition)),
+        };
+        [grid.documentView sequenceActionSelected:conditionActionItem];
+        NSMenu* conditionMenu = [grid.documentView
+            sequenceConditionMenuForTrack:0u row:5u field:3u];
+        NSMenuItem* lastItem = nil;
+        for (NSMenuItem* item in conditionMenu.itemArray) {
+            NSDictionary* represented = item.representedObject;
+            if ([represented[@"condition"] unsignedIntegerValue]
+                    == static_cast<NSUInteger>(
+                        s3g::tracker::SequencerCondition::Last)) {
+                lastItem = item;
+                break;
+            }
+        }
+        [grid.documentView sequenceConditionSelected:lastItem];
+        const auto& conditionPair = state.session.pattern.tracks[0u]
+            .fxPairs[0u];
+        check(conditionMenu.numberOfItems
+                    == static_cast<NSInteger>(
+                        s3g::tracker::kSequencerConditionCount + 4u)
+                && lastItem != nil
+                && s3g::tracker::sequencerConditionFromNormalized(
+                    conditionPair.values[5u].normalized)
+                    == s3g::tracker::SequencerCondition::Last,
+            "CD value cells should expose and author the complete contextual condition menu");
+
         NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
         [pasteboard clearContents];
         NSEvent* commandCopy = keyEvent(window, @"c", 8u,
@@ -1345,6 +1519,16 @@ int main()
         check(trackerPasteHandled,
             "Control-V should report handled by the tracker");
 
+        grid.magnification = 1.0;
+        [zoomOutButton performClick:nil];
+        const CGFloat zoomedOut = grid.magnification;
+        [zoomInButton performClick:nil];
+        check(zoomedOut < 1.0 && grid.magnification > zoomedOut,
+            "View toolbox zoom buttons should change Tracker spreadsheet magnification");
+        grid.magnification = 1.2;
+        [zoomActualButton performClick:nil];
+        check(near(grid.magnification, 1.0, 0.001),
+            "ACTUAL should restore the spreadsheet to 100 percent magnification");
         grid.magnification = 1.2;
         [controller resetTrackerZoom];
         check(near(grid.magnification,
@@ -1409,7 +1593,7 @@ int main()
                 && NSMinY(grid.documentVisibleRect) > 500.0,
             "selection navigation should reveal off-screen lanes and rows");
 
-        [window setContentSize:NSMakeSize(1320.0, 780.0)];
+        [window setContentSize:NSMakeSize(1320.0, 840.0)];
         [root layoutSubtreeIfNeeded];
         check(near(NSWidth(window.contentView.bounds), 1320.0)
                 && near(NSWidth(grid.frame), 1320.0),

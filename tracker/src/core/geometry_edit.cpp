@@ -24,7 +24,8 @@ bool geometryCellIsHit(const Track& track, std::size_t row) noexcept
     if (row >= activeLength(track) || row >= track.notes.size()) return false;
     const auto state = track.notes[row].state;
     return state == NoteCellState::Note
-        || state == NoteCellState::RetriggerPrevious;
+        || state == NoteCellState::RetriggerPrevious
+        || state == NoteCellState::Burst;
 }
 
 std::size_t geometryHitCount(const Track& track) noexcept

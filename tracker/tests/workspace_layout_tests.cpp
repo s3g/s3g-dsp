@@ -27,7 +27,7 @@ int main()
 
     const auto compact = workspaceLayoutMetrics(
         kWorkspaceMinimumContentWidth, kWorkspaceMinimumContentHeight);
-    check(near(compact.envelopeHeight, 100.8),
+    check(near(compact.envelopeHeight, 111.6),
         "compact workspace should preserve a useful envelope editor");
 
     const double compactTrackerHeight = kWorkspaceMinimumContentHeight

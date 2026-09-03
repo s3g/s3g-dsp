@@ -733,7 +733,7 @@ constexpr std::array<std::pair<std::string_view, ParameterScope>, 3u>
         { "channel", ParameterScope::Channel },
         { "note", ParameterScope::Note },
     }};
-constexpr std::array<std::pair<std::string_view, SequencerAction>, 12u>
+constexpr std::array<std::pair<std::string_view, SequencerAction>, 13u>
     kSequencerActions {{
         { "ratchet", SequencerAction::Ratchet },
         { "microtime", SequencerAction::MicroTime },
@@ -747,6 +747,7 @@ constexpr std::array<std::pair<std::string_view, SequencerAction>, 12u>
         { "offset", SequencerAction::Offset },
         { "repeat-previous", SequencerAction::RepeatPrevious },
         { "euclid", SequencerAction::Euclid },
+        { "condition", SequencerAction::Condition },
     }};
 static_assert(kSequencerActions.size() == kSequencerActionCount,
     "project schema must explicitly name every sequencing action");
@@ -909,6 +910,15 @@ JsonValue encodeNoteCells(const std::vector<NoteCell>& cells,
             cell.object["note"] = number(static_cast<uint32_t>(cells[index].note));
             cell.object["state"] = JsonValue::stringValue("note");
             break;
+        case NoteCellState::Burst:
+            if (cells[index].note >= kBurstDefinitionCount)
+                setError(result, ProjectErrorCode::OutOfRange,
+                    std::string(path) + "[" + std::to_string(index)
+                        + "].burst", "burst slot must be B01..B32");
+            cell.object["burst"] = number(
+                static_cast<uint32_t>(cells[index].note));
+            cell.object["state"] = JsonValue::stringValue("burst");
+            break;
         default:
             setError(result, ProjectErrorCode::OutOfRange,
                 std::string(path) + "[" + std::to_string(index) + "].state",
@@ -951,12 +961,128 @@ bool decodeNoteCells(const JsonValue& input, std::vector<NoteCell>& destination,
             if (!note || !checkedUint32(*note, value, 127u,
                     cellPath + ".note", result)) return false;
             candidate.push_back(NoteCell::withNote(static_cast<uint8_t>(value)));
+        } else if (state->string == "burst") {
+            const auto* burst = requiredField(input.array[index], "burst",
+                JsonType::Number, cellPath, result);
+            uint32_t value = 0u;
+            if (!burst || !checkedUint32(*burst, value,
+                    static_cast<uint32_t>(kBurstDefinitionCount - 1u),
+                    cellPath + ".burst", result)) return false;
+            candidate.push_back(NoteCell::withBurst(
+                static_cast<uint8_t>(value)));
         } else {
             return setError(result, ProjectErrorCode::OutOfRange,
                 cellPath + ".state", "unknown note cell state");
         }
     }
     destination = std::move(candidate);
+    return true;
+}
+
+JsonValue encodeBursts(const Pattern& pattern, std::string_view path,
+    ProjectResult& result)
+{
+    JsonValue output = JsonValue::arrayValue();
+    output.array.reserve(pattern.bursts.size());
+    for (std::size_t slot = 0u; slot < pattern.bursts.size(); ++slot) {
+        const auto& burst = pattern.bursts[slot];
+        const std::string slotPath = std::string(path) + "["
+            + std::to_string(slot) + "]";
+        if (burst.eventCount > kMaximumBurstEvents)
+            setError(result, ProjectErrorCode::SizeLimitExceeded,
+                slotPath + ".events", "burst exceeds eight events");
+        JsonValue encoded = JsonValue::objectValue();
+        encoded.object["name"] = encodeCheckedString(burst.name,
+            kMaximumBurstNameBytes, slotPath + ".name", result);
+        JsonValue events = JsonValue::arrayValue();
+        const auto count = std::min<std::size_t>(burst.eventCount,
+            kMaximumBurstEvents);
+        events.array.reserve(count);
+        for (std::size_t index = 0u; index < count; ++index) {
+            const auto& event = burst.events[index];
+            if (event.note > 127u || event.velocity == 0u
+                || event.velocity > 127u || event.gatePercent == 0u
+                || event.gatePercent > 100u)
+                setError(result, ProjectErrorCode::OutOfRange,
+                    slotPath + ".events[" + std::to_string(index) + "]",
+                    "burst note/velocity/gate is outside its supported range");
+            JsonValue item = JsonValue::objectValue();
+            item.object["gate"] = number(
+                static_cast<uint32_t>(event.gatePercent));
+            item.object["note"] = number(static_cast<uint32_t>(event.note));
+            item.object["position"] = number(
+                static_cast<uint32_t>(event.position));
+            item.object["velocity"] = number(
+                static_cast<uint32_t>(event.velocity));
+            events.array.push_back(std::move(item));
+        }
+        encoded.object["events"] = std::move(events);
+        output.array.push_back(std::move(encoded));
+    }
+    return output;
+}
+
+bool decodeBursts(const JsonValue& input, Pattern& pattern,
+    std::string_view path, ProjectResult& result)
+{
+    if (input.type != JsonType::Array
+        || input.array.size() != kBurstDefinitionCount)
+        return setError(result, ProjectErrorCode::InconsistentData,
+            std::string(path), "burst library must contain exactly 32 slots");
+    for (std::size_t slot = 0u; slot < input.array.size(); ++slot) {
+        const std::string slotPath = std::string(path) + "["
+            + std::to_string(slot) + "]";
+        const auto* name = requiredField(input.array[slot], "name",
+            JsonType::String, slotPath, result);
+        const auto* events = requiredField(input.array[slot], "events",
+            JsonType::Array, slotPath, result);
+        if (!name || !events) return false;
+        if (events->array.size() > kMaximumBurstEvents)
+            return setError(result, ProjectErrorCode::SizeLimitExceeded,
+                slotPath + ".events", "burst exceeds eight events");
+        auto& burst = pattern.bursts[slot];
+        if (!checkedString(*name, burst.name, kMaximumBurstNameBytes,
+                slotPath + ".name", result)) return false;
+        burst.eventCount = static_cast<uint8_t>(events->array.size());
+        for (std::size_t index = 0u; index < events->array.size(); ++index) {
+            const std::string eventPath = slotPath + ".events["
+                + std::to_string(index) + "]";
+            const auto* position = requiredField(events->array[index],
+                "position", JsonType::Number, eventPath, result);
+            const auto* note = requiredField(events->array[index], "note",
+                JsonType::Number, eventPath, result);
+            const auto* velocity = requiredField(events->array[index],
+                "velocity", JsonType::Number, eventPath, result);
+            const auto* gate = requiredField(events->array[index], "gate",
+                JsonType::Number, eventPath, result);
+            if (!position || !note || !velocity || !gate) return false;
+            uint32_t positionValue = 0u;
+            uint32_t noteValue = 0u;
+            uint32_t velocityValue = 0u;
+            uint32_t gateValue = 0u;
+            if (!checkedUint32(*position, positionValue, 65535u,
+                    eventPath + ".position", result)
+                || !checkedUint32(*note, noteValue, 127u,
+                    eventPath + ".note", result)
+                || !checkedUint32(*velocity, velocityValue, 127u,
+                    eventPath + ".velocity", result)
+                || velocityValue == 0u
+                || !checkedUint32(*gate, gateValue, 100u,
+                    eventPath + ".gate", result)
+                || gateValue == 0u) {
+                if (result.ok())
+                    setError(result, ProjectErrorCode::OutOfRange,
+                        eventPath, "burst velocity and gate must be nonzero");
+                return false;
+            }
+            burst.events[index] = {
+                static_cast<uint16_t>(positionValue),
+                static_cast<uint8_t>(noteValue),
+                static_cast<uint8_t>(velocityValue),
+                static_cast<uint8_t>(gateValue),
+            };
+        }
+    }
     return true;
 }
 
@@ -1490,11 +1616,24 @@ JsonValue encodePattern(const Pattern& pattern, std::string_view path,
             std::string(path) + ".tracks",
             "pattern exceeds the 32-track limit");
     JsonValue output = JsonValue::objectValue();
+    output.object["bursts"] = encodeBursts(pattern,
+        std::string(path) + ".bursts", result);
     output.object["name"] = encodeCheckedString(pattern.name,
         kMaximumNameBytes, std::string(path) + ".name", result);
     JsonValue tracks = JsonValue::arrayValue();
     tracks.array.reserve(pattern.tracks.size());
     for (std::size_t index = 0u; index < pattern.tracks.size(); ++index) {
+        for (std::size_t row = 0u;
+             row < pattern.tracks[index].notes.size(); ++row) {
+            const auto& cell = pattern.tracks[index].notes[row];
+            if (cell.state == NoteCellState::Burst
+                && (cell.note >= pattern.bursts.size()
+                    || pattern.bursts[cell.note].empty()))
+                setError(result, ProjectErrorCode::InconsistentData,
+                    std::string(path) + ".tracks[" + std::to_string(index)
+                        + "].notes[" + std::to_string(row) + "].burst",
+                    "note cell references an empty burst slot");
+        }
         tracks.array.push_back(encodeTrack(pattern.tracks[index],
             std::string(path) + ".tracks[" + std::to_string(index) + "]",
             result));
@@ -1538,6 +1677,25 @@ bool decodePattern(const JsonValue& input, Pattern& destination,
                 result))
             return false;
         candidate.tracks.push_back(std::move(track));
+    }
+    const auto bursts = input.object.find("bursts");
+    if (bursts != input.object.end()
+        && !decodeBursts(bursts->second, candidate,
+            std::string(path) + ".bursts", result)) return false;
+    for (std::size_t trackIndex = 0u;
+         trackIndex < candidate.tracks.size(); ++trackIndex) {
+        for (std::size_t row = 0u;
+             row < candidate.tracks[trackIndex].notes.size(); ++row) {
+            const auto& cell = candidate.tracks[trackIndex].notes[row];
+            if (cell.state != NoteCellState::Burst) continue;
+            if (cell.note >= candidate.bursts.size()
+                || candidate.bursts[cell.note].empty())
+                return setError(result, ProjectErrorCode::InconsistentData,
+                    std::string(path) + ".tracks["
+                        + std::to_string(trackIndex) + "].notes["
+                        + std::to_string(row) + "].burst",
+                    "note cell references an empty burst slot");
+        }
     }
     destination = std::move(candidate);
     return true;

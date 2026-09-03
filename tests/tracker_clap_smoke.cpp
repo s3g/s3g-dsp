@@ -696,6 +696,36 @@ int main(int argc, char** argv)
                 ok &= expect(geometryModesAvailable
                         && clickButton(parent, nil, @"TRACKER page", nil),
                     "Geometry Ring Field and diagnostic view selector is incomplete");
+                NSView* pageWorkspace = findAccessibleView(parent,
+                    @"s3g Tracker REAPER page workspace");
+                [hostWindow makeFirstResponder:nil];
+                NSEvent* nextPanel = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                    location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                    timestamp:NSProcessInfo.processInfo.systemUptime
+                    windowNumber:hostWindow.windowNumber context:nil
+                    characters:@">" charactersIgnoringModifiers:@"."
+                    isARepeat:NO keyCode:47u];
+                NSEvent* previousPanel = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                    location:NSZeroPoint modifierFlags:NSEventModifierFlagShift
+                    timestamp:NSProcessInfo.processInfo.systemUptime
+                    windowNumber:hostWindow.windowNumber context:nil
+                    characters:@"<" charactersIgnoringModifiers:@","
+                    isARepeat:NO keyCode:43u];
+                NSButton* songPageButton = findButton(
+                    parent, nil, @"SONG page", nil);
+                NSButton* trackerPageKeyButton = findButton(
+                    parent, nil, @"TRACKER page", nil);
+                const bool nextPanelHandled = [pageWorkspace
+                    performKeyEquivalent:nextPanel];
+                const bool songSelectedByKey = songPageButton.state
+                    == NSControlStateValueOn;
+                const bool previousPanelHandled = [pageWorkspace
+                    performKeyEquivalent:previousPanel];
+                ok &= expect(nextPanelHandled && songSelectedByKey
+                        && previousPanelHandled
+                        && trackerPageKeyButton.state
+                            == NSControlStateValueOn,
+                    "less-than and greater-than did not navigate adjacent Tracker panels");
                 ok &= expect(submitCommand(parent, @"play")
                         && submitCommand(parent, @"stop")
                         && context.playRequests == 1u
@@ -1196,9 +1226,9 @@ int main(int argc, char** argv)
                                 parent, 5u, 9, 12),
                         "tracker documentation Song pattern loops could not be set");
                     ok &= expect(clickButton(
-                            parent, @"LOOP SONG: OFF", nil, nil)
+                            parent, @"LOOP: OFF", nil, nil)
                             && clickButton(parent,
-                                @"SONG TRANSPORT: OFF", nil, nil),
+                                @"SONG: OFF", nil, nil),
                         "tracker documentation Song mode could not be enabled");
                     ok &= expect(clickButton(
                             parent, nil, nil, @"warp-add-0")
@@ -1302,7 +1332,7 @@ int main(int argc, char** argv)
                     // then restore pattern transport and identity timing.
                     ok &= expect(clickButton(parent, nil, @"SONG page", nil)
                             && clickButton(parent,
-                                @"SONG TRANSPORT: ON", nil, nil)
+                                @"SONG: ON", nil, nil)
                             && clickButton(parent, nil, @"TRACKER page", nil)
                             && submitCommand(parent, @"warp clear"),
                         "tracker documentation transport state could not be restored");

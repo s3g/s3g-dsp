@@ -297,7 +297,9 @@ void testTransportActionsAndHelp()
     check(CommandEngine::execute(
               exampleSession, "kit superior compact").ok
             && CommandEngine::execute(
-                exampleSession, "warp save 1 EXAMPLE").ok,
+                exampleSession, "warp save 1 EXAMPLE").ok
+            && CommandEngine::execute(
+                exampleSession, "burst new B01 EXAMPLE").ok,
         "Help example validation fixture should provide aliases and a warp slot");
     for (const auto& section : CommandEngine::helpSections()) {
         for (const auto& entry : section.entries) {
@@ -317,13 +319,13 @@ void testHelpCatalogCoversAuditedParserVerbs()
     // queries, masks, direction, and operation shorthand.
     const std::set<std::string> auditedParserVerbs {
         "@", "?", "accent", "actions", "alias", "aliases", "autoalias", "delay", "demo",
-        "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
+        "condition", "cond", "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
         "defaultnote", "gate", "help", "hit", "hold", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "pitch", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset", "interp", "interpolation",
-        "variation", "vary", "warps", "track",
+        "variation", "vary", "warps", "track", "burst",
     };
 
     std::set<std::string> documentedVerbs;
@@ -1471,9 +1473,31 @@ void testFxCommands()
             && result.message.find("RR=Ratchet") != std::string::npos
             && result.message.find("MT=Microtime") != std::string::npos
             && result.message.find("EU=Euclidean Gate") != std::string::npos
+            && result.message.find("CD=Condition") != std::string::npos
             && result.message.find("CC0..CC127") != std::string::npos
             && result.message.find("membrane") == std::string::npos,
         "actions should expose only MIDI-product sequencing choices");
+
+    result = CommandEngine::execute(session, "fx 1 1 8 CD 2:4");
+    check(result.ok
+            && session.pattern.tracks[0u].fxPairs[0u].actions[7u]
+                    .sequencerAction
+                == s3g::tracker::SequencerAction::Condition
+            && s3g::tracker::sequencerConditionFromNormalized(
+                session.pattern.tracks[0u].fxPairs[0u].values[7u]
+                    .normalized) == s3g::tracker::SequencerCondition::SecondOf4,
+        "fx should accept discrete CD condition tokens instead of normalized amounts");
+    result = CommandEngine::execute(session, "condition 1 9 FILL");
+    check(result.ok
+            && s3g::tracker::sequencerConditionFromNormalized(
+                session.pattern.tracks[0u].fxPairs[0u].values[8u]
+                    .normalized) == s3g::tracker::SequencerCondition::Fill,
+        "condition shorthand should write CD into the first available SEQ pair");
+    check(CommandEngine::execute(session,
+                "fx2 1 CD FIRST,LAST,!FILL").ok,
+        "compact FX entry should accept a sequence of named CD conditions");
+    checkRejectedWithoutMutation(session, "fx 1 1 8 CD 0.5",
+        "CD should reject ambiguous continuous normalized values");
 
     result = CommandEngine::execute(session, "fx 1 1 1 CC74 64");
     check(result.ok
@@ -1667,6 +1691,44 @@ void testDemoAndErrors()
         "unknown verbs should produce a useful diagnostic");
 }
 
+void testBurstCommands()
+{
+    auto session = makeSession();
+    auto result = CommandEngine::execute(session,
+        "burst new B01 BREAK RUSH");
+    check(result.ok && session.pattern.bursts[0u].eventCount == 4u
+            && session.pattern.bursts[0u].name == "BREAK RUSH",
+        "burst new should create a named four-substep recipe");
+    result = CommandEngine::execute(session,
+        "burst B01 notes 48 52 D-3 55");
+    check(result.ok && session.pattern.bursts[0u].events[2u].note == 50u,
+        "burst notes should accept decimal MIDI and readable note names");
+    check(CommandEngine::execute(session,
+            "burst B01 velocity 127 104 82 116").ok
+            && CommandEngine::execute(session,
+                "burst B01 gate 70% 60% 50% 40%").ok
+            && CommandEngine::execute(session,
+                "burst B01 timing 0 20 55 80").ok,
+        "burst velocity, gate, and custom timing should author each substep");
+    result = CommandEngine::execute(session, "note 1 2 B01");
+    check(result.ok && session.pattern.tracks[0u].notes[1u].state
+                == NoteCellState::Burst
+            && session.pattern.tracks[0u].notes[1u].note == 0u,
+        "note should place a defined Burst slot into a NOTE cell");
+    const auto before = session;
+    result = CommandEngine::execute(session, "burst delete B01");
+    check(!result.ok && session.pattern.bursts[0u].eventCount
+                == before.pattern.bursts[0u].eventCount,
+        "deleting a referenced Burst should fail transactionally");
+    result = CommandEngine::execute(session,
+        "burst 1 3 notes 36 38 42");
+    check(result.ok && session.pattern.tracks[0u].notes[2u].state
+                == NoteCellState::Burst
+            && session.pattern.tracks[0u].notes[2u].note == 1u
+            && session.pattern.bursts[1u].eventCount == 3u,
+        "quick Burst authoring should allocate the first empty slot and place it");
+}
+
 } // namespace
 
 int main()
@@ -1689,6 +1751,7 @@ int main()
     testEuclidAndDeterministicTransforms();
     testSoloUnmuteAndNames();
     testFxCommands();
+    testBurstCommands();
     testDemoAndErrors();
 
     if (failures == 0) {

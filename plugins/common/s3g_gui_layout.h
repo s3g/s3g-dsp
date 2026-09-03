@@ -1352,8 +1352,8 @@ constexpr TrackerSongFamilyLayout trackerSongFamilyLayout(Canvas canvas)
 {
     const double available = canvas.width - kTrackerPageHorizontalInset * 2.0
         - kStandardMetrics.panelGap * 2.0;
-    const double projectWidth = available * 0.20;
-    const double transportWidth = available * 0.40;
+    const double projectWidth = available * 0.15;
+    const double transportWidth = available * 0.57;
     const double toolsWidth = available - projectWidth - transportWidth;
     const double top = kTrackerPageContentTop;
     const double panelHeight = toolboxHeightForRows(1u);

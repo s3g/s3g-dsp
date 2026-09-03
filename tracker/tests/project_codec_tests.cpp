@@ -44,6 +44,13 @@ ProjectDocument makeDocument()
     ProjectDocument document;
     activePattern(document).name = "Native Pattern α";
     activePattern(document).visibleRows = 12u;
+    auto& burst = activePattern(document).bursts[0u];
+    burst.name = "Break Rush";
+    burst.eventCount = 4u;
+    burst.events[0u] = { 0u, 48u, 127u, 70u };
+    burst.events[1u] = { 16384u, 52u, 104u, 60u };
+    burst.events[2u] = { 32768u, 50u, 82u, 50u };
+    burst.events[3u] = { 49152u, 55u, 116u, 40u };
 
     Track track;
     track.name = "BREAKS / DRUMS";
@@ -57,6 +64,7 @@ ProjectDocument makeDocument()
     track.notes[1u] = NoteCell::retriggerPrevious();
     track.notes[2u] = NoteCell::kill();
     track.notes[3u] = NoteCell::hold();
+    track.notes[4u] = NoteCell::withBurst(0u);
     track.notes[7u] = NoteCell::withNote(72u);
     track.instruments.resize(12u, InstrumentCell::empty());
     track.instruments[0u] = InstrumentCell::withInstrument(0u);
@@ -83,6 +91,7 @@ ProjectDocument makeDocument()
         SequencerAction::Offset,
         SequencerAction::RepeatPrevious,
         SequencerAction::Euclid,
+        SequencerAction::Condition,
     }};
     auto& firstFx = track.fxPairs[0u];
     firstFx.actions.resize(actions.size());
@@ -213,7 +222,7 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 8") != std::string::npos
+    check(firstEncoding.find("\"schemaVersion\": 9") != std::string::npos
             && firstEncoding.find("\"patternBank\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
             && firstEncoding.find("\"midi-control-change\"")
@@ -241,6 +250,10 @@ void testCompleteDeterministicRoundTrip()
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
             && activePattern(decoded).tracks[0u].notes[3u].state
                 == NoteCellState::Hold
+            && activePattern(decoded).tracks[0u].notes[4u].state
+                == NoteCellState::Burst
+            && activePattern(decoded).bursts[0u].name == "Break Rush"
+            && activePattern(decoded).bursts[0u].events[2u].note == 50u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actions[11u]
                 .sequencerAction == SequencerAction::Euclid
@@ -373,8 +386,8 @@ void testStrictTransactionalRejection()
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
     std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 8");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 8").size(),
+    const auto schema = badVersion.find("\"schemaVersion\": 9");
+    badVersion.replace(schema, std::string("\"schemaVersion\": 9").size(),
         "\"schemaVersion\": 2");
     const auto unsupported = decodeProjectDocument(badVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion
@@ -382,9 +395,9 @@ void testStrictTransactionalRejection()
         "unsupported schemas should reject without mutating destination");
 
     std::string legacy = encoded;
-    const auto legacySchema = legacy.find("\"schemaVersion\": 8");
+    const auto legacySchema = legacy.find("\"schemaVersion\": 9");
     legacy.replace(legacySchema,
-        std::string("\"schemaVersion\": 8").size(),
+        std::string("\"schemaVersion\": 9").size(),
         "\"schemaVersion\": 5");
     const std::string linearInterpolation
         = "\"valueInterpolation\": \"linear\",\n";
@@ -406,9 +419,9 @@ void testStrictTransactionalRejection()
     std::string schemaSix;
     check(encodeProjectDocument(schemaSixDocument, schemaSix).ok(),
         "schema 6 migration fixture should encode without a pattern loop");
-    const auto schemaSixVersion = schemaSix.find("\"schemaVersion\": 8");
+    const auto schemaSixVersion = schemaSix.find("\"schemaVersion\": 9");
     schemaSix.replace(schemaSixVersion,
-        std::string("\"schemaVersion\": 8").size(),
+        std::string("\"schemaVersion\": 9").size(),
         "\"schemaVersion\": 6");
     ProjectDocument migratedSix;
     check(decodeProjectDocument(schemaSix, migratedSix).ok()
@@ -416,9 +429,9 @@ void testStrictTransactionalRejection()
         "schema 6 projects should migrate missing Song pattern loops to OFF");
 
     std::string schemaSeven = encoded;
-    const auto schemaSevenVersion = schemaSeven.find("\"schemaVersion\": 8");
+    const auto schemaSevenVersion = schemaSeven.find("\"schemaVersion\": 9");
     schemaSeven.replace(schemaSevenVersion,
-        std::string("\"schemaVersion\": 8").size(),
+        std::string("\"schemaVersion\": 9").size(),
         "\"schemaVersion\": 7");
     const std::string warpEnableField = "\"warpEnabled\": true,\n";
     const auto warpEnable = schemaSeven.find(warpEnableField);

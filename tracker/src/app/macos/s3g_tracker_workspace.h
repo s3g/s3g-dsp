@@ -49,6 +49,9 @@ struct TrackerViewState {
     bool timingWarpPlaybackFromSong = false;
     bool playing = false;
     bool paused = false;
+    // Transient performance gate used by SEQ CD FILL / !FILL. It is not
+    // serialized into the project document.
+    bool fillActive = false;
     bool songPlaybackEnabled = false;
     bool songPlaybackActive = false;
     std::size_t songPlaybackRow = 0u;
@@ -140,6 +143,7 @@ struct WorkspaceCallbacks {
     std::function<void()> renamePattern;
     std::function<void()> deletePattern;
     std::function<void()> transportChanged;
+    std::function<void(bool)> fillChanged;
     std::function<void()> outputChanged;
     std::function<void(float)> mainOutputGainChanged;
     std::function<void(MidiStepRecordMode)> midiStepRecordModeChanged;

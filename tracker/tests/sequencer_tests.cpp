@@ -30,6 +30,7 @@ using s3g::tracker::ScheduledEvent;
 using s3g::tracker::ScheduledEventKind;
 using s3g::tracker::Sequencer;
 using s3g::tracker::SequencerAction;
+using s3g::tracker::SequencerCondition;
 using s3g::tracker::Track;
 using s3g::tracker::TransportSettings;
 using s3g::tracker::TimingWarpTransform;
@@ -140,6 +141,90 @@ void testPolymetricColumns()
                 == expectedMidiVelocities[index],
             "the MIDI adapter must preserve established velocity rounding");
     }
+}
+
+void testConditionalSequencingGate()
+{
+    check(s3g::tracker::findSequencerCondition("2:4")
+                ->condition == SequencerCondition::SecondOf4
+            && s3g::tracker::findSequencerCondition("!fill")
+                ->condition == SequencerCondition::NotFill,
+        "condition tokens should parse case-insensitively with stable musical names");
+    for (std::size_t index = 0u;
+         index < s3g::tracker::kSequencerConditionCount; ++index) {
+        const auto condition = static_cast<SequencerCondition>(index);
+        check(s3g::tracker::sequencerConditionFromNormalized(
+                s3g::tracker::normalizedFromSequencerCondition(condition))
+                == condition,
+            "every discrete condition must round-trip through the normalized V cell");
+    }
+
+    Track ratioTrack = makeTrack({ 36u });
+    ratioTrack.fxPairs[0u].actions = { FxActionCell::sequencer(
+        SequencerAction::Condition) };
+    ratioTrack.fxPairs[0u].values = { FxValueCell::withValue(
+        s3g::tracker::normalizedFromSequencerCondition(
+            SequencerCondition::FirstOf2)) };
+    ratioTrack.fxPairs[0u].actionColumn.length = 1u;
+    ratioTrack.fxPairs[0u].valueColumn.length = 1u;
+    Pattern ratioPattern;
+    ratioPattern.visibleRows = 1u;
+    ratioPattern.tracks.push_back(std::move(ratioTrack));
+    Sequencer ratio;
+    ratio.setPattern(std::move(ratioPattern));
+    ratio.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    ratio.start();
+    std::array<ScheduledEvent, 16u> ratioEvents {};
+    const auto ratioCount = ratio.process(18001u, ratioEvents.data(),
+        ratioEvents.size());
+    std::vector<uint64_t> ratioOnsets;
+    for (std::size_t index = 0u; index < ratioCount; ++index) {
+        if (ratioEvents[index].kind == ScheduledEventKind::NoteOn)
+            ratioOnsets.push_back(ratioEvents[index].absoluteSampleTime);
+    }
+    check(ratioOnsets == std::vector<uint64_t>({ 0u, 12000u }),
+        "1:2 should admit the first visit of each two-cycle group in free pattern playback");
+
+    Track fillTrack = makeTrack({ 38u });
+    for (std::size_t pair = 0u; pair < 2u; ++pair) {
+        fillTrack.fxPairs[pair].actions = { FxActionCell::sequencer(
+            SequencerAction::Condition) };
+        fillTrack.fxPairs[pair].values = { FxValueCell::withValue(
+            s3g::tracker::normalizedFromSequencerCondition(pair == 0u
+                ? SequencerCondition::Fill
+                : SequencerCondition::First)) };
+        fillTrack.fxPairs[pair].actionColumn.length = 1u;
+        fillTrack.fxPairs[pair].valueColumn.length = 1u;
+    }
+    Pattern fillPattern;
+    fillPattern.visibleRows = 1u;
+    fillPattern.tracks.push_back(std::move(fillTrack));
+    Sequencer fill;
+    fill.setPattern(std::move(fillPattern));
+    fill.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    fill.setSongConditionContext(0u, 3u);
+    fill.start();
+    std::array<ScheduledEvent, 8u> fillEvents {};
+    check(fill.process(1u, fillEvents.data(), fillEvents.size()) == 0u,
+        "FILL must suppress its note while the transient performance state is off");
+    fill.setFillActive(true);
+    const auto fillCount = fill.process(6000u, fillEvents.data(),
+        fillEvents.size());
+    check(fillCount == 1u
+            && fillEvents[0u].kind == ScheduledEventKind::NoteOn,
+        "two CD pairs should AND FILL with FIRST and admit the matching Song pass");
+    fill.setSongConditionContext(1u, 3u);
+    check(fill.process(6000u, fillEvents.data(), fillEvents.size()) == 0u,
+        "a failed FIRST condition must suppress the next onset without disturbing the active-note lifecycle");
+
+    s3g::tracker::SequencerConditionContext context { 2u, 3u, false };
+    check(s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::Last, context)
+            && s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::NotFill, context)
+            && !s3g::tracker::sequencerConditionPasses(
+                SequencerCondition::First, context),
+        "LAST and !FILL should use exact Song repetition context");
 }
 
 void testInstrumentColumnPolymeterAndMemory()
@@ -2447,6 +2532,7 @@ void testKillRuntimeMuteAndBoundaryControls()
 int main()
 {
     testPolymetricColumns();
+    testConditionalSequencingGate();
     testTrackVelocityScale();
     testInstrumentColumnPolymeterAndMemory();
     testPerTrackColumnResync();

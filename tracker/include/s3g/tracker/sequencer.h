@@ -21,6 +21,10 @@ namespace s3g::tracker {
 // closed with explicit telemetry rather than silently diverging audio and MIDI
 // output.
 constexpr std::size_t kMaximumTrackCount = 32u;
+constexpr std::size_t kBurstDefinitionCount = 32u;
+constexpr std::size_t kMaximumBurstEvents = 8u;
+constexpr std::size_t kMaximumBurstNameBytes = 64u;
+constexpr uint8_t kNoBurstDefinition = 0xffu;
 constexpr std::size_t kMaximumScheduledEventsPerBlock = 4096u;
 constexpr std::size_t kMaximumPendingScheduledEvents = 8192u;
 constexpr std::size_t kMaximumCcInterpolationEventsPerTick = 128u;
@@ -32,6 +36,7 @@ enum class NoteCellState : uint8_t {
     Kill,
     Hold,
     Note,
+    Burst,
 };
 
 struct NoteCell {
@@ -68,7 +73,37 @@ struct NoteCell {
         cell.note = newNote;
         return cell;
     }
+
+    static NoteCell withBurst(uint8_t definition)
+    {
+        NoteCell cell;
+        cell.state = NoteCellState::Burst;
+        cell.note = definition;
+        return cell;
+    }
 };
+
+// One reusable sub-row MIDI phrase. Position spans the current logical tick:
+// 0 is its leading edge and 65535 is immediately before the next tick. Burst
+// events use absolute MIDI pitches so they can directly address sampler slices
+// and drum maps without borrowing a lane's pitch memory.
+struct BurstEvent {
+    uint16_t position = 0u;
+    uint8_t note = 60u;
+    uint8_t velocity = 127u;
+    uint8_t gatePercent = 70u;
+};
+
+struct BurstDefinition {
+    std::string name;
+    std::array<BurstEvent, kMaximumBurstEvents> events {};
+    uint8_t eventCount = 0u;
+
+    bool empty() const noexcept { return eventCount == 0u; }
+};
+
+std::string burstSlotToken(std::size_t index);
+bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept;
 
 // Decimal MIDI (0..127) and readable note names share one entry contract.
 // Natural names accept both tracker form (C-3) and compact form (C3);
@@ -170,11 +205,65 @@ enum class SequencerAction : uint8_t {
     Offset,
     RepeatPrevious,
     Euclid,
+    Condition,
     Count,
 };
 
 constexpr std::size_t kSequencerActionCount = static_cast<std::size_t>(
     SequencerAction::Count);
+
+// CD is deliberately a small discrete vocabulary stored in the existing
+// normalized V column. The stable index mapping keeps project files and the
+// polymetric action/value memory model unchanged while the UI can present the
+// value as a musical menu instead of a misleading continuous number.
+enum class SequencerCondition : uint8_t {
+    FirstOf2,
+    SecondOf2,
+    FirstOf4,
+    SecondOf4,
+    ThirdOf4,
+    FourthOf4,
+    FirstOf8,
+    SecondOf8,
+    ThirdOf8,
+    FourthOf8,
+    FifthOf8,
+    SixthOf8,
+    SeventhOf8,
+    EighthOf8,
+    First,
+    Last,
+    Fill,
+    NotFill,
+    Count,
+};
+
+constexpr std::size_t kSequencerConditionCount = static_cast<std::size_t>(
+    SequencerCondition::Count);
+
+struct SequencerConditionDefinition {
+    SequencerCondition condition = SequencerCondition::FirstOf2;
+    std::string_view token;
+    std::string_view displayName;
+};
+
+struct SequencerConditionContext {
+    // Zero-based visit to the current pattern cycle or Song row repetition.
+    uint64_t passIndex = 0u;
+    // Zero means the total is unknown. Song rows publish their authored
+    // repeat count, which makes LAST exact; free-running patterns leave it 0.
+    uint64_t passCount = 0u;
+    bool fill = false;
+};
+
+const SequencerConditionDefinition* sequencerCondition(
+    std::size_t index) noexcept;
+const SequencerConditionDefinition* findSequencerCondition(
+    std::string_view token) noexcept;
+SequencerCondition sequencerConditionFromNormalized(float value) noexcept;
+float normalizedFromSequencerCondition(SequencerCondition condition) noexcept;
+bool sequencerConditionPasses(SequencerCondition condition,
+    const SequencerConditionContext& context) noexcept;
 
 enum class FxActionCellState : uint8_t {
     Empty,
@@ -342,6 +431,7 @@ struct Pattern {
     std::string name;
     std::size_t visibleRows = 16u;
     std::vector<Track> tracks;
+    std::array<BurstDefinition, kBurstDefinitionCount> bursts {};
 };
 
 enum class ScheduledEventKind : uint8_t {
@@ -380,6 +470,10 @@ struct ScheduledEvent {
     // parameterValue and use STEP interpolation.
     float parameterEndValue = 0.0f;
     uint8_t note = 0u;
+    // kNoBurstDefinition marks an ordinary event. A valid index marks the
+    // canonical first event of a Burst recipe for TimingPlaybackScheduler to
+    // expand after whole-burst SEQ gates and timing have resolved.
+    uint8_t burstDefinition = kNoBurstDefinition;
     // One-based to match the tracker model. MIDI and chip adapters translate
     // this into their own channel representation.
     uint8_t channel = 1u;
@@ -499,6 +593,21 @@ public:
     {
         return runtimeTrackMuteMask_;
     }
+    // FILL is transient performance state. Song repetition context is owned
+    // by the realtime planner and updated only at logical tick boundaries.
+    void setFillActive(bool active) noexcept { fillActive_ = active; }
+    bool fillActive() const noexcept { return fillActive_; }
+    void setSongConditionContext(uint64_t passIndex,
+        uint64_t passCount) noexcept
+    {
+        songConditionContext_.passIndex = passIndex;
+        songConditionContext_.passCount = passCount;
+        songConditionContextActive_ = true;
+    }
+    void clearSongConditionContext() noexcept
+    {
+        songConditionContextActive_ = false;
+    }
     // Quantized Song-row launch: seek every authored column to row + phase
     // while retaining the sample/tick clock, active voice ownership, FX
     // recall, deterministic random streams, and last-emitted note state.
@@ -600,6 +709,7 @@ private:
         float lastEmittedVelocity = 0.787f;
         uint32_t lastEmittedNodeId = kInvalidInstrumentNode;
         EventDestination lastEmittedDestination = EventDestination::None;
+        uint8_t lastEmittedBurstDefinition = kNoBurstDefinition;
         bool hasLastEmitted = false;
         bool hasNote = false;
         bool noteMuted = true;
@@ -683,6 +793,9 @@ private:
     uint64_t nextNoteId_ = 1u;
     uint32_t randomSeed_ = 0x6d2b79f5u;
     uint32_t runtimeTrackMuteMask_ = 0u;
+    SequencerConditionContext songConditionContext_;
+    bool fillActive_ = false;
+    bool songConditionContextActive_ = false;
     bool playing_ = false;
 };
 
