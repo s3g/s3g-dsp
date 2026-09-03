@@ -54,6 +54,13 @@ void S3GTrackerStyleSuiteTextField(NSTextField* field,
 void S3GTrackerStyleTextEditor(NSTextField* field);
 void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName);
 
+// One visual contract for compact action buttons, including controls drawn
+// directly into the Geometry/Burst canvas. The AppKit button subclass below
+// delegates to this renderer so neither implementation can drift.
+void S3GTrackerDrawSuiteActionButton(NSRect bounds, NSString* title,
+    BOOL enabled, BOOL pressed, BOOL hovered, BOOL live,
+    BOOL positive, BOOL binaryOff, BOOL danger, BOOL neutralTitle);
+
 // Tags follow the existing s3g-dsp standalone convention:
 // 0 = ordinary, 1 = live/toggled, 2 = danger.
 @interface S3GTrackerActionButton : NSButton

@@ -40,9 +40,9 @@ int main()
     check(near(spacious.envelopeHeight, 140.0),
         "large workspace should cap the envelope at its designed size");
 
-    // The CLAP page selector consumes 40 points from the 840-point native
+    // The CLAP page selector consumes 40 points from the 860-point native
     // window before laying out the workspace.
-    constexpr double nativeWorkspaceHeight = 800.0;
+    constexpr double nativeWorkspaceHeight = 820.0;
     const auto native = workspaceLayoutMetrics(
         1320.0, nativeWorkspaceHeight);
     const double nativeTrackerViewport = nativeWorkspaceHeight
@@ -53,6 +53,10 @@ int main()
         / kTrackerGridRowHeight;
     check(visibleTrackerRows >= 16.0 && visibleTrackerRows < 17.0,
         "the native CLAP window should open at actual size with 16 complete rows visible");
+    const double sixteenRowClearance = nativeTrackerViewport
+        - kTrackerGridHeaderHeight - 16.0 * kTrackerGridRowHeight;
+    check(sixteenRowClearance >= 18.0,
+        "the native CLAP window should leave clean space below row 16");
 
     check(near(trackerDocumentWidth(1u, 500.0, false), 500.0),
         "a sparse compact tracker should leave unused viewport space blank");

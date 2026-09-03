@@ -620,7 +620,7 @@ int main(int argc, char** argv)
             uint32_t height = 0u;
             ok &= expect(gui->create(plugin, CLAP_WINDOW_API_COCOA, false)
                     && gui->get_size(plugin, &width, &height)
-                    && width >= 760u && height >= 560u,
+                    && width == 1320u && height == 860u,
                 "full tracker workspace could not be constructed");
             NSView* parent = [[S3GTrackerCaptureHostView alloc]
                 initWithFrame:NSMakeRect(

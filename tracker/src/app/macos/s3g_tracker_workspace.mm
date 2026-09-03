@@ -7778,12 +7778,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [@"EVENTS" drawAtPoint:NSMakePoint(layout::processorLabelX(libraryX),
         layout::rowY(geometry.laneCycle, 2u) - 2.0) withAttributes:labels];
     for (NSUInteger index = 0u; index < 2u; ++index)
-        s3g::clap_gui::drawHeaderButton(
+        S3GTrackerDrawSuiteActionButton(
             [self burstActionRectForRow:2u index:index count:2u],
-            [self laneCyclePanelRect], index == 0u
+            index == 0u
                 ? [NSString stringWithFormat:@"−  %u", burst.eventCount]
                 : [NSString stringWithFormat:@"%u  +", burst.eventCount],
-            false, values, style);
+            YES, NO, NO, NO, NO, NO, NO, YES);
     drawBurstInfo(@"USAGE", [NSString stringWithFormat:@"%lu NOTE CELLS",
             static_cast<unsigned long>(geometryBurstUsageCount(pattern,
                 _selectedBurstSlot))], geometry.laneCycle, 3u,
@@ -7796,11 +7796,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     for (NSUInteger rowIndex = 0u; rowIndex < actionRows.count; ++rowIndex) {
         const auto row = static_cast<uint32_t>(4u + rowIndex);
         const auto rowLabels = actionRows[rowIndex];
-        for (NSUInteger index = 0u; index < rowLabels.count; ++index)
-            s3g::clap_gui::drawHeaderButton(
+        for (NSUInteger index = 0u; index < rowLabels.count; ++index) {
+            const BOOL danger = rowIndex == 0u && index == 2u;
+            S3GTrackerDrawSuiteActionButton(
                 [self burstActionRectForRow:row index:index
-                    count:rowLabels.count], [self laneCyclePanelRect],
-                rowLabels[index], false, values, style);
+                    count:rowLabels.count], rowLabels[index],
+                YES, NO, NO, NO, NO, NO, danger, YES);
+        }
     }
 
     const CGFloat subX = geometry.editShape.frame.x;
@@ -8374,7 +8376,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         static_cast<CGFloat>(layout::rowY(geometry.laneCycle, 6u)),
         laneX, laneWidth, labels, values, style);
 
-    const NSRect editPanel = [self editPanelRect];
     const CGFloat editLabelX = static_cast<CGFloat>(
         layout::processorLabelX(geometry.editShape.frame.x));
     NSArray<NSString*>* editLabels = @[ @"TOOL", @"SHAPE" ];
@@ -8386,15 +8387,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         @"SEL", @"PNT", @"ERS", @"VEL"
     ];
     for (NSUInteger index = 0u; index < toolNames.count; ++index) {
-        s3g::clap_gui::drawHeaderButton([self editToolButtonRect:index],
-            editPanel, toolNames[index],
+        S3GTrackerDrawSuiteActionButton([self editToolButtonRect:index],
+            toolNames[index], self.toolButtons[index].enabled, NO, NO,
             static_cast<NSUInteger>(self.geometryTool) == index,
-            values, style);
+            NO, NO, NO, YES);
     }
-    s3g::clap_gui::drawHeaderButton([self reverseButtonRect], editPanel,
-        @"REVERSE", false, values, style);
-    s3g::clap_gui::drawHeaderButton([self reflectButtonRect], editPanel,
-        @"REFLECT", false, values, style);
+    S3GTrackerDrawSuiteActionButton([self reverseButtonRect], @"REVERSE",
+        self.reverseButton.enabled, NO, NO, NO, NO, NO, NO, YES);
+    S3GTrackerDrawSuiteActionButton([self reflectButtonRect], @"REFLECT",
+        self.reflectButton.enabled, NO, NO, NO, NO, NO, NO, YES);
     NSString* morphTarget = self.morphTargetPopup.titleOfSelectedItem;
     drawTrackerProcessorMenu(@"MORPH TO",
         morphTarget ? morphTarget : @"NEXT LANE",
@@ -8407,9 +8408,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         withAttributes:labels];
     NSArray<NSString*>* morphAmounts = @[ @"25", @"50", @"75", @"100" ];
     for (NSUInteger index = 0u; index < morphAmounts.count; ++index) {
-        s3g::clap_gui::drawHeaderButton(
-            [self morphAmountButtonRect:index], editPanel,
-            morphAmounts[index], false, values, style);
+        S3GTrackerDrawSuiteActionButton([self morphAmountButtonRect:index],
+            morphAmounts[index], self.morphButtons[index].enabled,
+            NO, NO, NO, NO, NO, NO, YES);
     }
 
     const CGFloat viewX = static_cast<CGFloat>(geometry.view.frame.x);

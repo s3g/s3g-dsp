@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <vector>
 
 namespace {
 
@@ -211,6 +212,56 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
 @property(nonatomic) BOOL s3gHovered;
 @end
 
+void S3GTrackerDrawSuiteActionButton(NSRect bounds, NSString* title,
+    BOOL enabled, BOOL pressed, BOOL hovered, BOOL live,
+    BOOL positive, BOOL binaryOff, BOOL danger, BOOL neutralTitle)
+{
+    const NSRect rect = NSInsetRect(bounds, 0.5, 0.5);
+    NSColor* fill = pressed
+        ? s3g::clap_gui::color(0x414141)
+        : positive ? S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Success, 0.20)
+        : live ? S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Live, 0.16)
+        : binaryOff ? S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Danger, 0.16)
+        : hovered ? s3g::clap_gui::color(0x343434)
+                  : s3g::clap_gui::color(0x292929);
+    NSColor* border = !enabled
+        ? s3g::clap_gui::color(0x383838)
+        : danger ? S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Danger, 0.75)
+        : positive ? S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Success)
+        : live ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live)
+        : binaryOff ? S3GTrackerThemeColor(S3GTrackerThemeRole::Danger)
+                    : s3g::clap_gui::color(0x777777);
+    [fill setFill];
+    NSRectFill(rect);
+    [border setStroke];
+    NSFrameRect(rect);
+    NSDictionary* attrs = enabled
+        ? neutralTitle ? s3g::clap_gui::softValueAttrs()
+        : (positive || live || binaryOff) ? @{
+            NSForegroundColorAttributeName:
+                S3GTrackerThemeColor(positive
+                    ? S3GTrackerThemeRole::Success
+                    : binaryOff ? S3GTrackerThemeRole::Danger
+                                : S3GTrackerThemeRole::Live),
+            NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
+        } : s3g::clap_gui::softValueAttrs()
+        : @{
+            NSForegroundColorAttributeName: s3g::clap_gui::color(0x656565),
+            NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
+        };
+    NSString* displayTitle = (title ? title : @"").uppercaseString;
+    const NSSize size = [displayTitle sizeWithAttributes:attrs];
+    [displayTitle drawAtPoint:NSMakePoint(
+        NSMidX(rect) - size.width * 0.5,
+        NSMidY(rect) - size.height * 0.5 - 0.5)
+        withAttributes:attrs];
+}
+
 @implementation S3GTrackerActionButton
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -292,51 +343,9 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     const bool pressed = self.highlighted;
     const NSRect rect = NSInsetRect(self.bounds, 0.5, 0.5);
     if (self.s3gUsesSuiteStyle) {
-        NSColor* fill = pressed
-            ? s3g::clap_gui::color(0x414141)
-            : positive ? S3GTrackerThemeColor(
-                S3GTrackerThemeRole::Success, 0.20)
-            : live ? S3GTrackerThemeColor(
-                S3GTrackerThemeRole::Live, 0.16)
-            : binaryOff ? S3GTrackerThemeColor(
-                S3GTrackerThemeRole::Danger, 0.16)
-            : self.s3gHovered ? s3g::clap_gui::color(0x343434)
-                              : s3g::clap_gui::color(0x292929);
-        NSColor* border = !enabled
-            ? s3g::clap_gui::color(0x383838)
-            : danger ? S3GTrackerThemeColor(
-                S3GTrackerThemeRole::Danger, 0.75)
-            : positive ? S3GTrackerThemeColor(
-                S3GTrackerThemeRole::Success)
-            : live ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live)
-            : binaryOff ? S3GTrackerThemeColor(
-                S3GTrackerThemeRole::Danger)
-                                : s3g::clap_gui::color(0x777777);
-        [fill setFill];
-        NSRectFill(rect);
-        [border setStroke];
-        NSFrameRect(rect);
-        NSDictionary* attrs = enabled
-            ? self.s3gUsesNeutralTitle ? s3g::clap_gui::softValueAttrs()
-            : (positive || live || binaryOff) ? @{
-                NSForegroundColorAttributeName:
-                    S3GTrackerThemeColor(positive
-                        ? S3GTrackerThemeRole::Success
-                        : binaryOff ? S3GTrackerThemeRole::Danger
-                                    : S3GTrackerThemeRole::Live),
-                NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
-            } : s3g::clap_gui::softValueAttrs()
-            : @{
-                NSForegroundColorAttributeName: s3g::clap_gui::color(
-                    0x656565),
-                NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
-            };
-        NSString* title = self.title.uppercaseString;
-        const NSSize size = [title sizeWithAttributes:attrs];
-        [title drawAtPoint:NSMakePoint(
-            NSMidX(rect) - size.width * 0.5,
-            NSMidY(rect) - size.height * 0.5 - 0.5)
-            withAttributes:attrs];
+        S3GTrackerDrawSuiteActionButton(self.bounds, self.title,
+            enabled, pressed, self.s3gHovered, live, positive, binaryOff,
+            danger, self.s3gUsesNeutralTitle);
         return;
     }
     NSColor* fill = pressed
@@ -763,67 +772,16 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     NSDictionary* attrs = s3g::clap_gui::softValueAttrs();
     const uint32_t columns = static_cast<uint32_t>(
         std::max<NSUInteger>(1u, self.columns));
-    const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
-        count, columns);
-    const CGFloat columnWidth = NSWidth(self.menuRect)
-        / static_cast<CGFloat>(columns);
-
-    [s3g::clap_gui::color(0x080808) setFill];
-    NSRectFill(NSInsetRect(self.menuRect, -2.0, -2.0));
-    [style.strip setFill];
-    NSRectFill(self.menuRect);
-    [style.grid setStroke];
-    NSFrameRect(self.menuRect);
+    std::vector<NSString*> items;
+    items.reserve(count);
     for (uint32_t index = 0u; index < count; ++index) {
-        const uint32_t column = index / rows;
-        const uint32_t rowIndex = index % rows;
-        const NSRect row = NSMakeRect(
-            NSMinX(self.menuRect) + columnWidth * column,
-            NSMinY(self.menuRect) + 21.0 * rowIndex,
-            columnWidth, 21.0);
-        const bool selected = static_cast<NSInteger>(index)
-            == popup.indexOfSelectedItem;
-        const bool hovered = static_cast<NSInteger>(index)
-            == self.hoverIndex;
-        if (hovered) {
-            [s3g::clap_gui::color(0x343434) setFill];
-            NSRectFill(NSInsetRect(row, 1.0, 1.0));
-        } else if (selected) {
-            [s3g::clap_gui::color(0x292929) setFill];
-            NSRectFill(NSInsetRect(row, 1.0, 1.0));
-        } else if ((rowIndex % 2u) == 1u) {
-            [s3g::clap_gui::color(0x181818) setFill];
-            NSRectFill(NSInsetRect(row, 1.0, 1.0));
-        }
-        if (selected || hovered) {
-            [style.fill setFill];
-            NSRectFill(NSMakeRect(NSMinX(row) + 2.0,
-                NSMinY(row) + 2.0, 3.0, NSHeight(row) - 4.0));
-        }
-        if (rowIndex > 0u) {
-            [s3g::clap_gui::color(0x3a3a3a) setStroke];
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(
-                NSMinX(row), NSMinY(row)) toPoint:NSMakePoint(
-                NSMaxX(row), NSMinY(row))];
-        }
-        if (column > 0u && rowIndex == 0u) {
-            [s3g::clap_gui::color(0x565656) setStroke];
-            [NSBezierPath strokeLineFromPoint:NSMakePoint(
-                NSMinX(row), NSMinY(self.menuRect))
-                toPoint:NSMakePoint(NSMinX(row), NSMaxY(self.menuRect))];
-        }
-        NSMenuItem* item = [popup itemAtIndex:index];
-        NSString* title = s3g::clap_gui::menuDisplayText(item.title,
-            std::max<CGFloat>(0.0, NSWidth(row) - 18.0), attrs);
-        NSDictionary* itemAttrs = item.enabled ? attrs : @{
-            NSForegroundColorAttributeName: S3GTrackerThemeColor(
-                S3GTrackerThemeRole::TextFaint),
-            NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
-        };
-        [title drawAtPoint:NSMakePoint(NSMinX(row) + 9.0,
-            suiteTextOriginY(row, title, itemAttrs))
-            withAttributes:itemAttrs];
+        NSString* title = [popup itemAtIndex:index].title;
+        items.push_back(title ? title : @"");
     }
+    s3g::clap_gui::drawMultiColumnDropdownMenu(self.menuRect, 21.0,
+        items.data(), count, columns,
+        static_cast<int>(popup.indexOfSelectedItem),
+        static_cast<int>(self.hoverIndex), attrs, style);
 }
 
 @end

@@ -77,7 +77,7 @@ constexpr uint32_t kMaximumGateOffsPerBlock = kActiveNoteCount
     + s3g::tracker::kMaximumScheduledEventsPerBlock;
 constexpr uint32_t kRetiredRuntimeCapacity = 64u;
 constexpr uint32_t kNativeWidth = 1320u;
-constexpr uint32_t kNativeHeight = 840u;
+constexpr uint32_t kNativeHeight = 860u;
 constexpr uint32_t kMinimumWidth = 760u;
 constexpr uint32_t kMinimumHeight = 620u;
 
