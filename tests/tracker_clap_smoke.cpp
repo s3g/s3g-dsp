@@ -596,6 +596,8 @@ int main(int argc, char** argv)
             && factoryJson.find("sampleRate") == std::string::npos
             && factoryJson.find("\"showMidiNoteValues\": true")
                 != std::string::npos
+            && factoryJson.find("\"trackerRowJump\": 1")
+                != std::string::npos
             && countText("\"midiChannel\": 1") == 4u
             && compactDefaults == "36,38,41,61"
             && countText("\"note\": 36") == 4u
@@ -724,7 +726,7 @@ int main(int argc, char** argv)
                     [geometryModeView isKindOfClass:NSPopUpButton.class]
                         ? static_cast<NSPopUpButton*>(geometryModeView) : nil;
                 const bool geometryModesAvailable = geometryMode.numberOfItems
-                        == 7u
+                        == 8u
                     && geometryMode.indexOfSelectedItem == 0
                     && [[geometryMode itemAtIndex:0].title
                         isEqualToString:@"RING FIELD"]
@@ -739,9 +741,11 @@ int main(int argc, char** argv)
                     && [[geometryMode itemAtIndex:5].title
                         isEqualToString:@"COMPOSITE RING"]
                     && [[geometryMode itemAtIndex:6].title
-                        isEqualToString:@"BURST EDITOR"];
+                        isEqualToString:@"BURST EDITOR"]
+                    && [[geometryMode itemAtIndex:7].title
+                        isEqualToString:@"PITCH MAP"];
                 if (geometryModesAvailable) {
-                    for (NSInteger mode = 1; mode < 7; ++mode) {
+                    for (NSInteger mode = 1; mode < 8; ++mode) {
                         [geometryMode selectItemAtIndex:mode];
                         [geometryMode sendAction:geometryMode.action
                             to:geometryMode.target];
@@ -1311,6 +1315,10 @@ int main(int argc, char** argv)
                             @"pitch|defaultnote <target> <MIDI|note name>"]
                         && [storage.string containsString:
                             @"pitch @kick C-2"]
+                        && [storage.string containsString:
+                            @"scale fit <target>"]
+                        && [storage.string containsString:
+                            @"scale generate <target>"]
                         && [storage.string containsString:@"QUICK ENTRY"]
                         && [storage.string containsString:
                             @"X toggles an anchored hit"];

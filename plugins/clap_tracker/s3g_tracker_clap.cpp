@@ -445,6 +445,53 @@ struct BurstPreviewMailbox {
     }
 };
 
+struct PitchPreviewMailbox {
+    static constexpr std::size_t kCapacity = 256u;
+    std::array<std::atomic<uint64_t>, kCapacity> events;
+    std::atomic<uint32_t> metadata { 0u };
+    std::atomic<uint32_t> bpmMilli { 120000u };
+    std::atomic<uint32_t> revision { 0u };
+
+    PitchPreviewMailbox()
+    {
+        for (auto& event : events) event.store(0u);
+    }
+
+    void publish(const std::vector<s3g::tracker::PitchPreviewEvent>& source,
+        uint8_t midiChannel, double bpm, uint32_t ticksPerBeat) noexcept
+    {
+        revision.fetch_add(1u, std::memory_order_acq_rel);
+        const auto count = static_cast<uint16_t>(std::min<std::size_t>(
+            source.size(), kCapacity));
+        for (std::size_t index = 0u; index < count; ++index) {
+            const auto& event = source[index];
+            const uint64_t packed = static_cast<uint64_t>(event.row)
+                | (static_cast<uint64_t>(event.note) << 16u)
+                | (static_cast<uint64_t>(event.velocity) << 24u)
+                | (static_cast<uint64_t>(event.gatePercent) << 32u);
+            events[index].store(packed, std::memory_order_relaxed);
+        }
+        const uint32_t channel = static_cast<uint32_t>(
+            std::clamp<int>(midiChannel, 1, 16));
+        const uint32_t ticks = std::clamp<uint32_t>(ticksPerBeat, 1u, 96u);
+        metadata.store(static_cast<uint32_t>(count)
+                | (channel << 16u) | (ticks << 24u),
+            std::memory_order_relaxed);
+        const double safeBpm = std::clamp(
+            std::isfinite(bpm) ? bpm : 120.0, 1.0, 1000.0);
+        bpmMilli.store(static_cast<uint32_t>(
+            std::lround(safeBpm * 1000.0)), std::memory_order_relaxed);
+        revision.fetch_add(1u, std::memory_order_release);
+    }
+
+    void cancel() noexcept
+    {
+        revision.fetch_add(1u, std::memory_order_acq_rel);
+        metadata.store(0u, std::memory_order_relaxed);
+        revision.fetch_add(1u, std::memory_order_release);
+    }
+};
+
 struct MidiStepClock {
     void clear() noexcept
     {
@@ -877,6 +924,18 @@ struct BurstPreviewPlayback {
     bool active = false;
 };
 
+struct PitchPreviewPlayback {
+    std::array<s3g::tracker::PitchPreviewEvent,
+        PitchPreviewMailbox::kCapacity> events {};
+    uint64_t startFrame = 0u;
+    uint64_t rowFrames = 1u;
+    uint32_t revision = 0u;
+    uint16_t eventCount = 0u;
+    uint16_t nextEvent = 0u;
+    uint8_t midiChannel = 1u;
+    bool active = false;
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -886,6 +945,8 @@ struct Plugin {
     PatternLaunchMailbox patternLaunch;
     BurstPreviewMailbox burstPreviewMailbox;
     BurstPreviewPlayback burstPreviewPlayback;
+    PitchPreviewMailbox pitchPreviewMailbox;
+    PitchPreviewPlayback pitchPreviewPlayback;
     VisualNoteHitMailboxes visualNoteHits;
     MidiStepCaptureQueue midiStepCaptures;
     MidiStepClock midiStepClock;
@@ -920,6 +981,7 @@ struct Plugin {
     std::atomic<uint32_t> auditionRevision { 0u };
     uint32_t consumedAuditionRevision = 0u;
     uint32_t consumedBurstPreviewRevision = 0u;
+    uint32_t consumedPitchPreviewRevision = 0u;
     std::atomic<uint32_t> songLaunchRow { 0u };
     std::atomic<uint32_t> songLaunchQuantization { 0u };
     std::atomic<uint32_t> songLaunchRevision { 0u };
@@ -1700,6 +1762,129 @@ void handleBurstPreview(Plugin& plugin, Runtime& runtime,
     }
 }
 
+void handlePitchPreview(Plugin& plugin, Runtime& runtime,
+    const clap_output_events_t* output, bool transportPlaying,
+    uint32_t blockOffset, uint32_t frameCount) noexcept
+{
+    const uint32_t revision = plugin.pitchPreviewMailbox.revision.load(
+        std::memory_order_acquire);
+    auto& playback = plugin.pitchPreviewPlayback;
+    if ((revision & 1u) != 0u) return;
+    if (transportPlaying) {
+        plugin.consumedPitchPreviewRevision = revision;
+        playback.active = false;
+        return;
+    }
+
+    if (revision != plugin.consumedPitchPreviewRevision) {
+        PitchPreviewPlayback next;
+        const uint32_t metadata = plugin.pitchPreviewMailbox.metadata.load(
+            std::memory_order_relaxed);
+        next.eventCount = static_cast<uint16_t>(std::min<uint32_t>(
+            metadata & 0xffffu, PitchPreviewMailbox::kCapacity));
+        next.midiChannel = static_cast<uint8_t>(std::clamp<uint32_t>(
+            (metadata >> 16u) & 0xffu, 1u, 16u));
+        const uint32_t ticksPerBeat = std::clamp<uint32_t>(
+            (metadata >> 24u) & 0xffu, 1u, 96u);
+        const double bpm = static_cast<double>(
+            plugin.pitchPreviewMailbox.bpmMilli.load(
+                std::memory_order_relaxed)) / 1000.0;
+        for (std::size_t index = 0u; index < next.eventCount; ++index) {
+            const uint64_t packed = plugin.pitchPreviewMailbox.events[index]
+                .load(std::memory_order_relaxed);
+            next.events[index] = {
+                static_cast<uint16_t>(packed & 0xffffu),
+                static_cast<uint8_t>((packed >> 16u) & 0x7fu),
+                static_cast<uint8_t>((packed >> 24u) & 0x7fu),
+                static_cast<uint8_t>((packed >> 32u) & 0x7fu),
+            };
+        }
+        next.startFrame = plugin.processFrame + blockOffset;
+        next.rowFrames = static_cast<uint64_t>(std::max(1.0,
+            std::round(plugin.sampleRate * 60.0
+                / (std::max(bpm, 1.0)
+                    * static_cast<double>(ticksPerBeat)))));
+        next.revision = revision;
+        next.nextEvent = 0u;
+        next.active = next.eventCount != 0u;
+        if (revision != plugin.pitchPreviewMailbox.revision.load(
+                std::memory_order_acquire)) return;
+        playback = next;
+        plugin.consumedPitchPreviewRevision = revision;
+    }
+
+    const uint64_t segmentStart = plugin.processFrame + blockOffset;
+    const uint64_t segmentEnd = segmentStart + frameCount;
+    std::size_t eventCount = 0u;
+    while (playback.active && playback.nextEvent < playback.eventCount) {
+        const auto index = playback.nextEvent;
+        const auto& authored = playback.events[index];
+        const uint64_t onset = playback.startFrame
+            + playback.rowFrames * static_cast<uint64_t>(authored.row);
+        if (onset >= segmentEnd) break;
+        ScheduledEvent event;
+        event.absoluteSampleTime = onset;
+        event.noteId = (static_cast<uint64_t>(playback.revision) << 32u)
+            | (uint64_t { 1u } << 31u) | static_cast<uint64_t>(index + 1u);
+        event.durationSamples = std::max<uint64_t>(1u,
+            playback.rowFrames
+                * static_cast<uint64_t>(authored.gatePercent) / 100u);
+        event.frameOffset = onset <= segmentStart ? 0u
+            : static_cast<uint32_t>(onset - segmentStart);
+        event.normalizedVelocity = static_cast<float>(authored.velocity)
+            / 127.0f;
+        event.note = authored.note;
+        event.channel = playback.midiChannel;
+        event.kind = ScheduledEventKind::NoteOn;
+        event.destination = EventDestination::Midi;
+        plugin.events[eventCount++] = event;
+        ++playback.nextEvent;
+        if (playback.nextEvent >= playback.eventCount)
+            playback.active = false;
+    }
+
+    std::size_t pendingGateCount = collectGateOffs(
+        plugin, segmentStart, frameCount);
+    const auto laterGate = [](const GateOff& left, const GateOff& right) {
+        if (left.frameOffset != right.frameOffset)
+            return left.frameOffset > right.frameOffset;
+        return left.noteId > right.noteId;
+    };
+    std::size_t eventIndex = 0u;
+    while (eventIndex < eventCount || pendingGateCount > 0u) {
+        const bool useGate = pendingGateCount > 0u
+            && (eventIndex >= eventCount
+                || plugin.gateOffs.front().frameOffset
+                    <= plugin.events[eventIndex].frameOffset);
+        if (useGate) {
+            std::pop_heap(plugin.gateOffs.begin(),
+                plugin.gateOffs.begin() + pendingGateCount, laterGate);
+            const auto gate = plugin.gateOffs[--pendingGateCount];
+            const auto& active = plugin.activeNotes[gate.activeIndex];
+            if (active.active && active.noteId == gate.noteId)
+                emitActiveNoteOff(plugin, output,
+                    blockOffset + gate.frameOffset, gate.activeIndex);
+            continue;
+        }
+        const auto event = plugin.events[eventIndex++];
+        emitScheduledEvent(plugin, runtime, output, event, blockOffset);
+        const uint8_t channel = static_cast<uint8_t>(std::clamp<int>(
+            event.channel, 1, 16) - 1);
+        const uint32_t activeIndex = activeNoteIndex(channel, event.note);
+        const auto& active = plugin.activeNotes[activeIndex];
+        if (!active.active || active.dueFrame >= segmentEnd
+            || pendingGateCount >= plugin.gateOffs.size()) continue;
+        plugin.gateOffs[pendingGateCount++] = {
+            activeIndex,
+            active.dueFrame <= segmentStart ? 0u
+                : static_cast<uint32_t>(active.dueFrame - segmentStart),
+            active.noteId,
+        };
+        std::push_heap(plugin.gateOffs.begin(),
+            plugin.gateOffs.begin() + pendingGateCount, laterGate);
+    }
+}
+
 void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
 {
     const uint64_t currentSample = runtime.scheduler.renderedFrameCount();
@@ -1850,6 +2035,8 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
         handleAudition(plugin, *runtime, output, blockOffset);
         handleBurstPreview(plugin, *runtime, output, false,
             blockOffset, frameCount);
+        handlePitchPreview(plugin, *runtime, output, false,
+            blockOffset, frameCount);
         plugin.hostWasPlaying = false;
         plugin.runtimeArmed = false;
         plugin.expectedBeatValid = false;
@@ -1858,6 +2045,8 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     } else {
         handleAudition(plugin, *runtime, output, blockOffset);
         handleBurstPreview(plugin, *runtime, output, true,
+            blockOffset, frameCount);
+        handlePitchPreview(plugin, *runtime, output, true,
             blockOffset, frameCount);
         const bool restartRequested = plugin.requestRestart.exchange(false,
             std::memory_order_acq_rel);
@@ -2502,8 +2691,32 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         }
         const double projectBpm = reaperHostTempo(*owner->_plugin)
             .value_or(bpm);
+        owner->_plugin->pitchPreviewMailbox.cancel();
         owner->_plugin->burstPreviewMailbox.publish(
             burst, midiChannel, projectBpm, ticksPerBeat);
+        if (owner->_plugin->host && owner->_plugin->host->request_process)
+            owner->_plugin->host->request_process(owner->_plugin->host);
+    };
+    _callbacks->previewPitchSequence = [weakSelf](
+        const std::vector<s3g::tracker::PitchPreviewEvent>& events,
+        uint8_t midiChannel, double bpm, uint32_t ticksPerBeat) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || events.empty()) return;
+        const bool transportRunning = reaperTransportIsPlaying(
+            *owner->_plugin).value_or(owner->_state->playing);
+        if (transportRunning) {
+            owner->_state->status =
+                "Pitch Map Preview is available while REAPER is stopped";
+            [owner.workspace reloadModel];
+            return;
+        }
+        const double projectBpm = reaperHostTempo(*owner->_plugin)
+            .value_or(bpm);
+        s3g::tracker::BurstDefinition emptyBurst;
+        owner->_plugin->burstPreviewMailbox.publish(
+            emptyBurst, midiChannel, projectBpm, ticksPerBeat);
+        owner->_plugin->pitchPreviewMailbox.publish(
+            events, midiChannel, projectBpm, ticksPerBeat);
         if (owner->_plugin->host && owner->_plugin->host->request_process)
             owner->_plugin->host->request_process(owner->_plugin->host);
     };
@@ -3023,6 +3236,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     document.session.tempoScale = _state->tempoScale;
     document.session.songPlaybackEnabled = _state->songPlaybackEnabled;
     document.session.showMidiNoteValues = _state->showMidiNoteValues;
+    document.session.trackerRowJump = _state->trackerRowJump;
     document.session.commandRngState = _state->session.commandRngState;
     document.session.playbackSeed = _state->session.playbackSeed;
     document.instrumentRack = _state->instrumentRack;
@@ -3048,6 +3262,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->selectedRackInstrument = _state->instrumentRack.selectedNode;
     _state->songPlaybackEnabled = midiDocument.session.songPlaybackEnabled;
     _state->showMidiNoteValues = midiDocument.session.showMidiNoteValues;
+    _state->trackerRowJump = midiDocument.session.trackerRowJump;
     _state->status = "REAPER host sync • MIDI output ready";
     [self refreshSongWarps];
     // Song rows validate their mute masks against the pattern catalog. Load
@@ -3808,6 +4023,10 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     instance->consumedBurstPreviewRevision
         = instance->burstPreviewMailbox.revision.load(
             std::memory_order_relaxed);
+    instance->pitchPreviewPlayback = {};
+    instance->consumedPitchPreviewRevision
+        = instance->pitchPreviewMailbox.revision.load(
+            std::memory_order_relaxed);
     for (auto& note : instance->activeNotes) note = {};
     for (auto& note : instance->monitoredInputNotes) note = {};
     instance->monitoredOutputCounts.fill(0u);
@@ -3826,6 +4045,10 @@ void deactivate(const clap_plugin_t* plugin)
     instance->burstPreviewPlayback = {};
     instance->consumedBurstPreviewRevision
         = instance->burstPreviewMailbox.revision.load(
+            std::memory_order_relaxed);
+    instance->pitchPreviewPlayback = {};
+    instance->consumedPitchPreviewRevision
+        = instance->pitchPreviewMailbox.revision.load(
             std::memory_order_relaxed);
     instance->midiStepClock.clear();
     for (auto& note : instance->monitoredInputNotes) note = {};
@@ -3848,6 +4071,10 @@ void reset(const clap_plugin_t* plugin)
     instance->burstPreviewPlayback = {};
     instance->consumedBurstPreviewRevision
         = instance->burstPreviewMailbox.revision.load(
+            std::memory_order_relaxed);
+    instance->pitchPreviewPlayback = {};
+    instance->consumedPitchPreviewRevision
+        = instance->pitchPreviewMailbox.revision.load(
             std::memory_order_relaxed);
     instance->visualPlaying.store(false, std::memory_order_relaxed);
     instance->midiStepClock.clear();

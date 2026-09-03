@@ -7,6 +7,7 @@
 #include "s3g/tracker/instrument_rack.h"
 #include "s3g/tracker/midi_step_recorder.h"
 #include "s3g/tracker/pattern_bank.h"
+#include "s3g/tracker/pitch_map.h"
 #include "s3g_tracker_audio_device.h"
 
 #include <array>
@@ -84,6 +85,9 @@ struct TrackerViewState {
     // false renders pitch names and true renders decimal MIDI values. The
     // coordinator persists this project-scoped presentation preference.
     bool showMidiNoteValues = true;
+    // Vertical Tracker navigation increment. The View toolbox exposes 1..16;
+    // Up/Down use this many rows while retaining boundary clamping.
+    uint32_t trackerRowJump = 1u;
     // MIDI recording is deliberately transient host/UI state. It is OFF when
     // an editor is created and is not embedded in project files.
     bool midiStepInputAvailable = false;
@@ -137,6 +141,10 @@ struct WorkspaceCallbacks {
     // the audio thread never reaches back into the editor model.
     std::function<void(const BurstDefinition&, uint8_t, double, uint32_t)>
         previewBurst;
+    // Audition the non-destructive Pitch Map proposal while transport is
+    // stopped. Events are copied into a fixed audio-thread mailbox.
+    std::function<void(const std::vector<PitchPreviewEvent>&, uint8_t,
+        double, uint32_t)> previewPitchSequence;
     // Reshape audition swaps only the immutable audio-thread runtime. It does
     // not touch the stored document until the page commits with patternChanged.
     std::function<void(const Pattern&)> previewPattern;

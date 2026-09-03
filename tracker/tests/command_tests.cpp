@@ -33,6 +33,7 @@ using s3g::tracker::Track;
 using s3g::tracker::TrackerSession;
 using s3g::tracker::TimingWarpKind;
 using s3g::tracker::TimingPlaybackScheduler;
+using s3g::tracker::ValueCell;
 using s3g::tracker::ValueCellState;
 
 int failures = 0;
@@ -323,7 +324,7 @@ void testHelpCatalogCoversAuditedParserVerbs()
         "defaultnote", "gate", "help", "hit", "hold", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
         "mutate", "panic", "pitch", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
-        "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
+        "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scale", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset", "interp", "interpolation",
         "variation", "vary", "warps", "track", "burst", "pattern",
     };
@@ -1291,6 +1292,124 @@ void testEuclidAndDeterministicTransforms()
     check(result.ok && (humanized == "-x--" || humanized == "---x"),
         "humanize should move an eligible hit one circular neighbor");
 
+    auto selectedRows = makeSession(1u);
+    auto& selectedTrack = selectedRows.pattern.tracks[0u];
+    selectedRows.pattern.visibleRows = 8u;
+    selectedTrack.noteColumn.length = 8u;
+    selectedTrack.notes.resize(8u, NoteCell::rest());
+    selectedTrack.notes[2u] = NoteCell::withNote(64u);
+    const auto selectedHumanized = s3g::tracker::humanizeNoteRows(
+        selectedRows, 0u, 2u, 5u, 1.0);
+    const auto hitCount = static_cast<std::size_t>(std::count_if(
+        selectedTrack.notes.begin() + 2,
+        selectedTrack.notes.begin() + 6,
+        [](const NoteCell& cell) {
+            return cell.state != NoteCellState::Rest;
+        }));
+    check(selectedHumanized == 1u && hitCount == 1u
+            && selectedTrack.notes[2u].state == NoteCellState::Rest
+            && selectedTrack.notes[0u].state == NoteCellState::Rest
+            && selectedTrack.notes[6u].state == NoteCellState::Rest,
+        "selection humanize should move hits only inside the requested row range");
+
+    auto& selectedPair = selectedTrack.fxPairs[0u];
+    selectedPair.actions.resize(8u,
+        s3g::tracker::FxActionCell::empty());
+    selectedPair.values.resize(8u,
+        s3g::tracker::FxValueCell::previous());
+    selectedPair.actions[2u] = s3g::tracker::FxActionCell::sequencer(
+        s3g::tracker::SequencerAction::MicroTime);
+    selectedPair.values[2u] = s3g::tracker::FxValueCell::withValue(0.2f);
+    selectedPair.actions[4u] = s3g::tracker::FxActionCell::sequencer(
+        s3g::tracker::SequencerAction::Delay);
+    selectedPair.values[4u] = s3g::tracker::FxValueCell::withValue(0.1f);
+    selectedPair.actions[6u] = s3g::tracker::FxActionCell::sequencer(
+        s3g::tracker::SequencerAction::MicroTime);
+    selectedPair.values[6u] = s3g::tracker::FxValueCell::withValue(0.9f);
+    const auto quantized = s3g::tracker::quantizeMicroTimeRows(
+        selectedRows, 2u, 4u);
+    check(quantized == 1u
+            && std::abs(selectedPair.values[2u].normalized - 0.5f)
+                < 1.0e-6f
+            && std::abs(selectedPair.values[4u].normalized - 0.1f)
+                < 1.0e-6f
+            && std::abs(selectedPair.values[6u].normalized - 0.9f)
+                < 1.0e-6f,
+        "selection quantize should center only MT values inside the row range");
+
+    auto rowTransforms = makeSession(1u);
+    auto& transformedTrack = rowTransforms.pattern.tracks[0u];
+    rowTransforms.pattern.visibleRows = 8u;
+    transformedTrack.noteColumn.length = 8u;
+    transformedTrack.notes.resize(8u, NoteCell::rest());
+    transformedTrack.notes[1u] = NoteCell::withNote(60u);
+    transformedTrack.notes[2u] = NoteCell::hold();
+    transformedTrack.notes[3u] = NoteCell::withNote(70u);
+    check(s3g::tracker::transposeNoteRows(
+                rowTransforms, 0u, 1u, 3u, 12) == 2u
+            && transformedTrack.notes[1u].note == 72u
+            && transformedTrack.notes[2u].state == NoteCellState::Hold
+            && transformedTrack.notes[3u].note == 82u,
+        "selection transpose should change explicit MIDI pitches without changing NOTE symbols");
+    check(s3g::tracker::reverseNoteRows(
+                rowTransforms, 0u, 1u, 3u) == 2u
+            && transformedTrack.notes[1u].note == 82u
+            && transformedTrack.notes[2u].state == NoteCellState::Hold
+            && transformedTrack.notes[3u].note == 72u,
+        "selection reverse should reverse complete NOTE cells inside its bounds");
+    check(s3g::tracker::rotateNoteRows(
+                rowTransforms, 0u, 1u, 3u, 1) == 3u
+            && transformedTrack.notes[1u].note == 72u
+            && transformedTrack.notes[2u].note == 82u
+            && transformedTrack.notes[3u].state == NoteCellState::Hold
+            && transformedTrack.notes[0u].state == NoteCellState::Rest,
+        "selection rotate should wrap complete NOTE cells only inside its bounds");
+
+    transformedTrack.velocityColumn.length = 8u;
+    transformedTrack.velocities.resize(8u, ValueCell::defaultValue());
+    transformedTrack.velocities[1u] = ValueCell::withValue(0.5f);
+    transformedTrack.velocities[3u] = ValueCell::withValue(0.8f);
+    transformedTrack.velocities[4u] = ValueCell::withValue(0.9f);
+    check(s3g::tracker::scaleVelocityRows(
+                rowTransforms, 0u, 1u, 3u, 2.0) == 2u
+            && std::abs(transformedTrack.velocities[1u].normalized - 1.0f)
+                < 1.0e-6f
+            && transformedTrack.velocities[2u].state
+                == ValueCellState::Default
+            && std::abs(transformedTrack.velocities[4u].normalized - 0.9f)
+                < 1.0e-6f,
+        "selection velocity scale should clamp written values and preserve default and out-of-range cells");
+    const auto rngBeforeVelocity = rowTransforms.commandRngState;
+    check(s3g::tracker::randomizeVelocityRows(
+                rowTransforms, 0u, 1u, 3u, 64u, 64u) == 3u
+            && std::abs(transformedTrack.velocities[1u].normalized
+                    - 64.0f / 127.0f) < 1.0e-6f
+            && transformedTrack.velocities[2u].state
+                == ValueCellState::Value
+            && std::abs(transformedTrack.velocities[4u].normalized - 0.9f)
+                < 1.0e-6f
+            && rowTransforms.commandRngState != rngBeforeVelocity,
+        "selection velocity randomize should write only the requested VOL rows and advance the shared RNG");
+
+    transformedTrack.notes[1u] = NoteCell::withNote(72u);
+    transformedTrack.notes[2u] = NoteCell::withBurst(0u);
+    transformedTrack.notes[3u] = NoteCell::hold();
+    check(s3g::tracker::thinNoteRows(
+                rowTransforms, 0u, 1u, 3u, 1.0) == 2u
+            && transformedTrack.notes[1u].state == NoteCellState::Rest
+            && transformedTrack.notes[2u].state == NoteCellState::Rest
+            && transformedTrack.notes[3u].state == NoteCellState::Hold,
+        "selection thin should remove hits while preserving non-hit NOTE symbols");
+    check(s3g::tracker::densityNoteRows(
+                rowTransforms, 0u, 1u, 2u, 1.0) == 2u
+            && transformedTrack.notes[1u].state == NoteCellState::Note
+            && transformedTrack.notes[1u].note
+                == s3g::tracker::laneDefaultNote(rowTransforms, 0u)
+            && transformedTrack.notes[2u].note
+                == s3g::tracker::laneDefaultNote(rowTransforms, 0u)
+            && transformedTrack.notes[3u].state == NoteCellState::Hold,
+        "selection density should fill with the lane default pitch and remain inside its bounds");
+
     result = CommandEngine::execute(session, "eu @k 17 16 1 <>");
     const auto& overfullTrack = session.pattern.tracks[0u];
     const auto& overfullPair = overfullTrack.fxPairs[0u];
@@ -1818,6 +1937,51 @@ void testPatternReshapeCommands()
         "invalid reshape options should leave the session transactional");
 }
 
+void testScalePitchCommands()
+{
+    auto fitted = makeSession(1u);
+    check(CommandEngine::execute(fitted, "note 1 1 60").ok
+            && CommandEngine::execute(fitted, "note 1 2 61").ok
+            && CommandEngine::execute(fitted, "note 1 3 64").ok
+            && CommandEngine::execute(fitted, "note 1 4 67").ok,
+        "scale command fixture should author melodic pitches");
+    auto result = CommandEngine::execute(fitted,
+        "scale fit 1 C major rows 1 4 range 48 72");
+    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
+            && fitted.pattern.tracks[0u].notes[1u].note == 60u,
+        "scale fit should quantize only the out-of-scale pitch");
+
+    auto generatedA = makeSession(1u);
+    auto generatedB = makeSession(1u);
+    for (auto* session : { &generatedA, &generatedB }) {
+        check(CommandEngine::execute(*session, "note 1 1 60").ok
+                && CommandEngine::execute(*session, "note 1 2 62").ok
+                && CommandEngine::execute(*session, "note 1 3 64").ok
+                && CommandEngine::execute(*session, "note 1 4 67").ok,
+            "scale generation fixture should author melodic pitches");
+    }
+    const std::string generate =
+        "scale generate 1 auto auto walk rows 1 4 range 48 72 "
+        "leap 3 seed 1729 anchors off";
+    result = CommandEngine::execute(generatedA, generate);
+    const auto repeated = CommandEngine::execute(generatedB, generate);
+    check(result.ok && repeated.ok
+            && noteFingerprint(generatedA) == noteFingerprint(generatedB),
+        "scale generation should be deterministic for the same seed");
+
+    result = CommandEngine::execute(generatedA,
+        "scale fit 1 C major rows 1 4 transpose 12 invert on reverse on");
+    check(result.ok
+            && generatedA.pattern.tracks[0u].notes[0u].note >= 60u,
+        "scale commands should accept the shared Pitch Map post transforms");
+
+    const auto before = sessionFingerprint(generatedA);
+    result = CommandEngine::execute(generatedA,
+        "scale generate 1 C not_a_scale vary");
+    check(!result.ok && sessionFingerprint(generatedA) == before,
+        "invalid scale commands should leave the session transactional");
+}
+
 } // namespace
 
 int main()
@@ -1841,6 +2005,7 @@ int main()
     testSoloUnmuteAndNames();
     testFxCommands();
     testBurstCommands();
+    testScalePitchCommands();
     testPatternReshapeCommands();
     testDemoAndErrors();
 

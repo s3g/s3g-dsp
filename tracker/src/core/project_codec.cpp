@@ -2386,6 +2386,9 @@ JsonValue encodeSession(const ProjectSessionState& session,
         "$.session.gateMilliseconds", result);
     finiteRange(session.tempoScale, 0.25, 4.0,
         "$.session.tempoScale", result);
+    if (session.trackerRowJump < 1u || session.trackerRowJump > 16u)
+        setError(result, ProjectErrorCode::OutOfRange,
+            "$.session.trackerRowJump", "row jump must be 1..16");
     JsonValue output = JsonValue::objectValue();
     output.object["commandRngState"] = JsonValue::stringValue(
         std::to_string(session.commandRngState));
@@ -2396,6 +2399,7 @@ JsonValue encodeSession(const ProjectSessionState& session,
         session.songPlaybackEnabled);
     output.object["showMidiNoteValues"] = JsonValue::booleanValue(
         session.showMidiNoteValues);
+    output.object["trackerRowJump"] = number(session.trackerRowJump);
     output.object["playbackSeed"] = number(session.playbackSeed);
     return output;
 }
@@ -2430,6 +2434,13 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
         || !checkedUint32(*playbackSeed, candidate.playbackSeed,
             std::numeric_limits<uint32_t>::max(), "$.session.playbackSeed",
             result)) return false;
+    const auto rowJump = input.object.find("trackerRowJump");
+    if (rowJump != input.object.end()
+        && !checkedUint32(rowJump->second, candidate.trackerRowJump, 16u,
+            "$.session.trackerRowJump", result)) return false;
+    if (candidate.trackerRowJump < 1u)
+        return setError(result, ProjectErrorCode::OutOfRange,
+            "$.session.trackerRowJump", "row jump must be 1..16");
     if (!checkedBoolean(*showMidi,
             candidate.showMidiNoteValues,
             "$.session.showMidiNoteValues", result)) return false;

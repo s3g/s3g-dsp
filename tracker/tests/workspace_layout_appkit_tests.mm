@@ -25,6 +25,8 @@
 - (void)sequenceActionSelected:(NSMenuItem*)sender;
 - (NSMenu*)sequenceConditionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
+- (NSMenu*)noteMenuForTrack:(std::size_t)track row:(std::size_t)row;
+- (NSMenu*)velocityMenuForTrack:(std::size_t)track row:(std::size_t)row;
 - (void)sequenceConditionSelected:(NSMenuItem*)sender;
 - (NSString*)displayedPatternId;
 - (NSUInteger)displayedLaneCount;
@@ -44,6 +46,7 @@
 - (NSPoint)geometryPointAtRadius:(CGFloat)radius angle:(CGFloat)angle;
 - (NSRect)canvasRect;
 - (NSRect)laneCyclePanelRect;
+- (NSRect)editPanelRect;
 - (NSRect)viewPanelRect;
 - (NSRect)laneMenuBoxRect;
 - (NSRect)directionMenuBoxRect;
@@ -52,6 +55,10 @@
 - (NSRect)revealHeaderButtonRect;
 - (NSRect)fitBurstGatesHeaderButtonRect;
 - (NSRect)burstPreviewHeaderButtonRect;
+- (NSRect)pitchPreviewHeaderButtonRect;
+- (NSRect)pitchTransposeSliderTrack;
+- (NSRect)pitchInvertToggleRect;
+- (NSRect)pitchReverseToggleRect;
 - (NSRect)lengthSliderTrack;
 - (NSRect)defaultNoteSliderTrack;
 - (NSRect)rotateSliderTrack;
@@ -66,6 +73,11 @@
 - (BOOL)revealBeadAtPoint:(NSPoint)point;
 - (void)selectLane:(std::size_t)lane;
 - (void)selectBurstSlot:(std::size_t)slot;
+- (void)openPitchMapFirstRow:(std::size_t)firstRow
+    lastRow:(std::size_t)lastRow;
+- (void)applyCurrentPitchMap;
+- (NSArray<NSString*>*)itemsForGeometryMenu:(NSInteger)menu;
+- (NSRect)pitchGraphRect;
 - (NSRect)burstMatrixRect;
 - (NSRect)burstMatrixRowRect:(std::size_t)row;
 - (NSRect)burstMatrixCellRect:(std::size_t)row field:(NSInteger)field;
@@ -179,14 +191,17 @@ int main()
         int restartRequests = 0;
         int trackResyncRequests = 0;
         int stepRecordModeRequests = 0;
+        int viewPreferenceRequests = 0;
         int trackerRevealRequests = 0;
         int burstPreviewRequests = 0;
+        int pitchPreviewRequests = 0;
         int patternPreviewRequests = 0;
         int patternPreviewClearRequests = 0;
         int patternVariantRequests = 0;
         s3g::tracker::Pattern previewedPattern;
         s3g::tracker::Pattern createdVariant;
         s3g::tracker::BurstDefinition previewedBurst;
+        std::vector<s3g::tracker::PitchPreviewEvent> previewedPitch;
         uint8_t previewedChannel = 0u;
         double previewedBpm = 0.0;
         uint32_t previewedTicksPerBeat = 0u;
@@ -217,11 +232,23 @@ int main()
             ++stepRecordModeRequests;
             state.midiStepRecordMode = mode;
         };
+        callbacks.viewPreferencesChanged = [&] {
+            ++viewPreferenceRequests;
+        };
         callbacks.showTrackerPage = [&] { ++trackerRevealRequests; };
         callbacks.previewBurst = [&](const s3g::tracker::BurstDefinition& burst,
             uint8_t channel, double bpm, uint32_t ticksPerBeat) {
             ++burstPreviewRequests;
             previewedBurst = burst;
+            previewedChannel = channel;
+            previewedBpm = bpm;
+            previewedTicksPerBeat = ticksPerBeat;
+        };
+        callbacks.previewPitchSequence = [&](
+            const std::vector<s3g::tracker::PitchPreviewEvent>& events,
+            uint8_t channel, double bpm, uint32_t ticksPerBeat) {
+            ++pitchPreviewRequests;
+            previewedPitch = events;
             previewedChannel = channel;
             previewedBpm = bpm;
             previewedTicksPerBeat = ticksPerBeat;
@@ -293,6 +320,8 @@ int main()
         NSButton* redoButton = [controller valueForKey:@"redoButton"];
         NSButton* noteDisplayButton = [controller
             valueForKey:@"noteDisplayButton"];
+        NSPopUpButton* stepJumpPopup = [controller
+            valueForKey:@"stepJumpPopup"];
         NSButton* zoomOutButton = [controller valueForKey:@"zoomOutButton"];
         NSButton* zoomActualButton = [controller
             valueForKey:@"zoomActualButton"];
@@ -392,7 +421,7 @@ int main()
         check(envelopePlaybackOverlay.wantsLayer
                 && geometryPlaybackOverlay.wantsLayer,
             "animated envelope and geometry marks should use isolated overlays");
-        check(geometryViewMode.numberOfItems == 7u
+        check(geometryViewMode.numberOfItems == 8u
                 && [[geometryViewMode itemAtIndex:0].title
                     isEqualToString:@"RING FIELD"]
                 && [[geometryViewMode itemAtIndex:1].title
@@ -407,9 +436,11 @@ int main()
                     isEqualToString:@"COMPOSITE RING"]
                 && [[geometryViewMode itemAtIndex:6].title
                     isEqualToString:@"BURST EDITOR"]
+                && [[geometryViewMode itemAtIndex:7].title
+                    isEqualToString:@"PITCH MAP"]
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == 0,
-            "Geometry should default to Ring Field and expose diagnostics plus the Burst workspace");
+            "Geometry should default to Ring Field and expose diagnostics, Burst, and Pitch Map workspaces");
         auto& matrixBurst = state.session.pattern.bursts[0u];
         matrixBurst.name = "MATRIX TEST";
         matrixBurst.eventCount = 2u;
@@ -1202,10 +1233,10 @@ int main()
         NSArray<NSString*>* geometryDescriptions = @[
             @"Ring field", @"Active pulses", @"All steps underlay",
             @"Phase spokes", @"Lane focus", @"Composite ring",
-            @"Burst editor"
+            @"Burst editor", @"Pitch map"
         ];
         BOOL geometryModesDispatch = YES;
-        for (NSInteger mode = 1; mode < 7; ++mode) {
+        for (NSInteger mode = 1; mode < 8; ++mode) {
             geometryPlaybackOverlay.needsDisplay = NO;
             [geometryPage openGeometryMenu:3];
             [geometryPage applyGeometryMenuSelection:mode];
@@ -1227,6 +1258,65 @@ int main()
         }
         check(geometryModesDispatch,
             "every Geometry view should dispatch, with All Steps alone exposing the complete row-node lattice");
+        state.session.selectedTrack = 0u;
+        auto& pitchTrack = state.session.pattern.tracks[0u];
+        pitchTrack.noteColumn.length = std::max<std::size_t>(
+            pitchTrack.noteColumn.length, 4u);
+        pitchTrack.notes.resize(std::max<std::size_t>(
+            pitchTrack.notes.size(), 4u), s3g::tracker::NoteCell::rest());
+        pitchTrack.notes[0u] = s3g::tracker::NoteCell::withNote(60u);
+        pitchTrack.notes[1u] = s3g::tracker::NoteCell::withNote(61u);
+        pitchTrack.notes[2u] = s3g::tracker::NoteCell::withNote(64u);
+        pitchTrack.notes[3u] = s3g::tracker::NoteCell::withNote(67u);
+        [geometryPage openPitchMapFirstRow:0u lastRow:3u];
+        [geometryPage openGeometryMenu:8];
+        [geometryPage applyGeometryMenuSelection:0u];
+        [geometryPage openGeometryMenu:9];
+        [geometryPage applyGeometryMenuSelection:1u];
+        [geometryPage openGeometryMenu:10];
+        [geometryPage applyGeometryMenuSelection:0u];
+        const NSRect pitchContourPanel = [geometryPage editPanelRect];
+        const NSRect pitchViewPanel = [geometryPage viewPanelRect];
+        check(NSContainsRect(pitchContourPanel,
+                    [geometryPage pitchTransposeSliderTrack])
+                && NSContainsRect(pitchContourPanel,
+                    [geometryPage pitchInvertToggleRect])
+                && NSContainsRect(pitchContourPanel,
+                    [geometryPage pitchReverseToggleRect])
+                && NSMaxY(pitchContourPanel) < NSMinY(pitchViewPanel),
+            "Pitch Map transform controls should remain inside the expanded Contour toolbox without overlapping View");
+        const NSRect pitchPreviewButton = [geometryPage
+            pitchPreviewHeaderButtonRect];
+        const BOOL previewedPitchMap = [geometryPage handleToolboxClickAtPoint:
+            NSMakePoint(NSMidX(pitchPreviewButton),
+                NSMidY(pitchPreviewButton))];
+        check(previewedPitchMap && pitchPreviewRequests == 1
+                && previewedPitch.size() == 4u
+                && previewedPitch[0u].row == 0u
+                && previewedPitch[1u].note == 60u
+                && previewedChannel == pitchTrack.midiChannel
+                && near(previewedBpm, state.session.transport.bpm)
+                && previewedTicksPerBeat
+                    == state.session.transport.ticksPerBeat,
+            "stopped Pitch Map Preview should dispatch the fitted note contour with row timing and velocity");
+        state.playing = true;
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        check(pitchPreviewRequests == 1,
+            "Pitch Map Preview should remain unavailable while transport is running");
+        state.playing = false;
+        const int changesBeforePitchMap = patternChangeRequests;
+        [geometryPage applyCurrentPitchMap];
+        check([[geometryPage valueForKey:@"geometryViewMode"] integerValue]
+                    == 7
+                && [geometryPage itemsForGeometryMenu:9].count == 101u
+                && [geometryPage itemsForGeometryMenu:10].count == 7u
+                && [[geometryPage itemsForGeometryMenu:10][6u]
+                    isEqualToString:@"MANUAL"]
+                && NSWidth([geometryPage pitchGraphRect]) > 400.0
+                && pitchTrack.notes[1u].note == 60u
+                && patternChangeRequests == changesBeforePitchMap + 1,
+            "Pitch Map should use the shared scale catalog, selected rows, visual canvas, and one pattern commit");
         [geometryPage openGeometryMenu:3];
         [geometryPage applyGeometryMenuSelection:0u];
         [window displayIfNeeded];
@@ -1333,6 +1423,8 @@ int main()
                 && [inputPrimaryControls.arrangedSubviews
                     containsObject:noteDisplayButton]
                 && [inputPrimaryControls.arrangedSubviews
+                    containsObject:stepJumpPopup]
+                && [inputPrimaryControls.arrangedSubviews
                     containsObject:zoomOutButton]
                 && [inputPrimaryControls.arrangedSubviews
                     containsObject:zoomActualButton]
@@ -1395,6 +1487,8 @@ int main()
                     s3gUsesCanvasMenu]
                 && [(S3GTrackerPopupButton*)midiStepRecordPopup
                     s3gUsesCanvasMenu]
+                && [(S3GTrackerPopupButton*)stepJumpPopup
+                    s3gUsesCanvasMenu]
                 && [(S3GTrackerActionButton*)playButton
                     s3gUsesSuiteStyle]
                 && [(S3GTrackerActionButton*)playButton
@@ -1404,6 +1498,33 @@ int main()
                 && [(S3GTrackerActionButton*)deletePatternButton
                     s3gUsesNeutralTitle],
             "Tracker header menus and actions should use shared controls and one neutral title level");
+        check(stepJumpPopup.numberOfItems == 16u
+                && [stepJumpPopup.selectedItem.title
+                    isEqualToString:@"JUMP 1"],
+            "Tracker View should expose a one-through-sixteen row-jump menu defaulting to one");
+        const int preferencesBeforeJump = viewPreferenceRequests;
+        [stepJumpPopup selectItemAtIndex:2u];
+        [stepJumpPopup sendAction:stepJumpPopup.action
+            to:stepJumpPopup.target];
+        state.session.selectedRow = 5u;
+        [grid.documentView keyDown:keyEvent(window, @"", 125u, 0u)];
+        const bool jumpedDown = state.session.selectedRow == 8u;
+        [grid.documentView keyDown:keyEvent(window, @"", 126u, 0u)];
+        const bool jumpedUp = state.session.selectedRow == 5u;
+        state.songPlaybackActive = true;
+        [grid.documentView keyDown:keyEvent(window, @"", 125u, 0u)];
+        const bool jumpedDuringSong = state.session.selectedRow == 8u;
+        state.songPlaybackActive = false;
+        check(state.trackerRowJump == 3u && jumpedDown && jumpedUp
+                && jumpedDuringSong
+                && viewPreferenceRequests == preferencesBeforeJump + 1,
+            "JUMP 3 should persist as a view preference and move Up/Down by three rows in editing and Song-follow views");
+        [stepJumpPopup selectItemAtIndex:0u];
+        [stepJumpPopup sendAction:stepJumpPopup.action
+            to:stepJumpPopup.target];
+        check(state.trackerRowJump == 1u
+                && viewPreferenceRequests == preferencesBeforeJump + 2,
+            "the row-jump menu should return navigation to one-row steps");
         [sequenceColumnsButton performClick:nil];
         [root layoutSubtreeIfNeeded];
         check(state.sequenceColumnsExpanded
@@ -1505,29 +1626,47 @@ int main()
         NSEvent* rowMenuEvent = mouseEvent(window, NSEventTypeRightMouseDown,
             gutterRowPoint(8u), 0u);
         NSMenu* rowMenu = [rowGutter menuForEvent:rowMenuEvent];
-        check(rowMenu.numberOfItems == 5u
+        check(rowMenu.numberOfItems == 10u
                 && [rowMenu.itemArray[0u].title
                     isEqualToString:@"INSERT 4 ROWS ABOVE"]
                 && [rowMenu.itemArray[1u].title
+                    isEqualToString:@"INSERT 4 ROWS BELOW"]
+                && [rowMenu.itemArray[2u].title
                     isEqualToString:@"DELETE 4 ROWS"]
-                && [rowMenu.itemArray[3u].title
+                && [rowMenu.itemArray[4u].title
                     isEqualToString:@"COPY 4 ROWS"]
-                && !rowMenu.itemArray[4u].enabled,
-            "the row-number menu should apply insert, delete, copy, and paste to the selected row range");
-        [NSApp sendAction:rowMenu.itemArray[3u].action
-            to:rowMenu.itemArray[3u].target from:rowMenu.itemArray[3u]];
-        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
-        const int changesBeforeRowPaste = patternChangeRequests;
+                && !rowMenu.itemArray[5u].enabled
+                && [rowMenu.itemArray[7u].title
+                    isEqualToString:@"QUANTIZE MT TO ROW GRID"]
+                && [rowMenu.itemArray[8u].title
+                    isEqualToString:@"HUMANIZE HIT PLACEMENT"]
+                && rowMenu.itemArray[8u].submenu.numberOfItems == 3u
+                && [rowMenu.itemArray[8u].submenu.itemArray[0u].title
+                    isEqualToString:@"10%"]
+                && [rowMenu.itemArray[8u].submenu.itemArray[2u].title
+                    isEqualToString:@"50%"]
+                && [rowMenu.itemArray[9u].title
+                    isEqualToString:@"RHYTHM"]
+                && rowMenu.itemArray[9u].submenu.numberOfItems == 6u
+                && rowMenu.itemArray[9u].submenu.itemArray[4u]
+                    .submenu.numberOfItems == 3u
+                && rowMenu.itemArray[9u].submenu.itemArray[5u]
+                    .submenu.numberOfItems == 3u,
+            "the row-number menu should keep structural and pattern-wide rhythm actions without column-owned pitch or velocity transforms");
         [NSApp sendAction:rowMenu.itemArray[4u].action
             to:rowMenu.itemArray[4u].target from:rowMenu.itemArray[4u]];
+        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        const int changesBeforeRowPaste = patternChangeRequests;
+        [NSApp sendAction:rowMenu.itemArray[5u].action
+            to:rowMenu.itemArray[5u].target from:rowMenu.itemArray[5u]];
         check(state.session.pattern.visibleRows == 68u
                 && state.session.pattern.tracks[0u].notes[7u].note == 67u
                 && state.session.pattern.tracks[0u].notes[10u].note == 70u
                 && patternChangeRequests == changesBeforeRowPaste + 1,
             "pasting copied rows should insert the complete multi-row range once across the pattern");
         rowMenu = [rowGutter menuForEvent:rowMenuEvent];
-        [NSApp sendAction:rowMenu.itemArray[1u].action
-            to:rowMenu.itemArray[1u].target from:rowMenu.itemArray[1u]];
+        [NSApp sendAction:rowMenu.itemArray[2u].action
+            to:rowMenu.itemArray[2u].target from:rowMenu.itemArray[2u]];
         check(state.session.pattern.visibleRows == 64u
                 && state.session.pattern.tracks[0u].notes[7u].note == 67u
                 && state.session.pattern.tracks[0u].notes[10u].note == 70u,
@@ -1545,11 +1684,107 @@ int main()
                 && state.session.pattern.tracks[0u].notes[11u].note == 67u,
             "inserting from a multi-row selection should create the same number of blank rows above it");
         rowMenu = [rowGutter menuForEvent:rowMenuEvent];
-        [NSApp sendAction:rowMenu.itemArray[1u].action
-            to:rowMenu.itemArray[1u].target from:rowMenu.itemArray[1u]];
+        [NSApp sendAction:rowMenu.itemArray[2u].action
+            to:rowMenu.itemArray[2u].target from:rowMenu.itemArray[2u]];
         check(state.session.pattern.visibleRows == 64u
                 && state.session.pattern.tracks[0u].notes[7u].note == 67u,
             "deleting the inserted range should restore the original row positions");
+        [rowGutter mouseDown:mouseEvent(window, NSEventTypeLeftMouseDown,
+            gutterRowPoint(10u), NSEventModifierFlagShift)];
+        [rowGutter mouseUp:mouseEvent(window, NSEventTypeLeftMouseUp,
+            gutterRowPoint(10u), NSEventModifierFlagShift)];
+        rowMenu = [rowGutter menuForEvent:rowMenuEvent];
+        [NSApp sendAction:rowMenu.itemArray[1u].action
+            to:rowMenu.itemArray[1u].target from:rowMenu.itemArray[1u]];
+        check(state.session.pattern.visibleRows == 68u
+                && state.session.pattern.tracks[0u].notes[7u].note == 67u
+                && state.session.pattern.tracks[0u].notes[10u].note == 70u
+                && state.session.pattern.tracks[0u].notes[11u].state
+                    == s3g::tracker::NoteCellState::Rest,
+            "inserting below a multi-row selection should preserve the selected rows and add the same number after them");
+        NSEvent* insertedBelowMenuEvent = mouseEvent(window,
+            NSEventTypeRightMouseDown, gutterRowPoint(12u), 0u);
+        rowMenu = [rowGutter menuForEvent:insertedBelowMenuEvent];
+        [NSApp sendAction:rowMenu.itemArray[2u].action
+            to:rowMenu.itemArray[2u].target from:rowMenu.itemArray[2u]];
+        check(state.session.pattern.visibleRows == 64u
+                && state.session.pattern.tracks[0u].notes[7u].note == 67u,
+            "deleting rows inserted below should restore the pattern");
+
+        [grid.documentView selectWholeRowsFrom:7u to:10u];
+        auto& rowEditPair = rowEditTrack.fxPairs[0u];
+        rowEditPair.actions.resize(64u,
+            s3g::tracker::FxActionCell::empty());
+        rowEditPair.values.resize(64u,
+            s3g::tracker::FxValueCell::previous());
+        rowEditPair.actions[8u] = s3g::tracker::FxActionCell::sequencer(
+            s3g::tracker::SequencerAction::MicroTime);
+        rowEditPair.values[8u]
+            = s3g::tracker::FxValueCell::withValue(0.2f);
+        rowEditPair.actions[12u] = s3g::tracker::FxActionCell::sequencer(
+            s3g::tracker::SequencerAction::MicroTime);
+        rowEditPair.values[12u]
+            = s3g::tracker::FxValueCell::withValue(0.9f);
+        NSEvent* quantizeMenuEvent = mouseEvent(window,
+            NSEventTypeRightMouseDown, gutterRowPoint(8u), 0u);
+        rowMenu = [rowGutter menuForEvent:quantizeMenuEvent];
+        const int changesBeforeQuantize = patternChangeRequests;
+        [NSApp sendAction:rowMenu.itemArray[7u].action
+            to:rowMenu.itemArray[7u].target from:rowMenu.itemArray[7u]];
+        check(near(rowEditPair.values[8u].normalized, 0.5, 0.0001),
+            "row quantize should reset MT inside the selected row range");
+        check(near(rowEditPair.values[12u].normalized, 0.9, 0.0001),
+            "row quantize should preserve MT outside the selected row range");
+        check(patternChangeRequests == changesBeforeQuantize + 1,
+            "row quantize should commit one edit");
+
+        const int changesBeforeSubmenus = patternChangeRequests;
+        [grid.documentView beginGridSelectionAtTrack:0u
+            field:0u row:7u page:0u];
+        [grid.documentView extendGridSelectionToTrack:0u
+            field:0u row:10u];
+        NSMenu* noteMenu = [grid.documentView noteMenuForTrack:0u row:8u];
+        check(noteMenu.numberOfItems == 2u
+                && [noteMenu.itemArray[0u].title isEqualToString:@"PITCH"]
+                && noteMenu.itemArray[0u].submenu.numberOfItems == 9u
+                && [noteMenu.itemArray[1u].title isEqualToString:@"BURST"],
+            "a NOTE-column selection should own Pitch and Burst context actions");
+        NSMenuItem* transposeUp
+            = noteMenu.itemArray[0u].submenu.itemArray[0u];
+        [NSApp sendAction:transposeUp.action to:transposeUp.target
+            from:transposeUp];
+        check(rowEditTrack.notes[7u].note == 68u
+                && rowEditTrack.notes[10u].note == 71u
+                && patternChangeRequests == changesBeforeSubmenus + 1,
+            "the NOTE-column Pitch submenu should transpose only the selected lane and rows in one edit");
+
+        rowEditTrack.velocities[8u]
+            = s3g::tracker::ValueCell::withValue(0.8f);
+        [grid.documentView beginGridSelectionAtTrack:0u
+            field:1u row:7u page:0u];
+        [grid.documentView extendGridSelectionToTrack:0u
+            field:1u row:10u];
+        NSMenu* velocityMenu = [grid.documentView
+            velocityMenuForTrack:0u row:8u];
+        check(velocityMenu.numberOfItems == 8u,
+            "a VOL-column selection should expose velocity transforms directly");
+        NSMenuItem* scaleVelocity = velocityMenu.itemArray[0u];
+        [NSApp sendAction:scaleVelocity.action to:scaleVelocity.target
+            from:scaleVelocity];
+        check(near(rowEditTrack.velocities[8u].normalized, 0.6, 0.0001)
+                && patternChangeRequests == changesBeforeSubmenus + 2,
+            "the VOL-column menu should scale written values only inside its lane selection");
+
+        [grid.documentView selectWholeRowsFrom:7u to:10u];
+        rowMenu = [rowGutter menuForEvent:quantizeMenuEvent];
+        NSMenuItem* reverseNotes
+            = rowMenu.itemArray[9u].submenu.itemArray[0u];
+        [NSApp sendAction:reverseNotes.action to:reverseNotes.target
+            from:reverseNotes];
+        check(rowEditTrack.notes[7u].note == 71u
+                && rowEditTrack.notes[10u].note == 68u
+                && patternChangeRequests == changesBeforeSubmenus + 3,
+            "the row Rhythm submenu should reverse NOTE cells inside the selected range in one edit");
         [grid.contentView scrollToPoint:NSZeroPoint];
         [grid reflectScrolledClipView:grid.contentView];
         patternChangeRequests = 0;

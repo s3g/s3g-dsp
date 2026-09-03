@@ -214,7 +214,7 @@ NSAttributedString* helpDocument()
         @[ @"QUICK ENTRY", @"In NOTE, X toggles an anchored hit; R writes RPT; H writes HLD; K writes KIL. Delete clears the active cell or drag selection. [ and ] adjust VOL/V values. M toggles the selected column mute." ],
         @[ @"SEQUENCING + VALUES", @"Right-click SEQ1/SEQ2 to choose an action or CC, or double-click and type its code. VOL and sequence values use 0.000–1.000; CC also accepts 0–127. STP holds values; LIN emits bounded intermediate CC values." ],
         @[ @"SELECTION + HISTORY", @"Drag cells for a rectangle. Control-A/C/X/V selects all, copies, cuts, and pastes. Control-Z and Control-Shift-Z undo and redo Tracker states; Command-Z remains REAPER's." ],
-        @[ @"NAVIGATION", @"Left/Right moves between fields; Up/Down moves rows; Shift-Left/Right moves lanes. Page Up/Down, Home/End, and F9–F12 jump through the pattern. Control-=/−/0 changes zoom. < and > switch to the previous or next panel unless text entry or a menu is active." ],
+        @[ @"NAVIGATION", @"Left/Right moves between fields; Up/Down moves by the View toolbox JUMP value; Shift-Left/Right moves lanes. Page Up/Down, Home/End, and F9–F12 jump through the pattern. Control-=/−/0 changes zoom. < and > switch to the previous or next panel unless text entry or a menu is active." ],
         @[ @"DIRECTIONS + LOOP", @"FORWARD (>), REVERSE (<), PALINDROME (<>), RANDOM (header: RND). Drag the fixed row-number gutter or use Shift-Up/Down to set the global loop region." ],
     ]);
     appendGuideSection(document, @"MIDI + LANE ROUTING", @[

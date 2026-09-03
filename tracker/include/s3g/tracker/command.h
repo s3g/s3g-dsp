@@ -55,6 +55,30 @@ uint8_t laneDefaultNote(const TrackerSession& session,
 bool setLaneDefaultNote(TrackerSession& session, std::size_t lane,
     uint8_t note, std::size_t* replacedNoteCount = nullptr);
 
+// Selection-aware forms shared by the live command engine and the Tracker
+// row-gutter menu. Row bounds are zero-based and inclusive. Humanize never
+// moves a hit outside the requested range; quantize resets only explicit MT
+// values and leaves deliberate Delay, Flam, Ratchet, and Burst timing intact.
+std::size_t humanizeNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double amount);
+std::size_t quantizeMicroTimeRows(TrackerSession& session,
+    std::size_t firstRow, std::size_t lastRow);
+std::size_t transposeNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, int semitones);
+std::size_t reverseNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow);
+std::size_t rotateNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, int64_t steps);
+std::size_t thinNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double amount);
+std::size_t densityNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double density);
+std::size_t scaleVelocityRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double factor);
+std::size_t randomizeVelocityRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow,
+    uint8_t minimum, uint8_t maximum);
+
 enum class CommandEffect : uint32_t {
     None = 0u,
     PatternChanged = 1u << 0u,

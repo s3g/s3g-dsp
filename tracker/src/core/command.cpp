@@ -1,6 +1,9 @@
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/pattern_reshape.h"
+#include "s3g/tracker/pitch_map.h"
+
+#include "s3g_musical_scales.h"
 
 #include <algorithm>
 #include <array>
@@ -132,6 +135,69 @@ bool parseFiniteDouble(std::string_view token, double& output)
     if (end != storage.c_str() + storage.size() || !std::isfinite(value))
         return false;
     output = value;
+    return true;
+}
+
+bool parsePitchClass(std::string_view token, uint8_t& output)
+{
+    uint32_t numeric = 0u;
+    if (parseUnsigned(token, numeric) && numeric < 12u) {
+        output = static_cast<uint8_t>(numeric);
+        return true;
+    }
+    uint8_t midiNote = 0u;
+    if (parseMidiNote(token, midiNote)) {
+        output = static_cast<uint8_t>(midiNote % 12u);
+        return true;
+    }
+    const auto text = asciiLower(token);
+    if (text.empty() || text.size() > 2u) return false;
+    int pitchClass = 0;
+    switch (text[0]) {
+    case 'c': pitchClass = 0; break;
+    case 'd': pitchClass = 2; break;
+    case 'e': pitchClass = 4; break;
+    case 'f': pitchClass = 5; break;
+    case 'g': pitchClass = 7; break;
+    case 'a': pitchClass = 9; break;
+    case 'b': pitchClass = 11; break;
+    default: return false;
+    }
+    if (text.size() == 2u) {
+        if (text[1] == '#') ++pitchClass;
+        else if (text[1] == 'b') --pitchClass;
+        else return false;
+    }
+    output = static_cast<uint8_t>((pitchClass + 12) % 12);
+    return true;
+}
+
+bool parseMusicalScale(std::string_view token, uint32_t& output)
+{
+    uint32_t numeric = 0u;
+    if (parseUnsigned(token, numeric) && numeric < s3g::kMusicalScaleCount) {
+        output = numeric;
+        return true;
+    }
+    std::string name(token);
+    std::replace(name.begin(), name.end(), '_', ' ');
+    return s3g::musicalScaleValueFromText(name.c_str(), output);
+}
+
+bool parsePitchContour(std::string_view token, PitchContour& output)
+{
+    const auto text = asciiLower(token);
+    if (text == "fit") output = PitchContour::Fit;
+    else if (text == "rise" || text == "up") output = PitchContour::Rise;
+    else if (text == "fall" || text == "down") output = PitchContour::Fall;
+    else if (text == "pendulum" || text == "updown")
+        output = PitchContour::Pendulum;
+    else if (text == "walk" || text == "randomwalk")
+        output = PitchContour::RandomWalk;
+    else if (text == "vary" || text == "variation"
+        || text == "existing") output = PitchContour::VaryExisting;
+    else if (text == "manual") output = PitchContour::Manual;
+    else return false;
     return true;
 }
 
@@ -1363,27 +1429,6 @@ std::size_t normalizedRotation(int64_t amount, std::size_t length)
     auto normalized = amount % signedLength;
     if (normalized < 0) normalized += signedLength;
     return static_cast<std::size_t>(normalized);
-}
-
-void rotateNotes(TrackerSession& session, std::size_t lane, int64_t amount)
-{
-    auto& track = session.pattern.tracks[lane];
-    const auto length = track.noteColumn.length;
-    ensureNoteStorage(session, track, length);
-    const auto rotation = normalizedRotation(amount, length);
-    const auto source = std::vector<NoteCell>(track.notes.begin(),
-        track.notes.begin() + static_cast<std::ptrdiff_t>(length));
-    for (std::size_t row = 0u; row < length; ++row)
-        track.notes[(row + rotation) % length] = source[row];
-}
-
-void reverseNotes(TrackerSession& session, std::size_t lane)
-{
-    auto& track = session.pattern.tracks[lane];
-    const auto length = track.noteColumn.length;
-    ensureNoteStorage(session, track, length);
-    std::reverse(track.notes.begin(),
-        track.notes.begin() + static_cast<std::ptrdiff_t>(length));
 }
 
 bool noteCellIsHit(const NoteCell& cell) noexcept
@@ -3102,6 +3147,141 @@ CommandResult executeTokens(TrackerSession& session,
             CommandEffect::PatternChanged);
     }
 
+    if (verb == "scale") {
+        if (tokens.size() < 5u)
+            return failure("Usage: scale <fit|generate> <target> <root|auto> <scale|auto> [contour] [rows first last] [range low high] [leap 1..12] [variation 0..1] [seed number] [anchors on|off] [transpose -24..24] [invert on|off] [reverse on|off]");
+        const auto operation = asciiLower(tokens[1]);
+        if (operation != "fit" && operation != "generate")
+            return failure("Scale operation must be fit or generate.");
+        std::size_t lane = 0u;
+        std::string error;
+        if (!parseLane(session, tokens[2], lane, error))
+            return failure(std::move(error));
+        const auto& track = session.pattern.tracks[lane];
+        const auto length = std::min(track.noteColumn.length,
+            track.notes.size());
+        if (length == 0u)
+            return failure("Cannot scale a NOTE column with zero active length.");
+        std::size_t firstRow = 0u;
+        std::size_t lastRow = length - 1u;
+        const bool automaticRoot = asciiLower(tokens[3]) == "auto";
+        const bool automaticScale = asciiLower(tokens[4]) == "auto";
+        PitchMapSettings settings;
+        settings.contour = operation == "fit"
+            ? PitchContour::Fit : PitchContour::VaryExisting;
+        if (!automaticRoot
+            && !parsePitchClass(tokens[3], settings.rootPitchClass))
+            return failure("Scale root must be AUTO, pitch class C..B, MIDI 0..11, or a note name.");
+        if (!automaticScale && !parseMusicalScale(tokens[4], settings.scale))
+            return failure("Unknown scale name; use underscores for spaces, such as pentatonic_minor.");
+        std::size_t cursor = 5u;
+        if (operation == "generate" && cursor < tokens.size()) {
+            PitchContour contour;
+            if (parsePitchContour(tokens[cursor], contour)) {
+                settings.contour = contour;
+                ++cursor;
+            }
+        }
+        bool explicitRange = false;
+        while (cursor < tokens.size()) {
+            const auto option = asciiLower(tokens[cursor++]);
+            if (option == "rows") {
+                if (cursor + 1u >= tokens.size()
+                    || !parseRow(tokens[cursor], firstRow, error)
+                    || !parseRow(tokens[cursor + 1u], lastRow, error))
+                    return failure(error.empty()
+                        ? "Scale rows need one-based first and last rows."
+                        : std::move(error));
+                cursor += 2u;
+                if (firstRow > lastRow)
+                    return failure("Scale row end cannot precede its start.");
+            } else if (option == "range") {
+                if (cursor + 1u >= tokens.size()
+                    || !parseMidiNote(tokens[cursor], settings.minimumNote)
+                    || !parseMidiNote(tokens[cursor + 1u],
+                        settings.maximumNote))
+                    return failure("Scale range needs two MIDI values or note names.");
+                cursor += 2u;
+                explicitRange = true;
+                if (settings.minimumNote > settings.maximumNote)
+                    return failure("Scale range high note cannot be below its low note.");
+            } else if (option == "leap") {
+                uint32_t leap = 0u;
+                if (cursor >= tokens.size()
+                    || !parseUnsigned(tokens[cursor++], leap)
+                    || leap < 1u || leap > 12u)
+                    return failure("Scale leap must be 1..12 degrees.");
+                settings.maximumLeapDegrees = static_cast<uint8_t>(leap);
+            } else if (option == "variation" || option == "var") {
+                double amount = 0.0;
+                if (cursor >= tokens.size()
+                    || !parseFiniteDouble(tokens[cursor++], amount)
+                    || amount < 0.0 || amount > 100.0)
+                    return failure("Scale variation must be 0..1 or 0..100 percent.");
+                if (amount > 1.0) amount /= 100.0;
+                settings.variation = static_cast<float>(amount);
+            } else if (option == "seed") {
+                uint32_t seed = 0u;
+                if (cursor >= tokens.size()
+                    || !parseUnsigned(tokens[cursor++], seed))
+                    return failure("Scale seed must be an unsigned whole number.");
+                settings.seed = seed;
+            } else if (option == "anchors") {
+                if (cursor >= tokens.size())
+                    return failure("Scale anchors must be on or off.");
+                const auto value = asciiLower(tokens[cursor++]);
+                if (value == "on") settings.preserveEndpoints = true;
+                else if (value == "off") settings.preserveEndpoints = false;
+                else return failure("Scale anchors must be on or off.");
+            } else if (option == "transpose" || option == "trans") {
+                int64_t semitones = 0;
+                if (cursor >= tokens.size()
+                    || !parseSigned(tokens[cursor++], semitones)
+                    || semitones < -24 || semitones > 24)
+                    return failure("Scale transpose must be -24..24 semitones.");
+                settings.transposeSemitones = static_cast<int8_t>(semitones);
+            } else if (option == "invert" || option == "reverse") {
+                if (cursor >= tokens.size())
+                    return failure("Scale invert and reverse options must be on or off.");
+                const auto value = asciiLower(tokens[cursor++]);
+                bool enabled = false;
+                if (value == "on") enabled = true;
+                else if (value != "off")
+                    return failure("Scale invert and reverse options must be on or off.");
+                if (option == "invert") settings.invertScaleDegrees = enabled;
+                else settings.reversePitchOrder = enabled;
+            } else {
+                return failure("Unknown scale option '" + option + "'.");
+            }
+        }
+        const auto evidence = analyzePitchMap(session.pattern, lane,
+            firstRow, lastRow);
+        if (evidence.noteCount == 0u && (automaticRoot || automaticScale))
+            return failure("AUTO scale analysis found no explicit NOTE pitches in that row range.");
+        if (automaticRoot) settings.rootPitchClass = evidence.rootPitchClass;
+        if (automaticScale) settings.scale = evidence.scale;
+        if (!explicitRange) {
+            settings.minimumNote = static_cast<uint8_t>(
+                evidence.minimumNote > 12u ? evidence.minimumNote - 12u : 0u);
+            settings.maximumNote = static_cast<uint8_t>(std::min<uint32_t>(
+                127u, static_cast<uint32_t>(evidence.maximumNote) + 12u));
+        }
+        const auto changed = applyPitchMap(session.pattern, lane,
+            firstRow, lastRow, settings);
+        const auto& scale = s3g::musicalScaleDefinition(settings.scale);
+        constexpr std::array<const char*, 12u> roots {{
+            "C", "C#", "D", "D#", "E", "F",
+            "F#", "G", "G#", "A", "A#", "B",
+        }};
+        return success(std::string(operation == "fit" ? "Fit " : "Generated ")
+                + std::to_string(changed) + " pitch(es) in "
+                + laneLabel(session, lane) + " to "
+                + roots[settings.rootPitchClass] + ' ' + scale.name
+                + " · " + pitchContourName(settings.contour) + '.',
+            changed > 0u ? CommandEffect::PatternChanged
+                         : CommandEffect::None);
+    }
+
     if (verb == "pitch" || verb == "defaultnote") {
         if (tokens.size() != 3u)
             return failure("Usage: pitch|defaultnote <lane|@alias> <MIDI note|note name>");
@@ -3835,15 +4015,8 @@ CommandResult executeTokens(TrackerSession& session,
         const auto length = std::clamp<std::size_t>(
             track.velocityColumn.length, 1u, kMaximumRows);
         ensureVelocityStorage(session, track, length);
-        const uint32_t span = maximum - minimum + 1u;
-        for (std::size_t row = 0u; row < length; ++row) {
-            const auto offset = static_cast<uint32_t>(std::min<double>(
-                static_cast<double>(span - 1u),
-                std::floor(nextCommandRandom(session)
-                    * static_cast<double>(span))));
-            track.velocities[row] = ValueCell::withValue(
-                static_cast<float>(minimum + offset) / 127.0f);
-        }
+        (void)randomizeVelocityRows(session, lane, 0u, length - 1u,
+            static_cast<uint8_t>(minimum), static_cast<uint8_t>(maximum));
         return success("Randomized " + laneLabel(session, lane)
                 + " VEL rows " + std::to_string(minimum) + "–"
                 + std::to_string(maximum) + ".",
@@ -4016,7 +4189,8 @@ CommandResult executeTokens(TrackerSession& session,
             return failure("Rotation must be a whole number.");
         if (session.pattern.tracks[lane].noteColumn.length == 0u)
             return failure("Cannot rotate a NOTE column with zero active length.");
-        rotateNotes(session, lane, amount);
+        const auto length = session.pattern.tracks[lane].noteColumn.length;
+        (void)rotateNoteRows(session, lane, 0u, length - 1u, amount);
         return success("Rotated " + laneLabel(session, lane) + " by "
                 + std::to_string(amount) + " step(s).",
             CommandEffect::PatternChanged);
@@ -4028,7 +4202,8 @@ CommandResult executeTokens(TrackerSession& session,
         std::string error;
         if (!parseLane(session, tokens[1], lane, error))
             return failure(std::move(error));
-        reverseNotes(session, lane);
+        const auto length = session.pattern.tracks[lane].noteColumn.length;
+        (void)reverseNoteRows(session, lane, 0u, length - 1u);
         return success("Reversed " + laneLabel(session, lane) + '.',
             CommandEffect::PatternChanged);
     }
@@ -4118,44 +4293,16 @@ CommandResult executeTokens(TrackerSession& session,
         if (length == 0u)
             return failure("Cannot transform a NOTE column with zero active length.");
         ensureNoteStorage(session, track, length);
-        const auto pitch = anchorNote(session, lane);
         std::size_t changed = 0u;
         if (verb == "density") {
-            for (std::size_t row = 0u; row < length; ++row) {
-                if (nextCommandRandom(session) < amount) {
-                    if (!noteCellIsHit(track.notes[row]))
-                        track.notes[row] = NoteCell::withNote(pitch);
-                } else {
-                    track.notes[row] = NoteCell::rest();
-                }
-            }
+            changed = densityNoteRows(
+                session, lane, 0u, length - 1u, amount);
         } else if (verb == "thin") {
-            for (std::size_t row = 0u; row < length; ++row) {
-                if (noteCellIsHit(track.notes[row])
-                    && nextCommandRandom(session) < amount) {
-                    track.notes[row] = NoteCell::rest();
-                    ++changed;
-                }
-            }
+            changed = thinNoteRows(
+                session, lane, 0u, length - 1u, amount);
         } else {
-            const auto source = std::vector<NoteCell>(track.notes.begin(),
-                track.notes.begin() + static_cast<std::ptrdiff_t>(length));
-            auto next = source;
-            for (std::size_t row = 0u; row < length; ++row) {
-                if (!noteCellIsHit(source[row])
-                    || nextCommandRandom(session) >= amount) continue;
-                const int direction = nextCommandRandom(session) < 0.5
-                    ? -1 : 1;
-                const auto destination = static_cast<std::size_t>((
-                    static_cast<int64_t>(row) + direction
-                        + static_cast<int64_t>(length))
-                    % static_cast<int64_t>(length));
-                if (noteCellIsHit(source[destination])) continue;
-                next[destination] = source[row];
-                next[row] = NoteCell::rest();
-                ++changed;
-            }
-            std::copy(next.begin(), next.end(), track.notes.begin());
+            changed = humanizeNoteRows(
+                session, lane, 0u, length - 1u, amount);
         }
         return success(verb + " transformed " + laneLabel(session, lane)
                 + (verb == "density" ? "." : " (" + std::to_string(changed)
@@ -4199,6 +4346,250 @@ CommandResult executeTokens(TrackerSession& session,
 }
 
 } // namespace
+
+std::size_t humanizeNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double amount)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow)
+        return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const std::size_t length = std::min(
+        track.noteColumn.length, track.notes.size());
+    if (length == 0u || firstRow >= length) return 0u;
+    lastRow = std::min(lastRow, length - 1u);
+    amount = std::clamp(amount, 0.0, 1.0);
+    const std::size_t rangeLength = lastRow - firstRow + 1u;
+    if (rangeLength < 2u || amount <= 0.0) return 0u;
+
+    const auto source = std::vector<NoteCell>(track.notes.begin(),
+        track.notes.begin() + static_cast<std::ptrdiff_t>(length));
+    auto next = source;
+    std::size_t changed = 0u;
+    for (std::size_t row = firstRow; row <= lastRow; ++row) {
+        if (!noteCellIsHit(source[row])
+            || nextCommandRandom(session) >= amount) continue;
+        const int direction = nextCommandRandom(session) < 0.5 ? -1 : 1;
+        const auto local = static_cast<int64_t>(row - firstRow);
+        const auto wrapped = (local + direction
+            + static_cast<int64_t>(rangeLength))
+            % static_cast<int64_t>(rangeLength);
+        const auto destination = firstRow
+            + static_cast<std::size_t>(wrapped);
+        if (noteCellIsHit(source[destination])
+            || noteCellIsHit(next[destination])) continue;
+        next[destination] = source[row];
+        next[row] = NoteCell::rest();
+        ++changed;
+    }
+    std::copy(next.begin(), next.end(), track.notes.begin());
+    return changed;
+}
+
+std::size_t quantizeMicroTimeRows(TrackerSession& session,
+    std::size_t firstRow, std::size_t lastRow)
+{
+    if (firstRow > lastRow) return 0u;
+    std::size_t changed = 0u;
+    for (auto& track : session.pattern.tracks) {
+        for (auto& pair : track.fxPairs) {
+            if (firstRow >= pair.actions.size()) continue;
+            const auto end = std::min(lastRow, pair.actions.size() - 1u);
+            for (std::size_t row = firstRow; row <= end; ++row) {
+                const auto& action = pair.actions[row];
+                if (action.state != FxActionCellState::Sequencer
+                    || action.sequencerAction
+                        != SequencerAction::MicroTime) continue;
+                if (pair.values.size() <= row)
+                    pair.values.resize(row + 1u, FxValueCell::previous());
+                auto& value = pair.values[row];
+                if (value.state == FxValueCellState::Value
+                    && std::abs(value.normalized - 0.5f) <= 0.00001f)
+                    continue;
+                value = FxValueCell::withValue(0.5f);
+                pair.valueColumn.length = std::max(
+                    pair.valueColumn.length, row + 1u);
+                ++changed;
+            }
+        }
+    }
+    return changed;
+}
+
+std::size_t transposeNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, int semitones)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow
+        || semitones == 0) return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = std::min(track.noteColumn.length,
+        track.notes.size());
+    if (length == 0u || firstRow >= length) return 0u;
+    lastRow = std::min(lastRow, length - 1u);
+    std::size_t changed = 0u;
+    for (std::size_t row = firstRow; row <= lastRow; ++row) {
+        auto& cell = track.notes[row];
+        if (cell.state != NoteCellState::Note) continue;
+        const auto transposed = static_cast<uint8_t>(std::clamp(
+            static_cast<int>(cell.note) + semitones, 0, 127));
+        if (transposed == cell.note) continue;
+        cell.note = transposed;
+        ++changed;
+    }
+    return changed;
+}
+
+std::size_t reverseNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow)
+        return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = track.noteColumn.length;
+    if (length == 0u || firstRow >= length) return 0u;
+    ensureNoteStorage(session, track, length);
+    lastRow = std::min(lastRow, length - 1u);
+    const auto source = std::vector<NoteCell>(
+        track.notes.begin() + static_cast<std::ptrdiff_t>(firstRow),
+        track.notes.begin() + static_cast<std::ptrdiff_t>(lastRow + 1u));
+    std::size_t changed = 0u;
+    for (std::size_t offset = 0u; offset < source.size(); ++offset) {
+        const auto& replacement = source[source.size() - 1u - offset];
+        auto& destination = track.notes[firstRow + offset];
+        if (destination.state != replacement.state
+            || destination.note != replacement.note) ++changed;
+        destination = replacement;
+    }
+    return changed;
+}
+
+std::size_t rotateNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, int64_t steps)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow)
+        return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = track.noteColumn.length;
+    if (length == 0u || firstRow >= length) return 0u;
+    ensureNoteStorage(session, track, length);
+    lastRow = std::min(lastRow, length - 1u);
+    const auto rangeLength = lastRow - firstRow + 1u;
+    if (rangeLength < 2u) return 0u;
+    const auto rotation = normalizedRotation(steps, rangeLength);
+    if (rotation == 0u) return 0u;
+    const auto source = std::vector<NoteCell>(
+        track.notes.begin() + static_cast<std::ptrdiff_t>(firstRow),
+        track.notes.begin() + static_cast<std::ptrdiff_t>(lastRow + 1u));
+    std::size_t changed = 0u;
+    for (std::size_t offset = 0u; offset < rangeLength; ++offset) {
+        const auto destinationOffset = (offset + rotation) % rangeLength;
+        auto& destination = track.notes[firstRow + destinationOffset];
+        const auto& replacement = source[offset];
+        if (destination.state != replacement.state
+            || destination.note != replacement.note) ++changed;
+        destination = replacement;
+    }
+    return changed;
+}
+
+std::size_t thinNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double amount)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow)
+        return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = track.noteColumn.length;
+    if (length == 0u || firstRow >= length) return 0u;
+    ensureNoteStorage(session, track, length);
+    lastRow = std::min(lastRow, length - 1u);
+    amount = std::clamp(amount, 0.0, 1.0);
+    std::size_t changed = 0u;
+    for (std::size_t row = firstRow; row <= lastRow; ++row) {
+        if (noteCellIsHit(track.notes[row])
+            && nextCommandRandom(session) < amount) {
+            track.notes[row] = NoteCell::rest();
+            ++changed;
+        }
+    }
+    return changed;
+}
+
+std::size_t densityNoteRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double density)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow)
+        return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = track.noteColumn.length;
+    if (length == 0u || firstRow >= length) return 0u;
+    ensureNoteStorage(session, track, length);
+    lastRow = std::min(lastRow, length - 1u);
+    density = std::clamp(density, 0.0, 1.0);
+    const auto pitch = laneDefaultNote(session, lane);
+    std::size_t changed = 0u;
+    for (std::size_t row = firstRow; row <= lastRow; ++row) {
+        const NoteCell replacement = nextCommandRandom(session) < density
+            ? (noteCellIsHit(track.notes[row])
+                    ? track.notes[row] : NoteCell::withNote(pitch))
+            : NoteCell::rest();
+        if (track.notes[row].state != replacement.state
+            || track.notes[row].note != replacement.note) ++changed;
+        track.notes[row] = replacement;
+    }
+    return changed;
+}
+
+std::size_t scaleVelocityRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow, double factor)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow
+        || !std::isfinite(factor) || factor < 0.0) return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = std::min(track.velocityColumn.length,
+        track.velocities.size());
+    if (length == 0u || firstRow >= length) return 0u;
+    lastRow = std::min(lastRow, length - 1u);
+    std::size_t changed = 0u;
+    for (std::size_t row = firstRow; row <= lastRow; ++row) {
+        auto& cell = track.velocities[row];
+        if (cell.state != ValueCellState::Value) continue;
+        const auto scaled = static_cast<float>(std::clamp(
+            static_cast<double>(cell.normalized) * factor, 0.0, 1.0));
+        if (std::abs(scaled - cell.normalized) <= 0.00001f) continue;
+        cell.normalized = scaled;
+        ++changed;
+    }
+    return changed;
+}
+
+std::size_t randomizeVelocityRows(TrackerSession& session, std::size_t lane,
+    std::size_t firstRow, std::size_t lastRow,
+    uint8_t minimum, uint8_t maximum)
+{
+    if (lane >= session.pattern.tracks.size() || firstRow > lastRow
+        || minimum > maximum) return 0u;
+    auto& track = session.pattern.tracks[lane];
+    const auto length = std::clamp<std::size_t>(
+        track.velocityColumn.length, 1u, kMaximumRows);
+    if (firstRow >= length) return 0u;
+    ensureVelocityStorage(session, track, length);
+    lastRow = std::min(lastRow, length - 1u);
+    const uint32_t span = static_cast<uint32_t>(maximum - minimum) + 1u;
+    std::size_t changed = 0u;
+    for (std::size_t row = firstRow; row <= lastRow; ++row) {
+        const auto offset = static_cast<uint32_t>(std::min<double>(
+            static_cast<double>(span - 1u),
+            std::floor(nextCommandRandom(session)
+                * static_cast<double>(span))));
+        const auto replacement = ValueCell::withValue(
+            static_cast<float>(static_cast<uint32_t>(minimum) + offset)
+                / 127.0f);
+        if (track.velocities[row].state != replacement.state
+            || std::abs(track.velocities[row].normalized
+                    - replacement.normalized) > 0.00001f) ++changed;
+        track.velocities[row] = replacement;
+    }
+    return changed;
+}
 
 uint8_t laneDefaultNote(const TrackerSession& session,
     std::size_t lane) noexcept
@@ -4327,6 +4718,8 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
         } },
         { "PITCH, RHYTHM & NOTE CELLS", {
             { "pitch|defaultnote <target> <MIDI|note name>", "Set the lane's default pitch and replace every explicit NOTE pitch while preserving symbols.", "pitch defaultnote", "pitch @kick C-2" },
+            { "scale fit <target> <root|auto> <scale|auto> [rows first last] [range low high]", "Fit explicit NOTE pitches to a scale without changing hit placement, NOTE symbols, or Burst references.", "scale", "scale fit 1 C minor" },
+            { "scale generate <target> <root|auto> <scale|auto> [manual|fit|rise|fall|pendulum|walk|vary] [options]", "Generate or manually shape a scale contour at existing NOTE hits. Options: rows, range, leap, variation, seed, anchors, transpose, invert, reverse.", "", "scale generate 1 D dorian vary range 36 62 leap 3 transpose 12 invert on seed 17" },
             { "hit <target> <row> [MIDI note]", "Write a note using the lane anchor or an explicit pitch.", "hit", "hit @kick 1 36" },
             { "rest <target> <row>", "Write a NOTE rest.", "rest", "rest @kick 2" },
             { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat", "repeat @kick 3" },

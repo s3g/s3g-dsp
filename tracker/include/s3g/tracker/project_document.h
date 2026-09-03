@@ -33,6 +33,9 @@ struct ProjectSessionState {
     // the native composition so reopening it restores the author's working
     // view.
     bool showMidiNoteValues = true;
+    // Project-scoped Tracker navigation preference. Up/Down move this many
+    // rows, making sparse entry (for example every third row) immediate.
+    uint32_t trackerRowJump = 1u;
     // Stored as a decimal string by the JSON codec so all 64 bits survive a
     // round trip through tools whose JSON number type is IEEE double.
     uint64_t commandRngState = 0x7333672d74726163ull;

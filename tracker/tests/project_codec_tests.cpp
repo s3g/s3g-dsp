@@ -159,6 +159,7 @@ ProjectDocument makeDocument()
     document.session.tempoScale = 1.5;
     document.session.songPlaybackEnabled = true;
     document.session.showMidiNoteValues = false;
+    document.session.trackerRowJump = 3u;
     document.session.commandRngState = std::numeric_limits<uint64_t>::max();
     document.session.playbackSeed = 0xfedcba98u;
 
@@ -224,8 +225,9 @@ void testCompleteDeterministicRoundTrip()
             && decoded.session.playbackSeed == 0xfedcba98u
             && decoded.session.songPlaybackEnabled
             && !decoded.session.showMidiNoteValues
+            && decoded.session.trackerRowJump == 3u
             && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9,
-        "random seeds, Song mode, and NOTE view should survive without precision loss");
+        "random seeds, Song mode, NOTE view, and row jump should survive without precision loss");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
             && activePattern(decoded).tracks[0u].notes[3u].state
                 == NoteCellState::Hold
@@ -433,6 +435,12 @@ void testStrictTransactionalRejection()
     check(encodeProjectDocument(invalidBank, untouched).code
                 == ProjectErrorCode::InconsistentData,
         "empty Song pattern-loop ranges should reject transactionally");
+
+    invalidBank = makeDocument();
+    invalidBank.session.trackerRowJump = 0u;
+    check(encodeProjectDocument(invalidBank, untouched).code
+                == ProjectErrorCode::OutOfRange,
+        "Tracker row jump should reject values outside 1..16");
 
     invalidBank = makeDocument();
     activePattern(invalidBank).tracks[0u].fxPairs[1u].actions[0u]

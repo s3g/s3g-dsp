@@ -11654,6 +11654,7 @@
     "playbackSeed": 1380012065,
     "showMidiNoteValues": true,
     "songPlaybackEnabled": true,
-    "tempoScale": 1
+    "tempoScale": 1,
+    "trackerRowJump": 1
   }
 }

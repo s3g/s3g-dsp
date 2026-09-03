@@ -6,6 +6,7 @@ add_library(s3g_tracker_core STATIC
   src/core/instrument_rack.cpp
   src/core/midi_step_recorder.cpp
   src/core/pattern_bank.cpp
+  src/core/pitch_map.cpp
   src/core/pattern_reshape.cpp
   src/core/atomic_project_store.cpp
   src/core/project_codec.cpp
@@ -24,6 +25,7 @@ target_include_directories(s3g_tracker_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 target_compile_features(s3g_tracker_core PUBLIC cxx_std_17)
+target_link_libraries(s3g_tracker_core PUBLIC s3g_dsp)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_tracker_core PRIVATE
@@ -54,6 +56,7 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_stereo_slice_sampler_tests tests/stereo_slice_sampler_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_project_codec_tests tests/project_codec_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_bank_tests tests/pattern_bank_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_pitch_map_tests tests/pitch_map_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_reshape_tests tests/pattern_reshape_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_timing_runtime_tests tests/song_timing_runtime_tests.cpp)
