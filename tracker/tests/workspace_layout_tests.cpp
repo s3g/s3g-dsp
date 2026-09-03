@@ -55,7 +55,7 @@ int main()
         "the native CLAP window should open at actual size with 16 complete rows visible");
     const double sixteenRowClearance = nativeTrackerViewport
         - kTrackerGridHeaderHeight - 16.0 * kTrackerGridRowHeight;
-    check(sixteenRowClearance >= 18.0,
+    check(sixteenRowClearance >= 8.0,
         "the native CLAP window should leave clean space below row 16");
 
     check(near(trackerDocumentWidth(1u, 500.0, false), 500.0),

@@ -24,7 +24,6 @@ namespace {
 constexpr std::size_t kMaximumJsonDepth = 96u;
 constexpr std::size_t kMaximumJsonValues = 2u * 1024u * 1024u;
 constexpr std::size_t kMaximumPatternRows = 65536u;
-constexpr std::size_t kMaximumStringBytes = 16384u;
 constexpr std::size_t kMaximumNameBytes = 1024u;
 constexpr std::size_t kMaximumPersistedSongRows = 4096u;
 static_assert(kMaximumPersistedSongRows == kMaximumSongRows,
@@ -119,12 +118,6 @@ bool validUtf8(std::string_view text) noexcept
             || (codePoint >= 0xd800u && codePoint <= 0xdfffu)) return false;
     }
     return true;
-}
-
-bool projectInstrumentKindIsActive(InstrumentKind kind) noexcept
-{
-    return kind != InstrumentKind::Sn76489Psg
-        && kind != InstrumentKind::Ym2151Opm;
 }
 
 void appendUtf8(uint32_t codePoint, std::string& destination)
@@ -627,19 +620,6 @@ bool checkedSize(const JsonValue& value, std::size_t& destination,
     return true;
 }
 
-bool checkedInt32(const JsonValue& value, int32_t& destination,
-    std::string_view path, ProjectResult& result)
-{
-    if (value.type != JsonType::Number || !std::isfinite(value.number)
-        || std::floor(value.number) != value.number
-        || value.number < static_cast<double>(std::numeric_limits<int32_t>::min())
-        || value.number > static_cast<double>(std::numeric_limits<int32_t>::max()))
-        return setError(result, ProjectErrorCode::OutOfRange,
-            std::string(path), "expected a signed 32-bit integer");
-    destination = static_cast<int32_t>(value.number);
-    return true;
-}
-
 bool checkedUint64String(const JsonValue& value, uint64_t& destination,
     std::string_view path, ProjectResult& result)
 {
@@ -720,19 +700,6 @@ constexpr std::array<std::pair<std::string_view, ValueInterpolation>, 2u>
         { "step", ValueInterpolation::Step },
         { "linear", ValueInterpolation::Linear },
     }};
-constexpr std::array<std::pair<std::string_view, EventDestination>, 4u>
-    kDestinations {{
-        { "none", EventDestination::None },
-        { "internal", EventDestination::Internal },
-        { "midi", EventDestination::Midi },
-        { "both", EventDestination::Both },
-    }};
-constexpr std::array<std::pair<std::string_view, ParameterScope>, 3u>
-    kParameterScopes {{
-        { "global", ParameterScope::Global },
-        { "channel", ParameterScope::Channel },
-        { "note", ParameterScope::Note },
-    }};
 constexpr std::array<std::pair<std::string_view, SequencerAction>, 14u>
     kSequencerActions {{
         { "ratchet", SequencerAction::Ratchet },
@@ -758,20 +725,6 @@ constexpr std::array<std::pair<std::string_view, TimingWarpKind>, 3u>
         { "step-quantize", TimingWarpKind::StepQuantize },
         { "euclidean-quantize", TimingWarpKind::EuclideanQuantize },
     }};
-constexpr std::array<std::pair<std::string_view, MembraneInstrumentRole>, 5u>
-    kMembraneRoles {{
-        { "kick", MembraneInstrumentRole::Kick },
-        { "snare-body", MembraneInstrumentRole::SnareBody },
-        { "floor-tom", MembraneInstrumentRole::FloorTom },
-        { "low-tom", MembraneInstrumentRole::LowTom },
-        { "high-tom", MembraneInstrumentRole::HighTom },
-    }};
-constexpr std::array<std::pair<std::string_view, MidiInstrumentRouteKind>, 2u>
-    kMidiRouteKinds {{
-        { "virtual-source", MidiInstrumentRouteKind::VirtualSource },
-        { "destination", MidiInstrumentRouteKind::Destination },
-    }};
-
 JsonValue number(std::size_t value)
 {
     return JsonValue::numberValue(static_cast<double>(value));
@@ -987,12 +940,14 @@ JsonValue encodeBursts(const Pattern& pattern, std::string_view path,
     output.array.reserve(pattern.bursts.size());
     for (std::size_t slot = 0u; slot < pattern.bursts.size(); ++slot) {
         const auto& burst = pattern.bursts[slot];
+        if (burst.empty() && burst.name.empty()) continue;
         const std::string slotPath = std::string(path) + "["
             + std::to_string(slot) + "]";
         if (burst.eventCount > kMaximumBurstEvents)
             setError(result, ProjectErrorCode::SizeLimitExceeded,
                 slotPath + ".events", "burst exceeds eight events");
         JsonValue encoded = JsonValue::objectValue();
+        encoded.object["slot"] = number(slot);
         encoded.object["name"] = encodeCheckedString(burst.name,
             kMaximumBurstNameBytes, slotPath + ".name", result);
         JsonValue events = JsonValue::arrayValue();
@@ -1027,17 +982,28 @@ bool decodeBursts(const JsonValue& input, Pattern& pattern,
     std::string_view path, ProjectResult& result)
 {
     if (input.type != JsonType::Array
-        || input.array.size() != kBurstDefinitionCount)
+        || input.array.size() > kBurstDefinitionCount)
         return setError(result, ProjectErrorCode::InconsistentData,
-            std::string(path), "burst library must contain exactly 32 slots");
-    for (std::size_t slot = 0u; slot < input.array.size(); ++slot) {
+            std::string(path), "burst library exceeds 32 occupied slots");
+    std::array<bool, kBurstDefinitionCount> occupied {};
+    for (std::size_t index = 0u; index < input.array.size(); ++index) {
         const std::string slotPath = std::string(path) + "["
-            + std::to_string(slot) + "]";
-        const auto* name = requiredField(input.array[slot], "name",
+            + std::to_string(index) + "]";
+        const auto* slotValue = requiredField(input.array[index], "slot",
+            JsonType::Number, slotPath, result);
+        const auto* name = requiredField(input.array[index], "name",
             JsonType::String, slotPath, result);
-        const auto* events = requiredField(input.array[slot], "events",
+        const auto* events = requiredField(input.array[index], "events",
             JsonType::Array, slotPath, result);
-        if (!name || !events) return false;
+        if (!slotValue || !name || !events) return false;
+        uint32_t slot = 0u;
+        if (!checkedUint32(*slotValue, slot,
+                static_cast<uint32_t>(kBurstDefinitionCount - 1u),
+                slotPath + ".slot", result)) return false;
+        if (occupied[slot])
+            return setError(result, ProjectErrorCode::InconsistentData,
+                slotPath + ".slot", "burst slot is duplicated");
+        occupied[slot] = true;
         if (events->array.size() > kMaximumBurstEvents)
             return setError(result, ProjectErrorCode::SizeLimitExceeded,
                 slotPath + ".events", "burst exceeds eight events");
@@ -1045,16 +1011,17 @@ bool decodeBursts(const JsonValue& input, Pattern& pattern,
         if (!checkedString(*name, burst.name, kMaximumBurstNameBytes,
                 slotPath + ".name", result)) return false;
         burst.eventCount = static_cast<uint8_t>(events->array.size());
-        for (std::size_t index = 0u; index < events->array.size(); ++index) {
+        for (std::size_t eventIndex = 0u;
+             eventIndex < events->array.size(); ++eventIndex) {
             const std::string eventPath = slotPath + ".events["
-                + std::to_string(index) + "]";
-            const auto* position = requiredField(events->array[index],
+                + std::to_string(eventIndex) + "]";
+            const auto* position = requiredField(events->array[eventIndex],
                 "position", JsonType::Number, eventPath, result);
-            const auto* note = requiredField(events->array[index], "note",
+            const auto* note = requiredField(events->array[eventIndex], "note",
                 JsonType::Number, eventPath, result);
-            const auto* velocity = requiredField(events->array[index],
+            const auto* velocity = requiredField(events->array[eventIndex],
                 "velocity", JsonType::Number, eventPath, result);
-            const auto* gate = requiredField(events->array[index], "gate",
+            const auto* gate = requiredField(events->array[eventIndex], "gate",
                 JsonType::Number, eventPath, result);
             if (!position || !note || !velocity || !gate) return false;
             uint32_t positionValue = 0u;
@@ -1076,7 +1043,7 @@ bool decodeBursts(const JsonValue& input, Pattern& pattern,
                         eventPath, "burst velocity and gate must be nonzero");
                 return false;
             }
-            burst.events[index] = {
+            burst.events[eventIndex] = {
                 static_cast<uint16_t>(positionValue),
                 static_cast<uint8_t>(noteValue),
                 static_cast<uint8_t>(velocityValue),
@@ -1084,81 +1051,6 @@ bool decodeBursts(const JsonValue& input, Pattern& pattern,
             };
         }
     }
-    return true;
-}
-
-JsonValue encodeInstrumentCells(const std::vector<InstrumentCell>& cells,
-    std::string_view path, ProjectResult& result)
-{
-    if (cells.size() > kMaximumPatternRows)
-        setError(result, ProjectErrorCode::SizeLimitExceeded,
-            std::string(path), "instrument column exceeds 65536 cells");
-    JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(cells.size());
-    for (std::size_t index = 0u; index < cells.size(); ++index) {
-        JsonValue cell = JsonValue::objectValue();
-        switch (cells[index].state) {
-        case InstrumentCellState::Empty:
-            cell.object["state"] = JsonValue::stringValue("empty");
-            break;
-        case InstrumentCellState::Previous:
-            cell.object["state"] = JsonValue::stringValue("previous");
-            break;
-        case InstrumentCellState::Instrument:
-            if (cells[index].nodeId >= kInstrumentRackSlotCount)
-                setError(result, ProjectErrorCode::OutOfRange,
-                    std::string(path) + "[" + std::to_string(index)
-                        + "].node", "instrument node is outside the rack");
-            cell.object["node"] = number(cells[index].nodeId);
-            cell.object["state"] = JsonValue::stringValue("instrument");
-            break;
-        default:
-            setError(result, ProjectErrorCode::OutOfRange,
-                std::string(path) + "[" + std::to_string(index) + "].state",
-                "invalid instrument cell state");
-            break;
-        }
-        output.array.push_back(std::move(cell));
-    }
-    return output;
-}
-
-bool decodeInstrumentCells(const JsonValue& input,
-    std::vector<InstrumentCell>& destination, std::string_view path,
-    ProjectResult& result)
-{
-    if (input.type != JsonType::Array)
-        return setError(result, ProjectErrorCode::TypeMismatch,
-            std::string(path), "expected an instrument-cell array");
-    if (input.array.size() > kMaximumPatternRows)
-        return setError(result, ProjectErrorCode::SizeLimitExceeded,
-            std::string(path), "instrument column exceeds 65536 cells");
-    std::vector<InstrumentCell> candidate;
-    candidate.reserve(input.array.size());
-    for (std::size_t index = 0u; index < input.array.size(); ++index) {
-        const std::string cellPath = std::string(path) + "["
-            + std::to_string(index) + "]";
-        const auto* state = requiredField(input.array[index], "state",
-            JsonType::String, cellPath, result);
-        if (!state) return false;
-        if (state->string == "empty")
-            candidate.push_back(InstrumentCell::empty());
-        else if (state->string == "previous")
-            candidate.push_back(InstrumentCell::previous());
-        else if (state->string == "instrument") {
-            const auto* node = requiredField(input.array[index], "node",
-                JsonType::Number, cellPath, result);
-            uint32_t value = 0u;
-            if (!node || !checkedUint32(*node, value,
-                    static_cast<uint32_t>(kInstrumentRackSlotCount - 1u),
-                    cellPath + ".node", result)) return false;
-            candidate.push_back(InstrumentCell::withInstrument(value));
-        } else {
-            return setError(result, ProjectErrorCode::OutOfRange,
-                cellPath + ".state", "unknown instrument cell state");
-        }
-    }
-    destination = std::move(candidate);
     return true;
 }
 
@@ -1256,11 +1148,9 @@ JsonValue encodeFxActions(const std::vector<FxActionCell>& cells,
             cell.object["state"] = JsonValue::stringValue("previous");
             break;
         case FxActionCellState::Parameter:
-            cell.object["parameter"] = number(cells[index].parameterId);
-            cell.object["scope"] = encodeEnum(cells[index].scope,
-                kParameterScopes, cellPath + ".scope", result);
-            cell.object["state"] = JsonValue::stringValue("parameter");
-            cell.object["targetNode"] = number(cells[index].targetNode);
+            setError(result, ProjectErrorCode::InconsistentData,
+                cellPath + ".state",
+                "internal parameter actions are not part of the MIDI composition format");
             break;
         case FxActionCellState::Sequencer:
             cell.object["action"] = encodeEnum(cells[index].sequencerAction,
@@ -1309,28 +1199,7 @@ bool decodeFxActions(const JsonValue& input,
             candidate.push_back(FxActionCell::empty());
         else if (state->string == "previous")
             candidate.push_back(FxActionCell::previous());
-        else if (state->string == "parameter") {
-            const auto* parameter = requiredField(input.array[index],
-                "parameter", JsonType::Number, cellPath, result);
-            const auto* scope = requiredField(input.array[index], "scope",
-                JsonType::String, cellPath, result);
-            const auto* target = requiredField(input.array[index],
-                "targetNode", JsonType::Number, cellPath, result);
-            uint32_t parameterId = 0u;
-            uint32_t targetNode = 0u;
-            ParameterScope parameterScope = ParameterScope::Global;
-            if (!parameter || !scope || !target
-                || !checkedUint32(*parameter, parameterId,
-                    std::numeric_limits<uint32_t>::max(),
-                    cellPath + ".parameter", result)
-                || !checkedUint32(*target, targetNode,
-                    std::numeric_limits<uint32_t>::max(),
-                    cellPath + ".targetNode", result)
-                || !decodeEnum(*scope, kParameterScopes, parameterScope,
-                    cellPath + ".scope", result)) return false;
-            candidate.push_back(FxActionCell::parameter(parameterId,
-                parameterScope, targetNode));
-        } else if (state->string == "sequencer") {
+        else if (state->string == "sequencer") {
             const auto* action = requiredField(input.array[index], "action",
                 JsonType::String, cellPath, result);
             SequencerAction value = SequencerAction::Ratchet;
@@ -1477,16 +1346,21 @@ JsonValue encodeTrack(const Track& track, std::string_view path,
     if (track.midiChannel < 1u || track.midiChannel > 16u)
         setError(result, ProjectErrorCode::OutOfRange,
             std::string(path) + ".midiChannel", "MIDI channel must be 1..16");
-    if (track.initialInstrumentNodeId != kInvalidInstrumentNode
-        && track.initialInstrumentNodeId >= kInstrumentRackSlotCount)
-        setError(result, ProjectErrorCode::OutOfRange,
-            std::string(path) + ".initialInstrumentNode",
-            "initial instrument node is outside the rack");
-
+    if (track.destination != EventDestination::Midi
+        || track.initialInstrumentNodeId != kMidiOutInstrumentNode)
+        setError(result, ProjectErrorCode::InconsistentData,
+            std::string(path),
+            "lane must target the Tracker MIDI output");
+    for (std::size_t row = 0u; row < track.instruments.size(); ++row) {
+        if (track.instruments[row].state == InstrumentCellState::Empty)
+            continue;
+        setError(result, ProjectErrorCode::InconsistentData,
+            std::string(path) + ".instruments[" + std::to_string(row) + "]",
+            "instrument cells are not part of the MIDI composition format");
+        break;
+    }
     JsonValue output = JsonValue::objectValue();
     output.object["chokeGroup"] = number(track.chokeGroup);
-    output.object["destination"] = encodeEnum(track.destination,
-        kDestinations, std::string(path) + ".destination", result);
     JsonValue fxPairs = JsonValue::arrayValue();
     for (std::size_t pair = 0u; pair < track.fxPairs.size(); ++pair) {
         fxPairs.array.push_back(encodeFxPair(track.fxPairs[pair],
@@ -1494,13 +1368,6 @@ JsonValue encodeTrack(const Track& track, std::string_view path,
             result));
     }
     output.object["fxPairs"] = std::move(fxPairs);
-    output.object["initialInstrumentNode"] = number(
-        track.initialInstrumentNodeId);
-    output.object["instrumentColumn"] = encodeColumn(track.instrumentColumn,
-        track.instruments.size(), std::string(path) + ".instrumentColumn",
-        result);
-    output.object["instruments"] = encodeInstrumentCells(track.instruments,
-        std::string(path) + ".instruments", result);
     output.object["midiChannel"] = number(static_cast<uint32_t>(track.midiChannel));
     output.object["name"] = encodeCheckedString(track.name, kMaximumNameBytes,
         std::string(path) + ".name", result);
@@ -1525,29 +1392,20 @@ bool decodeTrack(const JsonValue& input, Track& destination,
         JsonType::Number, path, result);
     const auto* midiChannel = requiredField(input, "midiChannel",
         JsonType::Number, path, result);
-    const auto* eventDestination = requiredField(input, "destination",
-        JsonType::String, path, result);
-    const auto* initialNode = requiredField(input, "initialInstrumentNode",
-        JsonType::Number, path, result);
     const auto* chokeGroup = requiredField(input, "chokeGroup",
         JsonType::Number, path, result);
     const auto* notes = requiredField(input, "notes", JsonType::Array,
         path, result);
-    const auto* instruments = requiredField(input, "instruments",
-        JsonType::Array, path, result);
     const auto* velocities = requiredField(input, "velocities",
         JsonType::Array, path, result);
     const auto* noteColumn = requiredField(input, "noteColumn",
-        JsonType::Object, path, result);
-    const auto* instrumentColumn = requiredField(input, "instrumentColumn",
         JsonType::Object, path, result);
     const auto* velocityColumn = requiredField(input, "velocityColumn",
         JsonType::Object, path, result);
     const auto* fxPairs = requiredField(input, "fxPairs", JsonType::Array,
         path, result);
-    if (!name || !velocityScale || !midiChannel || !eventDestination
-        || !initialNode || !chokeGroup || !notes || !instruments
-        || !velocities || !noteColumn || !instrumentColumn || !velocityColumn
+    if (!name || !velocityScale || !midiChannel || !chokeGroup || !notes
+        || !velocities || !noteColumn || !velocityColumn
         || !fxPairs) return false;
     if (fxPairs->array.size() != kFxPairCount)
         return setError(result, ProjectErrorCode::InconsistentData,
@@ -1556,7 +1414,6 @@ bool decodeTrack(const JsonValue& input, Track& destination,
     Track candidate;
     double scale = 0.0;
     uint32_t channel = 0u;
-    uint32_t initial = 0u;
     if (!checkedString(*name, candidate.name, kMaximumNameBytes,
             std::string(path) + ".name", result)
         || !checkedNumber(*velocityScale, scale, 0.0, 1.0,
@@ -1564,35 +1421,27 @@ bool decodeTrack(const JsonValue& input, Track& destination,
         || !checkedUint32(*midiChannel, channel, 16u,
             std::string(path) + ".midiChannel", result)
         || channel == 0u
-        || !decodeEnum(*eventDestination, kDestinations,
-            candidate.destination, std::string(path) + ".destination", result)
-        || !checkedUint32(*initialNode, initial,
-            std::numeric_limits<uint32_t>::max(),
-            std::string(path) + ".initialInstrumentNode", result)
-        || (initial != kInvalidInstrumentNode
-            && initial >= kInstrumentRackSlotCount)
         || !checkedUint32(*chokeGroup, candidate.chokeGroup,
             std::numeric_limits<uint32_t>::max(),
             std::string(path) + ".chokeGroup", result)) {
         if (result.ok())
             setError(result, ProjectErrorCode::OutOfRange, std::string(path),
-                "track MIDI channel or initial instrument is invalid");
+                "track MIDI channel is invalid");
         return false;
     }
     candidate.velocityScale = static_cast<float>(scale);
     candidate.midiChannel = static_cast<uint8_t>(channel);
-    candidate.initialInstrumentNodeId = initial;
+    candidate.destination = EventDestination::Midi;
+    candidate.initialInstrumentNodeId = kMidiOutInstrumentNode;
+    candidate.instruments.clear();
+    candidate.instrumentColumn = {};
+    candidate.instrumentColumn.length = 0u;
     if (!decodeNoteCells(*notes, candidate.notes,
             std::string(path) + ".notes", result)
-        || !decodeInstrumentCells(*instruments, candidate.instruments,
-            std::string(path) + ".instruments", result)
         || !decodeValueCells(*velocities, candidate.velocities,
             std::string(path) + ".velocities", result)
         || !decodeColumn(*noteColumn, candidate.noteColumn,
             candidate.notes.size(), std::string(path) + ".noteColumn", result)
-        || !decodeColumn(*instrumentColumn, candidate.instrumentColumn,
-            candidate.instruments.size(),
-            std::string(path) + ".instrumentColumn", result)
         || !decodeColumn(*velocityColumn, candidate.velocityColumn,
             candidate.velocities.size(),
             std::string(path) + ".velocityColumn", result)) return false;
@@ -1679,9 +1528,9 @@ bool decodePattern(const JsonValue& input, Pattern& destination,
             return false;
         candidate.tracks.push_back(std::move(track));
     }
-    const auto bursts = input.object.find("bursts");
-    if (bursts != input.object.end()
-        && !decodeBursts(bursts->second, candidate,
+    const auto* bursts = requiredField(input, "bursts", JsonType::Array,
+        path, result);
+    if (!bursts || !decodeBursts(*bursts, candidate,
             std::string(path) + ".bursts", result)) return false;
     for (std::size_t trackIndex = 0u;
          trackIndex < candidate.tracks.size(); ++trackIndex) {
@@ -1872,18 +1721,14 @@ bool decodePatternBank(const JsonValue& input, PatternBank& destination,
 namespace s3g::tracker {
 namespace {
 
-JsonValue encodeInstrumentRack(const InstrumentRackState& rack,
-    ProjectResult& result);
-bool decodeInstrumentRack(const JsonValue& input,
-    InstrumentRackState& destination, ProjectResult& result);
 JsonValue encodeTransport(const TransportSettings& transport,
     ProjectResult& result);
 bool decodeTransport(const JsonValue& input, TransportSettings& destination,
     ProjectResult& result);
 JsonValue encodeSession(const ProjectSessionState& session,
     ProjectResult& result);
-bool decodeSession(const JsonValue& input, uint32_t schemaVersion,
-    ProjectSessionState& destination, ProjectResult& result);
+bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
+    ProjectResult& result);
 
 JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
 {
@@ -2066,44 +1911,6 @@ bool decodeSong(const JsonValue& input, SongArrangement& destination,
     return true;
 }
 
-bool validatePatternRackReferences(const ProjectDocument& document,
-    ProjectResult& result)
-{
-    std::array<bool, kInstrumentRackSlotCount> active {};
-    for (const auto& instrument : document.instrumentRack.instruments) {
-        if (instrument.active && instrument.nodeId < active.size())
-            active[instrument.nodeId] = true;
-    }
-    for (std::size_t patternIndex = 0u;
-         patternIndex < document.patternBank.entries.size(); ++patternIndex) {
-        const auto& pattern = document.patternBank.entries[patternIndex].pattern;
-        const std::string patternPath = "$.patternBank.patterns["
-            + std::to_string(patternIndex) + "].pattern";
-        for (std::size_t trackIndex = 0u;
-             trackIndex < pattern.tracks.size(); ++trackIndex) {
-            const auto& track = pattern.tracks[trackIndex];
-            const std::string trackPath = patternPath + ".tracks["
-                + std::to_string(trackIndex) + "]";
-            if (track.initialInstrumentNodeId != kInvalidInstrumentNode
-                && (track.initialInstrumentNodeId >= active.size()
-                    || !active[track.initialInstrumentNodeId]))
-                return setError(result, ProjectErrorCode::InconsistentData,
-                    trackPath + ".initialInstrumentNode",
-                    "track references an instrument that is not active in the rack");
-            for (std::size_t row = 0u; row < track.instruments.size(); ++row) {
-                const auto& cell = track.instruments[row];
-                if (cell.state == InstrumentCellState::Instrument
-                    && (cell.nodeId >= active.size() || !active[cell.nodeId]))
-                    return setError(result, ProjectErrorCode::InconsistentData,
-                        trackPath + ".instruments[" + std::to_string(row)
-                            + "].node",
-                        "instrument cell references an inactive rack node");
-            }
-        }
-    }
-    return true;
-}
-
 bool validateSongReferences(const ProjectDocument& document,
     ProjectResult& result)
 {
@@ -2127,17 +1934,14 @@ JsonValue encodeDocument(const ProjectDocument& document,
 {
     JsonValue root = JsonValue::objectValue();
     root.object["format"] = JsonValue::stringValue(kProjectFormatIdentifier);
-    root.object["instrumentRack"] = encodeInstrumentRack(
-        document.instrumentRack, result);
-    root.object["patternBank"] = encodePatternBank(
+    root.object["patterns"] = encodePatternBank(
         document.patternBank, result);
-    root.object["schemaVersion"] = number(kProjectSchemaVersion);
-    root.object["session"] = encodeSession(document.session, result);
-    root.object["song"] = encodeSong(document.song, result);
-    root.object["transport"] = encodeTransport(document.transport, result);
-    root.object["warpLibrary"] = encodeTimingWarpLibrary(
+    root.object["version"] = number(kProjectFormatVersion);
+    root.object["workspace"] = encodeSession(document.session, result);
+    root.object["arrangement"] = encodeSong(document.song, result);
+    root.object["playback"] = encodeTransport(document.transport, result);
+    root.object["warps"] = encodeTimingWarpLibrary(
         document.warpLibrary, result);
-    validatePatternRackReferences(document, result);
     validateSongReferences(document, result);
     return root;
 }
@@ -2150,43 +1954,38 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
             "project root must be an object");
     const auto* format = requiredField(root, "format", JsonType::String,
         "$", result);
-    const auto* schema = requiredField(root, "schemaVersion",
+    const auto* schema = requiredField(root, "version",
         JsonType::Number, "$", result);
-    const auto* patternBank = requiredField(root, "patternBank",
+    const auto* patternBank = requiredField(root, "patterns",
         JsonType::Object, "$", result);
-    const auto* transport = requiredField(root, "transport", JsonType::Object,
+    const auto* transport = requiredField(root, "playback", JsonType::Object,
         "$", result);
-    const auto* session = requiredField(root, "session", JsonType::Object,
+    const auto* session = requiredField(root, "workspace", JsonType::Object,
         "$", result);
-    const auto* rack = requiredField(root, "instrumentRack", JsonType::Object,
+    const auto* song = requiredField(root, "arrangement", JsonType::Object,
         "$", result);
-    const auto* song = requiredField(root, "song", JsonType::Object,
-        "$", result);
-    const auto* warpLibrary = requiredField(root, "warpLibrary",
+    const auto* warpLibrary = requiredField(root, "warps",
         JsonType::Array, "$", result);
-    if (!format || !schema || !patternBank || !transport || !session || !rack
+    if (!format || !schema || !patternBank || !transport || !session
         || !song || !warpLibrary) return false;
     if (format->string != kProjectFormatIdentifier)
         return setError(result, ProjectErrorCode::InvalidArgument, "$.format",
             "file is not an s3g Tracker project");
-    uint32_t schemaVersion = 0u;
-    if (!checkedUint32(*schema, schemaVersion,
-            std::numeric_limits<uint32_t>::max(), "$.schemaVersion", result))
+    uint32_t version = 0u;
+    if (!checkedUint32(*schema, version,
+            std::numeric_limits<uint32_t>::max(), "$.version", result))
         return false;
-    if (schemaVersion < kOldestSupportedProjectSchemaVersion
-        || schemaVersion > kProjectSchemaVersion)
+    if (version != kProjectFormatVersion)
         return setError(result, ProjectErrorCode::UnsupportedSchemaVersion,
-            "$.schemaVersion", "project schema version is not supported");
+            "$.version", "MIDI composition version is not supported");
 
     ProjectDocument candidate;
     if (!decodePatternBank(*patternBank, candidate.patternBank, result)
         || !decodeTransport(*transport, candidate.transport, result)
-        || !decodeSession(*session, schemaVersion, candidate.session, result)
-        || !decodeInstrumentRack(*rack, candidate.instrumentRack, result)
+        || !decodeSession(*session, candidate.session, result)
         || !decodeSong(*song, candidate.song, result)
         || !decodeTimingWarpLibrary(*warpLibrary, candidate.warpLibrary,
             result)
-        || !validatePatternRackReferences(candidate, result)
         || !validateSongReferences(candidate, result)) return false;
     destination = std::move(candidate);
     return true;
@@ -2245,534 +2044,6 @@ ProjectResult decodeProjectDocument(std::string_view source,
 }
 
 } // namespace s3g::tracker
-
-namespace s3g::tracker {
-namespace {
-
-template <typename PatchArray>
-JsonValue encodePatchArray(const PatchArray& patches,
-    std::size_t valueCount, std::string_view path, ProjectResult& result)
-{
-    JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(patches.size());
-    for (std::size_t patchIndex = 0u; patchIndex < patches.size();
-         ++patchIndex) {
-        JsonValue patch = JsonValue::arrayValue();
-        patch.array.reserve(valueCount);
-        for (std::size_t parameter = 0u; parameter < valueCount; ++parameter) {
-            const float value = patches[patchIndex].normalized[parameter];
-            finiteRange(value, 0.0, 1.0,
-                std::string(path) + "[" + std::to_string(patchIndex) + "]["
-                    + std::to_string(parameter) + "]", result);
-            patch.array.push_back(JsonValue::numberValue(value));
-        }
-        output.array.push_back(std::move(patch));
-    }
-    return output;
-}
-
-template <typename PatchArray>
-bool decodePatchArray(const JsonValue& input, PatchArray& destination,
-    std::size_t valueCount, std::string_view path, ProjectResult& result)
-{
-    if (input.type != JsonType::Array)
-        return setError(result, ProjectErrorCode::TypeMismatch,
-            std::string(path), "expected a patch array");
-    if (input.array.size() != destination.size())
-        return setError(result, ProjectErrorCode::InconsistentData,
-            std::string(path), "patch array has the wrong fixed size");
-    PatchArray candidate {};
-    for (std::size_t patchIndex = 0u; patchIndex < input.array.size();
-         ++patchIndex) {
-        const auto& patch = input.array[patchIndex];
-        const std::string patchPath = std::string(path) + "["
-            + std::to_string(patchIndex) + "]";
-        if (patch.type != JsonType::Array || patch.array.size() != valueCount)
-            return setError(result, ProjectErrorCode::InconsistentData,
-                patchPath, "patch has the wrong parameter count");
-        for (std::size_t parameter = 0u; parameter < valueCount; ++parameter) {
-            double value = 0.0;
-            if (!checkedNumber(patch.array[parameter], value, 0.0, 1.0,
-                    patchPath + "[" + std::to_string(parameter) + "]",
-                    result)) return false;
-            candidate[patchIndex].normalized[parameter]
-                = static_cast<float>(value);
-        }
-    }
-    destination = candidate;
-    return true;
-}
-
-JsonValue encodeMembraneSlots(const InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(rack.slots.size());
-    for (std::size_t index = 0u; index < rack.slots.size(); ++index) {
-        const auto& slot = rack.slots[index];
-        const std::string path = "$.instrumentRack.membraneSlots["
-            + std::to_string(index) + "]";
-        if (slot.nodeId != index)
-            setError(result, ProjectErrorCode::InconsistentData,
-                path + ".node", "membrane slot node does not match its index");
-        JsonValue patch = JsonValue::arrayValue();
-        patch.array.reserve(slot.basePatch.normalized.size());
-        for (std::size_t parameter = 0u;
-             parameter < slot.basePatch.normalized.size(); ++parameter) {
-            const float value = slot.basePatch.normalized[parameter];
-            finiteRange(value, 0.0, 1.0,
-                path + ".patch[" + std::to_string(parameter) + "]", result);
-            patch.array.push_back(JsonValue::numberValue(value));
-        }
-        JsonValue encoded = JsonValue::objectValue();
-        encoded.object["node"] = number(slot.nodeId);
-        encoded.object["patch"] = std::move(patch);
-        encoded.object["role"] = encodeEnum(slot.role, kMembraneRoles,
-            path + ".role", result);
-        output.array.push_back(std::move(encoded));
-    }
-    return output;
-}
-
-bool decodeMembraneSlots(const JsonValue& input, InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    if (input.type != JsonType::Array || input.array.size() != rack.slots.size())
-        return setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.membraneSlots",
-            "membrane slot array has the wrong fixed size");
-    for (std::size_t index = 0u; index < input.array.size(); ++index) {
-        const std::string path = "$.instrumentRack.membraneSlots["
-            + std::to_string(index) + "]";
-        const auto* node = requiredField(input.array[index], "node",
-            JsonType::Number, path, result);
-        const auto* role = requiredField(input.array[index], "role",
-            JsonType::String, path, result);
-        const auto* patch = requiredField(input.array[index], "patch",
-            JsonType::Array, path, result);
-        if (!node || !role || !patch) return false;
-        uint32_t nodeId = 0u;
-        if (!checkedUint32(*node, nodeId,
-                static_cast<uint32_t>(rack.slots.size() - 1u), path + ".node",
-                result)
-            || nodeId != index)
-            return setError(result, ProjectErrorCode::InconsistentData,
-                path + ".node", "membrane slot node does not match its index");
-        if (!decodeEnum(*role, kMembraneRoles, rack.slots[index].role,
-                path + ".role", result)) return false;
-        if (patch->array.size() != kMembraneParameterCount)
-            return setError(result, ProjectErrorCode::InconsistentData,
-                path + ".patch", "membrane patch has the wrong parameter count");
-        rack.slots[index].nodeId = nodeId;
-        for (std::size_t parameter = 0u; parameter < patch->array.size();
-             ++parameter) {
-            double value = 0.0;
-            if (!checkedNumber(patch->array[parameter], value, 0.0, 1.0,
-                    path + ".patch[" + std::to_string(parameter) + "]",
-                    result)) return false;
-            rack.slots[index].basePatch.normalized[parameter]
-                = static_cast<float>(value);
-        }
-    }
-    return true;
-}
-
-JsonValue encodeSamplerSlots(const InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(rack.samplerSlots.size());
-    for (std::size_t index = 0u; index < rack.samplerSlots.size(); ++index) {
-        const auto& slot = rack.samplerSlots[index];
-        const std::string path = "$.instrumentRack.samplerSlots["
-            + std::to_string(index) + "]";
-        const uint32_t expectedNode = stereoSamplerNodeForRackSlot(index);
-        if (slot.nodeId != expectedNode)
-            setError(result, ProjectErrorCode::InconsistentData,
-                path + ".node", "sampler slot node does not match its index");
-        if (slot.baseNote > 127u)
-            setError(result, ProjectErrorCode::OutOfRange,
-                path + ".baseNote", "sampler base note must be 0..127");
-        if (slot.sliceCount > slot.slices.size())
-            setError(result, ProjectErrorCode::SizeLimitExceeded,
-                path + ".slices", "sampler exceeds 128 slices");
-        if (slot.filePath.empty() && slot.sliceCount != 0u)
-            setError(result, ProjectErrorCode::InconsistentData, path,
-                "sampler slices require a source-file reference");
-        if (!slot.envelope.valid())
-            setError(result, ProjectErrorCode::OutOfRange,
-                path + ".envelope", "sampler envelope is invalid");
-
-        JsonValue encoded = JsonValue::objectValue();
-        encoded.object["baseNote"] = number(static_cast<uint32_t>(slot.baseNote));
-        JsonValue envelope = JsonValue::objectValue();
-        envelope.object["attackMilliseconds"]
-            = JsonValue::numberValue(slot.envelope.attackMilliseconds);
-        envelope.object["decayMilliseconds"]
-            = JsonValue::numberValue(slot.envelope.decayMilliseconds);
-        envelope.object["releaseMilliseconds"]
-            = JsonValue::numberValue(slot.envelope.releaseMilliseconds);
-        envelope.object["sustain"]
-            = JsonValue::numberValue(slot.envelope.sustain);
-        encoded.object["envelope"] = std::move(envelope);
-        encoded.object["file"] = encodeCheckedString(slot.filePath,
-            kMaximumStringBytes, path + ".file", result);
-        encoded.object["node"] = number(slot.nodeId);
-        JsonValue slices = JsonValue::arrayValue();
-        const std::size_t safeSliceCount = std::min(slot.sliceCount,
-            slot.slices.size());
-        slices.array.reserve(safeSliceCount);
-        const uint32_t assetFrames = slot.asset ? slot.asset->frameCount() : 0u;
-        for (std::size_t sliceIndex = 0u; sliceIndex < safeSliceCount;
-             ++sliceIndex) {
-            const auto& slice = slot.slices[sliceIndex];
-            const std::string slicePath = path + ".slices["
-                + std::to_string(sliceIndex) + "]";
-            if (slice.startFrame >= slice.endFrame
-                || (slot.asset && slice.endFrame > assetFrames))
-                setError(result, ProjectErrorCode::OutOfRange, slicePath,
-                    "sampler slice frame range is invalid");
-            finiteRange(slice.gain, 0.0, 2.0, slicePath + ".gain", result);
-            JsonValue value = JsonValue::objectValue();
-            value.object["endFrame"] = number(slice.endFrame);
-            value.object["gain"] = JsonValue::numberValue(slice.gain);
-            value.object["reverse"] = JsonValue::booleanValue(slice.reverse);
-            value.object["startFrame"] = number(slice.startFrame);
-            slices.array.push_back(std::move(value));
-        }
-        encoded.object["slices"] = std::move(slices);
-        output.array.push_back(std::move(encoded));
-    }
-    return output;
-}
-
-bool decodeSamplerSlots(const JsonValue& input, InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    if (input.type != JsonType::Array
-        || input.array.size() != rack.samplerSlots.size())
-        return setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.samplerSlots",
-            "sampler slot array has the wrong fixed size");
-    for (std::size_t index = 0u; index < input.array.size(); ++index) {
-        const std::string path = "$.instrumentRack.samplerSlots["
-            + std::to_string(index) + "]";
-        const auto* node = requiredField(input.array[index], "node",
-            JsonType::Number, path, result);
-        const auto* file = requiredField(input.array[index], "file",
-            JsonType::String, path, result);
-        const auto* baseNote = requiredField(input.array[index], "baseNote",
-            JsonType::Number, path, result);
-        const auto* envelope = requiredField(input.array[index], "envelope",
-            JsonType::Object, path, result);
-        const auto* slices = requiredField(input.array[index], "slices",
-            JsonType::Array, path, result);
-        if (!node || !file || !baseNote || !envelope || !slices) return false;
-        if (slices->array.size() > audio::kMaximumSamplerSlices)
-            return setError(result, ProjectErrorCode::SizeLimitExceeded,
-                path + ".slices", "sampler exceeds 128 slices");
-        auto& slot = rack.samplerSlots[index];
-        uint32_t nodeId = 0u;
-        uint32_t note = 0u;
-        if (!checkedUint32(*node, nodeId,
-                static_cast<uint32_t>(kInstrumentRackSlotCount - 1u),
-                path + ".node", result)
-            || nodeId != stereoSamplerNodeForRackSlot(index)
-            || !checkedString(*file, slot.filePath, kMaximumStringBytes,
-                path + ".file", result)
-            || !checkedUint32(*baseNote, note, 127u, path + ".baseNote",
-                result)) {
-            if (result.ok())
-                setError(result, ProjectErrorCode::InconsistentData,
-                    path + ".node", "sampler slot node does not match its index");
-            return false;
-        }
-        if (slot.filePath.empty() && !slices->array.empty())
-            return setError(result, ProjectErrorCode::InconsistentData, path,
-                "sampler slices require a source-file reference");
-        const auto* attack = requiredField(*envelope, "attackMilliseconds",
-            JsonType::Number, path + ".envelope", result);
-        const auto* decay = requiredField(*envelope, "decayMilliseconds",
-            JsonType::Number, path + ".envelope", result);
-        const auto* sustain = requiredField(*envelope, "sustain",
-            JsonType::Number, path + ".envelope", result);
-        const auto* release = requiredField(*envelope, "releaseMilliseconds",
-            JsonType::Number, path + ".envelope", result);
-        if (!attack || !decay || !sustain || !release) return false;
-        double sustainValue = 0.0;
-        if (!checkedNumber(*attack, slot.envelope.attackMilliseconds, 0.0,
-                audio::kMaximumSamplerEnvelopeMilliseconds,
-                path + ".envelope.attackMilliseconds", result)
-            || !checkedNumber(*decay, slot.envelope.decayMilliseconds, 0.0,
-                audio::kMaximumSamplerEnvelopeMilliseconds,
-                path + ".envelope.decayMilliseconds", result)
-            || !checkedNumber(*sustain, sustainValue, 0.0, 1.0,
-                path + ".envelope.sustain", result)
-            || !checkedNumber(*release, slot.envelope.releaseMilliseconds,
-                0.0, audio::kMaximumSamplerEnvelopeMilliseconds,
-                path + ".envelope.releaseMilliseconds", result)) {
-            return false;
-        }
-        slot.envelope.sustain = static_cast<float>(sustainValue);
-        slot.nodeId = nodeId;
-        slot.baseNote = static_cast<uint8_t>(note);
-        slot.asset.reset();
-        slot.analysis.reset();
-        slot.slices = {};
-        slot.sliceCount = slices->array.size();
-        for (std::size_t sliceIndex = 0u; sliceIndex < slices->array.size();
-             ++sliceIndex) {
-            const std::string slicePath = path + ".slices["
-                + std::to_string(sliceIndex) + "]";
-            const auto& inputSlice = slices->array[sliceIndex];
-            const auto* start = requiredField(inputSlice, "startFrame",
-                JsonType::Number, slicePath, result);
-            const auto* end = requiredField(inputSlice, "endFrame",
-                JsonType::Number, slicePath, result);
-            const auto* gain = requiredField(inputSlice, "gain",
-                JsonType::Number, slicePath, result);
-            const auto* reverse = requiredField(inputSlice, "reverse",
-                JsonType::Boolean, slicePath, result);
-            if (!start || !end || !gain || !reverse) return false;
-            auto& slice = slot.slices[sliceIndex];
-            double gainValue = 0.0;
-            if (!checkedUint32(*start, slice.startFrame,
-                    std::numeric_limits<uint32_t>::max(),
-                    slicePath + ".startFrame", result)
-                || !checkedUint32(*end, slice.endFrame,
-                    std::numeric_limits<uint32_t>::max(),
-                    slicePath + ".endFrame", result)
-                || slice.startFrame >= slice.endFrame
-                || !checkedNumber(*gain, gainValue, 0.0, 2.0,
-                    slicePath + ".gain", result)
-                || !checkedBoolean(*reverse, slice.reverse,
-                    slicePath + ".reverse", result)) {
-                if (result.ok())
-                    setError(result, ProjectErrorCode::OutOfRange, slicePath,
-                        "sampler slice frame range is invalid");
-                return false;
-            }
-            slice.gain = static_cast<float>(gainValue);
-        }
-    }
-    return true;
-}
-
-JsonValue encodeMidiRoutes(const InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(rack.midiRoutes.size());
-    for (std::size_t index = 0u; index < rack.midiRoutes.size(); ++index) {
-        const auto& route = rack.midiRoutes[index];
-        const std::string path = "$.instrumentRack.midiRoutes["
-            + std::to_string(index) + "]";
-        if (route.virtualSource == 0u
-            || route.virtualSource > kMidiOutRackSlotCount)
-            setError(result, ProjectErrorCode::OutOfRange,
-                path + ".virtualSource", "virtual source must be 1..8");
-        if (route.channel == 0u || route.channel > 16u)
-            setError(result, ProjectErrorCode::OutOfRange,
-                path + ".channel", "MIDI channel must be 1..16");
-        if (route.kind == MidiInstrumentRouteKind::VirtualSource
-            && route.destinationId != 0)
-            setError(result, ProjectErrorCode::InconsistentData,
-                path + ".destinationId",
-                "virtual-source routes must not retain a destination ID");
-        JsonValue value = JsonValue::objectValue();
-        value.object["channel"] = number(static_cast<uint32_t>(route.channel));
-        value.object["destinationId"] = JsonValue::numberValue(
-            static_cast<double>(route.destinationId));
-        value.object["kind"] = encodeEnum(route.kind, kMidiRouteKinds,
-            path + ".kind", result);
-        value.object["node"] = number(midiOutNodeForRackSlot(index));
-        value.object["virtualSource"] = number(
-            static_cast<uint32_t>(route.virtualSource));
-        output.array.push_back(std::move(value));
-    }
-    return output;
-}
-
-bool decodeMidiRoutes(const JsonValue& input, InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    if (input.type != JsonType::Array
-        || input.array.size() != rack.midiRoutes.size())
-        return setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.midiRoutes",
-            "MIDI route array has the wrong fixed size");
-    for (std::size_t index = 0u; index < input.array.size(); ++index) {
-        const std::string path = "$.instrumentRack.midiRoutes["
-            + std::to_string(index) + "]";
-        const auto* node = requiredField(input.array[index], "node",
-            JsonType::Number, path, result);
-        const auto* kind = requiredField(input.array[index], "kind",
-            JsonType::String, path, result);
-        const auto* destinationId = requiredField(input.array[index],
-            "destinationId", JsonType::Number, path, result);
-        const auto* virtualSource = requiredField(input.array[index],
-            "virtualSource", JsonType::Number, path, result);
-        const auto* channel = requiredField(input.array[index], "channel",
-            JsonType::Number, path, result);
-        if (!node || !kind || !destinationId || !virtualSource || !channel)
-            return false;
-        uint32_t nodeId = 0u;
-        uint32_t source = 0u;
-        uint32_t channelValue = 0u;
-        auto& route = rack.midiRoutes[index];
-        if (!checkedUint32(*node, nodeId,
-                static_cast<uint32_t>(kInstrumentRackSlotCount - 1u),
-                path + ".node", result)
-            || nodeId != midiOutNodeForRackSlot(index)
-            || !decodeEnum(*kind, kMidiRouteKinds, route.kind,
-                path + ".kind", result)
-            || !checkedInt32(*destinationId, route.destinationId,
-                path + ".destinationId", result)
-            || !checkedUint32(*virtualSource, source,
-                static_cast<uint32_t>(kMidiOutRackSlotCount),
-                path + ".virtualSource", result)
-            || source == 0u
-            || !checkedUint32(*channel, channelValue, 16u,
-                path + ".channel", result)
-            || channelValue == 0u) {
-            if (result.ok())
-                setError(result, ProjectErrorCode::OutOfRange, path,
-                    "MIDI route node/source/channel is invalid");
-            return false;
-        }
-        if (route.kind == MidiInstrumentRouteKind::VirtualSource
-            && route.destinationId != 0)
-            return setError(result, ProjectErrorCode::InconsistentData,
-                path + ".destinationId",
-                "virtual-source routes must not retain a destination ID");
-        route.virtualSource = static_cast<uint8_t>(source);
-        route.channel = static_cast<uint8_t>(channelValue);
-    }
-    return true;
-}
-
-JsonValue encodeInstrumentRack(const InstrumentRackState& rack,
-    ProjectResult& result)
-{
-    JsonValue output = JsonValue::objectValue();
-    JsonValue activeNodes = JsonValue::arrayValue();
-    std::array<bool, kInstrumentRackSlotCount> seen {};
-    for (std::size_t index = 0u; index < rack.instruments.size(); ++index) {
-        const auto& instrument = rack.instruments[index];
-        if (!instrument.active) continue;
-        if (instrument.nodeId >= kInstrumentRackSlotCount
-            || seen[instrument.nodeId]) {
-            setError(result, ProjectErrorCode::InconsistentData,
-                "$.instrumentRack.activeNodes",
-                "active rack nodes must be unique and in range");
-            continue;
-        }
-        seen[instrument.nodeId] = true;
-        const auto* canonical = defaultRackInstrument(instrument.nodeId);
-        if (!canonical || canonical->kind != instrument.kind
-            || canonical->name != instrument.name
-            || canonical->mnemonic != instrument.mnemonic
-            || !projectInstrumentKindIsActive(instrument.kind))
-            setError(result, ProjectErrorCode::InconsistentData,
-                "$.instrumentRack.activeNodes",
-                "active rack instrument is unavailable or not canonical");
-        activeNodes.array.push_back(number(instrument.nodeId));
-    }
-    if (activeNodes.array.empty())
-        setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.activeNodes", "rack must contain an active instrument");
-    if (rack.selectedNode >= kInstrumentRackSlotCount
-        || !seen[rack.selectedNode])
-        setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.selectedNode",
-            "selected rack node must identify an active instrument");
-    output.object["activeNodes"] = std::move(activeNodes);
-    output.object["daisyDrumPatches"] = encodePatchArray(
-        rack.daisyDrumPatches, kDaisyDrumParameterCapacity,
-        "$.instrumentRack.daisyDrumPatches", result);
-    output.object["membraneSlots"] = encodeMembraneSlots(rack, result);
-    output.object["midiRoutes"] = encodeMidiRoutes(rack, result);
-    output.object["samplerSlots"] = encodeSamplerSlots(rack, result);
-    output.object["selectedNode"] = number(rack.selectedNode);
-    output.object["sn76489Patches"] = encodePatchArray(rack.sn76489Patches,
-        kSn76489ParameterCount, "$.instrumentRack.sn76489Patches", result);
-    output.object["ym2151Patches"] = encodePatchArray(rack.ym2151Patches,
-        kYm2151ParameterCount, "$.instrumentRack.ym2151Patches", result);
-    return output;
-}
-
-bool decodeInstrumentRack(const JsonValue& input,
-    InstrumentRackState& destination, ProjectResult& result)
-{
-    const auto* activeNodes = requiredField(input, "activeNodes",
-        JsonType::Array, "$.instrumentRack", result);
-    const auto* selectedNode = requiredField(input, "selectedNode",
-        JsonType::Number, "$.instrumentRack", result);
-    const auto* membraneSlots = requiredField(input, "membraneSlots",
-        JsonType::Array, "$.instrumentRack", result);
-    const auto* snPatches = requiredField(input, "sn76489Patches",
-        JsonType::Array, "$.instrumentRack", result);
-    const auto* ymPatches = requiredField(input, "ym2151Patches",
-        JsonType::Array, "$.instrumentRack", result);
-    const auto* daisyPatches = requiredField(input, "daisyDrumPatches",
-        JsonType::Array, "$.instrumentRack", result);
-    const auto* samplerSlots = requiredField(input, "samplerSlots",
-        JsonType::Array, "$.instrumentRack", result);
-    const auto* midiRoutes = requiredField(input, "midiRoutes",
-        JsonType::Array, "$.instrumentRack", result);
-    if (!activeNodes || !selectedNode || !membraneSlots || !snPatches
-        || !ymPatches || !daisyPatches || !samplerSlots || !midiRoutes)
-        return false;
-    if (activeNodes->array.empty()
-        || activeNodes->array.size() > kInstrumentRackSlotCount)
-        return setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.activeNodes",
-            "rack must contain 1..39 active instruments");
-
-    InstrumentRackState candidate = makeDefaultInstrumentRack();
-    candidate.instruments = {};
-    std::array<bool, kInstrumentRackSlotCount> seen {};
-    for (std::size_t index = 0u; index < activeNodes->array.size(); ++index) {
-        uint32_t nodeId = 0u;
-        const std::string path = "$.instrumentRack.activeNodes["
-            + std::to_string(index) + "]";
-        if (!checkedUint32(activeNodes->array[index], nodeId,
-                static_cast<uint32_t>(kInstrumentRackSlotCount - 1u), path,
-                result)) return false;
-        if (seen[nodeId])
-            return setError(result, ProjectErrorCode::InconsistentData, path,
-                "active rack node is duplicated");
-        seen[nodeId] = true;
-        const auto* instrument = defaultRackInstrument(nodeId);
-        if (!instrument || !projectInstrumentKindIsActive(instrument->kind))
-            return setError(result, ProjectErrorCode::OutOfRange, path,
-                "active rack node is unavailable in this tracker build");
-        candidate.instruments[index] = *instrument;
-    }
-    if (!checkedUint32(*selectedNode, candidate.selectedNode,
-            static_cast<uint32_t>(kInstrumentRackSlotCount - 1u),
-            "$.instrumentRack.selectedNode", result)) return false;
-    if (!seen[candidate.selectedNode])
-        return setError(result, ProjectErrorCode::InconsistentData,
-            "$.instrumentRack.selectedNode",
-            "selected rack node must identify an active instrument");
-    if (!decodeMembraneSlots(*membraneSlots, candidate, result)
-        || !decodePatchArray(*snPatches, candidate.sn76489Patches,
-            kSn76489ParameterCount, "$.instrumentRack.sn76489Patches", result)
-        || !decodePatchArray(*ymPatches, candidate.ym2151Patches,
-            kYm2151ParameterCount, "$.instrumentRack.ym2151Patches", result)
-        || !decodePatchArray(*daisyPatches, candidate.daisyDrumPatches,
-            kDaisyDrumParameterCapacity,
-            "$.instrumentRack.daisyDrumPatches", result)
-        || !decodeSamplerSlots(*samplerSlots, candidate, result)
-        || !decodeMidiRoutes(*midiRoutes, candidate, result)) return false;
-    destination = std::move(candidate);
-    return true;
-}
-
-} // namespace
-} // namespace s3g::tracker
-
 namespace s3g::tracker {
 namespace {
 
@@ -2972,8 +2243,6 @@ bool decodeTimingWarpLibrary(const JsonValue& input,
 JsonValue encodeTransport(const TransportSettings& transport,
     ProjectResult& result)
 {
-    finiteRange(transport.sampleRate, 8000.0, 768000.0,
-        "$.transport.sampleRate", result);
     finiteRange(transport.bpm, 20.0, 400.0, "$.transport.bpm", result);
     finiteRange(transport.swing, 0.5, 0.75, "$.transport.swing", result);
     finiteRange(transport.microTimingRangeMilliseconds, 0.0, 500.0,
@@ -3002,7 +2271,6 @@ JsonValue encodeTransport(const TransportSettings& transport,
     output.object["loop"] = std::move(loop);
     output.object["microTimingRangeMilliseconds"] = JsonValue::numberValue(
         transport.microTimingRangeMilliseconds);
-    output.object["sampleRate"] = JsonValue::numberValue(transport.sampleRate);
     output.object["swing"] = JsonValue::numberValue(transport.swing);
     output.object["ticksPerBeat"] = number(transport.ticksPerBeat);
     output.object["timingLookaheadMilliseconds"] = JsonValue::numberValue(
@@ -3029,8 +2297,6 @@ JsonValue encodeTransport(const TransportSettings& transport,
 bool decodeTransport(const JsonValue& input, TransportSettings& destination,
     ProjectResult& result)
 {
-    const auto* sampleRate = requiredField(input, "sampleRate",
-        JsonType::Number, "$.transport", result);
     const auto* bpm = requiredField(input, "bpm", JsonType::Number,
         "$.transport", result);
     const auto* ticks = requiredField(input, "ticksPerBeat", JsonType::Number,
@@ -3041,7 +2307,8 @@ bool decodeTransport(const JsonValue& input, TransportSettings& destination,
         JsonType::Number, "$.transport", result);
     const auto* warps = requiredField(input, "warpStack", JsonType::Array,
         "$.transport", result);
-    const auto warpEnabled = input.object.find("warpEnabled");
+    const auto* warpEnabled = requiredField(input, "warpEnabled",
+        JsonType::Boolean, "$.transport", result);
     const auto* lookahead = requiredField(input,
         "timingLookaheadMilliseconds", JsonType::Number, "$.transport",
         result);
@@ -3050,7 +2317,7 @@ bool decodeTransport(const JsonValue& input, TransportSettings& destination,
         result);
     const auto* loop = requiredField(input, "loop", JsonType::Object,
         "$.transport", result);
-    if (!sampleRate || !bpm || !ticks || !swing || !warpCycle || !warps
+    if (!bpm || !ticks || !swing || !warpCycle || !warps || !warpEnabled
         || !lookahead || !microRange || !loop) return false;
     if (warps->array.size() > TimingWarpStack::kMaximumTransforms)
         return setError(result, ProjectErrorCode::SizeLimitExceeded,
@@ -3064,16 +2331,8 @@ bool decodeTransport(const JsonValue& input, TransportSettings& destination,
     if (!loopEnabled || !loopStart || !loopEnd) return false;
 
     TransportSettings candidate;
-    // Schemas 5–7 predate the bypass switch. Preserve their audible behavior
-    // when a legacy transport contains an authored stack; schema 8 always
-    // writes the explicit field, including OFF.
-    candidate.timingWarpEnabled = !warps->array.empty();
-    if (warpEnabled != input.object.end()
-        && !checkedBoolean(warpEnabled->second,
-            candidate.timingWarpEnabled, "$.transport.warpEnabled", result))
-        return false;
-    if (!checkedNumber(*sampleRate, candidate.sampleRate, 8000.0, 768000.0,
-            "$.transport.sampleRate", result)
+    if (!checkedBoolean(*warpEnabled, candidate.timingWarpEnabled,
+            "$.transport.warpEnabled", result)
         || !checkedNumber(*bpm, candidate.bpm, 20.0, 400.0,
             "$.transport.bpm", result)
         || !checkedUint32(*ticks, candidate.ticksPerBeat, 64u,
@@ -3127,18 +2386,12 @@ JsonValue encodeSession(const ProjectSessionState& session,
         "$.session.gateMilliseconds", result);
     finiteRange(session.tempoScale, 0.25, 4.0,
         "$.session.tempoScale", result);
-    finiteRange(session.mainOutputGain, 0.0, 1.0,
-        "$.session.mainOutputGain", result);
     JsonValue output = JsonValue::objectValue();
     output.object["commandRngState"] = JsonValue::stringValue(
         std::to_string(session.commandRngState));
     output.object["gateMilliseconds"] = JsonValue::numberValue(
         session.gateMilliseconds);
     output.object["tempoScale"] = JsonValue::numberValue(session.tempoScale);
-    output.object["mainOutputGain"] = JsonValue::numberValue(
-        session.mainOutputGain);
-    output.object["mainOutputMuted"] = JsonValue::booleanValue(
-        session.mainOutputMuted);
     output.object["songPlaybackEnabled"] = JsonValue::booleanValue(
         session.songPlaybackEnabled);
     output.object["showMidiNoteValues"] = JsonValue::booleanValue(
@@ -3147,8 +2400,8 @@ JsonValue encodeSession(const ProjectSessionState& session,
     return output;
 }
 
-bool decodeSession(const JsonValue& input, uint32_t schemaVersion,
-    ProjectSessionState& destination, ProjectResult& result)
+bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
+    ProjectResult& result)
 {
     const auto* gate = requiredField(input, "gateMilliseconds",
         JsonType::Number, "$.session", result);
@@ -3158,40 +2411,18 @@ bool decodeSession(const JsonValue& input, uint32_t schemaVersion,
         JsonType::String, "$.session", result);
     const auto* playbackSeed = requiredField(input, "playbackSeed",
         JsonType::Number, "$.session", result);
-    const auto* mainGain = requiredField(input, "mainOutputGain",
-        JsonType::Number, "$.session", result);
-    const auto* mainMuted = requiredField(input, "mainOutputMuted",
-        JsonType::Boolean, "$.session", result);
     const auto* songEnabled = requiredField(input, "songPlaybackEnabled",
         JsonType::Boolean, "$.session", result);
-    const JsonValue* showMidi = nullptr;
-    if (schemaVersion >= 10u) {
-        showMidi = requiredField(input, "showMidiNoteValues",
-            JsonType::Boolean, "$.session", result);
-    } else {
-        const auto found = input.object.find("showMidiNoteValues");
-        if (found != input.object.end()) {
-            if (found->second.type != JsonType::Boolean)
-                return setError(result, ProjectErrorCode::TypeMismatch,
-                    "$.session.showMidiNoteValues",
-                    "field has the wrong JSON type");
-            showMidi = &found->second;
-        }
-    }
+    const auto* showMidi = requiredField(input, "showMidiNoteValues",
+        JsonType::Boolean, "$.session", result);
     if (!gate || !tempoScale || !commandSeed || !playbackSeed
-        || !mainGain || !mainMuted || !songEnabled
-        || (schemaVersion >= 10u && !showMidi))
+        || !songEnabled || !showMidi)
         return false;
     ProjectSessionState candidate;
-    double decodedMainGain = 1.0;
     if (!checkedNumber(*gate, candidate.gateMilliseconds, 1.0, 10000.0,
             "$.session.gateMilliseconds", result)
         || !checkedNumber(*tempoScale, candidate.tempoScale, 0.25, 4.0,
             "$.session.tempoScale", result)
-        || !checkedNumber(*mainGain, decodedMainGain, 0.0, 1.0,
-            "$.session.mainOutputGain", result)
-        || !checkedBoolean(*mainMuted, candidate.mainOutputMuted,
-            "$.session.mainOutputMuted", result)
         || !checkedBoolean(*songEnabled, candidate.songPlaybackEnabled,
             "$.session.songPlaybackEnabled", result)
         || !checkedUint64String(*commandSeed, candidate.commandRngState,
@@ -3199,10 +2430,9 @@ bool decodeSession(const JsonValue& input, uint32_t schemaVersion,
         || !checkedUint32(*playbackSeed, candidate.playbackSeed,
             std::numeric_limits<uint32_t>::max(), "$.session.playbackSeed",
             result)) return false;
-    if (showMidi && !checkedBoolean(*showMidi,
+    if (!checkedBoolean(*showMidi,
             candidate.showMidiNoteValues,
             "$.session.showMidiNoteValues", result)) return false;
-    candidate.mainOutputGain = static_cast<float>(decodedMainGain);
     destination = std::move(candidate);
     return true;
 }

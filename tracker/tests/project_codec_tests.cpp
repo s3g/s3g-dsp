@@ -56,8 +56,7 @@ ProjectDocument makeDocument()
     track.name = "BREAKS / DRUMS";
     track.velocityScale = 0.82f;
     track.midiChannel = 11u;
-    track.destination = EventDestination::Internal;
-    track.initialInstrumentNodeId = 0u;
+    track.initialInstrumentNodeId = kMidiOutInstrumentNode;
     track.chokeGroup = 7u;
     track.notes.resize(12u, NoteCell::rest());
     track.notes[0u] = NoteCell::withNote(36u);
@@ -66,16 +65,10 @@ ProjectDocument makeDocument()
     track.notes[3u] = NoteCell::hold();
     track.notes[4u] = NoteCell::withBurst(0u);
     track.notes[7u] = NoteCell::withNote(72u);
-    track.instruments.resize(12u, InstrumentCell::empty());
-    track.instruments[0u] = InstrumentCell::withInstrument(0u);
-    track.instruments[1u] = InstrumentCell::previous();
-    track.instruments[8u] = InstrumentCell::withInstrument(
-        kStereoSamplerInstrumentNode);
     track.velocities.resize(12u, ValueCell::defaultValue());
     track.velocities[0u] = ValueCell::withValue(0.91f);
     track.velocities[1u] = ValueCell::previous();
     track.noteColumn = { 12u, 3u, 2u, Direction::Palindrome, false };
-    track.instrumentColumn = { 12u, 1u, 1u, Direction::Forward, false };
     track.velocityColumn = { 9u, 2u, 3u, Direction::Random, false };
 
     constexpr std::array<SequencerAction, kSequencerActionCount> actions {{
@@ -110,8 +103,8 @@ ProjectDocument makeDocument()
     auto& secondFx = track.fxPairs[1u];
     secondFx.actions.resize(4u, FxActionCell::empty());
     secondFx.values.resize(4u, FxValueCell::previous());
-    secondFx.actions[0u] = FxActionCell::parameter(23u,
-        ParameterScope::Note, kTrackInstrumentNode);
+    secondFx.actions[0u] = FxActionCell::sequencer(
+        SequencerAction::MicroTime);
     secondFx.actions[1u] = FxActionCell::previous();
     secondFx.actions[2u] = FxActionCell::midiControlChange(74u);
     secondFx.values[0u] = FxValueCell::withValue(0.42f);
@@ -164,37 +157,10 @@ ProjectDocument makeDocument()
 
     document.session.gateMilliseconds = 123.5;
     document.session.tempoScale = 1.5;
-    document.session.mainOutputGain = 0.73f;
-    document.session.mainOutputMuted = true;
     document.session.songPlaybackEnabled = true;
     document.session.showMidiNoteValues = false;
     document.session.commandRngState = std::numeric_limits<uint64_t>::max();
     document.session.playbackSeed = 0xfedcba98u;
-
-    auto& rack = document.instrumentRack;
-    rack.selectedNode = kStereoSamplerInstrumentNode;
-    rack.slots[0u].basePatch.normalized[3u] = 0.1234567f;
-    rack.daisyDrumPatches[2u].normalized[5u] = 0.7654321f;
-    auto& sampler = rack.samplerSlots[0u];
-    sampler.filePath = "/samples/Break α.wav";
-    auto asset = std::make_shared<audio::StereoSampleAsset>();
-    asset->sampleRate = 48000.0;
-    asset->left.resize(16u, 0.25f);
-    asset->right.resize(16u, -0.25f);
-    sampler.asset = asset;
-    sampler.analysis = std::make_shared<audio::StereoSampleAnalysis>();
-    sampler.slices[0u] = { 0u, 7u, 0.75f, false };
-    sampler.slices[1u] = { 7u, 16u, 1.25f, true };
-    sampler.sliceCount = 2u;
-    sampler.baseNote = 48u;
-    sampler.envelope.attackMilliseconds = 2.5;
-    sampler.envelope.decayMilliseconds = 31.0;
-    sampler.envelope.sustain = 0.625f;
-    sampler.envelope.releaseMilliseconds = 87.0;
-    rack.midiRoutes[0u].kind = MidiInstrumentRouteKind::Destination;
-    rack.midiRoutes[0u].destinationId = -4242;
-    rack.midiRoutes[0u].virtualSource = 3u;
-    rack.midiRoutes[0u].channel = 16u;
 
     document.song.name = "LIVE SET";
     document.song.loop = true;
@@ -225,15 +191,26 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 10") != std::string::npos
-            && firstEncoding.find("\"patternBank\"") != std::string::npos
+    check(firstEncoding.find(
+                "\"format\": \"s3g-tracker-midi-composition\"")
+                != std::string::npos
+            && firstEncoding.find("\"version\": 1") != std::string::npos
+            && firstEncoding.find("\"patterns\"") != std::string::npos
+            && firstEncoding.find("\"arrangement\"") != std::string::npos
+            && firstEncoding.find("\"playback\"") != std::string::npos
+            && firstEncoding.find("\"workspace\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
             && firstEncoding.find("\"midi-control-change\"")
                 != std::string::npos
             && firstEncoding.find("\"valueInterpolation\": \"linear\"")
                 != std::string::npos
-            && firstEncoding.find("\"phase\": 4") != std::string::npos,
-        "schema, MIDI CC interpolation, generative FX, and column phase should be explicit JSON data");
+            && firstEncoding.find("\"phase\": 4") != std::string::npos
+            && firstEncoding.find("\"slot\": 0") != std::string::npos
+            && firstEncoding.find("instrumentRack") == std::string::npos
+            && firstEncoding.find("instruments") == std::string::npos
+            && firstEncoding.find("sampleRate") == std::string::npos
+            && firstEncoding.find("mainOutput") == std::string::npos,
+        "version 1 should contain only MIDI composition, playback, arrangement, and workspace data");
 
     ProjectDocument decoded;
     const auto decodedResult = decodeProjectDocument(firstEncoding, decoded);
@@ -245,12 +222,10 @@ void testCompleteDeterministicRoundTrip()
     check(decoded.session.commandRngState
                 == std::numeric_limits<uint64_t>::max()
             && decoded.session.playbackSeed == 0xfedcba98u
-            && decoded.session.mainOutputMuted
             && decoded.session.songPlaybackEnabled
             && !decoded.session.showMidiNoteValues
-            && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9
-            && std::abs(decoded.session.mainOutputGain - 0.73f) < 1.0e-6f,
-        "random seeds, MAIN OUT, Song mode, and NOTE view should survive without precision loss");
+            && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9,
+        "random seeds, Song mode, and NOTE view should survive without precision loss");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
             && activePattern(decoded).tracks[0u].notes[3u].state
                 == NoteCellState::Hold
@@ -290,25 +265,13 @@ void testCompleteDeterministicRoundTrip()
             && libraryWarp->cycleTicks == 5u
             && libraryWarp->stack.size() == 1u,
         "indexed composed timing-warps should round trip");
-    check(decoded.instrumentRack.samplerSlots[0u].filePath
-                == "/samples/Break α.wav"
-            && decoded.instrumentRack.samplerSlots[0u].sliceCount == 2u
-            && decoded.instrumentRack.samplerSlots[0u].slices[1u].reverse
-            && decoded.instrumentRack.samplerSlots[0u]
-                .envelope.attackMilliseconds == 2.5
-            && decoded.instrumentRack.samplerSlots[0u]
-                .envelope.decayMilliseconds == 31.0
-            && decoded.instrumentRack.samplerSlots[0u].envelope.sustain
-                == 0.625f
-            && decoded.instrumentRack.samplerSlots[0u]
-                .envelope.releaseMilliseconds == 87.0,
-        "sampler reference, slice table, and envelope should round trip");
-    check(!decoded.instrumentRack.samplerSlots[0u].asset
-            && !decoded.instrumentRack.samplerSlots[0u].analysis,
-        "decoded PCM and waveform analysis should remain derived data");
-    check(decoded.instrumentRack.midiRoutes[0u].destinationId == -4242
-            && decoded.instrumentRack.midiRoutes[0u].channel == 16u,
-        "instrument-owned MIDI destination and channel should round trip");
+    check(activePattern(decoded).tracks[0u].destination
+                == EventDestination::Midi
+            && activePattern(decoded).tracks[0u].initialInstrumentNodeId
+                == kMidiOutInstrumentNode
+            && activePattern(decoded).tracks[0u].instruments.empty()
+            && activePattern(decoded).tracks[0u].instrumentColumn.length == 0u,
+        "decoded lanes should reconstruct the MIDI-only runtime route without legacy instrument data");
     check(decoded.song.rows.size() == 2u
             && decoded.song.rows[0u].bpm == 145.0
             && decoded.song.rows[0u].energy == 0.65f
@@ -339,7 +302,7 @@ void testEmptyOptionalSongIsAValidProject()
 void testDefaultAppDemoIsSaveable()
 {
     TrackerSession session;
-    const auto demo = CommandEngine::execute(session, "demo");
+    const auto kit = CommandEngine::execute(session, "kit superior basic");
     ProjectDocument document;
     *document.patternBank.activePattern() = session.pattern;
     document.transport = session.transport;
@@ -353,38 +316,30 @@ void testDefaultAppDemoIsSaveable()
     row.patternId = document.patternBank.activePatternId;
     document.song.rows.push_back(std::move(row));
     std::string encoded;
-    check(demo.ok && encodeProjectDocument(document, encoded).ok(),
-        "the app's initial demo/session/rack/song state should save without normalization repair");
+    check(kit.ok && encodeProjectDocument(document, encoded).ok(),
+        "the app's initial MIDI kit/session/song state should save without normalization repair");
 }
 
-void testPolymetricRapDemoLoadsAsNativeProject()
+void testRapBurstSeqDemoLoadsAsMidiComposition()
 {
     std::string sourceDirectory = __FILE__;
     const auto filename = sourceDirectory.find_last_of('/');
     if (filename != std::string::npos)
         sourceDirectory.erase(filename);
     const std::string demoPath = sourceDirectory
-        + "/../../examples/tracker/rap-beat-polymetric-demo.s3gt";
+        + "/../../examples/tracker/rap-beat-burst-seq-demo.s3gt";
     ProjectDocument demo;
     const auto loaded = loadProjectDocument(demoPath, demo);
     check(loaded.ok(),
-        "the polymetric rap demo should load through the native project codec");
+        "the rap Burst/SEQ demo should load as a MIDI composition");
     if (!loaded.ok()) return;
 
-    const auto* verse = demo.patternBank.findEntry("P02");
     bool hasBurst = false;
     bool hasSequencerAction = false;
-    bool hasOneBarLaneMute = false;
-    std::size_t shortestNoteCycle = kMaximumSongPatternRows;
-    std::size_t longestNoteCycle = 0u;
     for (const auto& entry : demo.patternBank.entries) {
         for (const auto& burst : entry.pattern.bursts)
-            hasBurst |= burst.eventCount != 0u;
+            hasBurst |= !burst.empty();
         for (const auto& track : entry.pattern.tracks) {
-            shortestNoteCycle = std::min(shortestNoteCycle,
-                track.noteColumn.length);
-            longestNoteCycle = std::max(longestNoteCycle,
-                track.noteColumn.length);
             for (const auto& pair : track.fxPairs) {
                 for (const auto& action : pair.actions) {
                     hasSequencerAction |= action.state
@@ -393,33 +348,11 @@ void testPolymetricRapDemoLoadsAsNativeProject()
             }
         }
     }
-    for (const auto& row : demo.song.rows) {
-        hasOneBarLaneMute |= row.durationTicks == 16u
-            && row.repeats == 1u && row.mutedTracks != 0u;
-    }
     check(demo.session.songPlaybackEnabled
-            && demo.song.name == "RAP POLYMETER / CONTROLLED CYCLES"
-            && demo.song.rows.size() == 19u
-            && demo.patternBank.entries.size() == 7u
-            && demo.patternBank.activePatternId == "P02"
-            && verse && verse->pattern.tracks.size() == 4u,
-        "the polymetric demo should retain its complete rap arrangement");
-    if (verse && verse->pattern.tracks.size() == 4u) {
-        check(verse->pattern.visibleRows == 24u
-                && verse->pattern.tracks[0u].notes.size() >= 24u
-                && verse->pattern.tracks[0u].noteColumn.length == 24u
-                && verse->pattern.tracks[1u].noteColumn.length == 16u
-                && verse->pattern.tracks[2u].noteColumn.length == 12u
-                && verse->pattern.tracks[3u].noteColumn.length == 20u
-                && verse->pattern.tracks[0u].velocityColumn.length == 7u
-                && verse->pattern.tracks[1u].velocityColumn.length == 9u
-                && verse->pattern.tracks[2u].velocityColumn.length == 5u
-                && verse->pattern.tracks[3u].velocityColumn.length == 11u,
-            "the verse should expose independent 24:16:12:20 note and 7:9:5:11 velocity cycles");
-    }
-    check(hasBurst && hasSequencerAction && hasOneBarLaneMute
-            && shortestNoteCycle == 4u && longestNoteCycle == 24u,
-        "the polymetric rap demo should keep Burst and SEQ composition, intentional 4..24-step cycles, and one-bar lane-mute variations");
+            && !demo.patternBank.entries.empty()
+            && !demo.song.rows.empty()
+            && hasBurst && hasSequencerAction,
+        "the rap demo should retain its Song, Burst, and SEQ content");
 }
 
 void testUnknownFieldsAreSafelyIgnored()
@@ -430,12 +363,12 @@ void testUnknownFieldsAreSafelyIgnored()
     const std::string canonical = encoded;
     encoded.insert(2u,
         "  \"futureRoot\": {\"opaque\": [1, true, null]},\n");
-    const std::string marker = "\"transport\": {";
-    const auto transport = encoded.find(marker);
-    check(transport != std::string::npos,
-        "transport marker should exist in encoded JSON");
-    if (transport != std::string::npos) {
-        encoded.insert(transport + marker.size(),
+    const std::string marker = "\"playback\": {";
+    const auto playback = encoded.find(marker);
+    check(playback != std::string::npos,
+        "playback marker should exist in encoded JSON");
+    if (playback != std::string::npos) {
+        encoded.insert(playback + marker.size(),
             "\n    \"futureTimingModel\": {\"revision\": 9},");
     }
     ProjectDocument decoded;
@@ -456,107 +389,70 @@ void testStrictTransactionalRejection()
 
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
-    std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 10");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 10").size(),
-        "\"schemaVersion\": 2");
-    const auto unsupported = decodeProjectDocument(badVersion, destination);
+
+    std::string wrongVersion = encoded;
+    const auto version = wrongVersion.find("\"version\": 1");
+    wrongVersion.replace(version, std::string("\"version\": 1").size(),
+        "\"version\": 2");
+    const auto unsupported = decodeProjectDocument(wrongVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion
             && activePattern(destination).name == "sentinel",
-        "unsupported schemas should reject without mutating destination");
+        "any non-current MIDI composition version should reject transactionally");
 
     std::string legacy = encoded;
-    const auto legacySchema = legacy.find("\"schemaVersion\": 10");
-    legacy.replace(legacySchema,
-        std::string("\"schemaVersion\": 10").size(),
-        "\"schemaVersion\": 5");
-    const std::string linearInterpolation
-        = "\"valueInterpolation\": \"linear\",\n";
-    const auto legacyInterpolation = legacy.find(linearInterpolation);
-    check(legacyInterpolation != std::string::npos,
-        "schema migration fixture should contain a linear value lane");
-    if (legacyInterpolation != std::string::npos)
-        legacy.erase(legacyInterpolation, linearInterpolation.size());
-    ProjectDocument migrated;
-    check(decodeProjectDocument(legacy, migrated).ok()
-            && migrated.patternBank.entries.size() == 2u
-            && migrated.patternBank.entries[0u].pattern.tracks[0u]
-                    .fxPairs[1u].valueInterpolation
-                == ValueInterpolation::Step,
-        "schema 5 projects should migrate missing interpolation modes to STEP");
-
-    auto schemaSixDocument = makeDocument();
-    schemaSixDocument.song.rows[0u].patternLoop.reset();
-    std::string schemaSix;
-    check(encodeProjectDocument(schemaSixDocument, schemaSix).ok(),
-        "schema 6 migration fixture should encode without a pattern loop");
-    const auto schemaSixVersion = schemaSix.find("\"schemaVersion\": 10");
-    schemaSix.replace(schemaSixVersion,
-        std::string("\"schemaVersion\": 10").size(),
-        "\"schemaVersion\": 6");
-    ProjectDocument migratedSix;
-    check(decodeProjectDocument(schemaSix, migratedSix).ok()
-            && !migratedSix.song.rows[0u].patternLoop,
-        "schema 6 projects should migrate missing Song pattern loops to OFF");
-
-    std::string schemaSeven = encoded;
-    const auto schemaSevenVersion = schemaSeven.find("\"schemaVersion\": 10");
-    schemaSeven.replace(schemaSevenVersion,
-        std::string("\"schemaVersion\": 10").size(),
-        "\"schemaVersion\": 7");
-    const std::string warpEnableField = "\"warpEnabled\": true,\n";
-    const auto warpEnable = schemaSeven.find(warpEnableField);
-    check(warpEnable != std::string::npos,
-        "schema 8 migration fixture should contain explicit warp enablement");
-    if (warpEnable != std::string::npos)
-        schemaSeven.erase(warpEnable, warpEnableField.size());
-    ProjectDocument migratedSeven;
-    check(decodeProjectDocument(schemaSeven, migratedSeven).ok()
-            && migratedSeven.transport.timingWarpEnabled,
-        "schema 7 projects with an authored stack should preserve their audible warp state");
-
-    std::string schemaNine = encoded;
-    const auto schemaNineVersion = schemaNine.find("\"schemaVersion\": 10");
-    schemaNine.replace(schemaNineVersion,
-        std::string("\"schemaVersion\": 10").size(),
-        "\"schemaVersion\": 9");
-    const std::string noteViewField
-        = "\"showMidiNoteValues\": false,\n";
-    const auto noteView = schemaNine.find(noteViewField);
-    check(noteView != std::string::npos,
-        "schema 10 migration fixture should contain the NOTE view preference");
-    if (noteView != std::string::npos)
-        schemaNine.erase(noteView, noteViewField.size());
-    ProjectDocument migratedNine;
-    check(decodeProjectDocument(schemaNine, migratedNine).ok()
-            && migratedNine.session.showMidiNoteValues,
-        "preference-free schema 9 projects should migrate to the MIDI-number NOTE view");
+    const auto format = legacy.find(kProjectFormatIdentifier);
+    legacy.replace(format, std::string(kProjectFormatIdentifier).size(),
+        "s3g-tracker-project");
+    check(decodeProjectDocument(legacy, destination).code
+                == ProjectErrorCode::InvalidArgument
+            && activePattern(destination).name == "sentinel",
+        "the retired hybrid project format should not migrate");
 
     auto invalidBank = makeDocument();
     invalidBank.patternBank.entries[1u].id = "A01";
-    std::string untouchedBank = "unchanged";
-    check(encodeProjectDocument(invalidBank, untouchedBank).code
+    std::string untouched = "unchanged";
+    check(encodeProjectDocument(invalidBank, untouched).code
                 == ProjectErrorCode::InconsistentData
-            && untouchedBank == "unchanged",
+            && untouched == "unchanged",
         "duplicate stable pattern IDs should reject transactionally");
 
     invalidBank = makeDocument();
     invalidBank.patternBank.activePatternId = "MISSING";
-    check(encodeProjectDocument(invalidBank, untouchedBank).code
+    check(encodeProjectDocument(invalidBank, untouched).code
                 == ProjectErrorCode::InconsistentData,
         "active selection must resolve inside the pattern bank");
 
     invalidBank = makeDocument();
     invalidBank.song.rows[1u].patternId = "MISSING";
-    check(encodeProjectDocument(invalidBank, untouchedBank).code
+    check(encodeProjectDocument(invalidBank, untouched).code
                 == ProjectErrorCode::InconsistentData,
         "Song rows must resolve stable pattern IDs inside the bank");
 
     invalidBank = makeDocument();
     invalidBank.song.rows[0u].patternLoop = SongPatternLoop { 12u, 12u };
-    check(encodeProjectDocument(invalidBank, untouchedBank).code
+    check(encodeProjectDocument(invalidBank, untouched).code
                 == ProjectErrorCode::InconsistentData,
         "empty Song pattern-loop ranges should reject transactionally");
+
+    invalidBank = makeDocument();
+    activePattern(invalidBank).tracks[0u].fxPairs[1u].actions[0u]
+        = FxActionCell::parameter(23u, ParameterScope::Note,
+            kTrackInstrumentNode);
+    check(encodeProjectDocument(invalidBank, untouched).code
+                == ProjectErrorCode::InconsistentData,
+        "internal instrument parameters should not enter a MIDI composition");
+
+    invalidBank = makeDocument();
+    invalidBank.patternBank.entries[0u].aliases.emplace("Bad Alias", 0u);
+    check(encodeProjectDocument(invalidBank, untouched).code
+                == ProjectErrorCode::OutOfRange,
+        "project aliases should use the command language's canonical grammar");
+
+    invalidBank = makeDocument();
+    invalidBank.patternBank.entries[0u].aliases["outside"] = 1u;
+    check(encodeProjectDocument(invalidBank, untouched).code
+                == ProjectErrorCode::OutOfRange,
+        "an alias outside its own pattern should fail");
 
     std::string badEnum = encoded;
     const auto action = badEnum.find("\"ratchet\"");
@@ -572,62 +468,6 @@ void testStrictTransactionalRejection()
     check(decodeProjectDocument(duplicate, destination).code
                 == ProjectErrorCode::InvalidJson,
         "duplicate JSON keys should be rejected as ambiguous");
-
-    auto invalidModel = makeDocument();
-    activePattern(invalidModel).tracks[0u].instruments[3u]
-        = InstrumentCell::withInstrument(kMidiOutInstrumentNode + 7u);
-    std::string untouched = "unchanged";
-    const auto referenceResult = encodeProjectDocument(invalidModel, untouched);
-    check(referenceResult.code == ProjectErrorCode::InconsistentData
-            && untouched == "unchanged",
-        "inactive rack references should reject before replacing encoded output");
-
-    invalidModel = makeDocument();
-    invalidModel.instrumentRack.samplerSlots[0u].slices[0u].endFrame = 99u;
-    check(encodeProjectDocument(invalidModel, untouched).code
-                == ProjectErrorCode::OutOfRange,
-        "slice ranges outside a loaded asset should reject");
-
-    invalidModel = makeDocument();
-    invalidModel.instrumentRack.samplerSlots[0u].envelope.releaseMilliseconds
-        = std::numeric_limits<double>::quiet_NaN();
-    check(encodeProjectDocument(invalidModel, untouched).code
-                == ProjectErrorCode::OutOfRange,
-        "non-finite sampler envelopes should reject before serialization");
-
-    invalidModel = makeDocument();
-    invalidModel.patternBank.entries[0u].aliases.emplace("Bad Alias", 0u);
-    check(encodeProjectDocument(invalidModel, untouched).code
-                == ProjectErrorCode::OutOfRange,
-        "project aliases should use the same reachable canonical grammar as commands");
-
-    invalidModel = makeDocument();
-    invalidModel.patternBank.entries[0u].aliases["outside"] = 1u;
-    check(encodeProjectDocument(invalidModel, untouched).code
-                == ProjectErrorCode::OutOfRange,
-        "an alias outside its own pattern should fail even when another bank pattern has that lane");
-
-    invalidModel = makeDocument();
-    invalidModel.instrumentRack.instruments[3u]
-        = *defaultRackInstrument(kSn76489InstrumentNode);
-    check(encodeProjectDocument(invalidModel, untouched).code
-                == ProjectErrorCode::InconsistentData,
-        "archived chip nodes should not reactivate through project encoding");
-
-    std::string archivedNode = encoded;
-    const auto activeNodes = archivedNode.find("\"activeNodes\"");
-    const auto arrayStart = archivedNode.find('[', activeNodes);
-    const auto firstNode = archivedNode.find_first_of("0123456789", arrayStart);
-    check(activeNodes != std::string::npos && arrayStart != std::string::npos
-            && firstNode != std::string::npos,
-        "active-node rejection fixture should find the first rack node");
-    if (firstNode != std::string::npos) {
-        archivedNode.replace(firstNode, 1u,
-            std::to_string(kSn76489InstrumentNode));
-        check(decodeProjectDocument(archivedNode, destination).code
-                    == ProjectErrorCode::OutOfRange,
-            "archived chip nodes should not reactivate through project decoding");
-    }
 }
 
 bool directoryHasTemporaryProject(const std::string& directory)
@@ -733,7 +573,7 @@ int main()
     testCompleteDeterministicRoundTrip();
     testEmptyOptionalSongIsAValidProject();
     testDefaultAppDemoIsSaveable();
-    testPolymetricRapDemoLoadsAsNativeProject();
+    testRapBurstSeqDemoLoadsAsMidiComposition();
     testUnknownFieldsAreSafelyIgnored();
     testStrictTransactionalRejection();
     testAtomicStorePublishesCompleteReplacement();

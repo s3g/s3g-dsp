@@ -1,461 +1,130 @@
 {
-  "format": "s3g-tracker-project",
-  "instrumentRack": {
-    "activeNodes": [
-      0,
-      28,
-      31
-    ],
-    "daisyDrumPatches": [
-      [
-        0.37340298295021057,
-        0.10000000149011612,
-        0.10000000149011612,
-        0.30000001192092896,
-        0.5,
-        1,
-        0.66666668653488159,
-        0
-      ],
-      [
-        0.37340298295021057,
-        0.10000000149011612,
-        0.10000000149011612,
-        0.30000001192092896,
-        0.5,
-        1,
-        0.66666668653488159,
-        0
-      ],
-      [
-        0.37340298295021057,
-        0.10000000149011612,
-        0.10000000149011612,
-        0.30000001192092896,
-        0.5,
-        1,
-        0.66666668653488159,
-        0
-      ],
-      [
-        0.51139158010482788,
-        0.60000002384185791,
-        0.5,
-        0.30000001192092896,
-        0.69999998807907104,
-        0.61904764175415039,
-        0,
-        0
-      ],
-      [
-        0.51139158010482788,
-        0.60000002384185791,
-        0.5,
-        0.30000001192092896,
-        0.69999998807907104,
-        0.61904764175415039,
-        0,
-        0
-      ],
-      [
-        0.51139158010482788,
-        0.60000002384185791,
-        0.5,
-        0.30000001192092896,
-        0.69999998807907104,
-        0.61904764175415039,
-        0,
-        0
-      ],
-      [
-        0.62419635057449341,
-        0.80000001192092896,
-        0.5,
-        0.20000000298023224,
-        0.80000001192092896,
-        0.52380955219268799,
-        0,
-        0
-      ],
-      [
-        0.62419635057449341,
-        0.80000001192092896,
-        0.5,
-        0.20000000298023224,
-        0.80000001192092896,
-        0.52380955219268799,
-        0,
-        0
-      ],
-      [
-        0.62419635057449341,
-        0.80000001192092896,
-        0.5,
-        0.20000000298023224,
-        0.80000001192092896,
-        0.52380955219268799,
-        0,
-        0
-      ],
-      [
-        0.7022479772567749,
-        0.20000000298023224,
-        0.60000002384185791,
-        0.69999998807907104,
-        0.30000001192092896,
-        0.60000002384185791,
-        0.30000001192092896,
-        0.6428571343421936
-      ],
-      [
-        0.7022479772567749,
-        0.20000000298023224,
-        0.60000002384185791,
-        0.69999998807907104,
-        0.30000001192092896,
-        0.60000002384185791,
-        0.30000001192092896,
-        0.6428571343421936
-      ],
-      [
-        0.7022479772567749,
-        0.20000000298023224,
-        0.60000002384185791,
-        0.69999998807907104,
-        0.30000001192092896,
-        0.60000002384185791,
-        0.30000001192092896,
-        0.6428571343421936
-      ],
-      [
-        0.45475673675537109,
-        0.60000002384185791,
-        0.30000001192092896,
-        0.10000000149011612,
-        0.69999998807907104,
-        0.5952380895614624,
-        0,
-        0
-      ],
-      [
-        0.45475673675537109,
-        0.60000002384185791,
-        0.30000001192092896,
-        0.10000000149011612,
-        0.69999998807907104,
-        0.5952380895614624,
-        0,
-        0
-      ],
-      [
-        0.45475673675537109,
-        0.60000002384185791,
-        0.30000001192092896,
-        0.10000000149011612,
-        0.69999998807907104,
-        0.5952380895614624,
-        0,
-        0
-      ]
-    ],
-    "membraneSlots": [
+  "arrangement": {
+    "loop": false,
+    "name": "DUST BREAK RAP / BURST + SEQ",
+    "rows": [
       {
-        "node": 0,
-        "patch": [
-          0,
-          0.27692309021949768,
-          0.2314189225435257,
-          0.25999999046325684,
-          0.2800000011920929,
-          0.64583331346511841,
-          0.15102040767669678,
-          0.75999999046325684,
-          0.15999999642372131,
-          0,
-          0.5899999737739563,
-          0.46000000834465027,
-          0.72000002861022949,
-          0.41999998688697815,
-          0.5,
-          0.72000002861022949,
-          1,
-          1,
-          0.78787881135940552
-        ],
-        "role": "kick"
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P01",
+        "repeats": 4,
+        "swing": 0.54000000000000004,
+        "warpSlot": 0
       },
       {
-        "node": 1,
-        "patch": [
-          0,
-          0.27692309021949768,
-          0.2314189225435257,
-          0.25999999046325684,
-          0.2800000011920929,
-          0.64583331346511841,
-          0.15102040767669678,
-          0.75999999046325684,
-          0.15999999642372131,
-          0,
-          0.5899999737739563,
-          0.46000000834465027,
-          0.72000002861022949,
-          0.41999998688697815,
-          0.5,
-          0.72000002861022949,
-          1,
-          1,
-          0.78787881135940552
-        ],
-        "role": "kick"
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P02",
+        "repeats": 7,
+        "swing": 0.56000000000000005,
+        "warpSlot": 0
       },
       {
-        "node": 2,
-        "patch": [
-          0,
-          0.27692309021949768,
-          0.2314189225435257,
-          0.25999999046325684,
-          0.2800000011920929,
-          0.64583331346511841,
-          0.15102040767669678,
-          0.75999999046325684,
-          0.15999999642372131,
-          0,
-          0.5899999737739563,
-          0.46000000834465027,
-          0.72000002861022949,
-          0.41999998688697815,
-          0.5,
-          0.72000002861022949,
-          1,
-          1,
-          0.78787881135940552
-        ],
-        "role": "kick"
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P03",
+        "repeats": 8,
+        "swing": 0.56999999999999995,
+        "warpSlot": 0
       },
       {
-        "node": 3,
-        "patch": [
-          0,
-          0.27692309021949768,
-          0.2314189225435257,
-          0.25999999046325684,
-          0.2800000011920929,
-          0.64583331346511841,
-          0.15102040767669678,
-          0.75999999046325684,
-          0.15999999642372131,
-          0,
-          0.5899999737739563,
-          0.46000000834465027,
-          0.72000002861022949,
-          0.41999998688697815,
-          0.5,
-          0.72000002861022949,
-          1,
-          1,
-          0.78787881135940552
-        ],
-        "role": "kick"
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P06",
+        "repeats": 1,
+        "swing": 0.56000000000000005,
+        "warpSlot": 0
       },
       {
-        "node": 4,
-        "patch": [
-          0,
-          0.27692309021949768,
-          0.2314189225435257,
-          0.25999999046325684,
-          0.2800000011920929,
-          0.64583331346511841,
-          0.15102040767669678,
-          0.75999999046325684,
-          0.15999999642372131,
-          0,
-          0.5899999737739563,
-          0.46000000834465027,
-          0.72000002861022949,
-          0.41999998688697815,
-          0.5,
-          0.72000002861022949,
-          1,
-          1,
-          0.78787881135940552
-        ],
-        "role": "kick"
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P04",
+        "repeats": 8,
+        "swing": 0.54000000000000004,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P03",
+        "repeats": 7,
+        "swing": 0.56999999999999995,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P02",
+        "repeats": 8,
+        "swing": 0.56000000000000005,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P06",
+        "repeats": 1,
+        "swing": 0.56000000000000005,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P04",
+        "repeats": 8,
+        "swing": 0.54000000000000004,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P05",
+        "repeats": 3,
+        "swing": 0.57999999999999996,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P06",
+        "repeats": 1,
+        "swing": 0.56000000000000005,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P04",
+        "repeats": 8,
+        "swing": 0.54000000000000004,
+        "warpSlot": 0
+      },
+      {
+        "durationTicks": 16,
+        "energy": 1,
+        "mutedTracks": 0,
+        "patternId": "P07",
+        "repeats": 4,
+        "swing": 0.54000000000000004,
+        "warpSlot": 0
       }
     ],
-    "midiRoutes": [
-      {
-        "channel": 1,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 31,
-        "virtualSource": 1
-      },
-      {
-        "channel": 2,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 32,
-        "virtualSource": 2
-      },
-      {
-        "channel": 3,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 33,
-        "virtualSource": 3
-      },
-      {
-        "channel": 4,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 34,
-        "virtualSource": 4
-      },
-      {
-        "channel": 5,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 35,
-        "virtualSource": 5
-      },
-      {
-        "channel": 6,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 36,
-        "virtualSource": 6
-      },
-      {
-        "channel": 7,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 37,
-        "virtualSource": 7
-      },
-      {
-        "channel": 8,
-        "destinationId": 0,
-        "kind": "virtual-source",
-        "node": 38,
-        "virtualSource": 8
-      }
-    ],
-    "samplerSlots": [
-      {
-        "baseNote": 36,
-        "envelope": {
-          "attackMilliseconds": 0.10000000000000001,
-          "decayMilliseconds": 0,
-          "releaseMilliseconds": 5,
-          "sustain": 1
-        },
-        "file": "",
-        "node": 28,
-        "slices": []
-      },
-      {
-        "baseNote": 36,
-        "envelope": {
-          "attackMilliseconds": 0.10000000000000001,
-          "decayMilliseconds": 0,
-          "releaseMilliseconds": 5,
-          "sustain": 1
-        },
-        "file": "",
-        "node": 29,
-        "slices": []
-      },
-      {
-        "baseNote": 36,
-        "envelope": {
-          "attackMilliseconds": 0.10000000000000001,
-          "decayMilliseconds": 0,
-          "releaseMilliseconds": 5,
-          "sustain": 1
-        },
-        "file": "",
-        "node": 30,
-        "slices": []
-      }
-    ],
-    "selectedNode": 0,
-    "sn76489Patches": [
-      [
-        0.51428574323654175,
-        0.40000000596046448,
-        0.85843539237976074,
-        0.43761813640594482,
-        0.2781512439250946
-      ],
-      [
-        0.51428574323654175,
-        0.40000000596046448,
-        0.85843539237976074,
-        0.43761813640594482,
-        0.2781512439250946
-      ],
-      [
-        0.51428574323654175,
-        0.40000000596046448,
-        0.85843539237976074,
-        0.43761813640594482,
-        0.2781512439250946
-      ],
-      [
-        0.51428574323654175,
-        0.40000000596046448,
-        0.85843539237976074,
-        0.43761813640594482,
-        0.2781512439250946
-      ],
-      [
-        0.51428574323654175,
-        0.40000000596046448,
-        0.85843539237976074,
-        0.43761813640594482,
-        0.2781512439250946
-      ]
-    ],
-    "ym2151Patches": [
-      [
-        0,
-        0.57142859697341919,
-        0.71428573131561279,
-        0.72000002861022949,
-        0.93999999761581421,
-        0.51999998092651367,
-        0.54000002145767212,
-        0.34000000357627869,
-        0.54000002145767212
-      ],
-      [
-        0,
-        0.57142859697341919,
-        0.71428573131561279,
-        0.72000002861022949,
-        0.93999999761581421,
-        0.51999998092651367,
-        0.54000002145767212,
-        0.34000000357627869,
-        0.54000002145767212
-      ],
-      [
-        0,
-        0.57142859697341919,
-        0.71428573131561279,
-        0.72000002861022949,
-        0.93999999761581421,
-        0.51999998092651367,
-        0.54000002145767212,
-        0.34000000357627869,
-        0.54000002145767212
-      ]
-    ]
+    "ticksPerBeat": 4
   },
-  "patternBank": {
+  "format": "s3g-tracker-midi-composition",
+  "patterns": {
     "activePatternId": "P01",
     "patterns": [
       {
@@ -496,7 +165,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -513,7 +183,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -536,7 +207,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -571,7 +243,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -594,7 +267,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -617,118 +291,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "INTRO / DUST BREAK",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -967,64 +537,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "KICK / 36",
               "noteColumn": {
@@ -1151,7 +663,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -1390,64 +901,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -1572,7 +1025,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -1813,64 +1265,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -1993,7 +1387,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -2232,64 +1625,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -2462,7 +1797,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -2479,7 +1815,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -2502,7 +1839,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -2537,7 +1875,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -2560,7 +1899,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -2583,118 +1923,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "VERSE A / BROKEN POCKET",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -2937,64 +2173,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "KICK / 36",
               "noteColumn": {
@@ -3127,7 +2305,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -3372,64 +2549,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -3558,7 +2677,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -3799,64 +2917,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -3981,7 +3041,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -4222,64 +3281,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -4458,7 +3459,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -4475,7 +3477,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -4498,7 +3501,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -4533,7 +3537,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -4556,7 +3561,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -4579,118 +3585,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "VERSE B / CROOKED REPLY",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -4933,64 +3835,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "KICK / 36",
               "noteColumn": {
@@ -5123,7 +3967,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -5366,64 +4209,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -5550,7 +4335,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -5791,64 +4575,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -5973,7 +4699,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -6212,64 +4937,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -6444,7 +5111,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -6461,7 +5129,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -6484,7 +5153,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -6519,7 +5189,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -6542,7 +5213,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -6565,118 +5237,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "HOOK / HEAVY BREAK",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -6915,64 +5483,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "KICK / 36",
               "noteColumn": {
@@ -7107,7 +5617,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -7350,64 +5859,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -7534,7 +5985,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -7777,64 +6227,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -7961,7 +6353,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -8200,64 +6591,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -8436,7 +6769,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -8453,7 +6787,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -8476,7 +6811,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -8511,7 +6847,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -8534,7 +6871,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -8557,118 +6895,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "BREAKDOWN / FLOOR TOM LOOP",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -8907,64 +7141,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "KICK / 36",
               "noteColumn": {
@@ -9091,7 +7267,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -9330,64 +7505,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -9512,7 +7629,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -9753,64 +7869,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -9939,7 +7997,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -10176,64 +8233,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -10406,7 +8405,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -10423,7 +8423,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -10446,7 +8447,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -10481,7 +8483,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -10504,7 +8507,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -10527,118 +8531,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "TURNAROUND / CHOPPED BREAK",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -10877,64 +8777,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "KICK / 36",
               "noteColumn": {
@@ -11063,7 +8905,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -11302,64 +9143,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -11486,7 +9269,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -11723,64 +9505,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -11909,7 +9633,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -12148,64 +9871,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -12378,7 +10043,8 @@
                   "velocity": 84
                 }
               ],
-              "name": "HAT 3 CHOP"
+              "name": "HAT 3 CHOP",
+              "slot": 0
             },
             {
               "events": [
@@ -12395,7 +10061,8 @@
                   "velocity": 78
                 }
               ],
-              "name": "KICK DRAG"
+              "name": "KICK DRAG",
+              "slot": 1
             },
             {
               "events": [
@@ -12418,7 +10085,8 @@
                   "velocity": 120
                 }
               ],
-              "name": "FLOOR TOM RIM PHRASE"
+              "name": "FLOOR TOM RIM PHRASE",
+              "slot": 2
             },
             {
               "events": [
@@ -12453,7 +10121,8 @@
                   "velocity": 91
                 }
               ],
-              "name": "HAT 5 CUT"
+              "name": "HAT 5 CUT",
+              "slot": 3
             },
             {
               "events": [
@@ -12476,7 +10145,8 @@
                   "velocity": 116
                 }
               ],
-              "name": "SNARE RIM RUFF"
+              "name": "SNARE RIM RUFF",
+              "slot": 4
             },
             {
               "events": [
@@ -12499,118 +10169,14 @@
                   "velocity": 112
                 }
               ],
-              "name": "FLOOR TOM DRAG"
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
-            },
-            {
-              "events": [],
-              "name": ""
+              "name": "FLOOR TOM DRAG",
+              "slot": 5
             }
           ],
           "name": "OUTRO / BROKEN STRIP",
           "tracks": [
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -12845,64 +10411,6 @@
                       "state": "previous"
                     }
                   ]
-                }
-              ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
                 }
               ],
               "midiChannel": 1,
@@ -13031,7 +10539,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -13268,64 +10775,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "SNARE / 38 + RIM 40",
               "noteColumn": {
@@ -13450,7 +10899,6 @@
             },
             {
               "chokeGroup": 0,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -13689,64 +11137,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "FLOOR TOM / 43 + RIM 75",
               "noteColumn": {
@@ -13869,7 +11259,6 @@
             },
             {
               "chokeGroup": 1,
-              "destination": "midi",
               "fxPairs": [
                 {
                   "actionColumn": {
@@ -14108,64 +11497,6 @@
                   ]
                 }
               ],
-              "initialInstrumentNode": 31,
-              "instrumentColumn": {
-                "direction": "forward",
-                "length": 16,
-                "muted": false,
-                "phase": 0,
-                "stride": 1
-              },
-              "instruments": [
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                },
-                {
-                  "state": "empty"
-                }
-              ],
               "midiChannel": 1,
               "name": "HI-HAT / CL 61 OP 46",
               "noteColumn": {
@@ -14300,129 +11631,7 @@
       }
     ]
   },
-  "schemaVersion": 10,
-  "session": {
-    "commandRngState": "7523668246347670629",
-    "gateMilliseconds": 84,
-    "mainOutputGain": 1,
-    "mainOutputMuted": false,
-    "playbackSeed": 1380012065,
-    "showMidiNoteValues": true,
-    "songPlaybackEnabled": true,
-    "tempoScale": 1
-  },
-  "song": {
-    "loop": false,
-    "name": "DUST BREAK RAP / BURST + SEQ",
-    "rows": [
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P01",
-        "repeats": 4,
-        "swing": 0.54000000000000004,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P02",
-        "repeats": 7,
-        "swing": 0.56000000000000005,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P03",
-        "repeats": 8,
-        "swing": 0.56999999999999995,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P06",
-        "repeats": 1,
-        "swing": 0.56000000000000005,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P04",
-        "repeats": 8,
-        "swing": 0.54000000000000004,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P03",
-        "repeats": 7,
-        "swing": 0.56999999999999995,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P02",
-        "repeats": 8,
-        "swing": 0.56000000000000005,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P06",
-        "repeats": 1,
-        "swing": 0.56000000000000005,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P04",
-        "repeats": 8,
-        "swing": 0.54000000000000004,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P05",
-        "repeats": 3,
-        "swing": 0.57999999999999996,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P06",
-        "repeats": 1,
-        "swing": 0.56000000000000005,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P04",
-        "repeats": 8,
-        "swing": 0.54000000000000004,
-        "warpSlot": 0
-      },
-      {
-        "durationTicks": 16,
-        "mutedTracks": 0,
-        "patternId": "P07",
-        "repeats": 4,
-        "swing": 0.54000000000000004,
-        "warpSlot": 0
-      }
-    ],
-    "ticksPerBeat": 4
-  },
-  "transport": {
+  "playback": {
     "bpm": 92,
     "loop": {
       "enabled": false,
@@ -14430,7 +11639,6 @@
       "startRow": 0
     },
     "microTimingRangeMilliseconds": 25,
-    "sampleRate": 48000,
     "swing": 0.55000000000000004,
     "ticksPerBeat": 4,
     "timingLookaheadMilliseconds": 25,
@@ -14438,5 +11646,14 @@
     "warpEnabled": false,
     "warpStack": []
   },
-  "warpLibrary": []
+  "version": 1,
+  "warps": [],
+  "workspace": {
+    "commandRngState": "7523668246347670629",
+    "gateMilliseconds": 84,
+    "playbackSeed": 1380012065,
+    "showMidiNoteValues": true,
+    "songPlaybackEnabled": true,
+    "tempoScale": 1
+  }
 }

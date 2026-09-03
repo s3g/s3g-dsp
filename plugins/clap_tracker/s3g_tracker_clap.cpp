@@ -3021,8 +3021,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     document.warpLibrary = _state->session.warpLibrary;
     document.session.gateMilliseconds = _state->session.gateMilliseconds;
     document.session.tempoScale = _state->tempoScale;
-    document.session.mainOutputGain = _state->mainOutputGain;
-    document.session.mainOutputMuted = _state->mainOutputMuted;
     document.session.songPlaybackEnabled = _state->songPlaybackEnabled;
     document.session.showMidiNoteValues = _state->showMidiNoteValues;
     document.session.commandRngState = _state->session.commandRngState;
@@ -3048,8 +3046,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->session.playbackSeed = midiDocument.session.playbackSeed;
     _state->instrumentRack = midiDocument.instrumentRack;
     _state->selectedRackInstrument = _state->instrumentRack.selectedNode;
-    _state->mainOutputGain = midiDocument.session.mainOutputGain;
-    _state->mainOutputMuted = midiDocument.session.mainOutputMuted;
     _state->songPlaybackEnabled = midiDocument.session.songPlaybackEnabled;
     _state->showMidiNoteValues = midiDocument.session.showMidiNoteValues;
     _state->status = "REAPER host sync • MIDI output ready";

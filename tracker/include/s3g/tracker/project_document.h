@@ -11,19 +11,13 @@
 
 namespace s3g::tracker {
 
-// Schema 9 adds reusable pattern-local Burst phrases and NOTE-cell references.
-// Schema 10 persists the Tracker NOTE display preference (MIDI number or
-// pitch name) as project session state.
-// Schema 8 adds the explicit Pattern timing-warp enable state. Schema 7 adds
-// optional per-Song-row pattern loop ranges. Schema 6 adds MIDI CC actions and
-// per-pair interpolation; schemas 5 through 7 remain readable, and schema 5
-// defaults missing interpolation fields to STEP. The native
-// format intentionally has no Max/pattr compatibility contract; incompatible
-// representations get an explicit migration rather than silently coercing
-// musical data.
-constexpr uint32_t kProjectSchemaVersion = 10u;
-constexpr uint32_t kOldestSupportedProjectSchemaVersion = 5u;
-constexpr const char* kProjectFormatIdentifier = "s3g-tracker-project";
+// The native file is a MIDI-composition document, not a snapshot of the
+// retired internal instrument rack. Version 1 is intentionally a breaking
+// boundary: the decoder accepts this exact format/version pair and performs no
+// migration from the former hybrid tracker/instrument schemas.
+constexpr uint32_t kProjectFormatVersion = 1u;
+constexpr const char* kProjectFormatIdentifier
+    = "s3g-tracker-midi-composition";
 constexpr const char* kProjectFileExtension = ".s3gt";
 
 struct ProjectSessionState {
@@ -31,15 +25,13 @@ struct ProjectSessionState {
     // Musical rate applied to the host tempo by the CLAP tracker. Values are
     // normalized by the UI to the supported ratio menu.
     double tempoScale = 1.0;
-    float mainOutputGain = 1.0f;
-    bool mainOutputMuted = false;
     // Pattern transport remains the default. Enabling Song transport is an
     // explicit project choice so merely opening the Song editor never changes
     // the behavior of Play.
     bool songPlaybackEnabled = false;
     // This is presentation state rather than musical data, but it belongs to
-    // the native project so reopening a project restores the author's working
-    // view. New and pre-schema-10 projects default to decimal MIDI values.
+    // the native composition so reopening it restores the author's working
+    // view.
     bool showMidiNoteValues = true;
     // Stored as a decimal string by the JSON codec so all 64 bits survive a
     // round trip through tools whose JSON number type is IEEE double.

@@ -588,8 +588,12 @@ int main(int argc, char** argv)
         }
     }
     ok &= expect(factoryStateSaved
-            && factoryJson.find("\"schemaVersion\": 10")
+            && factoryJson.find(
+                "\"format\": \"s3g-tracker-midi-composition\"")
                 != std::string::npos
+            && factoryJson.find("\"version\": 1") != std::string::npos
+            && factoryJson.find("instrumentRack") == std::string::npos
+            && factoryJson.find("sampleRate") == std::string::npos
             && factoryJson.find("\"showMidiNoteValues\": true")
                 != std::string::npos
             && countText("\"midiChannel\": 1") == 4u
@@ -1588,67 +1592,30 @@ int main(int argc, char** argv)
         && !stateBuffer.bytes.empty()
         && stateBuffer.bytes.front() == static_cast<uint8_t>('{'),
         "native tracker project JSON did not save");
-    std::string legacyJson(stateBuffer.bytes.begin(),
+    const std::string savedJson(stateBuffer.bytes.begin(),
         stateBuffer.bytes.end());
-    ok &= expect(legacyJson.find("\"state\": \"midi-control-change\"")
+    ok &= expect(savedJson.find("\"state\": \"midi-control-change\"")
                 != std::string::npos
-            && legacyJson.find("\"controller\": 74")
+            && savedJson.find("\"controller\": 74")
                 != std::string::npos,
         "Tracker MIDI CC edit did not persist in project state");
-    const std::string initialKey = "\"initialInstrumentNode\": ";
-    const auto initialKeyAt = legacyJson.find(initialKey);
-    const auto initialValueAt = initialKeyAt == std::string::npos
-        ? std::string::npos : initialKeyAt + initialKey.size();
-    const auto initialValueEnd = initialValueAt == std::string::npos
-        ? std::string::npos
-        : legacyJson.find_first_not_of("0123456789", initialValueAt);
-    const auto activeKeyAt = legacyJson.find("\"activeNodes\": [");
-    const auto activeValueAt = activeKeyAt == std::string::npos
-        ? std::string::npos
-        : legacyJson.find_first_of("0123456789", activeKeyAt);
-    const auto activeValueEnd = activeValueAt == std::string::npos
-        ? std::string::npos
-        : legacyJson.find_first_not_of("0123456789", activeValueAt);
-    const bool legacyStateReady = initialValueAt != std::string::npos
-        && initialValueEnd != std::string::npos
-        && activeValueAt != std::string::npos
-        && activeValueEnd != std::string::npos;
-    unsigned long legacyNode = 0u;
-    if (legacyStateReady) {
-        const unsigned long firstMidiNode = std::strtoul(
-            legacyJson.c_str() + initialValueAt, nullptr, 10);
-        legacyNode = firstMidiNode + 5u;
-        legacyJson.replace(initialValueAt,
-            initialValueEnd - initialValueAt, std::to_string(legacyNode));
-        const auto shiftedActiveValueEnd = legacyJson.find_first_not_of(
-            "0123456789", legacyJson.find_first_of(
-                "0123456789", legacyJson.find("\"activeNodes\": [")));
-        legacyJson.insert(shiftedActiveValueEnd,
-            ",\n      " + std::to_string(legacyNode));
-    }
-    StateBuffer legacyState;
-    legacyState.bytes.assign(legacyJson.begin(), legacyJson.end());
-    ok &= expect(legacyStateReady
-            && state->load(plugin, &legacyState.input),
-        "legacy multi-port tracker project did not load");
-    StateBuffer normalizedState;
-    const bool normalizedSaved = state->save(plugin, &normalizedState.output);
-    const std::string normalizedJson(normalizedState.bytes.begin(),
-        normalizedState.bytes.end());
-    const auto normalizedActiveAt = normalizedJson.find("\"activeNodes\": [");
-    const auto normalizedActiveEnd = normalizedActiveAt == std::string::npos
-        ? std::string::npos : normalizedJson.find(']', normalizedActiveAt);
-    const std::string normalizedActiveNodes = normalizedActiveAt
-            != std::string::npos && normalizedActiveEnd != std::string::npos
-        ? normalizedJson.substr(normalizedActiveAt,
-            normalizedActiveEnd - normalizedActiveAt)
-        : std::string {};
-    ok &= expect(normalizedSaved
-            && normalizedJson.find(initialKey + std::to_string(legacyNode))
-                == std::string::npos
-            && normalizedActiveNodes.find(std::to_string(legacyNode))
-                == std::string::npos,
-        "obsolete MIDI bus assignments did not collapse onto the single port");
+
+    std::string retiredJson = savedJson;
+    const std::string currentFormat = "s3g-tracker-midi-composition";
+    const auto formatAt = retiredJson.find(currentFormat);
+    if (formatAt != std::string::npos)
+        retiredJson.replace(formatAt, currentFormat.size(),
+            "s3g-tracker-project");
+    StateBuffer retiredState;
+    retiredState.bytes.assign(retiredJson.begin(), retiredJson.end());
+    ok &= expect(formatAt != std::string::npos
+            && !state->load(plugin, &retiredState.input),
+        "retired hybrid tracker state should be rejected");
+
+    StateBuffer afterRejectedState;
+    ok &= expect(state->save(plugin, &afterRejectedState.output)
+            && afterRejectedState.bytes == stateBuffer.bytes,
+        "rejecting retired state should not mutate the current MIDI composition");
     ok &= expect(plugin && plugin->activate(plugin, 48000.0, 16u, 32768u)
         && plugin->start_processing(plugin), "activation failed");
 
