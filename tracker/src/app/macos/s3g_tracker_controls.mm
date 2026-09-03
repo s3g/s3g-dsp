@@ -967,37 +967,22 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     const bool enabled = self.enabled;
     const NSRect rect = NSInsetRect(self.bounds, 0.5, 0.5);
     if (self.s3gUsesCanvasMenu) {
-        const auto style = s3g::clap_gui::softTextStyle();
+        auto style = s3g::clap_gui::softTextStyle();
         NSDictionary* attrs = s3g::clap_gui::softValueAttrs();
-        [(self.s3gMenuOverlay ? s3g::clap_gui::color(0x292929)
-                              : style.strip) setFill];
-        NSRectFill(rect);
-        [(enabled ? style.grid
-                  : S3GTrackerThemeColor(S3GTrackerThemeRole::Grid))
-            setStroke];
-        NSFrameRect(rect);
-        [(enabled ? style.fill
-                  : S3GTrackerThemeColor(S3GTrackerThemeRole::Grid))
-            setFill];
-        NSRectFill(NSMakeRect(NSMinX(rect) + 1.0,
-            NSMinY(rect) + 1.0, 2.0, NSHeight(rect) - 2.0));
+        if (self.s3gMenuOverlay)
+            style.strip = s3g::clap_gui::color(0x292929);
+        if (!enabled) {
+            style.grid = S3GTrackerThemeColor(S3GTrackerThemeRole::Grid);
+            style.fill = S3GTrackerThemeColor(S3GTrackerThemeRole::Grid);
+            attrs = s3g::clap_gui::textAttrs(
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Grid), 10.0);
+        }
         NSString* value = self.titleOfSelectedItem;
-        NSString* title = s3g::clap_gui::menuDisplayText(
-            value ? value : @"—", std::max<CGFloat>(0.0,
-                NSWidth(rect) - 28.0), attrs);
-        [title drawAtPoint:NSMakePoint(NSMinX(rect) + 8.0,
-            suiteTextOriginY(rect, title, attrs)) withAttributes:attrs];
-        const CGFloat arrowX = NSMaxX(rect) - 9.0;
-        const CGFloat arrowY = NSMidY(rect);
-        NSBezierPath* arrow = [NSBezierPath bezierPath];
-        [arrow moveToPoint:NSMakePoint(arrowX - 3.5, arrowY + 1.5)];
-        [arrow lineToPoint:NSMakePoint(arrowX + 3.5, arrowY + 1.5)];
-        [arrow lineToPoint:NSMakePoint(arrowX, arrowY - 2.5)];
-        [arrow closePath];
-        [(enabled ? style.text
-                  : S3GTrackerThemeColor(S3GTrackerThemeRole::Grid))
-            setFill];
-        [arrow fill];
+        // Use the very same renderer as the code-native Geometry/Burst menu.
+        // y=1 makes its 15 px box and text baselines land at 0, 2 and 1 in
+        // this control, exactly matching a processor menu at rowY.
+        s3g::clap_gui::drawMenu(@"", value ? value : @"—", 1.0,
+            attrs, attrs, style, -100.0, 0.0, NSWidth(self.bounds));
         return;
     }
     [S3GTrackerThemeColor(!enabled ? S3GTrackerThemeRole::Panel

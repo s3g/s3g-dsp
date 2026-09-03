@@ -34,6 +34,7 @@ struct HostContext {
     uint32_t pauseRequests = 0u;
     uint32_t stopRequests = 0u;
     int playState = 0;
+    double masterTempo = 120.0;
     clap_host_state_t state {};
     ReaperHostBridge reaper {};
 };
@@ -69,6 +70,11 @@ int reaperGetPlayState()
     return activeReaperHost ? activeReaperHost->playState : 0;
 }
 
+double reaperMasterTempo()
+{
+    return activeReaperHost ? activeReaperHost->masterTempo : 120.0;
+}
+
 void* reaperGetFunction(const char* name)
 {
     if (!name) return nullptr;
@@ -80,6 +86,8 @@ void* reaperGetFunction(const char* name)
         return reinterpret_cast<void*>(&reaperStop);
     if (std::strcmp(name, "GetPlayState") == 0)
         return reinterpret_cast<void*>(&reaperGetPlayState);
+    if (std::strcmp(name, "Master_GetTempo") == 0)
+        return reinterpret_cast<void*>(&reaperMasterTempo);
     return nullptr;
 }
 
@@ -230,6 +238,11 @@ bool expect(bool condition, const char* message)
 #if defined(__APPLE__)
 
 @interface S3GTrackerCaptureHostView : NSView
+@end
+
+@interface NSView (S3GTrackerBurstPreviewSmokeAccess)
+- (NSRect)burstPreviewHeaderButtonRect;
+- (BOOL)handleToolboxClickAtPoint:(NSPoint)point;
 @end
 
 @implementation S3GTrackerCaptureHostView
@@ -575,6 +588,10 @@ int main(int argc, char** argv)
         }
     }
     ok &= expect(factoryStateSaved
+            && factoryJson.find("\"schemaVersion\": 10")
+                != std::string::npos
+            && factoryJson.find("\"showMidiNoteValues\": true")
+                != std::string::npos
             && countText("\"midiChannel\": 1") == 4u
             && compactDefaults == "36,38,41,61"
             && countText("\"note\": 36") == 4u
@@ -645,16 +662,47 @@ int main(int argc, char** argv)
                         && NSMaxX(hostBpmFrame)
                             >= NSWidth(parent.bounds) - 20.0,
                     "host BPM should use the shared passive top-right status position");
+                context.masterTempo = 97.5;
+                NSDate* tempoDeadline = [NSDate
+                    dateWithTimeIntervalSinceNow:0.3];
+                while (![hostBpm.stringValue
+                            isEqualToString:@"HOST BPM  97.50"]
+                    && [tempoDeadline timeIntervalSinceNow] > 0.0) {
+                    [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.01]];
+                }
+                ok &= expect([hostBpm.stringValue
+                            isEqualToString:@"HOST BPM  97.50"],
+                    "stopped Tracker GUI did not follow a REAPER master-tempo change");
+                context.masterTempo = 120.0;
                 ok &= expect(clickButton(parent, nil,
                             @"Expand tracker sequencing columns", nil)
                         && clickButton(parent, nil,
                             @"Collapse tracker sequencing columns", nil),
                     "tracker lanes did not toggle between compact and expanded columns");
-                ok &= expect(clickButton(parent, nil,
-                            @"Show notes as MIDI values", nil)
-                        && clickButton(parent, nil,
-                            @"Show notes as pitch names", nil),
-                    "tracker note display did not toggle between names and MIDI values");
+                StateBuffer nameViewState;
+                const bool selectedNameView = clickButton(parent, nil,
+                    @"Show notes as pitch names", nil);
+                const bool savedNameView = selectedNameView && state
+                    && state->save(plugin, &nameViewState.output);
+                const std::string nameViewJson(nameViewState.bytes.begin(),
+                    nameViewState.bytes.end());
+                const bool returnedToMidi = clickButton(parent, nil,
+                    @"Show notes as MIDI values", nil);
+                const bool restoredNameView = savedNameView
+                    && returnedToMidi
+                    && state->load(plugin, &nameViewState.input)
+                    && findButton(parent, nil,
+                        @"Show notes as MIDI values", nil) != nil;
+                const bool restoredMidiDefault = restoredNameView
+                    && clickButton(parent, nil,
+                        @"Show notes as MIDI values", nil);
+                ok &= expect(savedNameView
+                        && nameViewJson.find(
+                            "\"showMidiNoteValues\": false")
+                            != std::string::npos
+                        && restoredNameView && restoredMidiDefault,
+                    "project state did not restore the saved Tracker NOTE view preference");
                 ok &= expect(clickButton(parent, nil,
                             @"Sync all tracker lanes and columns to row 1", nil),
                     "tracker did not expose global row-one synchronization");
@@ -667,7 +715,7 @@ int main(int argc, char** argv)
                     [geometryModeView isKindOfClass:NSPopUpButton.class]
                         ? static_cast<NSPopUpButton*>(geometryModeView) : nil;
                 const bool geometryModesAvailable = geometryMode.numberOfItems
-                        == 6u
+                        == 7u
                     && geometryMode.indexOfSelectedItem == 0
                     && [[geometryMode itemAtIndex:0].title
                         isEqualToString:@"RING FIELD"]
@@ -680,9 +728,11 @@ int main(int argc, char** argv)
                     && [[geometryMode itemAtIndex:4].title
                         isEqualToString:@"LANE FOCUS"]
                     && [[geometryMode itemAtIndex:5].title
-                        isEqualToString:@"COMPOSITE RING"];
+                        isEqualToString:@"COMPOSITE RING"]
+                    && [[geometryMode itemAtIndex:6].title
+                        isEqualToString:@"BURST EDITOR"];
                 if (geometryModesAvailable) {
-                    for (NSInteger mode = 1; mode < 6; ++mode) {
+                    for (NSInteger mode = 1; mode < 7; ++mode) {
                         [geometryMode selectItemAtIndex:mode];
                         [geometryMode sendAction:geometryMode.action
                             to:geometryMode.target];
@@ -693,6 +743,60 @@ int main(int argc, char** argv)
                     [geometryMode sendAction:geometryMode.action
                         to:geometryMode.target];
                 }
+                const bool burstPrepared = submitCommand(parent,
+                        @"burst new B01 STOPPED PREVIEW")
+                    && submitCommand(parent,
+                        @"burst B01 notes 36 38 41 46")
+                    && geometryModesAvailable;
+                NSView* geometryView = findAccessibleView(parent,
+                    @"Rhythm geometry");
+                if (burstPrepared) {
+                    [geometryMode selectItemAtIndex:6u];
+                    [geometryMode sendAction:geometryMode.action
+                        to:geometryMode.target];
+                }
+                bool previewAudioOk = false;
+                if (burstPrepared && geometryView
+                    && plugin->activate(plugin, 48000.0, 64u, 8192u)
+                    && plugin->start_processing(plugin)) {
+                    const NSRect previewButton = [geometryView
+                        burstPreviewHeaderButtonRect];
+                    const bool clicked = [geometryView
+                        handleToolboxClickAtPoint:NSMakePoint(
+                            NSMidX(previewButton), NSMidY(previewButton))];
+                    clap_event_transport_t stopped {};
+                    stopped.header.size = sizeof(stopped);
+                    stopped.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                    stopped.header.type = CLAP_EVENT_TRANSPORT;
+                    stopped.flags = CLAP_TRANSPORT_HAS_TEMPO;
+                    stopped.tempo = 120.0;
+                    OutputEvents previewOutput;
+                    clap_process_t previewProcess {};
+                    previewProcess.frames_count = 6000u;
+                    previewProcess.transport = &stopped;
+                    previewProcess.out_events = &previewOutput.interface;
+                    const bool processed = plugin->process(plugin,
+                        &previewProcess) == CLAP_PROCESS_CONTINUE;
+                    std::array<uint32_t, 4u> onsetTimes {};
+                    std::size_t onsetCount = 0u;
+                    for (uint32_t index = 0u;
+                         index < previewOutput.count; ++index) {
+                        const auto& event = previewOutput.events[index];
+                        if ((event.data[0] & 0xf0u) != 0x90u
+                            || event.data[2] == 0u
+                            || onsetCount >= onsetTimes.size()) continue;
+                        onsetTimes[onsetCount++] = event.header.time;
+                    }
+                    previewAudioOk = clicked && processed
+                        && onsetCount == 4u
+                        && onsetTimes == std::array<uint32_t, 4u> {{
+                            0u, 1500u, 3000u, 4500u,
+                        }};
+                    plugin->stop_processing(plugin);
+                    plugin->deactivate(plugin);
+                }
+                ok &= expect(previewAudioOk,
+                    "stopped Burst Preview did not emit substeps at project-BPM row positions");
                 ok &= expect(geometryModesAvailable
                         && clickButton(parent, nil, @"TRACKER page", nil),
                     "Geometry Ring Field and diagnostic view selector is incomplete");

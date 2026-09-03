@@ -166,6 +166,7 @@ ProjectDocument makeDocument()
     document.session.mainOutputGain = 0.73f;
     document.session.mainOutputMuted = true;
     document.session.songPlaybackEnabled = true;
+    document.session.showMidiNoteValues = false;
     document.session.commandRngState = std::numeric_limits<uint64_t>::max();
     document.session.playbackSeed = 0xfedcba98u;
 
@@ -222,7 +223,7 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 9") != std::string::npos
+    check(firstEncoding.find("\"schemaVersion\": 10") != std::string::npos
             && firstEncoding.find("\"patternBank\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
             && firstEncoding.find("\"midi-control-change\"")
@@ -244,9 +245,10 @@ void testCompleteDeterministicRoundTrip()
             && decoded.session.playbackSeed == 0xfedcba98u
             && decoded.session.mainOutputMuted
             && decoded.session.songPlaybackEnabled
+            && !decoded.session.showMidiNoteValues
             && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9
             && std::abs(decoded.session.mainOutputGain - 0.73f) < 1.0e-6f,
-        "random seeds, MAIN OUT, and Song mode should survive without precision loss");
+        "random seeds, MAIN OUT, Song mode, and NOTE view should survive without precision loss");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
             && activePattern(decoded).tracks[0u].notes[3u].state
                 == NoteCellState::Hold
@@ -386,8 +388,8 @@ void testStrictTransactionalRejection()
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
     std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 9");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 9").size(),
+    const auto schema = badVersion.find("\"schemaVersion\": 10");
+    badVersion.replace(schema, std::string("\"schemaVersion\": 10").size(),
         "\"schemaVersion\": 2");
     const auto unsupported = decodeProjectDocument(badVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion
@@ -395,9 +397,9 @@ void testStrictTransactionalRejection()
         "unsupported schemas should reject without mutating destination");
 
     std::string legacy = encoded;
-    const auto legacySchema = legacy.find("\"schemaVersion\": 9");
+    const auto legacySchema = legacy.find("\"schemaVersion\": 10");
     legacy.replace(legacySchema,
-        std::string("\"schemaVersion\": 9").size(),
+        std::string("\"schemaVersion\": 10").size(),
         "\"schemaVersion\": 5");
     const std::string linearInterpolation
         = "\"valueInterpolation\": \"linear\",\n";
@@ -419,9 +421,9 @@ void testStrictTransactionalRejection()
     std::string schemaSix;
     check(encodeProjectDocument(schemaSixDocument, schemaSix).ok(),
         "schema 6 migration fixture should encode without a pattern loop");
-    const auto schemaSixVersion = schemaSix.find("\"schemaVersion\": 9");
+    const auto schemaSixVersion = schemaSix.find("\"schemaVersion\": 10");
     schemaSix.replace(schemaSixVersion,
-        std::string("\"schemaVersion\": 9").size(),
+        std::string("\"schemaVersion\": 10").size(),
         "\"schemaVersion\": 6");
     ProjectDocument migratedSix;
     check(decodeProjectDocument(schemaSix, migratedSix).ok()
@@ -429,9 +431,9 @@ void testStrictTransactionalRejection()
         "schema 6 projects should migrate missing Song pattern loops to OFF");
 
     std::string schemaSeven = encoded;
-    const auto schemaSevenVersion = schemaSeven.find("\"schemaVersion\": 9");
+    const auto schemaSevenVersion = schemaSeven.find("\"schemaVersion\": 10");
     schemaSeven.replace(schemaSevenVersion,
-        std::string("\"schemaVersion\": 9").size(),
+        std::string("\"schemaVersion\": 10").size(),
         "\"schemaVersion\": 7");
     const std::string warpEnableField = "\"warpEnabled\": true,\n";
     const auto warpEnable = schemaSeven.find(warpEnableField);
@@ -443,6 +445,23 @@ void testStrictTransactionalRejection()
     check(decodeProjectDocument(schemaSeven, migratedSeven).ok()
             && migratedSeven.transport.timingWarpEnabled,
         "schema 7 projects with an authored stack should preserve their audible warp state");
+
+    std::string schemaNine = encoded;
+    const auto schemaNineVersion = schemaNine.find("\"schemaVersion\": 10");
+    schemaNine.replace(schemaNineVersion,
+        std::string("\"schemaVersion\": 10").size(),
+        "\"schemaVersion\": 9");
+    const std::string noteViewField
+        = "\"showMidiNoteValues\": false,\n";
+    const auto noteView = schemaNine.find(noteViewField);
+    check(noteView != std::string::npos,
+        "schema 10 migration fixture should contain the NOTE view preference");
+    if (noteView != std::string::npos)
+        schemaNine.erase(noteView, noteViewField.size());
+    ProjectDocument migratedNine;
+    check(decodeProjectDocument(schemaNine, migratedNine).ok()
+            && migratedNine.session.showMidiNoteValues,
+        "preference-free schema 9 projects should migrate to the MIDI-number NOTE view");
 
     auto invalidBank = makeDocument();
     invalidBank.patternBank.entries[1u].id = "A01";

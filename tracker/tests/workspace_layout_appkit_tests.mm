@@ -49,6 +49,9 @@
 - (NSRect)directionMenuBoxRect;
 - (NSRect)viewMenuBoxRect;
 - (NSRect)linkVelocityLengthToggleRect;
+- (NSRect)revealHeaderButtonRect;
+- (NSRect)fitBurstGatesHeaderButtonRect;
+- (NSRect)burstPreviewHeaderButtonRect;
 - (NSRect)lengthSliderTrack;
 - (NSRect)defaultNoteSliderTrack;
 - (NSRect)rotateSliderTrack;
@@ -62,6 +65,12 @@
 - (NSPoint)densityHandlePoint;
 - (BOOL)revealBeadAtPoint:(NSPoint)point;
 - (void)selectLane:(std::size_t)lane;
+- (void)selectBurstSlot:(std::size_t)slot;
+- (NSRect)burstMatrixRect;
+- (NSRect)burstMatrixRowRect:(std::size_t)row;
+- (NSRect)burstMatrixCellRect:(std::size_t)row field:(NSInteger)field;
+- (BOOL)beginBurstCanvasGestureAtPoint:(NSPoint)point;
+- (void)updateBurstMatrixGestureAtPoint:(NSPoint)point;
 - (BOOL)beginSliderGestureAtPoint:(NSPoint)point;
 - (void)updateSliderGestureAtPoint:(NSPoint)point;
 - (BOOL)beginShapeGestureAtPoint:(NSPoint)point;
@@ -171,6 +180,11 @@ int main()
         int trackResyncRequests = 0;
         int stepRecordModeRequests = 0;
         int trackerRevealRequests = 0;
+        int burstPreviewRequests = 0;
+        s3g::tracker::BurstDefinition previewedBurst;
+        uint8_t previewedChannel = 0u;
+        double previewedBpm = 0.0;
+        uint32_t previewedTicksPerBeat = 0u;
         std::vector<std::string> commands;
         std::size_t resyncedTrack = s3g::tracker::kMaximumTrackCount;
         callbacks.selectPattern = [&](const std::string& patternId) {
@@ -199,6 +213,14 @@ int main()
             state.midiStepRecordMode = mode;
         };
         callbacks.showTrackerPage = [&] { ++trackerRevealRequests; };
+        callbacks.previewBurst = [&](const s3g::tracker::BurstDefinition& burst,
+            uint8_t channel, double bpm, uint32_t ticksPerBeat) {
+            ++burstPreviewRequests;
+            previewedBurst = burst;
+            previewedChannel = channel;
+            previewedBpm = bpm;
+            previewedTicksPerBeat = ticksPerBeat;
+        };
 
         S3GTrackerWorkspaceController* controller =
             [[S3GTrackerWorkspaceController alloc]
@@ -223,7 +245,7 @@ int main()
         NSView* rowGutter = [controller valueForKey:@"rowGutterView"];
         check(near(grid.magnification,
                 s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
-            "tracker lanes should initialize at the 16-row default zoom");
+            "tracker lanes should initialize at literal 100 percent zoom");
         NSScrollView* transport = [controller valueForKey:@"transportScroll"];
         S3GTrackerToolboxView* patternPanel = [controller
             valueForKey:@"patternPanel"];
@@ -371,6 +393,83 @@ int main()
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == 0,
             "Geometry should default to Ring Field and expose diagnostics plus the Burst workspace");
+        auto& matrixBurst = state.session.pattern.bursts[0u];
+        matrixBurst.name = "MATRIX TEST";
+        matrixBurst.eventCount = 2u;
+        matrixBurst.events[0u] = { 0u, 48u, 64u, 70u };
+        matrixBurst.events[1u] = { 32768u, 52u, 80u, 75u };
+        [geometryPage selectBurstSlot:0u];
+        NSTextField* burstNameField = [geometryPage
+            valueForKey:@"burstNameField"];
+        NSButton* burstSaveButton = [geometryPage
+            valueForKey:@"burstSaveButton"];
+        burstNameField.stringValue = @"AMEN PUSH";
+        [burstSaveButton performClick:nil];
+        check(!burstNameField.hidden && !burstSaveButton.hidden
+                && [burstSaveButton.title isEqualToString:@"SAVE"]
+                && matrixBurst.name == "AMEN PUSH",
+            "Burst Library should use a persistent NAME field and explicit SAVE action like Warps");
+        const NSRect previewBurstButton = [geometryPage
+            burstPreviewHeaderButtonRect];
+        const BOOL previewed = [geometryPage handleToolboxClickAtPoint:
+            NSMakePoint(NSMidX(previewBurstButton), NSMidY(previewBurstButton))];
+        check(previewed && burstPreviewRequests == 1
+                && previewedBurst.name == "AMEN PUSH"
+                && previewedChannel == 1u
+                && near(previewedBpm, state.session.transport.bpm)
+                && previewedTicksPerBeat
+                    == state.session.transport.ticksPerBeat,
+            "stopped Burst Preview should dispatch the selected phrase on the lane channel at the project clock");
+        state.playing = true;
+        (void)[geometryPage handleToolboxClickAtPoint:
+            NSMakePoint(NSMidX(previewBurstButton), NSMidY(previewBurstButton))];
+        check(burstPreviewRequests == 1,
+            "Burst Preview should remain unavailable while transport is running");
+        state.playing = false;
+        const NSRect burstMatrix = [geometryPage burstMatrixRect];
+        const NSRect burstVelocityCell = [geometryPage
+            burstMatrixCellRect:1u field:2];
+        const BOOL beganVelocityEdit = [geometryPage
+            beginBurstCanvasGestureAtPoint:NSMakePoint(
+                NSMidX(burstVelocityCell), NSMidY(burstVelocityCell))];
+        [geometryPage updateBurstMatrixGestureAtPoint:NSMakePoint(
+            NSMaxX(burstVelocityCell) - 6.0, NSMidY(burstVelocityCell))];
+        [geometryPage finishGeometryGesture];
+        const NSRect addRow = [geometryPage burstMatrixRowRect:4u];
+        const BOOL beganAdd = [geometryPage beginBurstCanvasGestureAtPoint:
+            NSMakePoint(NSMidX(addRow), NSMidY(addRow))];
+        [geometryPage finishGeometryGesture];
+        check(NSWidth(burstMatrix) >= 360.0,
+            "Burst workspace should expose a readable eight-row event matrix");
+        check(beganVelocityEdit && matrixBurst.events[1u].velocity > 110u,
+            "Burst matrix should directly edit an event value by dragging its cell");
+        check(beganAdd && matrixBurst.eventCount == 5u,
+            "Burst matrix should grow immediately when an unused event row is selected");
+        const NSRect fitGatesButton = [geometryPage
+            fitBurstGatesHeaderButtonRect];
+        const BOOL fitGates = [geometryPage handleToolboxClickAtPoint:
+            NSMakePoint(NSMidX(fitGatesButton), NSMidY(fitGatesButton))];
+        check(fitGates
+                && std::all_of(matrixBurst.events.begin(),
+                    matrixBurst.events.begin() + matrixBurst.eventCount,
+                    [](const s3g::tracker::BurstEvent& event) {
+                        return event.gatePercent == 20u;
+                    }),
+            "Burst Substeps should fit gates between even onsets and the primary row boundary");
+        const NSRect placeBurstButton = [geometryPage revealHeaderButtonRect];
+        const BOOL placedBurst = [geometryPage handleToolboxClickAtPoint:
+            NSMakePoint(NSMidX(placeBurstButton), NSMidY(placeBurstButton))];
+        const BOOL placementFeedback = [[geometryPage
+            valueForKey:@"burstPlaceFeedbackActive"] boolValue];
+        check(placedBurst && placementFeedback
+                && state.session.pattern.tracks[0u].notes[0u].state
+                    == s3g::tracker::NoteCellState::Burst,
+            "placing a Burst should immediately latch visible success feedback");
+        state.session.pattern.tracks[0u].notes[0u]
+            = s3g::tracker::NoteCell::withNote(60u);
+        [geometryPage setValue:@(0) forKey:@"geometryViewMode"];
+        [geometryViewMode selectItemAtIndex:0u];
+        patternChangeRequests = 0;
         check(geometryTools.count == 4u
                 && [geometryTools[0u].title isEqualToString:@"SELECT"]
                 && [geometryTools[1u].title isEqualToString:@"PAINT"]
@@ -542,6 +641,10 @@ int main()
             valueForKey:@"cycleField"];
         NSTextField* warpNameField = [warpController
             valueForKey:@"libraryNameField"];
+        S3GTrackerActionButton* warpSaveButton = [warpController
+            valueForKey:@"saveLibraryButton"];
+        S3GTrackerActionButton* warpDeleteButton = [warpController
+            valueForKey:@"deleteLibraryButton"];
         S3GTrackerActionButton* warpModeButton = [warpController
             valueForKey:@"warpModeButton"];
         S3GTrackerDragNumberField* warpPrimarySlider = [warpController
@@ -625,6 +728,51 @@ int main()
                     s3g::gui_layout::kStandardMetrics.hitHeight)
                 && warpNameField.alignment == NSTextAlignmentLeft,
             "the Warps library name should be a full-height conventional suite text field, independent of numeric sliders");
+        BOOL hasRecallButton = NO;
+        for (NSView* view in warpLibraryPanel.subviews) {
+            if ([view isKindOfClass:NSButton.class]
+                && [static_cast<NSButton*>(view).title
+                    isEqualToString:@"RECALL"])
+                hasRecallButton = YES;
+        }
+        state.session.transport.warpCycleTicks = 7u;
+        state.session.transport.timingWarp.clear();
+        (void)state.session.transport.timingWarp.append(
+            s3g::tracker::TimingWarpTransform::exponential(1.75));
+        [warpLibraryMenu selectItemAtIndex:3u];
+        [warpLibraryMenu sendAction:warpLibraryMenu.action
+            to:warpLibraryMenu.target];
+        check([warpLibraryMenu.titleOfSelectedItem
+                    isEqualToString:@"04  ·  EMPTY"],
+            "Warp Library empty slots should use the Burst number/name separator");
+        warpNameField.stringValue = @"AUTO LOAD";
+        [warpSaveButton performClick:nil];
+        check([warpLibraryMenu.titleOfSelectedItem
+                    hasPrefix:@"04  ·  AUTO LOAD  ·  "],
+            "Warp Library saved slots should use the Burst number/name separator");
+        state.session.transport.warpCycleTicks = 2u;
+        state.session.transport.timingWarp.clear();
+        [warpLibraryMenu selectItemAtIndex:4u];
+        [warpLibraryMenu sendAction:warpLibraryMenu.action
+            to:warpLibraryMenu.target];
+        [warpLibraryMenu selectItemAtIndex:3u];
+        [warpLibraryMenu sendAction:warpLibraryMenu.action
+            to:warpLibraryMenu.target];
+        const auto* autoLoadedWarp = state.session.warpLibrary.entry(3u);
+        check(!hasRecallButton
+                && [warpSaveButton.title isEqualToString:@"SAVE"]
+                && NSMinY(warpSaveButton.frame) <= 4.0
+                && [warpDeleteButton.title isEqualToString:@"DELETE SLOT"]
+                && warpDeleteButton.enabled
+                && autoLoadedWarp && autoLoadedWarp->name == "AUTO LOAD"
+                && state.session.transport.warpCycleTicks == 7u
+                && state.session.transport.timingWarp.size() == 1u,
+            "Warp Library should put SAVE in its header, auto-load occupied menu slots, remove RECALL, and retain explicit slot deletion");
+        [warpDeleteButton performClick:nil];
+        check(state.session.warpLibrary.entry(3u) == nullptr
+                && !warpDeleteButton.enabled,
+            "Warp DELETE SLOT should remove only the selected saved slot");
+        transportChangeRequests = 0;
         check(warpModeButton.tag == 1
                 && [warpModeButton.title
                     isEqualToString:@"WARP PLAYBACK: OFF"]
@@ -881,22 +1029,22 @@ int main()
         check(!state.sequenceColumnsExpanded
                 && [sequenceColumnsButton.title isEqualToString:@"EXPAND SEQ"],
             "tracker should open in compact NOTE/VOL lane mode");
-        check(!state.showMidiNoteValues
-                && [noteDisplayButton.title isEqualToString:@"NOTE: NAME"]
-                && [grid.documentView.accessibilityValue
-                    containsString:@"Note, C-4"],
-            "tracker notes should initially display as pitch names");
-        [noteDisplayButton performClick:nil];
         check(state.showMidiNoteValues
                 && [noteDisplayButton.title isEqualToString:@"NOTE: MIDI"]
                 && [grid.documentView.accessibilityValue
                     containsString:@"Note, 60"],
-            "note display control should show decimal MIDI note values");
+            "tracker notes should initially display as decimal MIDI values");
         [noteDisplayButton performClick:nil];
         check(!state.showMidiNoteValues
+                && [noteDisplayButton.title isEqualToString:@"NOTE: NAME"]
                 && [grid.documentView.accessibilityValue
                     containsString:@"Note, C-4"],
-            "note display control should return to pitch names without changing the note");
+            "note display control should switch to pitch names");
+        [noteDisplayButton performClick:nil];
+        check(state.showMidiNoteValues
+                && [grid.documentView.accessibilityValue
+                    containsString:@"Note, 60"],
+            "note display control should return to MIDI values without changing the note");
         check(midiStepRecordPopup.enabled
                 && midiStepRecordPopup.numberOfItems == 4u
                 && [midiStepRecordPopup.selectedItem.title
@@ -941,6 +1089,7 @@ int main()
             "Tracker should keep Pattern and View at the top and place its unnumbered Transport toolbox below the breakpoint editor");
         check(patternPrimaryControls.arrangedSubviews.count == 9u
                 && patternPrimaryControls.arrangedSubviews[0u] == patternPopup
+                && NSWidth(patternPopup.frame) >= 419.0
                 && patternPrimaryControls.arrangedSubviews[1u]
                     == renamePatternButton
                 && patternPrimaryControls.arrangedSubviews[2u]
@@ -982,7 +1131,7 @@ int main()
                     containsObject:loopEndField]
                 && [transportPrimaryControls.arrangedSubviews
                     containsObject:midiStepRecordPopup],
-            "Pattern, View, and bottom Transport controls should each occupy one compact row");
+            "Pattern should lead with a wide long-name menu, while View and bottom Transport controls each occupy one compact row");
         fillButton.state = NSControlStateValueOn;
         [fillButton sendAction:fillButton.action to:fillButton.target];
         check(state.fillActive && fillChangeRequests == 1
@@ -1522,18 +1671,20 @@ int main()
         grid.magnification = 1.0;
         [zoomOutButton performClick:nil];
         const CGFloat zoomedOut = grid.magnification;
+        check([zoomActualButton.title isEqualToString:@"86%"],
+            "View toolbox should report the current Tracker zoom percentage");
         [zoomInButton performClick:nil];
         check(zoomedOut < 1.0 && grid.magnification > zoomedOut,
             "View toolbox zoom buttons should change Tracker spreadsheet magnification");
         grid.magnification = 1.2;
         [zoomActualButton performClick:nil];
         check(near(grid.magnification, 1.0, 0.001),
-            "ACTUAL should restore the spreadsheet to 100 percent magnification");
+            "100% should restore the spreadsheet to 100 percent magnification");
         grid.magnification = 1.2;
         [controller resetTrackerZoom];
         check(near(grid.magnification,
                 s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
-            "tracker zoom reset should restore the 16-row default");
+            "tracker zoom reset should restore literal 100 percent magnification");
         state.songPlaybackActive = true;
         const CGFloat songZoomBefore = grid.magnification;
         NSEvent* trackerZoomIn = keyEvent(window, @"+", 24u,

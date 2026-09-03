@@ -1881,8 +1881,8 @@ bool decodeTransport(const JsonValue& input, TransportSettings& destination,
     ProjectResult& result);
 JsonValue encodeSession(const ProjectSessionState& session,
     ProjectResult& result);
-bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
-    ProjectResult& result);
+bool decodeSession(const JsonValue& input, uint32_t schemaVersion,
+    ProjectSessionState& destination, ProjectResult& result);
 
 JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
 {
@@ -2172,7 +2172,7 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
     ProjectDocument candidate;
     if (!decodePatternBank(*patternBank, candidate.patternBank, result)
         || !decodeTransport(*transport, candidate.transport, result)
-        || !decodeSession(*session, candidate.session, result)
+        || !decodeSession(*session, schemaVersion, candidate.session, result)
         || !decodeInstrumentRack(*rack, candidate.instrumentRack, result)
         || !decodeSong(*song, candidate.song, result)
         || !decodeTimingWarpLibrary(*warpLibrary, candidate.warpLibrary,
@@ -3132,12 +3132,14 @@ JsonValue encodeSession(const ProjectSessionState& session,
         session.mainOutputMuted);
     output.object["songPlaybackEnabled"] = JsonValue::booleanValue(
         session.songPlaybackEnabled);
+    output.object["showMidiNoteValues"] = JsonValue::booleanValue(
+        session.showMidiNoteValues);
     output.object["playbackSeed"] = number(session.playbackSeed);
     return output;
 }
 
-bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
-    ProjectResult& result)
+bool decodeSession(const JsonValue& input, uint32_t schemaVersion,
+    ProjectSessionState& destination, ProjectResult& result)
 {
     const auto* gate = requiredField(input, "gateMilliseconds",
         JsonType::Number, "$.session", result);
@@ -3153,8 +3155,23 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
         JsonType::Boolean, "$.session", result);
     const auto* songEnabled = requiredField(input, "songPlaybackEnabled",
         JsonType::Boolean, "$.session", result);
+    const JsonValue* showMidi = nullptr;
+    if (schemaVersion >= 10u) {
+        showMidi = requiredField(input, "showMidiNoteValues",
+            JsonType::Boolean, "$.session", result);
+    } else {
+        const auto found = input.object.find("showMidiNoteValues");
+        if (found != input.object.end()) {
+            if (found->second.type != JsonType::Boolean)
+                return setError(result, ProjectErrorCode::TypeMismatch,
+                    "$.session.showMidiNoteValues",
+                    "field has the wrong JSON type");
+            showMidi = &found->second;
+        }
+    }
     if (!gate || !tempoScale || !commandSeed || !playbackSeed
-        || !mainGain || !mainMuted || !songEnabled)
+        || !mainGain || !mainMuted || !songEnabled
+        || (schemaVersion >= 10u && !showMidi))
         return false;
     ProjectSessionState candidate;
     double decodedMainGain = 1.0;
@@ -3173,6 +3190,9 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
         || !checkedUint32(*playbackSeed, candidate.playbackSeed,
             std::numeric_limits<uint32_t>::max(), "$.session.playbackSeed",
             result)) return false;
+    if (showMidi && !checkedBoolean(*showMidi,
+            candidate.showMidiNoteValues,
+            "$.session.showMidiNoteValues", result)) return false;
     candidate.mainOutputGain = static_cast<float>(decodedMainGain);
     destination = std::move(candidate);
     return true;

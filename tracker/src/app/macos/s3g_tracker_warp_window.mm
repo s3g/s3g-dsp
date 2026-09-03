@@ -391,7 +391,8 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 @property(nonatomic, copy) NSArray<NSTextField*>* libraryLabels;
 @property(nonatomic, copy) NSArray<NSTextField*>* stackLabels;
 @property(nonatomic, copy) NSArray<NSTextField*>* transformLabels;
-@property(nonatomic, copy) NSArray<NSButton*>* libraryButtons;
+@property(nonatomic, strong) S3GTrackerActionButton* saveLibraryButton;
+@property(nonatomic, strong) S3GTrackerActionButton* deleteLibraryButton;
 @property(nonatomic, copy) NSArray<NSButton*>* addButtons;
 @property(nonatomic, copy) NSArray<NSButton*>* stackButtons;
 @property(nonatomic) NSInteger selectedTransform;
@@ -541,7 +542,9 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 
     self.libraryPopup.frame = controlFrame(0u, libraryWidth);
     self.libraryNameField.frame = sliderFrame(1u, libraryWidth);
-    layoutButtons(self.libraryButtons, 2u, libraryWidth);
+    self.saveLibraryButton.frame = NSMakeRect(
+        NSWidth(self.libraryPanel.bounds) - 82.0, 3.0, 70.0, 15.0);
+    self.deleteLibraryButton.frame = controlFrame(2u, libraryWidth);
     self.warpModeButton.frame = controlFrame(0u, stackWidth);
     self.cycleField.frame = sliderFrame(1u, stackWidth);
     self.transformPopup.frame = controlFrame(2u, stackWidth);
@@ -612,21 +615,21 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     self.libraryNameField = [self nameFieldWithAction:
         @selector(saveLibrarySlot:)];
     [self.libraryPanel addSubview:self.libraryNameField];
-    NSMutableArray<NSButton*>* libraryButtons = [[NSMutableArray alloc] init];
-    for (NSArray<NSString*>* spec in @[
-             @[ @"SAVE", @"saveLibrarySlot:" ],
-             @[ @"RECALL", @"recallLibrarySlot:" ],
-             @[ @"DELETE", @"deleteLibrarySlot:" ] ]) {
-        S3GTrackerActionButton* button = [self warpButton:spec[0]
-            action:NSSelectorFromString(spec[1]) panel:self.libraryPanel];
-        if ([spec[0] isEqualToString:@"DELETE"]) button.tag = 2;
-        [libraryButtons addObject:button];
-    }
-    self.libraryButtons = libraryButtons;
+    self.saveLibraryButton = [self warpButton:@"SAVE"
+        action:@selector(saveLibrarySlot:) panel:self.libraryPanel];
+    self.saveLibraryButton.accessibilityLabel = @"Save Warp slot";
+    self.saveLibraryButton.toolTip =
+        @"Save the current warp stack and NAME to this slot";
+    self.deleteLibraryButton = [self warpButton:@"DELETE SLOT"
+        action:@selector(deleteLibrarySlot:) panel:self.libraryPanel];
+    self.deleteLibraryButton.tag = 2;
+    self.deleteLibraryButton.accessibilityLabel = @"Delete Warp slot";
+    self.deleteLibraryButton.toolTip =
+        @"Delete this saved Warp without changing the current stack";
     self.libraryLabels = @[
         [self warpRowLabel:@"SLOT" panel:self.libraryPanel],
         [self warpRowLabel:@"NAME" panel:self.libraryPanel],
-        [self warpRowLabel:@"MEMORY" panel:self.libraryPanel],
+        [self warpRowLabel:@"SLOT EDIT" panel:self.libraryPanel],
     ];
 
     self.warpModeButton = [self warpButton:@"WARP PLAYBACK: OFF"
@@ -768,12 +771,12 @@ NSString* transformSummary(const TimingWarpTransform& transform,
          index < s3g::tracker::kMaximumTimingWarpLibraryEntries; ++index) {
         const auto* entry = library.entry(index);
         NSString* title = entry
-            ? [NSString stringWithFormat:@"%02lu  %@  ·  %uT / %luX",
+            ? [NSString stringWithFormat:@"%02lu  ·  %@  ·  %uT / %luX",
                 static_cast<unsigned long>(index + 1u),
                 [NSString stringWithUTF8String:entry->name.c_str()],
                 entry->cycleTicks,
                 static_cast<unsigned long>(entry->stack.size())]
-            : [NSString stringWithFormat:@"%02lu  EMPTY",
+            : [NSString stringWithFormat:@"%02lu  ·  EMPTY",
                 static_cast<unsigned long>(index + 1u)];
         [self.libraryPopup addItemWithTitle:title];
     }
@@ -786,6 +789,8 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         static_cast<std::size_t>(self.selectedLibrarySlot));
     self.libraryNameField.stringValue = selectedEntry
         ? [NSString stringWithUTF8String:selectedEntry->name.c_str()] : @"";
+    self.saveLibraryButton.enabled = YES;
+    self.deleteLibraryButton.enabled = selectedEntry != nullptr;
     const auto& transport = self.trackerState->session.transport;
     self.warpModeButton.state = transport.timingWarpEnabled
         ? NSControlStateValueOn : NSControlStateValueOff;
@@ -875,7 +880,17 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     (void)sender;
     self.selectedLibrarySlot = std::max<NSInteger>(0,
         self.libraryPopup.indexOfSelectedItem);
-    [self reloadModel];
+    if (!self.trackerState) return;
+    const auto index = static_cast<std::size_t>(self.selectedLibrarySlot);
+    const auto* entry = self.trackerState->session.warpLibrary.entry(index);
+    if (!entry) {
+        [self reloadModel];
+        return;
+    }
+    self.trackerState->session.transport.warpCycleTicks = entry->cycleTicks;
+    self.trackerState->session.transport.timingWarp = entry->stack;
+    self.selectedTransform = 0;
+    [self publish];
 }
 
 - (void)saveLibrarySlot:(id)sender
@@ -899,20 +914,6 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         [self reloadModel];
         return;
     }
-    [self publish];
-}
-
-- (void)recallLibrarySlot:(id)sender
-{
-    (void)sender;
-    if (!self.trackerState) return;
-    const auto index = static_cast<std::size_t>(std::max<NSInteger>(0,
-        self.selectedLibrarySlot));
-    const auto* entry = self.trackerState->session.warpLibrary.entry(index);
-    if (!entry) { NSBeep(); return; }
-    self.trackerState->session.transport.warpCycleTicks = entry->cycleTicks;
-    self.trackerState->session.transport.timingWarp = entry->stack;
-    self.selectedTransform = 0;
     [self publish];
 }
 

@@ -2763,20 +2763,28 @@ CommandResult executeTokens(TrackerSession& session,
                     burst.events[index].velocity = static_cast<uint8_t>(value);
                 }
             } else if (edit == "gate") {
-                if (tokens.size() != 4u
-                    && tokens.size() != 3u + burst.eventCount)
-                    return failure("Gate accepts one percentage or one per substep.");
-                for (std::size_t index = 0u; index < burst.eventCount; ++index) {
-                    auto token = std::string_view(tokens[tokens.size() == 4u
-                        ? 3u : 3u + index]);
-                    if (!token.empty() && token.back() == '%')
-                        token.remove_suffix(1u);
-                    uint32_t value = 0u;
-                    if (!parseUnsigned(token, value)
-                        || value == 0u || value > 100u)
-                        return failure("Burst gate must be 1..100 percent.");
-                    burst.events[index].gatePercent
-                        = static_cast<uint8_t>(value);
+                if (tokens.size() == 4u
+                    && (asciiLower(tokens[3]) == "fit"
+                        || asciiLower(tokens[3]) == "row")) {
+                    fitBurstGatesToRow(burst);
+                } else {
+                    if (tokens.size() != 4u
+                        && tokens.size() != 3u + burst.eventCount)
+                        return failure("Gate accepts fit, one percentage, or one per substep.");
+                    for (std::size_t index = 0u;
+                         index < burst.eventCount; ++index) {
+                        auto token = std::string_view(tokens[
+                            tokens.size() == 4u ? 3u : 3u + index]);
+                        if (!token.empty() && token.back() == '%')
+                            token.remove_suffix(1u);
+                        uint32_t value = 0u;
+                        if (!parseUnsigned(token, value)
+                            || value == 0u || value > 100u)
+                            return failure(
+                                "Burst gate must be 1..100 percent.");
+                        burst.events[index].gatePercent
+                            = static_cast<uint8_t>(value);
+                    }
                 }
             } else if (edit == "timing") {
                 if (tokens.size() < 4u)
@@ -4104,7 +4112,7 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "note <target> <row> <0..127|rest|rpt|hold|kill|B01..B32>", "Edit one NOTE cell directly, including a reusable Burst reference.", "note", "note @kick 5 B01" },
             { "burst new <B01..B32> [name]", "Create a four-substep reusable pattern-local Burst.", "burst", "burst new B02 BREAK RUSH" },
             { "burst Bxx notes <1..8 notes>", "Set the independently pitched MIDI events emitted inside one tracker row.", "", "burst B01 notes 48 52 50 55" },
-            { "burst Bxx velocity|gate <one|per-step values>", "Set one value for the phrase or one value for every substep.", "", "burst B01 velocity 127 104 82 116" },
+            { "burst Bxx velocity|gate <fit|one|per-step values>", "Set one value for the phrase or one per substep. Gate fit ends each note at the next onset and the last at the row boundary; numeric gate is 1..100 percent of a complete Tracker row from each onset.", "", "burst B01 gate fit" },
             { "burst Bxx timing <even|accelerate|decelerate|positions...>", "Shape sub-row positions; custom positions are percentages in ascending order.", "", "burst B01 timing accelerate" },
             { "burst Bxx name|reverse|rotate|usage ...", "Rename or reshape a Burst and inspect shared NOTE-cell usage.", "", "burst B01 rotate 1" },
             { "burst duplicate <source> <destination>  |  burst delete <Bxx>", "Copy a recipe or delete an unreferenced one.", "", "burst duplicate B01 B02" },

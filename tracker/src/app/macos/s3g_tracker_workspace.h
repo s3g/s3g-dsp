@@ -32,6 +32,9 @@ struct TrackerViewState {
     std::array<bool, kVisibleLaneCount> noteHits {};
     std::array<std::size_t, kVisibleLaneCount> noteHitRows {};
     std::array<uint64_t, kVisibleLaneCount> noteHitSampleTimes {};
+    // Normalized position inside the currently sounding Tracker row. Burst
+    // uses this shared clock for its matrix, radial, and breakpoint cursors.
+    float subrowPlaybackPhase = 0.0f;
     std::array<std::size_t, kVisibleLaneCount> instrumentPlayheads {};
     std::array<std::size_t, kVisibleLaneCount> velocityPlayheads {};
     std::array<std::array<std::size_t, kFxPairCount>, kVisibleLaneCount>
@@ -77,9 +80,10 @@ struct TrackerViewState {
     // View-only tracker density. Compact lanes expose NOTE and VOL; expanded
     // lanes additionally expose both sequencing action/value pairs.
     bool sequenceColumnsExpanded = false;
-    // View-only NOTE formatting. Pattern storage remains MIDI 0..127 in both
-    // modes; false renders pitch names and true renders decimal MIDI values.
-    bool showMidiNoteValues = false;
+    // NOTE formatting. Pattern storage remains MIDI 0..127 in both modes;
+    // false renders pitch names and true renders decimal MIDI values. The
+    // coordinator persists this project-scoped presentation preference.
+    bool showMidiNoteValues = true;
     // MIDI recording is deliberately transient host/UI state. It is OFF when
     // an editor is created and is not embedded in project files.
     bool midiStepInputAvailable = false;
@@ -127,6 +131,11 @@ struct WorkspaceCallbacks {
     std::function<void(uint32_t, uint32_t, float)>
         instrumentParameterChanged;
     std::function<void(uint32_t, uint8_t, float)> auditionInstrument;
+    // Audition one reusable Burst while host transport is stopped. The lane
+    // channel and project clock are captured with the immutable definition so
+    // the audio thread never reaches back into the editor model.
+    std::function<void(const BurstDefinition&, uint8_t, double, uint32_t)>
+        previewBurst;
     std::function<void(uint32_t)> resetInstrumentPatch;
     std::function<void()> instrumentRackChanged;
     // Republishes derived runtime assets (for example decoded sample PCM)
@@ -146,6 +155,7 @@ struct WorkspaceCallbacks {
     std::function<void(bool)> fillChanged;
     std::function<void()> outputChanged;
     std::function<void(float)> mainOutputGainChanged;
+    std::function<void()> viewPreferencesChanged;
     std::function<void(MidiStepRecordMode)> midiStepRecordModeChanged;
     std::function<void(const std::string&)> executeCommand;
 };

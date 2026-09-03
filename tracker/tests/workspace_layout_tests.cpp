@@ -51,8 +51,8 @@ int main()
     const double visibleTrackerRows = (nativeTrackerViewport
             / kTrackerDefaultMagnification - kTrackerGridHeaderHeight)
         / kTrackerGridRowHeight;
-    check(visibleTrackerRows >= 17.0 && visibleTrackerRows < 18.0,
-        "the one-row toolbar should show 17 complete rows in the native CLAP window");
+    check(visibleTrackerRows >= 16.0 && visibleTrackerRows < 17.0,
+        "the native CLAP window should open at actual size with 16 complete rows visible");
 
     check(near(trackerDocumentWidth(1u, 500.0, false), 500.0),
         "a sparse compact tracker should leave unused viewport space blank");

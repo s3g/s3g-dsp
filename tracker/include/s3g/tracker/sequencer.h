@@ -104,6 +104,10 @@ struct BurstDefinition {
 
 std::string burstSlotToken(std::size_t index);
 bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept;
+// Set each event's gate to the distance to the next event; the final event
+// ends at the primary Tracker-row boundary. Percent storage is rounded to the
+// nearest legal 1..100 value.
+void fitBurstGatesToRow(BurstDefinition& burst) noexcept;
 
 // Decimal MIDI (0..127) and readable note names share one entry contract.
 // Natural names accept both tracker form (C-3) and compact form (C3);

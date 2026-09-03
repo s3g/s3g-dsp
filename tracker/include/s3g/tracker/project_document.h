@@ -12,6 +12,8 @@
 namespace s3g::tracker {
 
 // Schema 9 adds reusable pattern-local Burst phrases and NOTE-cell references.
+// Schema 10 persists the Tracker NOTE display preference (MIDI number or
+// pitch name) as project session state.
 // Schema 8 adds the explicit Pattern timing-warp enable state. Schema 7 adds
 // optional per-Song-row pattern loop ranges. Schema 6 adds MIDI CC actions and
 // per-pair interpolation; schemas 5 through 7 remain readable, and schema 5
@@ -19,7 +21,7 @@ namespace s3g::tracker {
 // format intentionally has no Max/pattr compatibility contract; incompatible
 // representations get an explicit migration rather than silently coercing
 // musical data.
-constexpr uint32_t kProjectSchemaVersion = 9u;
+constexpr uint32_t kProjectSchemaVersion = 10u;
 constexpr uint32_t kOldestSupportedProjectSchemaVersion = 5u;
 constexpr const char* kProjectFormatIdentifier = "s3g-tracker-project";
 constexpr const char* kProjectFileExtension = ".s3gt";
@@ -35,6 +37,10 @@ struct ProjectSessionState {
     // explicit project choice so merely opening the Song editor never changes
     // the behavior of Play.
     bool songPlaybackEnabled = false;
+    // This is presentation state rather than musical data, but it belongs to
+    // the native project so reopening a project restores the author's working
+    // view. New and pre-schema-10 projects default to decimal MIDI values.
+    bool showMidiNoteValues = true;
     // Stored as a decimal string by the JSON codec so all 64 bits survive a
     // round trip through tools whose JSON number type is IEEE double.
     uint64_t commandRngState = 0x7333672d74726163ull;

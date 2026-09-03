@@ -44,6 +44,7 @@ using s3g::tracker::ValueCell;
 using s3g::tracker::ValueCellState;
 using s3g::tracker::ValueInterpolation;
 using s3g::tracker::burstSlotToken;
+using s3g::tracker::fitBurstGatesToRow;
 using s3g::tracker::kBurstDefinitionCount;
 using s3g::tracker::kMaximumBurstEvents;
 using s3g::tracker::kMaximumBurstNameBytes;
@@ -766,6 +767,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryGestureKind) {
     S3GTrackerGeometryGestureBurstNote,
     S3GTrackerGeometryGestureBurstVelocity,
     S3GTrackerGeometryGestureBurstGate,
+    S3GTrackerGeometryGestureBurstMatrixPosition,
+    S3GTrackerGeometryGestureBurstMatrixNote,
+    S3GTrackerGeometryGestureBurstMatrixVelocity,
+    S3GTrackerGeometryGestureBurstMatrixGate,
+    S3GTrackerGeometryGestureBurstVelocityPoint,
 };
 
 typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
@@ -4588,6 +4594,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSTrackingArea* _geometryTrackingArea;
     std::size_t _selectedBurstSlot;
     std::size_t _selectedBurstEvent;
+    NSInteger _selectedBurstField;
+    NSRect _burstGestureRect;
+    BOOL _burstPlaceFeedbackActive;
+    BOOL _burstPreviewFeedbackActive;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
@@ -4600,6 +4610,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSUInteger)displayedMutedLaneCount;
 - (CGFloat)ringRadiusForLane:(std::size_t)lane;
 - (void)selectBurstSlot:(std::size_t)slot;
+- (void)syncBurstNameControls;
+- (void)saveBurstName:(id)sender;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic) CGFloat geometryZoom;
@@ -4621,7 +4633,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerActionButton* revealButton;
 @property(nonatomic, strong) S3GTrackerGeometryPlaybackOverlayView*
     playbackOverlay;
-@property(nonatomic, strong) NSTextField* burstNameEditor;
+@property(nonatomic, strong) NSTextField* burstNameField;
+@property(nonatomic, strong) S3GTrackerActionButton* burstSaveButton;
 @end
 
 @implementation S3GTrackerGeometryView
@@ -4638,6 +4651,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.geometryTool = S3GTrackerGeometryToolSelect;
         _selectedBurstSlot = 0u;
         _selectedBurstEvent = 0u;
+        _selectedBurstField = 1;
+        _burstGestureRect = NSZeroRect;
+        _burstPlaceFeedbackActive = NO;
+        _burstPreviewFeedbackActive = NO;
         self.linkVelocityLength = YES;
         _lastGestureRow = -1;
         self.playbackOverlay = [[S3GTrackerGeometryPlaybackOverlayView alloc]
@@ -4780,12 +4797,34 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.revealButton = addOperation(@"REVEAL IN TRACKER",
             @selector(revealInTracker:),
             @"Reveal the selected geometry cell in Tracker");
+        self.burstNameField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+        S3GTrackerStyleSuiteTextField(
+            self.burstNameField, NSTextAlignmentLeft);
+        self.burstNameField.delegate = self;
+        self.burstNameField.target = self;
+        self.burstNameField.action = @selector(saveBurstName:);
+        self.burstNameField.accessibilityLabel = @"Burst name";
+        self.burstNameField.accessibilityHelp =
+            @"Enter a Burst name, then press Return or SAVE.";
+        self.burstNameField.hidden = YES;
+        [self addSubview:self.burstNameField];
+        self.burstSaveButton = [[S3GTrackerActionButton alloc]
+            initWithFrame:NSZeroRect];
+        self.burstSaveButton.s3gUsesSuiteStyle = YES;
+        self.burstSaveButton.title = @"SAVE";
+        self.burstSaveButton.target = self;
+        self.burstSaveButton.action = @selector(saveBurstName:);
+        self.burstSaveButton.accessibilityLabel = @"Save Burst name";
+        self.burstSaveButton.toolTip =
+            @"Save the NAME field to the selected Burst";
+        self.burstSaveButton.hidden = YES;
+        [self addSubview:self.burstSaveButton];
         _openGeometryMenu = S3GTrackerGeometryMenuNone;
         _geometryMenuHoverIndex = -1;
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Rhythm geometry";
-        self.accessibilityHelp = @"Ring Field edits the same lanes and rows as Tracker. The Lane and Cycle toolbox sets lane, default pitch, note length, direction, row rotation, density, and optional linked velocity length. Drag the R diamond to rotate authored rows or the D arc handle for density; edits preview before one undoable commit. Morph can use the previous or next visible lane at 25, 50, 75, or 100 percent. Choose Select, Paint, Erase, or Velocity. Option-drag with Paint temporarily erases, and double-clicking a bead reveals it in Tracker. Space toggles playback.";
+        self.accessibilityHelp = @"Ring Field edits the same lanes and rows as Tracker. The Lane and Cycle toolbox sets lane, default pitch, note length, direction, row rotation, density, and optional linked velocity length. Drag the R diamond to rotate authored rows or the D arc handle for density; edits preview before one undoable commit. Morph can use the previous or next visible lane at 25, 50, 75, or 100 percent. Choose Select, Paint, Erase, or Velocity. Option-drag with Paint temporarily erases, and double-clicking a bead reveals it in Tracker. Burst Editor shows all substeps in a matrix and follows their shared row clock during playback; gate is a percentage of one complete Tracker row measured from each substep onset. Space toggles playback.";
     }
     return self;
 }
@@ -5011,9 +5050,37 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         142.0, 15.0);
 }
 
+- (NSRect)fitBurstGatesHeaderButtonRect
+{
+    const NSRect header = [self editPanelRect];
+    return NSMakeRect(NSMaxX(header) - 210.0, NSMinY(header) + 3.0,
+        116.0, 15.0);
+}
+
+- (NSRect)burstPreviewHeaderButtonRect
+{
+    const NSRect header = [self editPanelRect];
+    return NSMakeRect(NSMaxX(header) - 90.0, NSMinY(header) + 3.0,
+        78.0, 15.0);
+}
+
+- (NSRect)burstRenameHeaderButtonRect
+{
+    const NSRect header = [self laneCyclePanelRect];
+    return NSMakeRect(NSMaxX(header) - 82.0, NSMinY(header) + 3.0,
+        70.0, 15.0);
+}
+
 - (void)layout
 {
     [super layout];
+    NSRect nameFrame = [self burstNameBoxRect];
+    nameFrame.origin.y -= 7.0;
+    nameFrame.size.height = static_cast<CGFloat>(
+        layout::kStandardMetrics.hitHeight);
+    self.burstNameField.frame = nameFrame;
+    self.burstSaveButton.frame = [self burstRenameHeaderButtonRect];
+    [self syncBurstNameControls];
     [self.window invalidateCursorRectsForView:self];
 }
 
@@ -5095,6 +5162,28 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.lanePopup.enabled = editable && visible.count > 0u;
     self.directionPopup.enabled = editable && visible.count > 0u;
     self.morphTargetPopup.enabled = editable && visible.count > 1u;
+    [self syncBurstNameControls];
+}
+
+- (void)syncBurstNameControls
+{
+    const BOOL visible = self.geometryViewMode
+            == S3GTrackerGeometryViewModeBurst
+        && _openGeometryMenu == S3GTrackerGeometryMenuNone;
+    self.burstNameField.hidden = !visible;
+    self.burstSaveButton.hidden = !visible;
+    if (!visible || !self.trackerState) return;
+    const auto& burst = self.trackerState->session.pattern.bursts[
+        _selectedBurstSlot];
+    const BOOL editable = [self canEditDisplayedPattern] && !burst.empty();
+    self.burstNameField.enabled = editable;
+    self.burstSaveButton.enabled = editable;
+    id firstResponder = self.window.firstResponder;
+    const BOOL editing = firstResponder == self.burstNameField
+        || firstResponder == self.burstNameField.currentEditor;
+    if (!editing)
+        self.burstNameField.stringValue = burst.empty()
+            ? @"" : nsString(burst.name);
 }
 
 - (NSArray<NSString*>*)itemsForGeometryMenu:(S3GTrackerGeometryMenu)menu
@@ -5182,6 +5271,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     _openGeometryMenu = _openGeometryMenu == menu
         ? S3GTrackerGeometryMenuNone : menu;
     _geometryMenuHoverIndex = -1;
+    [self syncBurstNameControls];
     [self setNeedsDisplay:YES];
 }
 
@@ -5205,11 +5295,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstSlot) {
         _selectedBurstSlot = static_cast<std::size_t>(index);
         _selectedBurstEvent = 0u;
+        [self syncBurstNameControls];
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstEvent) {
         _selectedBurstEvent = static_cast<std::size_t>(index);
     }
     _openGeometryMenu = S3GTrackerGeometryMenuNone;
     _geometryMenuHoverIndex = -1;
+    [self syncBurstNameControls];
     [self setNeedsDisplay:YES];
 }
 
@@ -5221,6 +5313,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.geometryViewMode = S3GTrackerGeometryViewModeBurst;
     [self.viewModePopup selectItemAtIndex:
         S3GTrackerGeometryViewModeBurst];
+    [self syncBurstNameControls];
     [self setNeedsDisplay:YES];
 }
 
@@ -5252,53 +5345,69 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                                  : static_cast<std::size_t>(found - bursts.begin());
 }
 
-- (void)beginBurstNameEditing
-{
-    if (![self canEditDisplayedPattern] || !self.trackerState) return;
-    auto& burst = self.trackerState->session.pattern.bursts[_selectedBurstSlot];
-    if (burst.empty()) return;
-    [self.burstNameEditor removeFromSuperview];
-    self.burstNameEditor = [[NSTextField alloc]
-        initWithFrame:NSInsetRect([self burstNameBoxRect], 1.0, 0.0)];
-    S3GTrackerStyleTextField(self.burstNameEditor, NSTextAlignmentLeft);
-    self.burstNameEditor.font = trackerFont(9.5, NSFontWeightMedium);
-    self.burstNameEditor.stringValue = nsString(burst.name);
-    self.burstNameEditor.delegate = self;
-    self.burstNameEditor.target = self;
-    self.burstNameEditor.action = @selector(commitBurstName:);
-    self.burstNameEditor.accessibilityLabel = @"Burst name";
-    [self addSubview:self.burstNameEditor positioned:NSWindowAbove
-        relativeTo:self.playbackOverlay];
-    [self.window makeFirstResponder:self.burstNameEditor];
-    [self.burstNameEditor selectText:nil];
-}
-
-- (void)commitBurstName:(id)sender
+- (void)saveBurstName:(id)sender
 {
     (void)sender;
-    if (!self.trackerState || !self.burstNameEditor) return;
+    if (!self.trackerState || ![self canEditDisplayedPattern]) return;
     auto& burst = self.trackerState->session.pattern.bursts[_selectedBurstSlot];
-    NSString* value = [self.burstNameEditor.stringValue
+    if (burst.empty()) return;
+    NSString* value = [self.burstNameField.stringValue
         stringByTrimmingCharactersInSet:
             NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (value.length == 0u)
+        value = [NSString stringWithFormat:@"BURST %@",
+            nsString(burstSlotToken(_selectedBurstSlot))];
     NSData* utf8 = [value dataUsingEncoding:NSUTF8StringEncoding];
-    if (value.length > 0u && utf8.length <= kMaximumBurstNameBytes) {
-        const std::string next(value.UTF8String ? value.UTF8String : "");
-        if (next != burst.name) {
-            burst.name = next;
-            [self.owner modulePatternChanged];
-        }
+    if (!value.UTF8String || utf8.length > kMaximumBurstNameBytes) {
+        NSBeep();
+        [self syncBurstNameControls];
+        return;
     }
-    [self.burstNameEditor removeFromSuperview];
-    self.burstNameEditor = nil;
-    [self.window makeFirstResponder:self];
+    const std::string next(value.UTF8String);
+    if (next != burst.name) {
+        burst.name = next;
+        [self.owner modulePatternChanged];
+    }
+    self.burstNameField.stringValue = value;
     [self setNeedsDisplay:YES];
 }
 
-- (void)controlTextDidEndEditing:(NSNotification*)notification
+- (void)controlTextDidBeginEditing:(NSNotification*)notification
 {
-    if (notification.object == self.burstNameEditor)
-        [self commitBurstName:self.burstNameEditor];
+    if (notification.object == self.burstNameField)
+        S3GTrackerStyleTextEditor(self.burstNameField);
+}
+
+- (void)clearBurstPlaceFeedback
+{
+    _burstPlaceFeedbackActive = NO;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)pulseBurstPlaceFeedback
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+        selector:@selector(clearBurstPlaceFeedback) object:nil];
+    _burstPlaceFeedbackActive = YES;
+    [self setNeedsDisplay:YES];
+    [self performSelector:@selector(clearBurstPlaceFeedback)
+        withObject:nil afterDelay:0.18];
+}
+
+- (void)clearBurstPreviewFeedback
+{
+    _burstPreviewFeedbackActive = NO;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)pulseBurstPreviewFeedback
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self
+        selector:@selector(clearBurstPreviewFeedback) object:nil];
+    _burstPreviewFeedbackActive = YES;
+    [self setNeedsDisplay:YES];
+    [self performSelector:@selector(clearBurstPreviewFeedback)
+        withObject:nil afterDelay:0.18];
 }
 
 - (BOOL)handleBurstToolboxClickAtPoint:(NSPoint)point
@@ -5314,13 +5423,41 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             [self openGeometryMenu:S3GTrackerGeometryMenuBurstEvent];
         return YES;
     }
-    if (NSPointInRect(point, [self burstNameBoxRect])) {
-        [self beginBurstNameEditing];
-        return YES;
-    }
     auto& pattern = self.trackerState->session.pattern;
     auto& burst = pattern.bursts[_selectedBurstSlot];
     BOOL changed = NO;
+    if (NSPointInRect(point, [self burstPreviewHeaderButtonRect])) {
+        if (burst.empty() || self.trackerState->playing) return YES;
+        const auto lane = pattern.tracks.empty() ? 0u
+            : std::min(self.trackerState->session.selectedTrack,
+                pattern.tracks.size() - 1u);
+        const uint8_t channel = pattern.tracks.empty() ? 1u
+            : pattern.tracks[lane].midiChannel;
+        if (self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->previewBurst) {
+            const double projectBpm = self.trackerState->hostBpm > 0.0
+                ? self.trackerState->hostBpm
+                : self.trackerState->session.transport.bpm;
+            self.owner.trackerCallbacks->previewBurst(burst, channel,
+                projectBpm,
+                self.trackerState->session.transport.ticksPerBeat);
+            [self pulseBurstPreviewFeedback];
+        }
+        return YES;
+    }
+    if (NSPointInRect(point, [self fitBurstGatesHeaderButtonRect])) {
+        if (burst.empty() || ![self canEditDisplayedPattern]) return YES;
+        const auto previous = burst.events;
+        fitBurstGatesToRow(burst);
+        changed = !std::equal(previous.begin(),
+            previous.begin() + burst.eventCount, burst.events.begin(),
+            [](const BurstEvent& left, const BurstEvent& right) {
+                return left.gatePercent == right.gatePercent;
+            });
+        if (changed) [self.owner modulePatternChanged];
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
     for (NSUInteger index = 0u; index < 2u; ++index) {
         if (!NSPointInRect(point,
                 [self burstActionRectForRow:2u index:index count:2u]))
@@ -5427,6 +5564,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             static_cast<uint8_t>(_selectedBurstSlot));
         track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
         [self.owner modulePatternChanged];
+        [self pulseBurstPlaceFeedback];
         return YES;
     }
     return NO;
@@ -5449,6 +5587,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         }
         _openGeometryMenu = S3GTrackerGeometryMenuNone;
         _geometryMenuHoverIndex = -1;
+        [self syncBurstNameControls];
         [self setNeedsDisplay:YES];
     }
     if (NSPointInRect(point, [self viewMenuBoxRect])) {
@@ -5581,6 +5720,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (self.geometryViewMode != S3GTrackerGeometryViewModeRingField
         && self.geometryTool != S3GTrackerGeometryToolSelect)
         [self toolChanged:self.toolButtons[0u]];
+    [self syncBurstNameControls];
     [self setNeedsDisplay:YES];
     [self.playbackOverlay setNeedsDisplay:YES];
 }
@@ -5771,6 +5911,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         cursor:NSCursor.pointingHandCursor];
     [self addCursorRect:[self revealHeaderButtonRect]
         cursor:NSCursor.pointingHandCursor];
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst)
+        [self addCursorRect:[self fitBurstGatesHeaderButtonRect]
+            cursor:NSCursor.pointingHandCursor];
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
+        [self addCursorRect:[self burstPreviewHeaderButtonRect]
+            cursor:NSCursor.pointingHandCursor];
+    }
     for (NSUInteger index = 0u; index < 4u; ++index)
         [self addCursorRect:[self editToolButtonRect:index]
             cursor:NSCursor.pointingHandCursor];
@@ -6365,7 +6512,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (_geometryGestureKind == S3GTrackerGeometryGestureBurstPosition
         || _geometryGestureKind == S3GTrackerGeometryGestureBurstNote
         || _geometryGestureKind == S3GTrackerGeometryGestureBurstVelocity
-        || _geometryGestureKind == S3GTrackerGeometryGestureBurstGate) {
+        || _geometryGestureKind == S3GTrackerGeometryGestureBurstGate
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixPosition
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixNote
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixVelocity
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixGate
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstVelocityPoint) {
         const BOOL changed = _geometryGestureChanged;
         _geometryGestureActive = NO;
         _geometrySliderGesture = NO;
@@ -6413,13 +6570,251 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self setNeedsDisplay:YES];
 }
 
+- (NSRect)burstMatrixRect
+{
+    const NSRect plot = [self canvasPlotRect];
+    const CGFloat width = std::floor((NSWidth(plot) - 54.0) * 0.64);
+    return NSMakeRect(NSMinX(plot) + 18.0, NSMinY(plot) + 34.0,
+        std::max<CGFloat>(360.0, width), 254.0);
+}
+
+- (NSRect)burstOverviewRect
+{
+    const NSRect plot = [self canvasPlotRect];
+    const NSRect matrix = [self burstMatrixRect];
+    return NSMakeRect(NSMaxX(matrix) + 18.0, NSMinY(matrix),
+        std::max<CGFloat>(180.0, NSMaxX(plot) - NSMaxX(matrix) - 36.0),
+        NSHeight(matrix));
+}
+
+- (NSRect)burstBreakpointRect
+{
+    const NSRect plot = [self canvasPlotRect];
+    const NSRect matrix = [self burstMatrixRect];
+    const CGFloat top = NSMaxY(matrix) + 38.0;
+    return NSMakeRect(NSMinX(plot) + 18.0, top,
+        NSWidth(plot) - 36.0,
+        std::max<CGFloat>(84.0, NSMaxY(plot) - top - 42.0));
+}
+
+- (NSRect)burstRadialPlotRect
+{
+    const NSRect overview = [self burstOverviewRect];
+    return NSInsetRect(NSMakeRect(NSMinX(overview),
+        NSMinY(overview) + 19.0, NSWidth(overview),
+        NSHeight(overview) - 19.0), 10.0, 8.0);
+}
+
+- (NSRect)burstMatrixRowRect:(std::size_t)row
+{
+    const NSRect matrix = [self burstMatrixRect];
+    constexpr CGFloat headerHeight = 22.0;
+    constexpr CGFloat rowHeight = 29.0;
+    return NSMakeRect(NSMinX(matrix), NSMinY(matrix) + headerHeight
+            + static_cast<CGFloat>(row) * rowHeight,
+        NSWidth(matrix), rowHeight);
+}
+
+- (NSRect)burstMatrixCellRect:(std::size_t)row field:(NSInteger)field
+{
+    const NSRect rowRect = [self burstMatrixRowRect:row];
+    const CGFloat numberWidth = 38.0;
+    const CGFloat available = NSWidth(rowRect) - numberWidth;
+    const std::array<CGFloat, 5u> edges {{
+        NSMinX(rowRect),
+        NSMinX(rowRect) + numberWidth,
+        NSMinX(rowRect) + numberWidth + available * 0.25,
+        NSMinX(rowRect) + numberWidth + available * 0.52,
+        NSMinX(rowRect) + numberWidth + available * 0.78,
+    }};
+    if (field < 0) return NSMakeRect(edges[0], NSMinY(rowRect),
+        numberWidth, NSHeight(rowRect));
+    const auto index = static_cast<std::size_t>(std::clamp<NSInteger>(
+        field, 0, 3));
+    const CGFloat right = index == 3u ? NSMaxX(rowRect) : edges[index + 2u];
+    return NSMakeRect(edges[index + 1u], NSMinY(rowRect),
+        right - edges[index + 1u], NSHeight(rowRect));
+}
+
+- (NSInteger)burstMatrixRowAtPoint:(NSPoint)point
+{
+    const NSRect matrix = [self burstMatrixRect];
+    if (!NSPointInRect(point, matrix) || point.y < NSMinY(matrix) + 22.0)
+        return -1;
+    const NSInteger row = static_cast<NSInteger>(
+        (point.y - NSMinY(matrix) - 22.0) / 29.0);
+    return row >= 0 && row < static_cast<NSInteger>(kMaximumBurstEvents)
+        ? row : -1;
+}
+
+- (NSInteger)burstMatrixFieldAtPoint:(NSPoint)point row:(std::size_t)row
+{
+    for (NSInteger field = 0; field < 4; ++field)
+        if (NSPointInRect(point,
+                [self burstMatrixCellRect:row field:field])) return field;
+    return -1;
+}
+
+- (NSInteger)burstBreakpointEventAtPoint:(NSPoint)point
+{
+    if (!self.trackerState) return -1;
+    const auto& burst = self.trackerState->session.pattern.bursts[
+        _selectedBurstSlot];
+    const NSRect graph = [self burstBreakpointRect];
+    if (burst.empty() || !NSPointInRect(point, NSInsetRect(graph, -8.0, -8.0)))
+        return -1;
+    NSInteger result = -1;
+    CGFloat best = 14.0;
+    const NSRect inner = NSInsetRect(graph, 12.0, 14.0);
+    for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+        const auto& authored = burst.events[index];
+        const NSPoint marker = NSMakePoint(NSMinX(inner)
+                + static_cast<CGFloat>(authored.position) / 65535.0
+                    * NSWidth(inner),
+            NSMaxY(inner) - static_cast<CGFloat>(authored.velocity - 1u)
+                / 126.0 * NSHeight(inner));
+        const CGFloat distance = std::hypot(
+            point.x - marker.x, point.y - marker.y);
+        if (distance >= best) continue;
+        best = distance;
+        result = static_cast<NSInteger>(index);
+    }
+    return result;
+}
+
+- (void)updateBurstMatrixGestureAtPoint:(NSPoint)point
+{
+    if (!self.trackerState || _selectedBurstEvent >= kMaximumBurstEvents)
+        return;
+    auto& burst = self.trackerState->session.pattern.bursts[
+        _selectedBurstSlot];
+    if (burst.empty() || _selectedBurstEvent >= burst.eventCount) return;
+    auto& authored = burst.events[_selectedBurstEvent];
+    if (_geometryGestureKind
+            == S3GTrackerGeometryGestureBurstVelocityPoint) {
+        const NSRect inner = NSInsetRect(_burstGestureRect, 12.0, 14.0);
+        const CGFloat x = std::clamp((point.x - NSMinX(inner))
+                / std::max<CGFloat>(1.0, NSWidth(inner)), 0.0, 1.0);
+        const CGFloat y = std::clamp((NSMaxY(inner) - point.y)
+                / std::max<CGFloat>(1.0, NSHeight(inner)), 0.0, 1.0);
+        uint16_t position = static_cast<uint16_t>(std::lround(x * 65535.0));
+        const uint16_t minimum = _selectedBurstEvent == 0u ? 0u
+            : burst.events[_selectedBurstEvent - 1u].position;
+        const uint16_t maximum = _selectedBurstEvent + 1u >= burst.eventCount
+            ? 65535u : burst.events[_selectedBurstEvent + 1u].position;
+        position = std::clamp(position, minimum, maximum);
+        const auto velocity = static_cast<uint8_t>(std::clamp<long>(
+            std::lround(1.0 + y * 126.0), 1l, 127l));
+        _geometryGestureChanged |= authored.position != position
+            || authored.velocity != velocity;
+        authored.position = position;
+        authored.velocity = velocity;
+        [self setNeedsDisplay:YES];
+        return;
+    }
+    const CGFloat normalized = std::clamp((point.x - NSMinX(_burstGestureRect))
+            / std::max<CGFloat>(1.0, NSWidth(_burstGestureRect)), 0.0, 1.0);
+    if (_geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixPosition) {
+        uint16_t position = static_cast<uint16_t>(std::lround(
+            normalized * 65535.0));
+        const uint16_t minimum = _selectedBurstEvent == 0u ? 0u
+            : burst.events[_selectedBurstEvent - 1u].position;
+        const uint16_t maximum = _selectedBurstEvent + 1u >= burst.eventCount
+            ? 65535u : burst.events[_selectedBurstEvent + 1u].position;
+        position = std::clamp(position, minimum, maximum);
+        _geometryGestureChanged |= authored.position != position;
+        authored.position = position;
+    } else if (_geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixNote) {
+        const auto value = static_cast<uint8_t>(std::lround(
+            normalized * 127.0));
+        _geometryGestureChanged |= authored.note != value;
+        authored.note = value;
+    } else if (_geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixVelocity) {
+        const auto value = static_cast<uint8_t>(std::clamp<long>(
+            std::lround(1.0 + normalized * 126.0), 1l, 127l));
+        _geometryGestureChanged |= authored.velocity != value;
+        authored.velocity = value;
+    } else if (_geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixGate) {
+        const auto value = static_cast<uint8_t>(std::clamp<long>(
+            std::lround(1.0 + normalized * 99.0), 1l, 100l));
+        _geometryGestureChanged |= authored.gatePercent != value;
+        authored.gatePercent = value;
+    }
+    [self setNeedsDisplay:YES];
+}
+
+- (BOOL)beginBurstCanvasGestureAtPoint:(NSPoint)point
+{
+    if (!self.trackerState) return NO;
+    auto& burst = self.trackerState->session.pattern.bursts[
+        _selectedBurstSlot];
+    const NSInteger matrixRow = [self burstMatrixRowAtPoint:point];
+    if (matrixRow >= 0) {
+        const auto row = static_cast<std::size_t>(matrixRow);
+        if (row >= burst.eventCount) {
+            if (![self canEditDisplayedPattern]) return YES;
+            if (burst.empty()) [self initializeBurstAtSlot:_selectedBurstSlot];
+            const auto previousCount = static_cast<std::size_t>(burst.eventCount);
+            const auto targetCount = row + 1u;
+            const BurstEvent seed = previousCount > 0u
+                ? burst.events[previousCount - 1u] : BurstEvent {};
+            for (std::size_t index = previousCount; index < targetCount;
+                 ++index) burst.events[index] = seed;
+            burst.eventCount = static_cast<uint8_t>(targetCount);
+            setGeometryBurstTiming(burst, "even");
+            [self.owner modulePatternChanged];
+        }
+        _selectedBurstEvent = row;
+        const NSInteger field = [self burstMatrixFieldAtPoint:point row:row];
+        if (field < 0 || ![self canEditDisplayedPattern]) {
+            [self setNeedsDisplay:YES];
+            return YES;
+        }
+        _selectedBurstField = field;
+        const std::array<S3GTrackerGeometryGestureKind, 4u> kinds {{
+            S3GTrackerGeometryGestureBurstMatrixPosition,
+            S3GTrackerGeometryGestureBurstMatrixNote,
+            S3GTrackerGeometryGestureBurstMatrixVelocity,
+            S3GTrackerGeometryGestureBurstMatrixGate,
+        }};
+        _burstGestureRect = NSInsetRect(
+            [self burstMatrixCellRect:row field:field], 5.0, 0.0);
+        _geometryGestureActive = YES;
+        _geometryGestureChanged = NO;
+        _geometrySliderGesture = NO;
+        _geometryGestureKind = kinds[static_cast<std::size_t>(field)];
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    const NSInteger breakpoint = [self burstBreakpointEventAtPoint:point];
+    if (breakpoint >= 0) {
+        _selectedBurstEvent = static_cast<std::size_t>(breakpoint);
+        _selectedBurstField = 2;
+        if ([self canEditDisplayedPattern]) {
+            _burstGestureRect = [self burstBreakpointRect];
+            _geometryGestureActive = YES;
+            _geometryGestureChanged = NO;
+            _geometrySliderGesture = NO;
+            _geometryGestureKind =
+                S3GTrackerGeometryGestureBurstVelocityPoint;
+        }
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    return NO;
+}
+
 - (NSInteger)burstEventAtPoint:(NSPoint)point
 {
     const auto& burst = self.trackerState->session.pattern.bursts[
         _selectedBurstSlot];
-    if (burst.empty() || !NSPointInRect(point, [self canvasPlotRect]))
+    if (burst.empty() || !NSPointInRect(point, [self burstOverviewRect]))
         return -1;
-    const NSRect plot = [self canvasPlotRect];
+    const NSRect plot = [self burstRadialPlotRect];
     const NSPoint center = NSMakePoint(NSMidX(plot), NSMidY(plot) - 4.0);
     const CGFloat radius = std::max<CGFloat>(50.0,
         std::min(NSWidth(plot), NSHeight(plot)) * 0.34 * self.geometryZoom);
@@ -6448,7 +6843,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     auto& burst = self.trackerState->session.pattern.bursts[
         _selectedBurstSlot];
     if (burst.empty() || _selectedBurstEvent >= burst.eventCount) return;
-    const NSRect plot = [self canvasPlotRect];
+    const NSRect plot = [self burstRadialPlotRect];
     const NSPoint center = NSMakePoint(NSMidX(plot), NSMidY(plot) - 4.0);
     CGFloat angle = std::atan2(point.y - center.y, point.x - center.x)
         + static_cast<CGFloat>(M_PI_2);
@@ -6570,6 +6965,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self setGeometryZoomAndRedraw:self.geometryZoom * 1.15];
         return;
     }
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst
+        && [self beginBurstCanvasGestureAtPoint:point]) {
+        [self.window makeFirstResponder:self];
+        return;
+    }
     if ([self beginSliderGestureAtPoint:point]) return;
     if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
         [self.window makeFirstResponder:self];
@@ -6642,6 +7042,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self updateBurstPositionAtPoint:point];
         return;
     }
+    if (_geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixPosition
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixNote
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixVelocity
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstMatrixGate
+        || _geometryGestureKind
+            == S3GTrackerGeometryGestureBurstVelocityPoint) {
+        [self updateBurstMatrixGestureAtPoint:point];
+        return;
+    }
     if (_geometryGestureKind == S3GTrackerGeometryGestureRotate
         || _geometryGestureKind == S3GTrackerGeometryGestureDensity) {
         [self updateShapeGestureAtPoint:point];
@@ -6709,9 +7122,73 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self.owner moduleTogglePlayback];
         return;
     }
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
+        auto& burst = model->session.pattern.bursts[_selectedBurstSlot];
+        if (!burst.empty()) {
+            if (event.keyCode == 48) {
+                const bool reverse = (event.modifierFlags
+                    & NSEventModifierFlagShift) != 0u;
+                _selectedBurstField = reverse
+                    ? (_selectedBurstField + 3) % 4
+                    : (_selectedBurstField + 1) % 4;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (event.keyCode == 125 || event.keyCode == 126) {
+                if (event.keyCode == 125)
+                    _selectedBurstEvent = std::min<std::size_t>(
+                        _selectedBurstEvent + 1u, burst.eventCount - 1u);
+                else if (_selectedBurstEvent > 0u) --_selectedBurstEvent;
+                [self setNeedsDisplay:YES];
+                return;
+            }
+            if (event.keyCode == 123 || event.keyCode == 124) {
+                const int direction = event.keyCode == 123 ? -1 : 1;
+                const bool coarse = (event.modifierFlags
+                    & NSEventModifierFlagShift) != 0u;
+                auto& authored = burst.events[_selectedBurstEvent];
+                bool changed = false;
+                if (_selectedBurstField == 0) {
+                    const int delta = direction * (coarse ? 4096 : 1024);
+                    const int minimum = _selectedBurstEvent == 0u ? 0
+                        : burst.events[_selectedBurstEvent - 1u].position;
+                    const int maximum = _selectedBurstEvent + 1u
+                            >= burst.eventCount ? 65535
+                        : burst.events[_selectedBurstEvent + 1u].position;
+                    const auto value = static_cast<uint16_t>(std::clamp(
+                        static_cast<int>(authored.position) + delta,
+                        minimum, maximum));
+                    changed = value != authored.position;
+                    authored.position = value;
+                } else if (_selectedBurstField == 1) {
+                    const int value = std::clamp(
+                        static_cast<int>(authored.note)
+                            + direction * (coarse ? 12 : 1), 0, 127);
+                    changed = value != authored.note;
+                    authored.note = static_cast<uint8_t>(value);
+                } else if (_selectedBurstField == 2) {
+                    const int value = std::clamp(
+                        static_cast<int>(authored.velocity)
+                            + direction * (coarse ? 10 : 1), 1, 127);
+                    changed = value != authored.velocity;
+                    authored.velocity = static_cast<uint8_t>(value);
+                } else {
+                    const int value = std::clamp(
+                        static_cast<int>(authored.gatePercent)
+                            + direction * (coarse ? 10 : 1), 1, 100);
+                    changed = value != authored.gatePercent;
+                    authored.gatePercent = static_cast<uint8_t>(value);
+                }
+                if (changed) [self.owner modulePatternChanged];
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+    }
     NSArray<NSString*>* toolKeys = @[ @"s", @"p", @"e", @"v" ];
     const auto toolIndex = [toolKeys indexOfObject:key];
-    if (toolIndex != NSNotFound
+    if (self.geometryViewMode != S3GTrackerGeometryViewModeBurst
+        && toolIndex != NSNotFound
         && toolIndex < self.toolButtons.count
         && self.toolButtons[toolIndex].enabled) {
         [self toolChanged:self.toolButtons[toolIndex]];
@@ -6951,15 +7428,123 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSDictionary* values = s3g::clap_gui::softValueAttrs();
     const auto geometry = [self geometryLayout];
     const NSRect canvas = [self canvasRect];
-    const NSRect plot = [self canvasPlotRect];
     auto& pattern = model->session.pattern;
     auto& burst = pattern.bursts[_selectedBurstSlot];
     _selectedBurstEvent = burst.empty() ? 0u
         : std::min<std::size_t>(_selectedBurstEvent, burst.eventCount - 1u);
 
-    const NSPoint center = NSMakePoint(NSMidX(plot), NSMidY(plot) - 4.0);
+    const NSRect matrix = [self burstMatrixRect];
+    const NSRect overview = [self burstOverviewRect];
+    const NSRect breakpoints = [self burstBreakpointRect];
+    fillRect(matrix, S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.72));
+    strokeRect(NSInsetRect(matrix, 0.5, 0.5),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+    const NSArray<NSString*>* matrixHeaders = @[
+        @"#", @"TIME", @"NOTE", @"VELOCITY", @"GATE % ROW"
+    ];
+    const std::array<NSInteger, 5u> headerFields {{ -1, 0, 1, 2, 3 }};
+    for (std::size_t index = 0u; index < headerFields.size(); ++index) {
+        NSRect header = [self burstMatrixCellRect:0u
+            field:headerFields[index]];
+        header.origin.y = NSMinY(matrix);
+        header.size.height = 22.0;
+        drawCenteredText(matrixHeaders[index], NSInsetRect(header, 4.0, 0.0),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted), 6.8,
+            NSFontWeightSemibold, index == 0u
+                ? NSTextAlignmentCenter : NSTextAlignmentLeft);
+    }
+    for (std::size_t row = 0u; row < kMaximumBurstEvents; ++row) {
+        const NSRect rowRect = [self burstMatrixRowRect:row];
+        const bool active = row < burst.eventCount;
+        const bool selected = active && row == _selectedBurstEvent;
+        fillRect(rowRect, S3GTrackerThemeColor(selected
+                ? S3GTrackerThemeRole::Selection
+                : row % 2u == 0u ? S3GTrackerThemeRole::Raised
+                                  : S3GTrackerThemeRole::Canvas,
+            selected ? 0.40 : 0.66));
+        strokeRect(NSInsetRect(rowRect, 0.5, 0.5),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Grid, 0.72));
+        drawCenteredText([NSString stringWithFormat:@"%02lu",
+                static_cast<unsigned long>(row + 1u)],
+            [self burstMatrixCellRect:row field:-1],
+            S3GTrackerThemeColor(selected ? S3GTrackerThemeRole::TextPrimary
+                                          : S3GTrackerThemeRole::TextFaint),
+            7.4, selected ? NSFontWeightBold : NSFontWeightMedium);
+        for (NSInteger field = 0; field < 4; ++field) {
+            const NSRect cell = [self burstMatrixCellRect:row field:field];
+            strokeRect(NSInsetRect(cell, 0.5, 0.5),
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Grid, 0.48));
+            if (selected && field == _selectedBurstField)
+                strokeRect(NSInsetRect(cell, 1.5, 1.5),
+                    S3GTrackerThemeColor(S3GTrackerThemeRole::Selection), 1.4);
+        }
+        if (!active) {
+            drawCenteredText(row == burst.eventCount ? @"+ ADD EVENT" : @"—",
+                NSMakeRect(NSMinX(rowRect) + 38.0, NSMinY(rowRect),
+                    NSWidth(rowRect) - 38.0, NSHeight(rowRect)),
+                S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 7.0,
+                NSFontWeightMedium);
+            continue;
+        }
+        const auto& authored = burst.events[row];
+        const CGFloat time = static_cast<CGFloat>(authored.position)
+            / 65535.0;
+        const std::array<NSString*, 4u> cellText {{
+            [NSString stringWithFormat:@"%05.1f%%", time * 100.0],
+            [NSString stringWithFormat:@"%@ · %03u",
+                midiNoteName(authored.note), authored.note],
+            [NSString stringWithFormat:@"%03u", authored.velocity],
+            [NSString stringWithFormat:@"%03u%%", authored.gatePercent],
+        }};
+        const CGFloat velocityFraction = static_cast<CGFloat>(
+            authored.velocity) / 127.0;
+        const CGFloat gateFraction = static_cast<CGFloat>(
+            authored.gatePercent) / 100.0;
+        const CGFloat noteFraction = static_cast<CGFloat>(
+            authored.note) / 127.0;
+        const std::array<CGFloat, 4u> sliderFractions {{
+            time, noteFraction, velocityFraction, gateFraction,
+        }};
+        for (NSInteger field = 0; field < 4; ++field) {
+            const NSRect cell = [self burstMatrixCellRect:row field:field];
+            NSColor* color = field == 1
+                ? trackerColor(kLaneColors[authored.note % kLaneColors.size()])
+                : field == 0
+                    ? S3GTrackerThemeColor(S3GTrackerThemeRole::Focus)
+                    : field == 2
+                        ? S3GTrackerThemeColor(S3GTrackerThemeRole::Value)
+                        : S3GTrackerThemeColor(
+                            S3GTrackerThemeRole::TextSecondary);
+            const NSRect miniTrack = NSMakeRect(NSMinX(cell) + 4.0,
+                NSMaxY(cell) - 6.0, NSWidth(cell) - 8.0, 2.5);
+            fillRect(miniTrack,
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Control, 0.96));
+            fillRect(NSMakeRect(NSMinX(miniTrack), NSMinY(miniTrack),
+                    std::max<CGFloat>(1.0, NSWidth(miniTrack)
+                        * sliderFractions[static_cast<std::size_t>(field)]),
+                    NSHeight(miniTrack)),
+                [color colorWithAlphaComponent:selected ? 1.0 : 0.88]);
+            drawCenteredText(cellText[static_cast<std::size_t>(field)],
+                NSInsetRect(cell, 7.0, 0.0), color, 8.0,
+                selected ? NSFontWeightSemibold : NSFontWeightMedium,
+                NSTextAlignmentLeft);
+        }
+    }
+
+    fillRect(overview,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.72));
+    strokeRect(NSInsetRect(overview, 0.5, 0.5),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+    drawText(@"RADIAL OVERVIEW", NSMakeRect(NSMinX(overview) + 8.0,
+            NSMinY(overview) + 7.0, NSWidth(overview) - 16.0, 11.0),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted), 6.8,
+        NSFontWeightSemibold);
+    const NSRect radialPlot = [self burstRadialPlotRect];
+    const NSPoint center = NSMakePoint(NSMidX(radialPlot),
+        NSMidY(radialPlot));
     const CGFloat radius = std::max<CGFloat>(50.0,
-        std::min(NSWidth(plot), NSHeight(plot)) * 0.34 * self.geometryZoom);
+        std::min(NSWidth(radialPlot), NSHeight(radialPlot))
+            * 0.34 * self.geometryZoom);
     for (std::size_t index = 0u; index < 16u; ++index) {
         const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
             + static_cast<CGFloat>(index) * 2.0 * static_cast<CGFloat>(M_PI)
@@ -6983,7 +7568,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [S3GTrackerThemeColor(S3GTrackerThemeRole::BorderStrong) setStroke];
     [ring stroke];
     if (burst.empty()) {
-        drawCenteredText(@"EMPTY BURST SLOT", plot,
+        drawCenteredText(@"SELECT AN EMPTY MATRIX ROW TO CREATE", radialPlot,
             S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 11.0,
             NSFontWeightMedium);
     } else {
@@ -7031,12 +7616,122 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             setStroke];
         [phrase stroke];
         drawCenteredText(nsString(burst.name), NSMakeRect(
-                NSMinX(plot) + 12.0, NSMinY(plot) + 24.0,
-                NSWidth(plot) - 24.0, 16.0),
+                NSMinX(radialPlot) + 12.0, NSMaxY(radialPlot) - 22.0,
+                NSWidth(radialPlot) - 24.0, 16.0),
             S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary), 9.0,
             NSFontWeightSemibold);
     }
-    drawCenteredText(@"ANGLE = SUBSTEP TIME  •  COLOR = MIDI NOTE  •  SIZE = VELOCITY  •  DRAG POINT TO RETIME",
+
+    fillRect(breakpoints,
+        S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.72));
+    strokeRect(NSInsetRect(breakpoints, 0.5, 0.5),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+    drawText(@"VELOCITY BREAKPOINTS", NSMakeRect(NSMinX(breakpoints) + 9.0,
+            NSMinY(breakpoints) + 7.0, 190.0, 11.0),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted), 6.8,
+        NSFontWeightSemibold);
+    drawText(@"DRAG POINT = TIME + VELOCITY", NSMakeRect(
+            NSMaxX(breakpoints) - 230.0, NSMinY(breakpoints) + 7.0,
+            220.0, 11.0),
+        S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 6.5,
+        NSFontWeightMedium, NSTextAlignmentRight);
+    const NSRect graph = NSInsetRect(breakpoints, 12.0, 14.0);
+    for (std::size_t division = 0u; division <= 4u; ++division) {
+        const CGFloat x = NSMinX(graph) + NSWidth(graph)
+            * static_cast<CGFloat>(division) / 4.0;
+        NSBezierPath* line = [NSBezierPath bezierPath];
+        [line moveToPoint:NSMakePoint(x, NSMinY(graph) + 10.0)];
+        [line lineToPoint:NSMakePoint(x, NSMaxY(graph))];
+        line.lineWidth = division == 0u || division == 4u ? 1.0 : 0.6;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Grid, 0.72) setStroke];
+        [line stroke];
+    }
+    for (std::size_t division = 0u; division <= 4u; ++division) {
+        const CGFloat y = NSMinY(graph) + 10.0 + (NSHeight(graph) - 10.0)
+            * static_cast<CGFloat>(division) / 4.0;
+        NSBezierPath* line = [NSBezierPath bezierPath];
+        [line moveToPoint:NSMakePoint(NSMinX(graph), y)];
+        [line lineToPoint:NSMakePoint(NSMaxX(graph), y)];
+        line.lineWidth = 0.6;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Grid, 0.55) setStroke];
+        [line stroke];
+    }
+    if (!burst.empty()) {
+        NSBezierPath* velocityPath = [NSBezierPath bezierPath];
+        NSBezierPath* pitchPath = [NSBezierPath bezierPath];
+        for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+            const auto& authored = burst.events[index];
+            const CGFloat x = NSMinX(graph)
+                + static_cast<CGFloat>(authored.position) / 65535.0
+                    * NSWidth(graph);
+            const CGFloat velocityY = NSMaxY(graph)
+                - static_cast<CGFloat>(authored.velocity - 1u) / 126.0
+                    * NSHeight(graph);
+            const CGFloat gateEnd = x
+                + static_cast<CGFloat>(authored.gatePercent) / 100.0
+                    * NSWidth(graph);
+            NSBezierPath* gateSpan = [NSBezierPath bezierPath];
+            [gateSpan moveToPoint:NSMakePoint(x, velocityY)];
+            [gateSpan lineToPoint:NSMakePoint(
+                std::min(NSMaxX(graph), gateEnd), velocityY)];
+            gateSpan.lineWidth = 3.0;
+            [S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary, 0.25)
+                setStroke];
+            [gateSpan stroke];
+            if (gateEnd > NSMaxX(graph)) {
+                drawText(@"›", NSMakeRect(NSMaxX(graph) - 7.0,
+                        velocityY - 7.0, 8.0, 14.0),
+                    S3GTrackerThemeColor(S3GTrackerThemeRole::Warning),
+                    8.0, NSFontWeightBold, NSTextAlignmentRight);
+            }
+            const CGFloat pitchY = NSMaxY(graph)
+                - static_cast<CGFloat>(authored.note) / 127.0
+                    * NSHeight(graph);
+            if (index == 0u) {
+                [velocityPath moveToPoint:NSMakePoint(x, velocityY)];
+                [pitchPath moveToPoint:NSMakePoint(x, pitchY)];
+            } else {
+                [velocityPath lineToPoint:NSMakePoint(x, velocityY)];
+                [pitchPath lineToPoint:NSMakePoint(x, pitchY)];
+            }
+        }
+        pitchPath.lineWidth = 0.8;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Note, 0.34) setStroke];
+        [pitchPath stroke];
+        velocityPath.lineWidth = 1.6;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Value, 0.82) setStroke];
+        [velocityPath stroke];
+        for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+            const auto& authored = burst.events[index];
+            const CGFloat x = NSMinX(graph)
+                + static_cast<CGFloat>(authored.position) / 65535.0
+                    * NSWidth(graph);
+            const CGFloat y = NSMaxY(graph)
+                - static_cast<CGFloat>(authored.velocity - 1u) / 126.0
+                    * NSHeight(graph);
+            const CGFloat radius = index == _selectedBurstEvent ? 5.5 : 4.0;
+            NSBezierPath* point = [NSBezierPath bezierPathWithOvalInRect:
+                NSMakeRect(x - radius, y - radius, radius * 2.0,
+                    radius * 2.0)];
+            [S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas) setFill];
+            [point fill];
+            point.lineWidth = index == _selectedBurstEvent ? 2.0 : 1.2;
+            [S3GTrackerThemeColor(index == _selectedBurstEvent
+                    ? S3GTrackerThemeRole::TextPrimary
+                    : S3GTrackerThemeRole::Value) setStroke];
+            [point stroke];
+        }
+    }
+    NSArray<NSString*>* timeLabels = @[ @"0", @"1/4", @"1/2", @"3/4", @"1X" ];
+    for (std::size_t index = 0u; index < timeLabels.count; ++index) {
+        const CGFloat x = NSMinX(graph) + NSWidth(graph)
+            * static_cast<CGFloat>(index) / 4.0;
+        drawCenteredText(timeLabels[index], NSMakeRect(x - 16.0,
+                NSMaxY(graph) - 4.0, 32.0, 12.0),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 6.2,
+            NSFontWeightMedium);
+    }
+    drawCenteredText(@"DRAG CELLS  •  ↑/↓ EVENT  •  TAB FIELD  •  GATE = % OF ROW  •  PALE TAIL = DURATION  •  › SPILLS",
         NSMakeRect(NSMinX(canvas) + 10.0, NSMaxY(canvas) - 28.0,
             NSWidth(canvas) - 20.0, 12.0),
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 6.8,
@@ -7110,6 +7805,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
     const CGFloat subX = geometry.editShape.frame.x;
     const CGFloat subWidth = geometry.editShape.frame.width;
+    s3g::clap_gui::drawToolboxHeaderActionButton(
+        [self fitBurstGatesHeaderButtonRect], [self editPanelRect],
+        @"FIT GATES TO ROW", values, style);
+    NSDictionary* previewAttrs = self.trackerState->playing || burst.empty()
+        ? labels : values;
+    const NSRect previewButton = [self burstPreviewHeaderButtonRect];
+    s3g::clap_gui::drawToolboxHeaderActionButton(previewButton,
+        [self editPanelRect], @"PREVIEW ▶", previewAttrs, style);
+    if (_burstPreviewFeedbackActive) {
+        fillRect(NSInsetRect(previewButton, 1.0, 1.0),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Success, 0.28));
+        strokeRect(NSInsetRect(previewButton, 0.5, 0.5),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Success), 1.25);
+        drawCenteredText(@"PLAYING", previewButton,
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary), 6.7,
+            NSFontWeightSemibold);
+    }
     NSString* eventTitle = burst.empty() ? @"—" : [NSString stringWithFormat:
         @"STEP %lu OF %u", static_cast<unsigned long>(_selectedBurstEvent + 1u),
         static_cast<unsigned int>(burst.eventCount)];
@@ -7129,7 +7841,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         static_cast<CGFloat>(event.velocity) / 127.0,
         layout::rowY(geometry.editShape, 2u), subX, subWidth, 72.0,
         labels, values, style);
-    s3g::clap_gui::drawProcessorSliderWithValueWidth(@"GATE",
+    s3g::clap_gui::drawProcessorSliderWithValueWidth(@"GATE / ROW",
         [NSString stringWithFormat:@"%03u%%", event.gatePercent],
         static_cast<CGFloat>(event.gatePercent) / 100.0,
         layout::rowY(geometry.editShape, 3u), subX, subWidth, 72.0,
@@ -7140,9 +7852,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         selectedViewTitle ? selectedViewTitle : @"BURST EDITOR",
         layout::rowY(geometry.view, 0u), geometry.view.frame.x,
         geometry.view.frame.width, labels, values, style);
-    s3g::clap_gui::drawToolboxHeaderActionButton(
-        [self revealHeaderButtonRect], [self bridgePanelRect],
-        @"PLACE IN TRACKER", values, style);
+    const NSRect placeButton = [self revealHeaderButtonRect];
+    s3g::clap_gui::drawToolboxHeaderActionButton(placeButton,
+        [self bridgePanelRect], @"PLACE IN TRACKER", values, style);
+    if (_burstPlaceFeedbackActive) {
+        fillRect(NSInsetRect(placeButton, 1.0, 1.0),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Success, 0.28));
+        strokeRect(NSInsetRect(placeButton, 0.5, 0.5),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Success), 1.25);
+        drawCenteredText(@"PLACED ✓", placeButton,
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary), 7.0,
+            NSFontWeightSemibold);
+    }
     const auto lane = pattern.tracks.empty() ? 0u
         : std::min(model->session.selectedTrack, pattern.tracks.size() - 1u);
     drawBurstInfo(@"TARGET", pattern.tracks.empty() ? @"NO LANES"
@@ -7767,9 +8488,83 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self drawOpenGeometryMenu];
 }
 
+- (void)drawBurstPlaybackOverlay
+{
+    auto* model = self.trackerState;
+    const auto* pattern = geometryPattern(model);
+    if (!model || !model->playing || !pattern
+        || _selectedBurstSlot >= pattern->bursts.size()) return;
+    const auto& burst = pattern->bursts[_selectedBurstSlot];
+    if (burst.empty()) return;
+    bool sounding = false;
+    const auto laneCount = std::min<std::size_t>(pattern->tracks.size(),
+        model->notePlayheads.size());
+    for (std::size_t lane = 0u; lane < laneCount; ++lane) {
+        if (geometryLaneMuted(model, pattern, lane)) continue;
+        const auto& track = pattern->tracks[lane];
+        const auto length = std::clamp<std::size_t>(
+            track.noteColumn.length, 1u, 256u);
+        const auto row = model->notePlayheads[lane] % length;
+        if (row >= track.notes.size()) continue;
+        const auto& cell = track.notes[row];
+        if (cell.state == NoteCellState::Burst
+            && cell.note == _selectedBurstSlot) {
+            sounding = true;
+            break;
+        }
+    }
+    if (!sounding) return;
+
+    const CGFloat phase = std::clamp<CGFloat>(
+        model->subrowPlaybackPhase, 0.0, 1.0);
+    std::size_t activeEvent = 0u;
+    bool eventStarted = false;
+    for (std::size_t index = 0u; index < burst.eventCount; ++index) {
+        const CGFloat onset = static_cast<CGFloat>(
+            burst.events[index].position) / 65535.0;
+        if (onset > phase) break;
+        activeEvent = index;
+        eventStarted = true;
+    }
+    if (eventStarted) {
+        const NSRect row = [self burstMatrixRowRect:activeEvent];
+        fillRect(NSInsetRect(row, 1.0, 1.0),
+            trackerColor(0xffdf3f, 0.10));
+        fillRect(NSMakeRect(NSMinX(row) + 1.0, NSMinY(row) + 2.0,
+            3.0, NSHeight(row) - 4.0), trackerColor(0xffdf3f, 0.92));
+        strokeRect(NSInsetRect(row, 1.5, 1.5),
+            trackerColor(0xffdf3f, 0.55), 1.0);
+    }
+
+    const NSRect graph = NSInsetRect([self burstBreakpointRect], 12.0, 14.0);
+    const CGFloat graphX = NSMinX(graph) + phase * NSWidth(graph);
+    NSBezierPath* cursor = [NSBezierPath bezierPath];
+    [cursor moveToPoint:NSMakePoint(graphX, NSMinY(graph) + 10.0)];
+    [cursor lineToPoint:NSMakePoint(graphX, NSMaxY(graph))];
+    cursor.lineWidth = 1.4;
+    [trackerColor(0xffdf3f, 0.88) setStroke];
+    [cursor stroke];
+    fillRect(NSMakeRect(graphX - 2.0, NSMinY(graph) + 7.0, 4.0, 4.0),
+        trackerColor(0xffdf3f, 0.96));
+
+    const NSRect radialPlot = [self burstRadialPlotRect];
+    const NSPoint center = NSMakePoint(NSMidX(radialPlot),
+        NSMidY(radialPlot));
+    const CGFloat radius = std::max<CGFloat>(50.0,
+        std::min(NSWidth(radialPlot), NSHeight(radialPlot))
+            * 0.34 * self.geometryZoom);
+    const CGFloat angle = -static_cast<CGFloat>(M_PI_2)
+        + phase * 2.0 * static_cast<CGFloat>(M_PI);
+    drawGeometryReadHead(NSMakePoint(center.x + std::cos(angle) * radius,
+        center.y + std::sin(angle) * radius), 1.0, true, true);
+}
+
 - (void)drawPlaybackOverlay
 {
-    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) return;
+    if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
+        [self drawBurstPlaybackOverlay];
+        return;
+    }
     auto* model = self.trackerState;
     const auto* pattern = geometryPattern(model);
     if (!model || !pattern || pattern->tracks.empty()) return;
@@ -8420,7 +9215,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.patternPopup.action = @selector(patternSelectionChanged:);
     self.patternPopup.accessibilityLabel = @"Active pattern";
     self.patternPopup.toolTip = @"Pattern edits are stored automatically in the REAPER project";
-    [self.patternPopup.widthAnchor constraintEqualToConstant:180.0].active = YES;
+    [self.patternPopup.widthAnchor constraintEqualToConstant:420.0].active = YES;
     [patternPrimary addArrangedSubview:self.patternPopup];
     self.renamePatternButton = [self button:@"NAME"
         action:@selector(renamePatternPressed:)];
@@ -8595,11 +9390,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.zoomOutButton.toolTip = @"Zoom the Tracker spreadsheet out";
     [self.zoomOutButton.widthAnchor constraintEqualToConstant:32.0].active = YES;
     [inputPrimary addArrangedSubview:self.zoomOutButton];
-    self.zoomActualButton = [self button:@"ACTUAL"
+    self.zoomActualButton = [self button:@"100%"
         action:@selector(zoomActualPressed:)];
-    self.zoomActualButton.accessibilityLabel = @"Actual size Tracker zoom";
+    self.zoomActualButton.accessibilityLabel = @"100 percent Tracker zoom";
     self.zoomActualButton.toolTip = @"Show the Tracker spreadsheet at actual 100 percent size";
-    [self.zoomActualButton.widthAnchor constraintEqualToConstant:70.0].active = YES;
+    [self.zoomActualButton.widthAnchor constraintEqualToConstant:54.0].active = YES;
     [inputPrimary addArrangedSubview:self.zoomActualButton];
     self.zoomInButton = [self button:@"+" action:@selector(zoomInPressed:)];
     self.zoomInButton.accessibilityLabel = @"Zoom Tracker in";
@@ -9328,6 +10123,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     auto* state = self.trackerState;
     if (!state) return;
     state->showMidiNoteValues = !state->showMidiNoteValues;
+    if (self.trackerCallbacks
+        && self.trackerCallbacks->viewPreferencesChanged)
+        self.trackerCallbacks->viewPreferencesChanged();
     [self reloadModel];
 }
 
@@ -9425,6 +10223,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const NSRect visible = self.gridScroll.documentVisibleRect;
     [self.gridScroll setMagnification:value centeredAtPoint:
         NSMakePoint(NSMidX(visible), NSMidY(visible))];
+    self.zoomActualButton.title = [NSString stringWithFormat:@"%ld%%",
+        static_cast<long>(std::lround(value * 100.0))];
     [self.rowGutterView refreshFrameAndDisplay];
     [self.gridView scrollSelectionToVisible];
 }

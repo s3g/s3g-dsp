@@ -27,6 +27,23 @@ bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept
     index = value - 1u;
     return true;
 }
+
+void fitBurstGatesToRow(BurstDefinition& burst) noexcept
+{
+    const auto count = std::min<std::size_t>(
+        burst.eventCount, kMaximumBurstEvents);
+    for (std::size_t index = 0u; index < count; ++index) {
+        const uint32_t onset = burst.events[index].position;
+        const uint32_t end = index + 1u < count
+            ? std::max<uint32_t>(onset, burst.events[index + 1u].position)
+            : 65536u;
+        const uint32_t distance = end - onset;
+        const uint32_t percent = (distance * 100u + 32768u) / 65536u;
+        burst.events[index].gatePercent = static_cast<uint8_t>(
+            std::clamp<uint32_t>(percent, 1u, 100u));
+    }
+}
+
 namespace {
 
 // Authored project/console tempo remains constrained to 20..400, while the

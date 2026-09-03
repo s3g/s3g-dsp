@@ -1710,6 +1710,13 @@ void testBurstCommands()
             && CommandEngine::execute(session,
                 "burst B01 timing 0 20 55 80").ok,
         "burst velocity, gate, and custom timing should author each substep");
+    result = CommandEngine::execute(session, "burst B01 gate fit");
+    check(result.ok
+            && session.pattern.bursts[0u].events[0u].gatePercent == 20u
+            && session.pattern.bursts[0u].events[1u].gatePercent == 35u
+            && session.pattern.bursts[0u].events[2u].gatePercent == 25u
+            && session.pattern.bursts[0u].events[3u].gatePercent == 20u,
+        "burst gate fit should end each event at the next onset and the last at the row boundary");
     result = CommandEngine::execute(session, "note 1 2 B01");
     check(result.ok && session.pattern.tracks[0u].notes[1u].state
                 == NoteCellState::Burst
