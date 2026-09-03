@@ -11,12 +11,14 @@
 
 namespace s3g::tracker {
 
-// Schema 6 adds MIDI CC actions and per-pair interpolation. Schema 5 remains
-// readable and defaults missing interpolation fields to STEP. The native
+// Schema 8 adds the explicit Pattern timing-warp enable state. Schema 7 adds
+// optional per-Song-row pattern loop ranges. Schema 6 adds MIDI CC actions and
+// per-pair interpolation; schemas 5 through 7 remain readable, and schema 5
+// defaults missing interpolation fields to STEP. The native
 // format intentionally has no Max/pattr compatibility contract; incompatible
 // representations get an explicit migration rather than silently coercing
 // musical data.
-constexpr uint32_t kProjectSchemaVersion = 6u;
+constexpr uint32_t kProjectSchemaVersion = 8u;
 constexpr uint32_t kOldestSupportedProjectSchemaVersion = 5u;
 constexpr const char* kProjectFormatIdentifier = "s3g-tracker-project";
 constexpr const char* kProjectFileExtension = ".s3gt";

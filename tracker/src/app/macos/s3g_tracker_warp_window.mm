@@ -3,6 +3,11 @@
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_workspace.h"
 
+#include "s3g_gui_layout.h"
+#define S3G_COCOA_GUI_DRAWING_ONLY 1
+#include "s3g_cocoa_gui.h"
+#undef S3G_COCOA_GUI_DRAWING_ONLY
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -19,7 +24,7 @@ using s3g::tracker::app::WorkspaceCallbacks;
 NSTextField* warpLabel(NSString* value, CGFloat size = 9.0)
 {
     NSTextField* field = [NSTextField labelWithString:value];
-    field.font = S3GTrackerFont(size, NSFontWeightMedium);
+    field.font = s3g::clap_gui::uiFont(size);
     field.textColor = S3GTrackerThemeColor(
         S3GTrackerThemeRole::TextSecondary);
     return field;
@@ -45,8 +50,133 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 
 } // namespace
 
+@class S3GTrackerWarpWindowController;
+
+@interface S3GTrackerWarpRootView : S3GTrackerFocusReleaseView
+@property(nonatomic, weak) S3GTrackerWarpWindowController* layoutOwner;
+@end
+
 @interface S3GTrackerWarpCurveView : NSView
 @property(nonatomic, assign) TrackerViewState* trackerState;
+- (void)refreshPlaybackDisplay;
+@end
+
+@interface S3GTrackerWarpSliderField : S3GTrackerDragNumberField
+@end
+
+@implementation S3GTrackerWarpRootView
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    [S3GTrackerThemeColor(S3GTrackerThemeRole::Workspace) setFill];
+    NSRectFill(self.bounds);
+}
+
+- (void)layout
+{
+    [super layout];
+    if ([self.layoutOwner respondsToSelector:@selector(layoutWarpInterface)])
+        [self.layoutOwner performSelector:@selector(layoutWarpInterface)];
+}
+
+@end
+
+@implementation S3GTrackerWarpSliderField
+
+- (NSRect)sliderTrackRect
+{
+    const auto& metrics = s3g::gui_layout::kStandardMetrics;
+    const double panelWidth = static_cast<double>(NSWidth(self.bounds))
+        + metrics.controlInset + metrics.panelRightInset;
+    return NSMakeRect(0.0, 9.0, static_cast<CGFloat>(
+        s3g::gui_layout::processorTrackWidth(panelWidth)), 9.0);
+}
+
+- (NSRect)valueTextRect
+{
+    const CGFloat valueWidth = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.processorValueWidth);
+    return NSMakeRect(NSWidth(self.bounds) - valueWidth, 6.0,
+        valueWidth, 15.0);
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const NSRect track = [self sliderTrackRect];
+    const double minimum = std::min(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const double maximum = std::max(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const CGFloat normalized = maximum > minimum
+        ? static_cast<CGFloat>(std::clamp(
+            (self.doubleValue - minimum) / (maximum - minimum), 0.0, 1.0))
+        : 0.0;
+    auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
+    if (!self.enabled) {
+        style.fill = s3g::clap_gui::color(0x333333);
+        style.text = s3g::clap_gui::color(0x656565);
+        valueAttrs = s3g::clap_gui::textAttrs(
+            s3g::clap_gui::color(0x656565), 10.0);
+    }
+    const NSRect value = [self valueTextRect];
+    s3g::clap_gui::drawSlider(@"", self.stringValue, normalized, 8.0,
+        s3g::clap_gui::softLabelAttrs(), valueAttrs, style,
+        -100.0, NSMinX(track), NSMinX(value), NSWidth(track),
+        NSWidth(value));
+}
+
+- (void)resetCursorRects
+{
+    if (!self.enabled) return;
+    [self addCursorRect:[self sliderTrackRect]
+        cursor:NSCursor.resizeLeftRightCursor];
+}
+
+- (BOOL)acceptsFirstResponder { return NO; }
+
+- (void)mouseDown:(NSEvent*)event
+{
+    const NSPoint initialPoint = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    if (!self.enabled || !self.window) return;
+    const NSRect track = [self sliderTrackRect];
+    if (!NSPointInRect(initialPoint, NSInsetRect(track, 0.0, -7.0))) return;
+    const double minimum = std::min(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const double maximum = std::max(self.s3gMinimumValue,
+        self.s3gMaximumValue);
+    const double scale = std::pow(10.0, static_cast<double>(
+        std::min<NSUInteger>(self.s3gFractionDigits, 9u)));
+    const auto applyEvent = ^(NSEvent* trackedEvent) {
+        const NSPoint point = [self convertPoint:trackedEvent.locationInWindow
+            fromView:nil];
+        const double normalized = std::clamp(static_cast<double>(
+            (point.x - NSMinX(track)) / std::max<CGFloat>(1.0,
+                NSWidth(track))), 0.0, 1.0);
+        double value = minimum + normalized * (maximum - minimum);
+        if (scale > 0.0) value = std::round(value * scale) / scale;
+        if (value == self.doubleValue) return;
+        self.doubleValue = value;
+        [self setNeedsDisplay:YES];
+        [self sendAction:self.action to:self.target];
+    };
+    applyEvent(event);
+    const NSEventMask mask = NSEventMaskLeftMouseDragged
+        | NSEventMaskLeftMouseUp;
+    for (;;) {
+        NSEvent* next = [self.window nextEventMatchingMask:mask
+            untilDate:NSDate.distantFuture
+            inMode:NSEventTrackingRunLoopMode dequeue:YES];
+        if (!next || next.type == NSEventTypeLeftMouseUp) break;
+        applyEvent(next);
+    }
+}
+
 @end
 
 @implementation S3GTrackerWarpCurveView
@@ -65,7 +195,16 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         || NSHeight(graph) <= 1.0) return;
 
     const auto& transport = self.trackerState->session.transport;
-    const auto cycle = std::max<uint32_t>(1u, transport.warpCycleTicks);
+    const bool playbackActive = self.trackerState->playing
+        && self.trackerState->timingWarpPlaybackActive;
+    const auto& displayedWarp = playbackActive
+        ? self.trackerState->timingWarpPlaybackStack
+        : transport.timingWarp;
+    const bool warpEnabled = playbackActive
+        || transport.timingWarpEnabled;
+    const auto cycle = std::max<uint32_t>(1u, playbackActive
+            ? self.trackerState->timingWarpPlaybackCycleTicks
+            : transport.warpCycleTicks);
     for (uint32_t tick = 0u; tick <= cycle; ++tick) {
         const CGFloat x = NSMinX(graph) + NSWidth(graph)
             * static_cast<CGFloat>(tick) / static_cast<CGFloat>(cycle);
@@ -94,7 +233,7 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     for (std::size_t index = 0u; index <= samples; ++index) {
         const double input = static_cast<double>(index)
             / static_cast<double>(samples);
-        const double output = transport.timingWarp.map(input);
+        const double output = displayedWarp.map(input);
         const NSPoint point = NSMakePoint(NSMinX(graph)
                 + NSWidth(graph) * static_cast<CGFloat>(input),
             NSMaxY(graph) - NSHeight(graph) * static_cast<CGFloat>(output));
@@ -102,13 +241,60 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         else [curve lineToPoint:point];
     }
     curve.lineWidth = 2.0;
-    [S3GTrackerThemeColor(S3GTrackerThemeRole::Live) setStroke];
+    [S3GTrackerThemeColor(warpEnabled
+            ? S3GTrackerThemeRole::Live : S3GTrackerThemeRole::TextFaint,
+        warpEnabled ? 1.0 : 0.55) setStroke];
     [curve stroke];
+
+    double playbackInput = 0.0;
+    NSPoint playbackPoint = NSZeroPoint;
+    if (playbackActive) {
+        const uint64_t cycleTick = self.trackerState->timingWarpPlaybackTick
+            % static_cast<uint64_t>(cycle);
+        playbackInput = static_cast<double>(cycleTick)
+            / static_cast<double>(cycle);
+        const double playbackOutput = displayedWarp.map(playbackInput);
+        playbackPoint = NSMakePoint(NSMinX(graph)
+                + NSWidth(graph) * static_cast<CGFloat>(playbackInput),
+            NSMaxY(graph)
+                - NSHeight(graph) * static_cast<CGFloat>(playbackOutput));
+
+        NSBezierPath* completed = [NSBezierPath bezierPath];
+        constexpr std::size_t progressSamples = 192u;
+        for (std::size_t index = 0u; index <= progressSamples; ++index) {
+            const double input = playbackInput * static_cast<double>(index)
+                / static_cast<double>(progressSamples);
+            const double output = displayedWarp.map(input);
+            const NSPoint point = NSMakePoint(NSMinX(graph)
+                    + NSWidth(graph) * static_cast<CGFloat>(input),
+                NSMaxY(graph)
+                    - NSHeight(graph) * static_cast<CGFloat>(output));
+            if (index == 0u) [completed moveToPoint:point];
+            else [completed lineToPoint:point];
+        }
+        completed.lineWidth = 3.0;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Live) setStroke];
+        [completed stroke];
+
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Live, 0.22) setFill];
+        NSRectFill(NSMakeRect(playbackPoint.x, NSMinY(graph), 1.0,
+            NSHeight(graph)));
+    }
+
+    if (!warpEnabled) {
+        NSBezierPath* bypass = [NSBezierPath bezierPath];
+        [bypass moveToPoint:NSMakePoint(NSMinX(graph), NSMaxY(graph))];
+        [bypass lineToPoint:NSMakePoint(NSMaxX(graph), NSMinY(graph))];
+        bypass.lineWidth = 2.0;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Live) setStroke];
+        [bypass stroke];
+    }
 
     for (uint32_t tick = 0u; tick <= cycle; ++tick) {
         const double input = static_cast<double>(tick)
             / static_cast<double>(cycle);
-        const double output = transport.timingWarp.map(input);
+        const double output = warpEnabled
+            ? displayedWarp.map(input) : input;
         const NSPoint point = NSMakePoint(NSMinX(graph)
                 + NSWidth(graph) * static_cast<CGFloat>(input),
             NSMaxY(graph) - NSHeight(graph) * static_cast<CGFloat>(output));
@@ -117,28 +303,82 @@ NSString* transformSummary(const TimingWarpTransform& transform,
             point.x - 2.5, point.y - 2.5, 5.0, 5.0)] fill];
     }
 
+    if (playbackActive) {
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Live, 0.2) setFill];
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(
+            playbackPoint.x - 7.0, playbackPoint.y - 7.0, 14.0, 14.0)]
+            fill];
+        NSBezierPath* marker = [NSBezierPath bezierPathWithOvalInRect:
+            NSMakeRect(playbackPoint.x - 4.0, playbackPoint.y - 4.0,
+                8.0, 8.0)];
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Value) setFill];
+        [marker fill];
+        marker.lineWidth = 1.5;
+        [S3GTrackerThemeColor(S3GTrackerThemeRole::Live) setStroke];
+        [marker stroke];
+    }
+
     NSDictionary* attributes = @{
         NSForegroundColorAttributeName: S3GTrackerThemeColor(
             S3GTrackerThemeRole::TextMuted),
-        NSFontAttributeName: S3GTrackerFont(8.0, NSFontWeightMedium),
+        NSFontAttributeName: s3g::clap_gui::uiFont(8.5),
     };
     [@"INPUT PHASE" drawAtPoint:NSMakePoint(NSMaxX(graph) - 70.0,
         NSMaxY(graph) + 5.0) withAttributes:attributes];
-    [@"WARPED" drawAtPoint:NSMakePoint(NSMinX(graph), 4.0)
+    NSString* outputLabel = !playbackActive
+        ? (warpEnabled ? @"WARPED" : @"OUTPUT · BYPASSED")
+        : self.trackerState->timingWarpPlaybackFromSong
+            ? @"SONG WARP · PLAYING" : @"WARPED · PLAYING";
+    [outputLabel
+        drawAtPoint:NSMakePoint(NSMinX(graph), 4.0)
         withAttributes:attributes];
+    if (playbackActive) {
+        const auto step = self.trackerState->timingWarpPlaybackTick
+            % static_cast<uint64_t>(cycle) + 1u;
+        NSString* progress = [NSString stringWithFormat:@"STEP %02llu / %02u",
+            static_cast<unsigned long long>(step), cycle];
+        const NSSize progressSize = [progress sizeWithAttributes:attributes];
+        [progress drawAtPoint:NSMakePoint(NSMaxX(graph) - progressSize.width,
+            4.0) withAttributes:attributes];
+    }
+}
+
+- (void)refreshPlaybackDisplay
+{
+    const auto* state = self.trackerState;
+    if (state && state->playing && state->timingWarpPlaybackActive) {
+        const uint32_t cycle = std::max<uint32_t>(1u,
+            state->timingWarpPlaybackCycleTicks);
+        const auto step = state->timingWarpPlaybackTick
+            % static_cast<uint64_t>(cycle) + 1u;
+        self.accessibilityValue = [NSString stringWithFormat:
+            @"%@ warp playback, step %llu of %u",
+            state->timingWarpPlaybackFromSong ? @"Song" : @"Pattern",
+            static_cast<unsigned long long>(step), cycle];
+    } else {
+        self.accessibilityValue = @"Warp playback inactive";
+    }
+    [self setNeedsDisplay:YES];
 }
 
 @end
 
-@interface S3GTrackerWarpWindowController () <NSWindowDelegate>
+@interface S3GTrackerWarpWindowController ()
+    <NSWindowDelegate, NSTextFieldDelegate>
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, assign) WorkspaceCallbacks* trackerCallbacks;
+@property(nonatomic, strong) S3GTrackerWarpRootView* rootView;
+@property(nonatomic, strong) S3GTrackerToolboxView* fieldPanel;
+@property(nonatomic, strong) S3GTrackerToolboxView* libraryPanel;
+@property(nonatomic, strong) S3GTrackerToolboxView* stackPanel;
+@property(nonatomic, strong) S3GTrackerToolboxView* transformPanel;
 @property(nonatomic, strong) S3GTrackerWarpCurveView* curveView;
-@property(nonatomic, strong) NSPopUpButton* libraryPopup;
+@property(nonatomic, strong) S3GTrackerPopupButton* libraryPopup;
 @property(nonatomic, strong) NSTextField* libraryNameField;
+@property(nonatomic, strong) S3GTrackerActionButton* warpModeButton;
 @property(nonatomic, strong) NSTextField* cycleField;
-@property(nonatomic, strong) NSPopUpButton* transformPopup;
-@property(nonatomic, strong) NSPopUpButton* typePopup;
+@property(nonatomic, strong) S3GTrackerPopupButton* transformPopup;
+@property(nonatomic, strong) S3GTrackerPopupButton* typePopup;
 @property(nonatomic, strong) NSTextField* primaryLabel;
 @property(nonatomic, strong) NSTextField* primaryField;
 @property(nonatomic, strong) NSTextField* pulsesLabel;
@@ -148,20 +388,178 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 @property(nonatomic, strong) NSTextField* endField;
 @property(nonatomic, strong) NSTextField* repeatsField;
 @property(nonatomic, strong) NSTextField* statusLabel;
+@property(nonatomic, copy) NSArray<NSTextField*>* libraryLabels;
+@property(nonatomic, copy) NSArray<NSTextField*>* stackLabels;
+@property(nonatomic, copy) NSArray<NSTextField*>* transformLabels;
+@property(nonatomic, copy) NSArray<NSButton*>* libraryButtons;
+@property(nonatomic, copy) NSArray<NSButton*>* addButtons;
+@property(nonatomic, copy) NSArray<NSButton*>* stackButtons;
 @property(nonatomic) NSInteger selectedTransform;
 @property(nonatomic) NSInteger selectedLibrarySlot;
 @end
 
 @implementation S3GTrackerWarpWindowController
 
-- (NSTextField*)editorField:(CGFloat)width action:(SEL)action
+- (NSTextField*)sliderFieldWithAction:(SEL)action
 {
-    NSTextField* field = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    S3GTrackerStyleTextEditor(field);
+    S3GTrackerWarpSliderField* field =
+        [[S3GTrackerWarpSliderField alloc] initWithFrame:NSZeroRect];
+    S3GTrackerStyleSuiteTextField(field, NSTextAlignmentRight);
+    field.editable = NO;
+    field.selectable = NO;
+    field.drawsBackground = NO;
+    field.backgroundColor = NSColor.clearColor;
+    field.layer.backgroundColor = NSColor.clearColor.CGColor;
+    field.layer.borderWidth = 0.0;
     field.target = self;
     field.action = action;
-    [field.widthAnchor constraintEqualToConstant:width].active = YES;
     return field;
+}
+
+- (NSTextField*)nameFieldWithAction:(SEL)action
+{
+    NSTextField* field = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    S3GTrackerStyleSuiteTextField(field, NSTextAlignmentLeft);
+    field.delegate = self;
+    field.target = self;
+    field.action = action;
+    field.accessibilityHelp = @"Enter a name, then press Return or SAVE.";
+    return field;
+}
+
+- (void)configureSliderField:(NSTextField*)field
+    minimum:(double)minimum maximum:(double)maximum
+    fractionDigits:(NSUInteger)fractionDigits
+{
+    S3GTrackerWarpSliderField* slider =
+        static_cast<S3GTrackerWarpSliderField*>(field);
+    slider.s3gMinimumValue = minimum;
+    slider.s3gMaximumValue = maximum;
+    slider.s3gFractionDigits = fractionDigits;
+    const double unit = std::pow(10.0, -static_cast<double>(
+        std::min<NSUInteger>(fractionDigits, 9u)));
+    slider.s3gDragIncrement = std::max(unit,
+        (maximum - minimum) / 240.0);
+    slider.accessibilityHelp = @"Click or drag the standard s3g-dsp slider track; the value at right is a readout.";
+}
+
+- (S3GTrackerActionButton*)warpButton:(NSString*)title
+    action:(SEL)action panel:(NSView*)panel
+{
+    S3GTrackerActionButton* button = [[S3GTrackerActionButton alloc]
+        initWithFrame:NSZeroRect];
+    button.s3gUsesSuiteStyle = YES;
+    button.title = title;
+    button.target = self;
+    button.action = action;
+    [panel addSubview:button];
+    return button;
+}
+
+- (NSTextField*)warpRowLabel:(NSString*)title panel:(NSView*)panel
+{
+    S3GTrackerSuiteLabel* label = [[S3GTrackerSuiteLabel alloc]
+        initWithFrame:NSZeroRect];
+    label.stringValue = title;
+    [panel addSubview:label];
+    return label;
+}
+
+- (void)layoutWarpInterface
+{
+    if (!self.rootView) return;
+    const auto family = s3g::gui_layout::trackerWarpFamilyLayout({
+        static_cast<double>(NSWidth(self.rootView.bounds)),
+        static_cast<double>(NSHeight(self.rootView.bounds)),
+    });
+    const auto cocoaRect = [](const s3g::gui_layout::Rect& rect) {
+        return NSMakeRect(static_cast<CGFloat>(rect.x),
+            static_cast<CGFloat>(rect.y),
+            static_cast<CGFloat>(rect.width),
+            static_cast<CGFloat>(rect.height));
+    };
+    self.fieldPanel.frame = cocoaRect(family.fieldPanel);
+    self.libraryPanel.frame = cocoaRect(family.library.frame);
+    self.stackPanel.frame = cocoaRect(family.stack.frame);
+    self.transformPanel.frame = cocoaRect(family.transform.frame);
+
+    const CGFloat header = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.headerHeight);
+    self.curveView.frame = NSMakeRect(1.0, header,
+        std::max<CGFloat>(0.0, NSWidth(self.fieldPanel.bounds) - 2.0),
+        std::max<CGFloat>(0.0, NSHeight(self.fieldPanel.bounds) - header - 1.0));
+
+    const CGFloat labelX = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.labelInset);
+    const CGFloat controlX = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.controlInset);
+    const CGFloat rowPitch = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.rowPitch);
+    const CGFloat firstRow = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.firstRowOffset);
+    const auto layoutRows = ^(S3GTrackerToolboxView* panel,
+        NSArray<NSTextField*>* labels) {
+        const CGFloat controlWidth = std::max<CGFloat>(20.0,
+            NSWidth(panel.bounds) - controlX - static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.panelRightInset));
+        for (NSUInteger row = 0u; row < labels.count; ++row) {
+            const CGFloat y = firstRow + static_cast<CGFloat>(row) * rowPitch;
+            labels[row].frame = NSMakeRect(labelX, y - 1.0,
+                std::max<CGFloat>(20.0, controlX - labelX - 6.0), 15.0);
+        }
+        return controlWidth;
+    };
+    const CGFloat libraryWidth = layoutRows(
+        self.libraryPanel, self.libraryLabels);
+    const CGFloat stackWidth = layoutRows(
+        self.stackPanel, self.stackLabels);
+    const CGFloat transformWidth = layoutRows(
+        self.transformPanel, self.transformLabels);
+    const auto controlFrame = ^NSRect(NSUInteger row, CGFloat width) {
+        const CGFloat y = firstRow + static_cast<CGFloat>(row) * rowPitch;
+        return NSMakeRect(controlX, y - 1.0, width, 15.0);
+    };
+    const auto sliderFrame = ^NSRect(NSUInteger row, CGFloat width) {
+        const CGFloat y = firstRow + static_cast<CGFloat>(row) * rowPitch;
+        return NSMakeRect(controlX, y - 8.0, width,
+            static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.hitHeight));
+    };
+    const auto layoutButtons = ^(NSArray<NSButton*>* buttons,
+        NSUInteger row, CGFloat width) {
+        const CGFloat gap = 4.0;
+        const CGFloat buttonWidth = (width
+            - gap * static_cast<CGFloat>(buttons.count - 1u))
+            / static_cast<CGFloat>(std::max<NSUInteger>(1u, buttons.count));
+        for (NSUInteger index = 0u; index < buttons.count; ++index) {
+            NSRect frame = controlFrame(row, buttonWidth);
+            frame.origin.x += static_cast<CGFloat>(index)
+                * (buttonWidth + gap);
+            buttons[index].frame = frame;
+        }
+    };
+
+    self.libraryPopup.frame = controlFrame(0u, libraryWidth);
+    self.libraryNameField.frame = sliderFrame(1u, libraryWidth);
+    layoutButtons(self.libraryButtons, 2u, libraryWidth);
+    self.warpModeButton.frame = controlFrame(0u, stackWidth);
+    self.cycleField.frame = sliderFrame(1u, stackWidth);
+    self.transformPopup.frame = controlFrame(2u, stackWidth);
+    layoutButtons(self.addButtons, 3u, stackWidth);
+    layoutButtons(self.stackButtons, 4u, stackWidth);
+    self.typePopup.frame = controlFrame(0u, transformWidth);
+    NSArray<NSControl*>* transformSliders = @[
+        self.primaryField, self.pulsesField, self.mixField,
+        self.beginField, self.endField, self.repeatsField,
+    ];
+    for (NSUInteger index = 0u; index < transformSliders.count; ++index)
+        transformSliders[index].frame = sliderFrame(index + 1u,
+            transformWidth);
+    self.statusLabel.frame = NSMakeRect(labelX,
+        std::max<CGFloat>(firstRow + rowPitch * 7.0 + 2.0,
+            NSHeight(self.transformPanel.bounds) - 43.0),
+        std::max<CGFloat>(20.0, NSWidth(self.transformPanel.bounds)
+            - labelX * 2.0), 35.0);
 }
 
 - (instancetype)initWithState:(TrackerViewState*)state
@@ -183,101 +581,103 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     window.releasedWhenClosed = NO;
     window.minSize = NSMakeSize(720.0, 530.0);
 
-    S3GTrackerPanelView* root = [[S3GTrackerPanelView alloc]
+    self.rootView = [[S3GTrackerWarpRootView alloc]
         initWithFrame:window.contentView.bounds];
-    root.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    window.contentView = root;
+    self.rootView.layoutOwner = self;
+    self.rootView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = self.rootView;
 
-    NSStackView* libraryBar = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    libraryBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    libraryBar.alignment = NSLayoutAttributeCenterY;
-    libraryBar.spacing = 8.0;
-    libraryBar.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:libraryBar];
-    [libraryBar addArrangedSubview:warpLabel(@"WARP LIBRARY")];
+    self.fieldPanel = [[S3GTrackerToolboxView alloc] initWithFrame:NSZeroRect];
+    self.fieldPanel.toolboxTitle = @"WARP FUNCTION  /  INPUT → WARPED PHASE";
+    [self.rootView addSubview:self.fieldPanel];
+    self.libraryPanel = [[S3GTrackerToolboxView alloc] initWithFrame:NSZeroRect];
+    self.libraryPanel.toolboxIndex = 0;
+    self.libraryPanel.toolboxTitle = @"WARP LIBRARY";
+    [self.rootView addSubview:self.libraryPanel];
+    self.stackPanel = [[S3GTrackerToolboxView alloc] initWithFrame:NSZeroRect];
+    self.stackPanel.toolboxIndex = 0;
+    self.stackPanel.toolboxTitle = @"SERIAL STACK";
+    [self.rootView addSubview:self.stackPanel];
+    self.transformPanel = [[S3GTrackerToolboxView alloc] initWithFrame:NSZeroRect];
+    self.transformPanel.toolboxIndex = 0;
+    self.transformPanel.toolboxTitle = @"SELECTED TRANSFORM";
+    [self.rootView addSubview:self.transformPanel];
+
     self.libraryPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
+    self.libraryPopup.s3gUsesCanvasMenu = YES;
     self.libraryPopup.target = self;
     self.libraryPopup.action = @selector(librarySlotSelected:);
-    [self.libraryPopup.widthAnchor constraintEqualToConstant:230.0].active = YES;
-    [libraryBar addArrangedSubview:self.libraryPopup];
-    [libraryBar addArrangedSubview:warpLabel(@"NAME")];
-    self.libraryNameField = [self editorField:190.0
-        action:@selector(saveLibrarySlot:)];
-    [libraryBar addArrangedSubview:self.libraryNameField];
-    for (NSArray* spec in @[
+    [self.libraryPanel addSubview:self.libraryPopup];
+    self.libraryNameField = [self nameFieldWithAction:
+        @selector(saveLibrarySlot:)];
+    [self.libraryPanel addSubview:self.libraryNameField];
+    NSMutableArray<NSButton*>* libraryButtons = [[NSMutableArray alloc] init];
+    for (NSArray<NSString*>* spec in @[
              @[ @"SAVE", @"saveLibrarySlot:" ],
              @[ @"RECALL", @"recallLibrarySlot:" ],
              @[ @"DELETE", @"deleteLibrarySlot:" ] ]) {
-        S3GTrackerActionButton* button = [[S3GTrackerActionButton alloc]
-            initWithFrame:NSZeroRect];
-        button.title = spec[0];
-        button.target = self;
-        button.action = NSSelectorFromString(spec[1]);
-        [libraryBar addArrangedSubview:button];
+        S3GTrackerActionButton* button = [self warpButton:spec[0]
+            action:NSSelectorFromString(spec[1]) panel:self.libraryPanel];
+        if ([spec[0] isEqualToString:@"DELETE"]) button.tag = 2;
+        [libraryButtons addObject:button];
     }
+    self.libraryButtons = libraryButtons;
+    self.libraryLabels = @[
+        [self warpRowLabel:@"SLOT" panel:self.libraryPanel],
+        [self warpRowLabel:@"NAME" panel:self.libraryPanel],
+        [self warpRowLabel:@"MEMORY" panel:self.libraryPanel],
+    ];
 
-    NSStackView* toolbar = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    toolbar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    toolbar.alignment = NSLayoutAttributeCenterY;
-    toolbar.spacing = 8.0;
-    toolbar.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:toolbar];
-    [toolbar addArrangedSubview:warpLabel(@"CYCLE TICKS")];
-    self.cycleField = [self editorField:48.0 action:@selector(cycleChanged:)];
-    [toolbar addArrangedSubview:self.cycleField];
-    [toolbar addArrangedSubview:warpLabel(@"TRANSFORM")];
+    self.warpModeButton = [self warpButton:@"WARP PLAYBACK: OFF"
+        action:@selector(toggleWarpMode:) panel:self.stackPanel];
+    self.warpModeButton.buttonType = NSButtonTypeToggle;
+    self.warpModeButton.tag = 1;
+    self.warpModeButton.accessibilityHelp =
+        @"Enable or bypass the current warp stack during Pattern playback.";
+    self.cycleField = [self sliderFieldWithAction:@selector(cycleChanged:)];
+    [self configureSliderField:self.cycleField minimum:1.0 maximum:16.0
+        fractionDigits:0u];
+    [self.stackPanel addSubview:self.cycleField];
     self.transformPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
+    self.transformPopup.s3gUsesCanvasMenu = YES;
     self.transformPopup.target = self;
     self.transformPopup.action = @selector(transformSelected:);
-    [self.transformPopup.widthAnchor constraintEqualToConstant:180.0].active = YES;
-    [toolbar addArrangedSubview:self.transformPopup];
+    [self.stackPanel addSubview:self.transformPopup];
+    NSMutableArray<NSButton*>* addButtons = [[NSMutableArray alloc] init];
     for (NSArray* spec in @[
              @[ @"+ EXP", @0 ], @[ @"+ STEP", @1 ], @[ @"+ EUCLID", @2 ] ]) {
-        S3GTrackerActionButton* button = [[S3GTrackerActionButton alloc]
-            initWithFrame:NSZeroRect];
-        button.title = spec[0];
+        S3GTrackerActionButton* button = [self warpButton:spec[0]
+            action:@selector(addTransform:) panel:self.stackPanel];
         button.identifier = [NSString stringWithFormat:@"warp-add-%@", spec[1]];
-        button.target = self;
-        button.action = @selector(addTransform:);
-        [toolbar addArrangedSubview:button];
+        [addButtons addObject:button];
     }
-    S3GTrackerActionButton* remove = [[S3GTrackerActionButton alloc]
-        initWithFrame:NSZeroRect];
-    remove.title = @"REMOVE";
-    remove.target = self;
-    remove.action = @selector(removeTransform:);
-    [toolbar addArrangedSubview:remove];
-    S3GTrackerActionButton* clear = [[S3GTrackerActionButton alloc]
-        initWithFrame:NSZeroRect];
-    clear.title = @"CLEAR";
+    self.addButtons = addButtons;
+    S3GTrackerActionButton* remove = [self warpButton:@"REMOVE"
+        action:@selector(removeTransform:) panel:self.stackPanel];
+    S3GTrackerActionButton* clear = [self warpButton:@"CLEAR"
+        action:@selector(clearTransforms:) panel:self.stackPanel];
     clear.tag = 2;
-    clear.target = self;
-    clear.action = @selector(clearTransforms:);
-    [toolbar addArrangedSubview:clear];
+    self.stackButtons = @[ remove, clear ];
+    self.stackLabels = @[
+        [self warpRowLabel:@"MODE" panel:self.stackPanel],
+        [self warpRowLabel:@"CYCLE" panel:self.stackPanel],
+        [self warpRowLabel:@"TRANSFORM" panel:self.stackPanel],
+        [self warpRowLabel:@"ADD" panel:self.stackPanel],
+        [self warpRowLabel:@"EDIT" panel:self.stackPanel],
+    ];
 
     self.curveView = [[S3GTrackerWarpCurveView alloc] initWithFrame:NSZeroRect];
     self.curveView.trackerState = state;
-    self.curveView.translatesAutoresizingMaskIntoConstraints = NO;
     self.curveView.accessibilityElement = YES;
     self.curveView.accessibilityRole = NSAccessibilityImageRole;
     self.curveView.accessibilityLabel = @"Composite timing warp curve";
-    [root addSubview:self.curveView];
+    [self.fieldPanel addSubview:self.curveView];
 
-    S3GTrackerPanelView* editor = [[S3GTrackerPanelView alloc]
-        initWithFrame:NSZeroRect];
-    editor.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:editor];
-    NSStackView* rowOne = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    rowOne.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    rowOne.alignment = NSLayoutAttributeCenterY;
-    rowOne.spacing = 8.0;
-    rowOne.translatesAutoresizingMaskIntoConstraints = NO;
-    [editor addSubview:rowOne];
-    [rowOne addArrangedSubview:warpLabel(@"TYPE")];
     self.typePopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
+    self.typePopup.s3gUsesCanvasMenu = YES;
     for (NSArray* spec in @[
              @[ @"EXPONENTIAL", @0 ], @[ @"STEP QUANTIZE", @1 ],
              @[ @"EUCLIDEAN QUANTIZE", @2 ] ]) {
@@ -286,66 +686,61 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     }
     self.typePopup.target = self;
     self.typePopup.action = @selector(typeChanged:);
-    [self.typePopup.widthAnchor constraintEqualToConstant:190.0].active = YES;
-    [rowOne addArrangedSubview:self.typePopup];
-    self.primaryLabel = warpLabel(@"POWER");
-    [rowOne addArrangedSubview:self.primaryLabel];
-    self.primaryField = [self editorField:70.0
-        action:@selector(transformChanged:)];
-    [rowOne addArrangedSubview:self.primaryField];
-    self.pulsesLabel = warpLabel(@"PULSES");
-    [rowOne addArrangedSubview:self.pulsesLabel];
-    self.pulsesField = [self editorField:60.0
-        action:@selector(transformChanged:)];
-    [rowOne addArrangedSubview:self.pulsesField];
-
-    NSStackView* rowTwo = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    rowTwo.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    rowTwo.alignment = NSLayoutAttributeCenterY;
-    rowTwo.spacing = 8.0;
-    rowTwo.translatesAutoresizingMaskIntoConstraints = NO;
-    [editor addSubview:rowTwo];
-    [rowTwo addArrangedSubview:warpLabel(@"MIX")];
-    self.mixField = [self editorField:64.0 action:@selector(transformChanged:)];
-    [rowTwo addArrangedSubview:self.mixField];
-    [rowTwo addArrangedSubview:warpLabel(@"SEGMENT START")];
-    self.beginField = [self editorField:64.0 action:@selector(transformChanged:)];
-    [rowTwo addArrangedSubview:self.beginField];
-    [rowTwo addArrangedSubview:warpLabel(@"END")];
-    self.endField = [self editorField:64.0 action:@selector(transformChanged:)];
-    [rowTwo addArrangedSubview:self.endField];
-    [rowTwo addArrangedSubview:warpLabel(@"REPEAT")];
-    self.repeatsField = [self editorField:54.0 action:@selector(transformChanged:)];
-    [rowTwo addArrangedSubview:self.repeatsField];
+    [self.transformPanel addSubview:self.typePopup];
+    self.primaryLabel = [self warpRowLabel:@"POWER"
+        panel:self.transformPanel];
+    self.primaryField = [self sliderFieldWithAction:
+        @selector(transformChanged:)];
+    [self configureSliderField:self.primaryField minimum:0.1 maximum:16.0
+        fractionDigits:3u];
+    [self.transformPanel addSubview:self.primaryField];
+    self.pulsesLabel = [self warpRowLabel:@"PULSES"
+        panel:self.transformPanel];
+    self.pulsesField = [self sliderFieldWithAction:
+        @selector(transformChanged:)];
+    [self configureSliderField:self.pulsesField minimum:1.0
+        maximum:static_cast<double>(s3g::tracker::kMaximumLiveWarpSteps)
+        fractionDigits:0u];
+    [self.transformPanel addSubview:self.pulsesField];
+    self.mixField = [self sliderFieldWithAction:
+        @selector(transformChanged:)];
+    [self configureSliderField:self.mixField minimum:0.0 maximum:1.0
+        fractionDigits:2u];
+    [self.transformPanel addSubview:self.mixField];
+    self.beginField = [self sliderFieldWithAction:
+        @selector(transformChanged:)];
+    [self configureSliderField:self.beginField minimum:0.0 maximum:1.0
+        fractionDigits:2u];
+    [self.transformPanel addSubview:self.beginField];
+    self.endField = [self sliderFieldWithAction:
+        @selector(transformChanged:)];
+    [self configureSliderField:self.endField minimum:0.0 maximum:1.0
+        fractionDigits:2u];
+    [self.transformPanel addSubview:self.endField];
+    self.repeatsField = [self sliderFieldWithAction:
+        @selector(transformChanged:)];
+    [self configureSliderField:self.repeatsField minimum:1.0
+        maximum:static_cast<double>(
+            s3g::tracker::kMaximumLiveWarpRepetitions)
+        fractionDigits:0u];
+    [self.transformPanel addSubview:self.repeatsField];
+    self.transformLabels = @[
+        [self warpRowLabel:@"TYPE" panel:self.transformPanel],
+        self.primaryLabel,
+        self.pulsesLabel,
+        [self warpRowLabel:@"MIX" panel:self.transformPanel],
+        [self warpRowLabel:@"SEGMENT START" panel:self.transformPanel],
+        [self warpRowLabel:@"SEGMENT END" panel:self.transformPanel],
+        [self warpRowLabel:@"REPEAT" panel:self.transformPanel],
+    ];
 
     self.statusLabel = warpLabel(@"SERIAL STACK • INPUT PHASE → WARPED PHASE", 8.5);
     self.statusLabel.textColor = S3GTrackerThemeColor(
         S3GTrackerThemeRole::TextMuted);
-    self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [editor addSubview:self.statusLabel];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [libraryBar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
-        [libraryBar.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-16.0],
-        [libraryBar.topAnchor constraintEqualToAnchor:root.topAnchor constant:14.0],
-        [toolbar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
-        [toolbar.trailingAnchor constraintLessThanOrEqualToAnchor:root.trailingAnchor constant:-16.0],
-        [toolbar.topAnchor constraintEqualToAnchor:libraryBar.bottomAnchor constant:10.0],
-        [self.curveView.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
-        [self.curveView.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16.0],
-        [self.curveView.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:14.0],
-        [self.curveView.bottomAnchor constraintEqualToAnchor:editor.topAnchor constant:-12.0],
-        [editor.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:16.0],
-        [editor.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-16.0],
-        [editor.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-16.0],
-        [editor.heightAnchor constraintEqualToConstant:134.0],
-        [rowOne.leadingAnchor constraintEqualToAnchor:editor.leadingAnchor constant:12.0],
-        [rowOne.topAnchor constraintEqualToAnchor:editor.topAnchor constant:14.0],
-        [rowTwo.leadingAnchor constraintEqualToAnchor:rowOne.leadingAnchor],
-        [rowTwo.topAnchor constraintEqualToAnchor:rowOne.bottomAnchor constant:12.0],
-        [self.statusLabel.leadingAnchor constraintEqualToAnchor:rowOne.leadingAnchor],
-        [self.statusLabel.bottomAnchor constraintEqualToAnchor:editor.bottomAnchor constant:-10.0],
-    ]];
+    self.statusLabel.maximumNumberOfLines = 2;
+    self.statusLabel.lineBreakMode = NSLineBreakByWordWrapping;
+    [self.transformPanel addSubview:self.statusLabel];
+    [self layoutWarpInterface];
     S3GTrackerRestoreWindowFrame(window, @"S3GTrackerWarpWindow");
     [self reloadModel];
     return self;
@@ -356,6 +751,12 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     if (self.trackerCallbacks && self.trackerCallbacks->transportChanged)
         self.trackerCallbacks->transportChanged();
     [self reloadModel];
+}
+
+- (void)controlTextDidBeginEditing:(NSNotification*)notification
+{
+    if (notification.object == self.libraryNameField)
+        S3GTrackerStyleTextEditor(self.libraryNameField);
 }
 
 - (void)reloadModel
@@ -386,6 +787,11 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     self.libraryNameField.stringValue = selectedEntry
         ? [NSString stringWithUTF8String:selectedEntry->name.c_str()] : @"";
     const auto& transport = self.trackerState->session.transport;
+    self.warpModeButton.state = transport.timingWarpEnabled
+        ? NSControlStateValueOn : NSControlStateValueOff;
+    self.warpModeButton.title = transport.timingWarpEnabled
+        ? @"WARP PLAYBACK: ON" : @"WARP PLAYBACK: OFF";
+    [self.warpModeButton setNeedsDisplay:YES];
     self.cycleField.integerValue = transport.warpCycleTicks;
     const auto count = transport.timingWarp.size();
     [self.transformPopup removeAllItems];
@@ -413,6 +819,15 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     if (transform) {
         [self.typePopup selectItemAtIndex:static_cast<NSInteger>(
             transform->kind)];
+        [self configureSliderField:self.primaryField
+            minimum:transform->kind == TimingWarpKind::Exponential
+                ? 0.1 : 1.0
+            maximum:transform->kind == TimingWarpKind::Exponential
+                ? 16.0
+                : static_cast<double>(
+                    s3g::tracker::kMaximumLiveWarpSteps)
+            fractionDigits:transform->kind == TimingWarpKind::Exponential
+                ? 3u : 0u];
         self.primaryLabel.stringValue = transform->kind
                 == TimingWarpKind::Exponential ? @"POWER" : @"STEPS";
         self.primaryField.doubleValue = transform->kind
@@ -422,13 +837,19 @@ NSString* transformSummary(const TimingWarpTransform& transform,
             == TimingWarpKind::EuclideanQuantize;
         self.pulsesLabel.hidden = !euclidean;
         self.pulsesField.hidden = !euclidean;
+        if (euclidean) {
+            [self configureSliderField:self.pulsesField minimum:1.0
+                maximum:static_cast<double>(transform->steps)
+                fractionDigits:0u];
+        }
         self.pulsesField.integerValue = transform->pulses;
         self.mixField.doubleValue = transform->options.alpha;
         self.beginField.doubleValue = transform->options.phaseBegin;
         self.endField.doubleValue = transform->options.phaseEnd;
         self.repeatsField.integerValue = transform->options.repetitions;
         self.statusLabel.stringValue = [NSString stringWithFormat:
-            @"%lu TRANSFORM%@ • SERIAL LEFT → RIGHT • %lu SAVED • SONG RECALLS SAVED SLOTS",
+            @"%@ • %lu TRANSFORM%@ • SERIAL LEFT → RIGHT\n%lu SAVED • SONG RECALLS SAVED SLOTS",
+            transport.timingWarpEnabled ? @"PLAYBACK ON" : @"BYPASSED",
             static_cast<unsigned long>(count), count == 1u ? @"" : @"S",
             static_cast<unsigned long>(library.size())];
     } else {
@@ -436,10 +857,17 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         self.pulsesLabel.hidden = YES;
         self.pulsesField.hidden = YES;
         self.statusLabel.stringValue = [NSString stringWithFormat:
-            @"IDENTITY TIMING • ADD EXP, STEP, OR EUCLID • %lu SAVED",
-            static_cast<unsigned long>(library.size())];
+            @"%@ • IDENTITY TIMING • ADD EXP, STEP, OR EUCLID\n%lu SAVED WARP%@",
+            transport.timingWarpEnabled ? @"PLAYBACK ON" : @"BYPASSED",
+            static_cast<unsigned long>(library.size()),
+            library.size() == 1u ? @"" : @"S"];
     }
-    [self.curveView setNeedsDisplay:YES];
+    [self.curveView refreshPlaybackDisplay];
+}
+
+- (void)refreshPlaybackDisplay
+{
+    [self.curveView refreshPlaybackDisplay];
 }
 
 - (void)librarySlotSelected:(id)sender
@@ -513,6 +941,14 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     }
     self.trackerState->session.transport.warpCycleTicks
         = static_cast<uint32_t>(value);
+    [self publish];
+}
+
+- (void)toggleWarpMode:(NSButton*)sender
+{
+    if (!self.trackerState) return;
+    self.trackerState->session.transport.timingWarpEnabled
+        = sender.state == NSControlStateValueOn;
     [self publish];
 }
 
@@ -611,7 +1047,7 @@ NSString* transformSummary(const TimingWarpTransform& transform,
         && options.phaseBegin < options.phaseEnd
         && repetitions >= 1
         && repetitions <= static_cast<NSInteger>(
-            TimingWarpStack::kMaximumRepetitions);
+            s3g::tracker::kMaximumLiveWarpRepetitions);
     if (!optionsValid) {
         NSBeep(); [self reloadModel]; return;
     }
@@ -630,7 +1066,7 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     } else {
         const NSInteger steps = static_cast<NSInteger>(std::llround(primary));
         if (steps < 1 || steps > static_cast<NSInteger>(
-                TimingWarpStack::kMaximumSteps)
+                s3g::tracker::kMaximumLiveWarpSteps)
             || (kind == TimingWarpKind::EuclideanQuantize
                 && (pulses < 1 || pulses > steps))) {
             NSBeep(); [self reloadModel]; return;

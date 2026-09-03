@@ -169,6 +169,7 @@ void testLogicalTickObserverSeesCoincidentTicksInOrder()
     scheduler.setPattern(oneTrack(std::move(track)));
     auto warped = transport();
     warped.warpCycleTicks = 4u;
+    warped.timingWarpEnabled = true;
     warped.timingWarp.append(TimingWarpTransform::stepQuantize(1u));
     scheduler.setTransport(warped);
     scheduler.setLogicalTickObserver(&captureTickBoundary, &capture);
@@ -492,6 +493,7 @@ void testWarpCollisionAndCrossTickOrdering()
     collision.setPattern(oneTrack(std::move(track)));
     auto warped = transport();
     warped.warpCycleTicks = 4u;
+    warped.timingWarpEnabled = true;
     warped.timingWarp.append(TimingWarpTransform::stepQuantize(1u));
     collision.setTransport(warped);
     collision.start();
@@ -675,6 +677,7 @@ void testTimingEffectsUseNominalTickUnderSwingAndWarp()
     auto settings = transport();
     settings.swing = 0.75;
     settings.warpCycleTicks = 4u;
+    settings.timingWarpEnabled = true;
     settings.timingWarp.append(TimingWarpTransform::exponential(2.0));
     scheduler.setTransport(settings);
     scheduler.start();
@@ -928,6 +931,7 @@ void testBlockSizeInvarianceAndOverflowTelemetry()
     overflow.setPattern(std::move(dense));
     auto warped = transport();
     warped.warpCycleTicks = 32u;
+    warped.timingWarpEnabled = true;
     warped.timingWarp.append(TimingWarpTransform::stepQuantize(1u));
     overflow.setTransport(warped);
     overflow.start();
@@ -998,6 +1002,7 @@ void testPreparedHostBeatStartUsesWarpedClock()
         "host-sync start requires a prepared runtime pattern set");
     auto clock = transport();
     clock.warpCycleTicks = 4u;
+    clock.timingWarpEnabled = true;
     clock.timingWarp.append(TimingWarpTransform::exponential(2.0));
     scheduler.setTransport(clock);
     check(scheduler.startPreparedAtHostBeat(1.5),

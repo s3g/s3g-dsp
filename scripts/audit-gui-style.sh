@@ -133,7 +133,7 @@ done < <(rg -n 'NSPopUpButton|NSComboBox|NSMenuItem' plugins --glob '*.cpp')
 
 section "Text Entry"
 while IFS= read -r file; do
-  if ! rg -q 'styleNumberTextField|styleNumberTextEditor|selectedTextAttributes' "$file"; then
+  if ! rg -q 'styleNumberTextField|styleNumberTextEditor|S3GTrackerStyleTextField|selectedTextAttributes' "$file"; then
     warn "textfield" "$file" "Editable NSTextField usage should use shared number-field styling or explicitly style dark selection/editing."
   fi
 done < <(rg -l 'NSTextField' plugins --glob '*.cpp')
@@ -156,6 +156,48 @@ section "Layout Contract"
 if ! rg -q 'double contentTop = 42\.0' plugins/common/s3g_gui_layout.h; then
   warn "layout" "plugins/common/s3g_gui_layout.h" \
     "The first toolbox or primary field must begin at the shared y 42 px content top."
+fi
+
+tracker_geometry_source=tracker/src/app/macos/s3g_tracker_workspace.mm
+if ! rg -q 'trackerGeometryFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'trackerGeometryFamilyLayout' "$tracker_geometry_source" \
+    || ! rg -q 'drawProcessorSlider' "$tracker_geometry_source" \
+    || ! rg -q 'drawProcessorMenu' "$tracker_geometry_source" \
+    || ! rg -q 'processorMenuBoxRect' "$tracker_geometry_source" \
+    || ! rg -q 'drawToolboxHeaderActionButton' "$tracker_geometry_source"; then
+  warn "layout" "$tracker_geometry_source" \
+    "Tracker Geometry must use the shared 42/12/21/26 layout, slider, in-canvas menu, and toolbox-header action contracts."
+fi
+
+tracker_warp_source=tracker/src/app/macos/s3g_tracker_warp_window.mm
+if ! rg -q 'trackerWarpFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'trackerWarpFamilyLayout' "$tracker_warp_source" \
+    || ! rg -q 'S3GTrackerToolboxView' "$tracker_warp_source" \
+    || ! rg -q 'S3GTrackerWarpSliderField' "$tracker_warp_source" \
+    || ! rg -q 's3gUsesCanvasMenu = YES' "$tracker_warp_source"; then
+  warn "layout" "$tracker_warp_source" \
+    "Tracker Warps must use the shared field/inspector layout, static toolbox headers, thin slider/value controls, and in-canvas categorical menus."
+fi
+
+tracker_song_source=tracker/src/app/macos/s3g_song_window.mm
+if ! rg -q 'trackerSongFamilyLayout' plugins/common/s3g_gui_layout.h \
+    || ! rg -q 'trackerSongFamilyLayout' "$tracker_song_source" \
+    || ! rg -q 'S3GTrackerToolboxView' "$tracker_song_source" \
+    || ! rg -q 'arrangementPanel' "$tracker_song_source" \
+    || ! rg -q 's3gUsesCanvasMenu = YES' "$tracker_song_source"; then
+  warn "layout" "$tracker_song_source" \
+    "Tracker Song must use the shared top toolbox row, titled arrangement workspace, and in-canvas categorical menu contract."
+fi
+tracker_controls_source=tracker/src/app/macos/s3g_tracker_controls.mm
+if ! rg -q 'multiColumnDropdownHitIndex' "$tracker_controls_source" \
+    || ! rg -q '21\.0' "$tracker_controls_source"; then
+  warn "layout" "$tracker_controls_source" \
+    "Tracker canvas menus must retain full-row hit testing and the shared 21 px dropdown-row contract."
+fi
+if rg -q 'kGeometryLaneColors' "$tracker_geometry_source" \
+    || ! rg -q 'allStepsUnderlayNodeCount' "$tracker_geometry_source"; then
+  warn "geometry" "$tracker_geometry_source" \
+    "Tracker Geometry shares Tracker's muted lane identities, and All Steps must retain its explicit complete-row lattice."
 fi
 
 translated_content_top_sources=(

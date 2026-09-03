@@ -41,6 +41,7 @@ static_assert(layout::toolboxFirstRowY(42.0) == 78.0);
 static_assert(layout::toolboxRowY(42.0, 3u) == 156.0);
 static_assert(layout::kStandardMetrics.toolboxBottomClearance == 18.0);
 static_assert(layout::kStandardMetrics.contentTop == 42.0);
+static_assert(layout::kTrackerPageContentTop == 2.0);
 static_assert(layout::kStandardMetrics.headerLabelInset == 8.0);
 constexpr layout::Rect kEnvironmentalFieldPanel {
     18.0, 42.0, 596.0, 608.0

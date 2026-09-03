@@ -1760,6 +1760,13 @@ JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
         encoded.object["patternId"] = encodeCheckedString(row.patternId,
             kMaximumNameBytes, path + ".patternId", result);
         encoded.object["repeats"] = number(row.repeats);
+        if (row.patternLoop) {
+            JsonValue loopRange = JsonValue::objectValue();
+            loopRange.object["endRow"] = number(row.patternLoop->endRow);
+            loopRange.object["startRow"] = number(
+                row.patternLoop->startRow);
+            encoded.object["patternLoop"] = std::move(loopRange);
+        }
         if (row.swing.has_value())
             encoded.object["swing"] = JsonValue::numberValue(*row.swing);
         encoded.object["warpSlot"] = number(static_cast<std::size_t>(
@@ -1854,6 +1861,29 @@ bool decodeSong(const JsonValue& input, SongArrangement& destination,
             if (oneBased > 0u)
                 row.timingWarpLibraryIndex
                     = static_cast<std::size_t>(oneBased - 1u);
+        }
+        const auto patternLoop = inputRow.object.find("patternLoop");
+        if (patternLoop != inputRow.object.end()) {
+            const auto* start = requiredField(patternLoop->second,
+                "startRow", JsonType::Number, path + ".patternLoop", result);
+            const auto* end = requiredField(patternLoop->second,
+                "endRow", JsonType::Number, path + ".patternLoop", result);
+            if (!start || !end) return false;
+            SongPatternLoop range;
+            if (!checkedUint32(*start, range.startRow,
+                    kMaximumSongPatternRows - 1u,
+                    path + ".patternLoop.startRow", result)
+                || !checkedUint32(*end, range.endRow,
+                    kMaximumSongPatternRows,
+                    path + ".patternLoop.endRow", result)
+                || range.startRow >= range.endRow) {
+                if (result.ok())
+                    setError(result, ProjectErrorCode::OutOfRange,
+                        path + ".patternLoop",
+                        "song pattern loop must be an increasing row range within 1..256");
+                return false;
+            }
+            row.patternLoop = range;
         }
         candidate.rows.push_back(std::move(row));
     }
@@ -2810,6 +2840,8 @@ JsonValue encodeTransport(const TransportSettings& transport,
     output.object["ticksPerBeat"] = number(transport.ticksPerBeat);
     output.object["timingLookaheadMilliseconds"] = JsonValue::numberValue(
         transport.timingLookaheadMilliseconds);
+    output.object["warpEnabled"] = JsonValue::booleanValue(
+        transport.timingWarpEnabled);
     JsonValue warpStack = JsonValue::arrayValue();
     warpStack.array.reserve(transport.timingWarp.size());
     for (std::size_t index = 0u; index < transport.timingWarp.size(); ++index) {
@@ -2842,6 +2874,7 @@ bool decodeTransport(const JsonValue& input, TransportSettings& destination,
         JsonType::Number, "$.transport", result);
     const auto* warps = requiredField(input, "warpStack", JsonType::Array,
         "$.transport", result);
+    const auto warpEnabled = input.object.find("warpEnabled");
     const auto* lookahead = requiredField(input,
         "timingLookaheadMilliseconds", JsonType::Number, "$.transport",
         result);
@@ -2864,6 +2897,14 @@ bool decodeTransport(const JsonValue& input, TransportSettings& destination,
     if (!loopEnabled || !loopStart || !loopEnd) return false;
 
     TransportSettings candidate;
+    // Schemas 5–7 predate the bypass switch. Preserve their audible behavior
+    // when a legacy transport contains an authored stack; schema 8 always
+    // writes the explicit field, including OFF.
+    candidate.timingWarpEnabled = !warps->array.empty();
+    if (warpEnabled != input.object.end()
+        && !checkedBoolean(warpEnabled->second,
+            candidate.timingWarpEnabled, "$.transport.warpEnabled", result))
+        return false;
     if (!checkedNumber(*sampleRate, candidate.sampleRate, 8000.0, 768000.0,
             "$.transport.sampleRate", result)
         || !checkedNumber(*bpm, candidate.bpm, 20.0, 400.0,

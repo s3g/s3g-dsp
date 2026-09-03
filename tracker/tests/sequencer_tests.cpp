@@ -710,7 +710,16 @@ void testFunctionalTimingWarp()
     sequencer.setTransport(transport);
     sequencer.start();
     std::array<ScheduledEvent, 8u> events {};
-    const auto count = sequencer.process(24001u, events.data(), events.size());
+    auto count = sequencer.process(6001u, events.data(), events.size());
+    check(count == 2u && events[0].absoluteSampleTime == 0u
+            && events[1].absoluteSampleTime == 6000u,
+        "an authored timing warp must remain straight until explicitly enabled");
+
+    transport.timingWarpEnabled = true;
+    sequencer.stop();
+    sequencer.setTransport(transport);
+    sequencer.start();
+    count = sequencer.process(24001u, events.data(), events.size());
     check(count == 5u,
         "a four-tick warped cycle should retain all event boundaries");
     const std::array<uint64_t, 5u> expected {
@@ -724,6 +733,7 @@ void testFunctionalTimingWarp()
 
     TransportSettings composed { 48000.0, 120.0, 4u, 0.6 };
     composed.warpCycleTicks = 4u;
+    composed.timingWarpEnabled = true;
     composed.timingWarp.append(TimingWarpTransform::exponential(2.0));
     sequencer.stop();
     sequencer.setTransport(composed);
@@ -1095,6 +1105,7 @@ void testQuantizedWarpCollisionPolicy()
     pattern.tracks.push_back(std::move(track));
     TransportSettings transport { 48000.0, 120.0, 4u, 0.5 };
     transport.warpCycleTicks = 8u;
+    transport.timingWarpEnabled = true;
     transport.timingWarp.append(TimingWarpTransform::stepQuantize(1u));
     Sequencer sequencer;
     sequencer.setPattern(std::move(pattern));
@@ -1119,6 +1130,7 @@ void testSingleTickSteppingPreservesWarpCollisions()
     pattern.tracks.push_back(std::move(track));
     TransportSettings transport { 48000.0, 120.0, 4u, 0.5 };
     transport.warpCycleTicks = 8u;
+    transport.timingWarpEnabled = true;
     transport.timingWarp.append(TimingWarpTransform::stepQuantize(1u));
     Sequencer sequencer;
     sequencer.setPattern(std::move(pattern));
@@ -1149,6 +1161,7 @@ void testExtremeContinuousWarpCollisionPolicy()
     pattern.tracks.push_back(makeTrack({ 36u }));
     TransportSettings transport { 48000.0, 120.0, 4u, 0.5 };
     transport.warpCycleTicks = 1024u;
+    transport.timingWarpEnabled = true;
     transport.timingWarp.append(TimingWarpTransform::exponential(64.0));
     Sequencer sequencer;
     sequencer.setPattern(std::move(pattern));
@@ -1198,6 +1211,7 @@ void testInitialFxCollisionBudget()
     }
     TransportSettings transport { 48000.0, 120.0, 4u, 0.5 };
     transport.warpCycleTicks = 16u;
+    transport.timingWarpEnabled = true;
     transport.timingWarp.append(TimingWarpTransform::stepQuantize(1u));
     Sequencer sequencer;
     sequencer.setPattern(std::move(pattern));

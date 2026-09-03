@@ -65,16 +65,46 @@ bool setGeometryVelocity(Track& track, std::size_t row, float normalized)
     return true;
 }
 
-bool rotateGeometryPhase(Track& track, int delta) noexcept
+bool setGeometryNoteLength(Track& track, std::size_t length,
+    bool linkVelocityLength)
+{
+    if (length == 0u || length > 256u) return false;
+    bool changed = track.noteColumn.length != length;
+    track.notes.resize(std::max(track.notes.size(), length),
+        NoteCell::rest());
+    track.noteColumn.length = length;
+    track.noteColumn.phase %= length;
+    if (linkVelocityLength) {
+        changed |= track.velocityColumn.length != length;
+        track.velocities.resize(std::max(track.velocities.size(), length),
+            ValueCell::defaultValue());
+        track.velocityColumn.length = length;
+        track.velocityColumn.phase %= length;
+    }
+    return changed;
+}
+
+bool rotateGeometryRows(Track& track, int delta)
 {
     const auto length = activeLength(track);
-    const auto oldPhase = track.noteColumn.phase % length;
+    if (length <= 1u) return false;
     const auto signedLength = static_cast<long long>(length);
-    const auto wrapped = (static_cast<long long>(oldPhase)
-        + static_cast<long long>(delta) % signedLength + signedLength)
+    const auto rotation = (static_cast<long long>(delta) % signedLength
+        + signedLength)
         % signedLength;
-    track.noteColumn.phase = static_cast<std::size_t>(wrapped);
-    return track.noteColumn.phase != oldPhase;
+    if (rotation == 0) return false;
+    track.notes.resize(std::max(track.notes.size(), length),
+        NoteCell::rest());
+    const std::vector<NoteCell> original(track.notes.begin(),
+        track.notes.begin() + static_cast<std::ptrdiff_t>(length));
+    bool changed = false;
+    for (std::size_t row = 0u; row < length; ++row) {
+        const auto destination = (row
+            + static_cast<std::size_t>(rotation)) % length;
+        changed |= !sameNoteCell(track.notes[destination], original[row]);
+        track.notes[destination] = original[row];
+    }
+    return changed;
 }
 
 bool setGeometryDensity(Track& track, std::size_t pulses,
@@ -86,11 +116,7 @@ bool setGeometryDensity(Track& track, std::size_t pulses,
     if (pulses > 0u) {
         for (std::size_t pulse = 0u; pulse < pulses; ++pulse) {
             const auto row = pulse * length / pulses;
-            uint8_t note = defaultNote;
-            if (row < track.notes.size()
-                && track.notes[row].state == NoteCellState::Note)
-                note = track.notes[row].note;
-            replacement[row] = NoteCell::withNote(note);
+            replacement[row] = NoteCell::withNote(defaultNote);
         }
     }
     track.notes.resize(std::max(track.notes.size(), length),

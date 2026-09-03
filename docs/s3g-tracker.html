@@ -184,16 +184,16 @@
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.song.png?v=3" aria-label="Open the active s3g Tracker Song page screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.song.png?v=3" alt="s3g Tracker Song page running a six-row arrangement with multiple pattern IDs, varied per-row lane mutes, Song transport and looping enabled, and the current row highlighted" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.song.png?v=5" aria-label="Open the active s3g Tracker Song page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.song.png?v=5" alt="s3g Tracker Song workspace with suite-standard toolboxes above a six-row arrangement showing per-row pattern, warp, loop in–out, timing, and lane-mute controls" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Song mode running a six-row arrangement assembled from multiple pattern-bank entries, with varied lane mutes and the active row highlighted by the host-synchronized transport.</figcaption>
+          <figcaption>Song mode keeps project, launch, and row-edit actions in suite-standard toolboxes while the full-width arrangement remains the primary workspace.</figcaption>
         </figure>
 
         <p>Song mode arranges stable pattern references into a longer form. Each pattern menu shows both parts as <code>A01 · Pattern Name</code>: the ID is saved in the Song row, while the renameable pattern name is there for recognition. Pattern-bank editing is locked while Song playback is active so a playing arrangement cannot acquire unresolved references.</p>
 
-        <p>Turn on <code>SONG TRANSPORT</code> before starting REAPER. Playback begins at Song row 1. <code>TICKS</code> is the length of one pattern cycle for that Song row, and <code>REP</code> is the number of cycles before natural advance; repeats continue the current pattern phase, while entry into another Song row relaunches that row's pattern at its start. The <code>WARP</code> column selects <code>OFF</code> or a named composition saved on the Warps page. Warp is global timing, so it belongs to the Song row rather than an individual tracker lane.</p>
+        <p>Turn on <code>SONG TRANSPORT</code> before starting REAPER. Playback begins at Song row 1. <code>TICKS</code> is the length of one pattern cycle for that Song row, and <code>REP</code> is the number of cycles before natural advance; repeats continue the current pattern phase, while entry into another Song row relaunches that row's pattern at its start. <code>LOOP IN–OUT</code> is <code>OFF</code> by default. Enter an inclusive one-based range such as <code>5–8</code> to start at pattern row 5 and wrap after row 8 for the duration of that Song row. This makes short sub-patterns and their variations reusable without duplicating the source pattern; <code>TICKS</code> remains the independent row-duration control. The <code>WARP</code> column selects <code>OFF</code> or a named composition saved on the Warps page. Warp is global timing, so it belongs to the Song row rather than an individual tracker lane.</p>
 
         <p>To jump during playback, select a target row, choose its launch boundary, and press <code>QUEUE SELECTED</code>. <code>NEXT TICK</code> waits at least one tracker tick; <code>NEXT BEAT</code> uses the Song beat grid (four tracker ticks by default); <code>NEXT CYCLE</code> waits for the end of the current <code>TICKS</code> cycle; and <code>NEXT SONG ROW</code> waits for the natural end of the current row, including its repeats. The target row is filled and outlined in yellow, and the queue readout states both the row and boundary. Queueing again replaces the earlier pending target. At the chosen boundary, pattern, WARP, swing, and lane mutes switch as one row launch; <code>OFF</code> restores identity timing instead of inheriting the previous row's warp.</p>
 
@@ -204,6 +204,7 @@
         <pre><code>help
 actions
 alias kick 1
+pitch @kick C-2
 mask @kick x---x---x---x---
 eu @kick 5 16
 vol @kick 1.0 .8 .9 .7
@@ -224,25 +225,25 @@ warp exp 2.0 mix .5</code></pre>
         <h2 id="tool-pages">Tool Pages</h2>
 
         <ul>
-          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles. Use <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, and <code>VELOCITY</code> to work directly in the field; Velocity moves radially, <kbd>Shift</kbd> snaps it, and <kbd>Option</kbd> temporarily turns Paint into Erase. Drag the selected ring's <code>P</code> phase handle or <code>D</code> density handle for a non-destructive ghost preview; releasing commits the whole gesture as one undo step. Double-click any note bead to reveal its exact lane and row in Tracker. The numbered inspector also rotates note phase, changes density by one evenly distributed hit, reverses a lane, reflects it around the selected row, morphs it halfway toward the next visible lane, or reveals the selection in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. The five earlier polygon, step, phase, focus, and composite views remain available as diagnostics.</li>
-          <li><strong>Warps</strong> edits the functional timing-warp stack used for exponential and stepped ramps, Euclidean timing, and multipart swing. Save named compositions here, then select them per row in Song's <code>WARP</code> column.</li>
+          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles, using the same muted lane colors as the Tracker grid. Its right-side toolboxes use the repository's shared 42-pixel content top, 12-pixel panel gaps, static headers, thin sliders, in-canvas categorical menus, and compact action rows. <code>LANE / CYCLE</code> replaces the former bottom lane-button bank with one lane menu and repeats the selected NOTE cycle's default note, length, direction, phase, and density controls. <code>DEFAULT NOTE</code> displays both pitch name and MIDI number (for example <code>C-2 · 036</code>); dragging it sets the lane anchor and replaces every explicit pitch while preserving rests, retriggers, holds, and kills. Geometry density and newly painted hits then use that anchor deterministically. The equivalent Live Code command is <code>pitch &lt;lane|@alias&gt; &lt;MIDI|note name&gt;</code>. Default note, length, phase, and density sliders preview their result and publish one undo step on release. <code>EDIT / SHAPE</code> holds <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, <code>VELOCITY</code>, reverse, reflect, and morph. Velocity moves radially, <kbd>Shift</kbd> snaps it, and <kbd>Option</kbd> temporarily turns Paint into Erase. Drag the selected ring's <code>P</code> phase handle or <code>D</code> density handle for the same non-destructive previews, and double-click any note bead to reveal its exact lane and row in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. <code>ALL STEPS UNDERLAY</code> now exposes every tracker row as a hollow lane-colored cell with four-step accents, while active pulses remain filled on top, making it visibly distinct from the adjacent pulse and phase diagnostics.</li>
+          <li><strong>Warps</strong> treats the composite curve as the primary workspace and groups editing into <code>WARP LIBRARY</code>, <code>SERIAL STACK</code>, and <code>SELECTED TRANSFORM</code> toolboxes. Its parameters use the suite's thin track plus right-aligned value pattern: drag horizontally for fast changes, or double-click to type an exact value. Save named exponential, stepped, Euclidean, or multipart compositions here, then select them per row in Song's <code>WARP</code> column.</li>
           <li><strong>Console</strong> displays Live Code results and errors and repeats the Live Code entry field, so commands remain available when Console is detached.</li>
           <li><strong>Help</strong> provides the categorized command and sequencing-action reference generated from the current command registry.</li>
         </ul>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.geometry.png?v=5" aria-label="Open the editable s3g Tracker Geometry workspace screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.geometry.png?v=5" alt="s3g Tracker Geometry workspace with concentric editable lane rings, direct phase and density handles, Select Paint Erase and Velocity tools, a numbered transform inspector, live yellow playheads, and a bottom lane bank" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.geometry.png?v=9" aria-label="Open the editable s3g Tracker Geometry workspace screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.geometry.png?v=9" alt="s3g Tracker Geometry workspace with muted concentric lane rings, higher-contrast event points, and shared s3g-dsp toolboxes including the selected lane's default note name and MIDI number" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Geometry as a workspace: concentric lanes support fast note and velocity gestures, direct phase and density shaping with ghost previews, and immediate Tracker reveal.</figcaption>
+          <figcaption>Geometry as a workspace: the Ring Field remains gestural while suite-standard toolboxes repeat its selected-lane cycle controls and replace the former bottom lane bank.</figcaption>
         </figure>
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.warps.png?v=3" aria-label="Open the configured s3g Tracker Warps page screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.warps.png?v=3" alt="s3g Tracker Warps page showing a configured serial stack of exponential, step, and Euclidean timing transforms and its nonlinear composite timing curve" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.warps.png?v=4" aria-label="Open the configured s3g Tracker Warps page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.warps.png?v=4" alt="s3g Tracker Warps workspace with a nonlinear composite timing curve beside suite-standard Warp Library, Serial Stack, and Selected Transform toolboxes with thin parameter sliders" loading="lazy" decoding="async">
             </button>
           </div>
           <figcaption>A three-stage timing-warp stack in action: exponential, stepped, and Euclidean transforms combine into the displayed phase map.</figcaption>

@@ -64,6 +64,11 @@ SongValidationResult validateSongArrangement(
             return { SongValidationCode::InvalidTimingWarpLibraryIndex,
                 index };
         }
+        if (row.patternLoop
+            && (row.patternLoop->startRow >= row.patternLoop->endRow
+                || row.patternLoop->endRow > kMaximumSongPatternRows)) {
+            return { SongValidationCode::InvalidPatternLoop, index };
+        }
     }
     return {};
 }
@@ -119,7 +124,7 @@ SongQueueResult SongPlaybackPlanner::queueRow(std::size_t rowIndex,
     if (arrangement_.rows.empty()) return SongQueueResult::NoArrangement;
     if (rowIndex >= arrangement_.rows.size())
         return SongQueueResult::RowOutOfRange;
-    if (!running_) return SongQueueResult::NotRunning;
+    if (!running_ && !finished_) return SongQueueResult::NotRunning;
     switch (quantization) {
     case SongLaunchQuantization::NextTick:
     case SongLaunchQuantization::NextBeat:
@@ -129,6 +134,11 @@ SongQueueResult SongPlaybackPlanner::queueRow(std::size_t rowIndex,
     default:
         return SongQueueResult::InvalidQuantization;
     }
+    // A non-looping Song can finish while the host transport keeps running.
+    // Re-open its logical clock so a queued row can relaunch on the next safe
+    // boundary; pendingIsDue() treats the already-passed end as immediately
+    // due after one more tracker tick.
+    if (finished_) running_ = true;
     pending_ = PendingLaunch { rowIndex, quantization };
     return SongQueueResult::Queued;
 }
@@ -178,6 +188,7 @@ bool SongPlaybackPlanner::pendingIsDue(bool patternBoundary,
     bool rowBoundary) const noexcept
 {
     if (!pending_) return false;
+    if (finished_) return true;
     switch (pending_->quantization) {
     case SongLaunchQuantization::NextTick:
         return true;

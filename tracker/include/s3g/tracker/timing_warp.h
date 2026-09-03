@@ -164,6 +164,11 @@ private:
 constexpr std::size_t kMaximumTimingWarpLibraryEntries = 64u;
 constexpr std::size_t kMaximumTimingWarpLibraryNameBytes = 64u;
 constexpr uint32_t kMaximumLiveWarpCycleTicks = 16u;
+// Live authoring deliberately stays within musically legible subdivisions.
+// The compiled stack retains wider safety limits so older project data can be
+// inspected and reduced without a destructive migration.
+constexpr uint32_t kMaximumLiveWarpSteps = 64u;
+constexpr uint32_t kMaximumLiveWarpRepetitions = 16u;
 
 struct TimingWarpLibraryEntry {
     std::string name;

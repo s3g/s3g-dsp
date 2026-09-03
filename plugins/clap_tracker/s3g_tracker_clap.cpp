@@ -33,6 +33,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -59,6 +60,7 @@ using s3g::tracker::ProjectHistory;
 using s3g::tracker::ScheduledEvent;
 using s3g::tracker::ScheduledEventKind;
 using s3g::tracker::SongLaunchQuantization;
+using s3g::tracker::SongArrangement;
 using s3g::tracker::SongPlaybackPlanner;
 using s3g::tracker::TimingPlaybackScheduler;
 using s3g::tracker::TransportSettings;
@@ -75,9 +77,9 @@ constexpr uint32_t kMaximumGateOffsPerBlock = kActiveNoteCount
     + s3g::tracker::kMaximumScheduledEventsPerBlock;
 constexpr uint32_t kRetiredRuntimeCapacity = 64u;
 constexpr uint32_t kNativeWidth = 1320u;
-constexpr uint32_t kNativeHeight = 780u;
+constexpr uint32_t kNativeHeight = 840u;
 constexpr uint32_t kMinimumWidth = 760u;
-constexpr uint32_t kMinimumHeight = 560u;
+constexpr uint32_t kMinimumHeight = 620u;
 
 double normalizedTempoScale(double value) noexcept
 {
@@ -92,6 +94,46 @@ double normalizedTempoScale(double value) noexcept
         if (candidate < distance) { distance = candidate; best = choice; }
     }
     return best;
+}
+
+std::size_t longestPatternColumnLength(
+    const s3g::tracker::Pattern& pattern) noexcept
+{
+    std::size_t longest = 1u;
+    const auto include = [&](const s3g::tracker::ColumnDefinition& column) {
+        longest = std::max(longest, column.length);
+    };
+    for (const auto& track : pattern.tracks) {
+        include(track.noteColumn);
+        include(track.instrumentColumn);
+        include(track.velocityColumn);
+        for (const auto& pair : track.fxPairs) {
+            include(pair.actionColumn);
+            include(pair.valueColumn);
+        }
+    }
+    return std::clamp(longest, std::size_t { 1u },
+        static_cast<std::size_t>(
+            s3g::tracker::kMaximumSongPatternRows));
+}
+
+bool resetPatternPhases(s3g::tracker::Pattern& pattern) noexcept
+{
+    bool changed = false;
+    const auto reset = [&](s3g::tracker::ColumnDefinition& column) {
+        changed |= column.phase != 0u;
+        column.phase = 0u;
+    };
+    for (auto& track : pattern.tracks) {
+        reset(track.noteColumn);
+        reset(track.instrumentColumn);
+        reset(track.velocityColumn);
+        for (auto& pair : track.fxPairs) {
+            reset(pair.actionColumn);
+            reset(pair.valueColumn);
+        }
+    }
+    return changed;
 }
 
 std::vector<std::string> commandWords(std::string_view command)
@@ -157,18 +199,30 @@ PatternBankEntry newPatternEntry(const PatternBankEntry& source,
     entry.pattern.name = duplicate
         ? source.pattern.name + " COPY" : "PATTERN " + entry.id;
     if (duplicate) return entry;
+    constexpr std::size_t kBlankPatternRows = 64u;
+    entry.pattern.visibleRows = kBlankPatternRows;
     for (auto& track : entry.pattern.tracks) {
-        std::fill(track.notes.begin(), track.notes.end(),
+        track.notes.assign(kBlankPatternRows,
             s3g::tracker::NoteCell::rest());
-        std::fill(track.instruments.begin(), track.instruments.end(),
+        track.instruments.assign(kBlankPatternRows,
             s3g::tracker::InstrumentCell::empty());
-        std::fill(track.velocities.begin(), track.velocities.end(),
+        track.velocities.assign(kBlankPatternRows,
             s3g::tracker::ValueCell::defaultValue());
+        track.noteColumn = {};
+        track.instrumentColumn = {};
+        track.velocityColumn = {};
+        track.noteColumn.length = kBlankPatternRows;
+        track.instrumentColumn.length = kBlankPatternRows;
+        track.velocityColumn.length = kBlankPatternRows;
         for (auto& pair : track.fxPairs) {
-            std::fill(pair.actions.begin(), pair.actions.end(),
+            pair.actions.assign(kBlankPatternRows,
                 s3g::tracker::FxActionCell::empty());
-            std::fill(pair.values.begin(), pair.values.end(),
+            pair.values.assign(kBlankPatternRows,
                 s3g::tracker::FxValueCell::previous());
+            pair.actionColumn = {};
+            pair.valueColumn = {};
+            pair.actionColumn.length = kBlankPatternRows;
+            pair.valueColumn.length = kBlankPatternRows;
         }
     }
     return entry;
@@ -453,6 +507,7 @@ struct Runtime {
     VisualNoteHitMailboxes* visualNoteHits = nullptr;
     MidiStepClock* midiStepClock = nullptr;
     uint64_t absoluteFrameOrigin = 0u;
+    std::size_t initialSongRow = 0u;
 
     Runtime(const ProjectDocument& document, double sampleRate,
         PatternLaunchMailbox* launchMailbox = nullptr,
@@ -508,15 +563,34 @@ struct Runtime {
         result.sampleRate = host.sampleRate;
         result.bpm = host.bpm;
         result.timingWarp.clear();
+        result.timingWarpEnabled = false;
+        result.loopEnabled = false;
         if (!row) return result;
         if (row->swing) result.swing = *row->swing;
-        if (!row->timingWarpLibraryIndex) return result;
-        const auto* entry = scheduler.timingWarpLibrary().entry(
-            *row->timingWarpLibraryIndex);
-        if (!entry) return result;
-        result.warpCycleTicks = entry->cycleTicks;
-        result.timingWarp = entry->stack;
+        if (row->patternLoop) {
+            result.loopEnabled = true;
+            result.loopStartRow = row->patternLoop->startRow;
+            result.loopEndRow = row->patternLoop->endRow;
+        }
+        if (row->timingWarpLibraryIndex) {
+            const auto* entry = scheduler.timingWarpLibrary().entry(
+                *row->timingWarpLibraryIndex);
+            if (entry) {
+                result.warpCycleTicks = entry->cycleTicks;
+                result.timingWarp = entry->stack;
+                // A Song row's named WARP choice is already an explicit
+                // enable action, independent of Pattern transport's live
+                // Warps switch.
+                result.timingWarpEnabled = true;
+            }
+        }
         return result;
+    }
+
+    static std::size_t songRowStart(const s3g::tracker::SongRow* row)
+        noexcept
+    {
+        return row && row->patternLoop ? row->patternLoop->startRow : 0u;
     }
 
     bool arm(double hostBeat, double tempo, double sampleRate,
@@ -528,10 +602,14 @@ struct Runtime {
         auto clock = hostClock(tempo, sampleRate);
         if (songEnabled) {
             songPlanner.reset();
-            if (!songPlanner.start(0u) || songPatternIndices.empty())
+            if (songPatternIndices.empty()) return false;
+            const auto startRow = std::min(
+                initialSongRow, songPatternIndices.size() - 1u);
+            initialSongRow = 0u;
+            if (!songPlanner.start(startRow))
                 return false;
             (void)scheduler.activatePreparedPatternAtTickBoundary(
-                songPatternIndices.front());
+                songPatternIndices[startRow]);
             const auto* row = songPlanner.currentRow();
             clock = songRowClock(row, clock);
             scheduler.setRuntimeTrackMuteMask(row ? row->mutedTracks : 0u);
@@ -544,7 +622,8 @@ struct Runtime {
         if (started && forceAllRows)
             scheduler.resyncAllTrackColumnsAtTickBoundary(0u);
         else if (started && songEnabled)
-            scheduler.relaunchColumnsAtTickBoundary(0u);
+            scheduler.launchSongRegionAtTickBoundary(songRowStart(
+                songPlanner.currentRow()));
         return started;
     }
 
@@ -603,14 +682,52 @@ struct Runtime {
         runtime.publishVisualNoteHits(boundary);
         if (!runtime.songEnabled)
             return advancePatternLaunch(context, boundary);
+        const bool wasFinished = runtime.songPlanner.isFinished();
         const auto result = runtime.songPlanner.advanceTick();
+        if (runtime.patternLaunch) {
+            auto& mailbox = *runtime.patternLaunch;
+            const uint32_t revision = mailbox.revision.load(
+                std::memory_order_acquire);
+            if (revision != 0u
+                && revision != mailbox.consumedRevision.load(
+                    std::memory_order_relaxed)) {
+                const auto quantization =
+                    static_cast<PatternVariationLaunch>(
+                        mailbox.quantization.load(
+                            std::memory_order_relaxed));
+                bool due = wasFinished
+                    || quantization == PatternVariationLaunch::NextTick;
+                if (!due && quantization
+                        == PatternVariationLaunch::NextBeat) {
+                    due = s3g::tracker::patternVariationLaunchIsDue(
+                        quantization, boundary.completedTickIndex,
+                        boundary.completedTransportRow,
+                        runtime.scheduler.transport().ticksPerBeat,
+                        runtime.scheduler.pattern().visibleRows);
+                } else if (!due && quantization
+                        == PatternVariationLaunch::NextPatternCycle) {
+                    due = result.patternCycleBoundary;
+                } else if (!due && quantization
+                        == PatternVariationLaunch::NextSongRow) {
+                    due = result.songRowBoundary;
+                }
+                if (due) {
+                    mailbox.consumedRevision.store(
+                        revision, std::memory_order_relaxed);
+                    mailbox.dueRevision.store(
+                        revision, std::memory_order_release);
+                    return LogicalTickBoundaryAction::StopAfterBoundary;
+                }
+            }
+        }
         if (result.transition) {
             const auto rowIndex = runtime.songPlanner.currentRowIndex();
             const auto* row = runtime.songPlanner.currentRow();
             if (rowIndex && *rowIndex < runtime.songPatternIndices.size()) {
                 (void)runtime.scheduler.activatePreparedPatternAtTickBoundary(
                     runtime.songPatternIndices[*rowIndex]);
-                runtime.scheduler.relaunchColumnsAtTickBoundary(0u);
+                runtime.scheduler.launchSongRegionAtTickBoundary(
+                    runtime.songRowStart(row));
                 runtime.scheduler.setRuntimeTrackMuteMask(
                     row ? row->mutedTracks : 0u);
                 runtime.scheduler.setTransportAtTickBoundary(
@@ -618,9 +735,14 @@ struct Runtime {
                         runtime.scheduler.transport()));
             }
         }
-        return result.finished
-            ? LogicalTickBoundaryAction::StopAfterBoundary
-            : LogicalTickBoundaryAction::Continue;
+        if (result.finished) {
+            // Keep a silent logical clock alive while REAPER continues. This
+            // lets SELECT QUEUE relaunch a row after a non-looping Song has
+            // reached its end, without leaking notes from the final pattern.
+            runtime.scheduler.setRuntimeTrackMuteMask(
+                std::numeric_limits<uint32_t>::max());
+        }
+        return LogicalTickBoundaryAction::Continue;
     }
 
     static LogicalTickBoundaryAction advancePatternLaunch(void* context,
@@ -716,6 +838,9 @@ struct Plugin {
     std::atomic<uint32_t> songLaunchQuantization { 0u };
     std::atomic<uint32_t> songLaunchRevision { 0u };
     uint32_t consumedSongLaunchRevision = 0u;
+    std::atomic<bool> songLoopEnabled { false };
+    std::atomic<uint32_t> songLoopRevision { 0u };
+    uint32_t consumedSongLoopRevision = 0u;
     std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
         notePlayheads {};
     std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
@@ -728,6 +853,7 @@ struct Plugin {
         s3g::tracker::kMaximumTrackCount> fxValuePlayheads {};
     std::atomic<bool> visualPlaying { false };
     std::atomic<double> visualHostTempo { 0.0 };
+    std::atomic<uint64_t> visualTimingWarpTick { 0u };
     std::atomic<int32_t> visualSongRow { -1 };
     std::atomic<int32_t> visualPendingSongRow { -1 };
     std::atomic<uint32_t> visualPendingSongQuantization { 0u };
@@ -757,6 +883,7 @@ struct VisualPlaybackFrame {
         s3g::tracker::kMaximumTrackCount> fxActionPlayheads {};
     std::array<std::array<std::size_t, s3g::tracker::kFxPairCount>,
         s3g::tracker::kMaximumTrackCount> fxValuePlayheads {};
+    uint64_t timingWarpTick = 0u;
     int32_t songRow = -1;
     int32_t pendingSongRow = -1;
     uint32_t pendingSongQuantization = 0u;
@@ -827,6 +954,7 @@ const ReaperHostBridge* reaperHostBridge(Plugin& plugin)
 }
 
 using ReaperTransportButton = void (*)();
+using ReaperPlayState = int (*)();
 
 ReaperTransportButton reaperTransportButton(Plugin& plugin,
     const char* name)
@@ -835,6 +963,17 @@ ReaperTransportButton reaperTransportButton(Plugin& plugin,
     if (!bridge || !bridge->getFunction) return nullptr;
     return reinterpret_cast<ReaperTransportButton>(
         bridge->getFunction(name));
+}
+
+std::optional<bool> reaperTransportIsPlaying(Plugin& plugin)
+{
+    const auto* bridge = reaperHostBridge(plugin);
+    if (!bridge || !bridge->getFunction) return std::nullopt;
+    const auto getPlayState = reinterpret_cast<ReaperPlayState>(
+        bridge->getFunction("GetPlayState"));
+    if (!getPlayState) return std::nullopt;
+    const int state = getPlayState();
+    return (state & 1) != 0 && (state & 2) == 0;
 }
 
 bool requestHostContinue(Plugin& plugin)
@@ -872,7 +1011,8 @@ bool requestHostTogglePlayback(Plugin& plugin)
         control->request_toggle_play(plugin.host);
         return true;
     }
-    const bool playing = plugin.visualPlaying.load(std::memory_order_relaxed);
+    const bool playing = reaperTransportIsPlaying(plugin).value_or(
+        plugin.visualPlaying.load(std::memory_order_relaxed));
     if (control) {
         if (playing && control->request_pause) {
             control->request_pause(plugin.host);
@@ -951,17 +1091,21 @@ void storeDocumentWithoutRuntime(Plugin& plugin, ProjectDocument document,
     if (markDirty) markHostStateDirty(plugin);
 }
 
-bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
-    PatternVariationLaunch quantization, bool markDirty)
+bool queueRuntimeDocument(Plugin& plugin, ProjectDocument document,
+    PatternVariationLaunch quantization,
+    std::optional<std::size_t> initialSongRow, bool markDirty)
 {
     normalizeMidiOnlyDocument(document);
     auto* runtime = new (std::nothrow) Runtime(document,
         plugin.sampleRate, &plugin.patternLaunch, &plugin.visualNoteHits,
         &plugin.midiStepClock);
-    if (!runtime || !runtime->valid) {
+    if (!runtime || !runtime->valid
+        || (initialSongRow && (!runtime->songEnabled
+            || *initialSongRow >= runtime->songPatternIndices.size()))) {
         delete runtime;
         return false;
     }
+    if (initialSongRow) runtime->initialSongRow = *initialSongRow;
     plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(plugin.documentMutex);
@@ -984,6 +1128,34 @@ bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
     else if (plugin.host && plugin.host->request_process)
         plugin.host->request_process(plugin.host);
     return true;
+}
+
+bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
+    PatternVariationLaunch quantization, bool markDirty)
+{
+    return queueRuntimeDocument(plugin, std::move(document), quantization,
+        std::nullopt, markDirty);
+}
+
+bool queueSongDocument(Plugin& plugin, ProjectDocument document,
+    std::size_t row, SongLaunchQuantization quantization)
+{
+    PatternVariationLaunch boundary = PatternVariationLaunch::NextSongRow;
+    switch (quantization) {
+    case SongLaunchQuantization::NextTick:
+        boundary = PatternVariationLaunch::NextTick;
+        break;
+    case SongLaunchQuantization::NextBeat:
+        boundary = PatternVariationLaunch::NextBeat;
+        break;
+    case SongLaunchQuantization::NextPatternCycle:
+        boundary = PatternVariationLaunch::NextPatternCycle;
+        break;
+    case SongLaunchQuantization::NextSongRow:
+        break;
+    }
+    return queueRuntimeDocument(plugin, std::move(document), boundary,
+        row, false);
 }
 
 void publishDocument(Plugin& plugin, ProjectDocument document,
@@ -1274,6 +1446,10 @@ void handleAudition(Plugin& plugin, Runtime& runtime,
 
 void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
 {
+    const uint64_t nextTick = runtime.scheduler.tickIndex();
+    plugin.visualTimingWarpTick.store(
+        nextTick == 0u ? 0u : nextTick - 1u,
+        std::memory_order_relaxed);
     const auto trackCount = std::min<std::size_t>(
         runtime.scheduler.pattern().tracks.size(),
         s3g::tracker::kMaximumTrackCount);
@@ -1299,14 +1475,25 @@ void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
         }
     }
     const auto songRow = runtime.songEnabled
+            && !runtime.songPlanner.isFinished()
         ? runtime.songPlanner.currentRowIndex() : std::nullopt;
     plugin.visualSongRow.store(songRow
             ? static_cast<int32_t>(*songRow) : -1,
         std::memory_order_relaxed);
-    const auto pendingSongRow = runtime.songEnabled
+    auto pendingSongRow = runtime.songEnabled
         ? runtime.songPlanner.pendingRowIndex() : std::nullopt;
-    const auto pendingSongQuantization = runtime.songEnabled
+    auto pendingSongQuantization = runtime.songEnabled
         ? runtime.songPlanner.pendingQuantization() : std::nullopt;
+    const uint32_t runtimeLaunchRevision = plugin.patternLaunch.revision.load(
+        std::memory_order_acquire);
+    if (runtime.songEnabled && runtimeLaunchRevision != 0u
+        && plugin.queuedVariationRuntime.load(std::memory_order_acquire)) {
+        pendingSongRow = static_cast<std::size_t>(
+            plugin.songLaunchRow.load(std::memory_order_relaxed));
+        pendingSongQuantization = static_cast<SongLaunchQuantization>(
+            std::min<uint32_t>(plugin.songLaunchQuantization.load(
+                std::memory_order_relaxed), 3u));
+    }
     plugin.visualPendingSongRow.store(pendingSongRow
             ? static_cast<int32_t>(*pendingSongRow) : -1,
         std::memory_order_relaxed);
@@ -1399,6 +1586,15 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
     } else {
         const bool restartRequested = plugin.requestRestart.exchange(false,
             std::memory_order_acq_rel);
+        const uint32_t loopRevision = plugin.songLoopRevision.load(
+            std::memory_order_acquire);
+        if (loopRevision != plugin.consumedSongLoopRevision) {
+            plugin.consumedSongLoopRevision = loopRevision;
+            if (runtime->songEnabled) {
+                runtime->songPlanner.setLoopEnabled(
+                    plugin.songLoopEnabled.load(std::memory_order_relaxed));
+            }
+        }
         const uint32_t launchRevision = plugin.songLaunchRevision.load(
             std::memory_order_acquire);
         if (launchRevision != plugin.consumedSongLaunchRevision) {
@@ -1531,11 +1727,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 @property(nonatomic, copy) NSArray<NSTextField*>* detachedPlaceholders;
 @property(nonatomic, copy) NSArray<S3GTrackerActionButton*>* pageButtons;
 @property(nonatomic, strong) S3GTrackerActionButton* popoutButton;
+@property(nonatomic, strong) NSTextField* hostBpmDisplay;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSWindow*>*
     detachedWindows;
 @property(nonatomic) S3GTrackerClapPage selectedPage;
 - (instancetype)initWithPages:(NSArray<NSView*>*)pages;
 - (void)showPage:(S3GTrackerClapPage)page;
+- (void)setHostBpm:(double)bpm;
 - (BOOL)pageCanDetach:(S3GTrackerClapPage)page;
 - (void)toggleDetachPage:(S3GTrackerClapPage)page;
 - (void)reattachPage:(S3GTrackerClapPage)page closeWindow:(BOOL)closeWindow;
@@ -1612,12 +1810,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
     self.popoutButton = [[S3GTrackerActionButton alloc]
         initWithFrame:NSZeroRect];
+    self.popoutButton.s3gUsesSuiteStyle = YES;
     self.popoutButton.title = @"↗";
     self.popoutButton.font = S3GTrackerFont(13.0, NSFontWeightMedium);
     self.popoutButton.target = self;
     self.popoutButton.action = @selector(popoutPressed:);
     self.popoutButton.accessibilityLabel = @"Detach selected tool page";
     [self addSubview:self.popoutButton];
+    self.hostBpmDisplay = [NSTextField labelWithString:@"HOST BPM  —"];
+    self.hostBpmDisplay.font = s3g::clap_gui::uiFont(10.0);
+    self.hostBpmDisplay.textColor = s3g::clap_gui::color(0x929292);
+    self.hostBpmDisplay.alignment = NSTextAlignmentRight;
+    self.hostBpmDisplay.lineBreakMode = NSLineBreakByClipping;
+    self.hostBpmDisplay.accessibilityElement = YES;
+    self.hostBpmDisplay.accessibilityRole = NSAccessibilityStaticTextRole;
+    self.hostBpmDisplay.accessibilityLabel =
+        @"Host tempo in beats per minute";
+    [self addSubview:self.hostBpmDisplay];
     [self showPage:S3GTrackerClapPageTracker];
     return self;
 }
@@ -1642,6 +1851,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.popoutButton.frame = NSMakeRect(
         std::max<CGFloat>(12.0, NSWidth(self.bounds) - 48.0),
         6.0, 36.0, navigationHeight - 12.0);
+    const CGFloat bpmRightInset = self.popoutButton.hidden ? 18.0 : 62.0;
+    const CGFloat bpmWidth = 138.0;
+    self.hostBpmDisplay.frame = NSMakeRect(std::max<CGFloat>(
+            x + 8.0, NSWidth(self.bounds) - bpmRightInset - bpmWidth),
+        10.0, bpmWidth, 20.0);
     const NSRect contentFrame = NSMakeRect(0.0, navigationHeight,
         NSWidth(self.bounds), std::max<CGFloat>(0.0,
             NSHeight(self.bounds) - navigationHeight));
@@ -1654,6 +1868,16 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         if (!self.detachedWindows[@(index)])
             self.pageViews[index].frame = host.bounds;
     }
+}
+
+- (void)setHostBpm:(double)bpm
+{
+    NSString* text = bpm > 0.0
+        ? [NSString stringWithFormat:@"HOST BPM  %.2f", bpm]
+        : @"HOST BPM  —";
+    if (![self.hostBpmDisplay.stringValue isEqualToString:text])
+        self.hostBpmDisplay.stringValue = text;
+    self.hostBpmDisplay.accessibilityValue = text;
 }
 
 - (void)pagePressed:(NSButton*)sender
@@ -1713,17 +1937,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         NSAppearanceNameDarkAqua];
     window.releasedWhenClosed = NO;
     window.tabbingMode = NSWindowTabbingModeDisallowed;
-    window.hidesOnDeactivate = YES;
-    window.collectionBehavior |=
-        NSWindowCollectionBehaviorFullScreenAuxiliary;
+    // Lifetime is owned by the page view, but the pop-out must not be an
+    // NSWindow child of REAPER's plug-in window. Child windows are tied to
+    // their parent's display Space and disappear when moved to another
+    // monitor. This matches the independent pop-out rule used by No Input
+    // Mixer while detachFromPlugin still handles the CLAP GUI lifecycle.
+    window.hidesOnDeactivate = NO;
     window.delegate = self;
     content.frame = window.contentView.bounds;
     content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     window.contentView = content;
     self.detachedWindows[key] = window;
     self.detachedPlaceholders[static_cast<NSUInteger>(index)].hidden = NO;
-    if (parentWindow)
-        [parentWindow addChildWindow:window ordered:NSWindowAbove];
     window.level = parentWindow
         ? std::max<NSInteger>(
             NSFloatingWindowLevel, parentWindow.level + 1)
@@ -1816,6 +2041,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     uint64_t _reportedStepRecordDrops;
     MidiLiveRecordState _midiLiveRecordState;
     bool _runtimePublicationPending;
+    bool _deferredSongRuntimePublication;
+    bool _transportWasPlaying;
+    bool _playingSongArrangementValid;
+    SongArrangement _playingSongArrangement;
 }
 @property(nonatomic, strong) S3GTrackerWorkspaceController* workspace;
 @property(nonatomic, strong) S3GTrackerSongWindowController* songWindow;
@@ -1838,6 +2067,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)disarmMidiStepRecording;
 - (void)updateMidiMonitorChannel;
 - (void)commitProjectWithoutRuntime:(BOOL)dirty;
+- (void)commitSongProjectEdit:(BOOL)dirty;
 - (void)presentSaveSongProject;
 - (void)presentLoadSongProject;
 - (BOOL)installPatternVariation:
@@ -1860,6 +2090,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _visualFramePrimed = false;
     _reportedStepRecordDrops = 0u;
     _runtimePublicationPending = false;
+    _deferredSongRuntimePublication = false;
+    _transportWasPlaying = false;
+    _playingSongArrangementValid = false;
     _state->midiStepInputAvailable = true;
     _state->midiStepRecordMode = MidiStepRecordMode::Off;
     _plugin->midiStepRecordMode.store(
@@ -2017,6 +2250,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [self.workspace consolePageView],
         self.helpWindow.window.contentView,
     ]];
+    [self.pageView setHostBpm:_state->hostBpm];
 
     self.songWindow.changeHandler = ^(NSString* summary) {
         S3GTrackerClapCoordinator* owner = weakSelf;
@@ -2025,26 +2259,70 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [owner.workspace appendConsoleMessage:text
                 ? std::string("Song: ") + text : "Song updated"
             error:NO];
-        [owner commitProject:YES];
+        [owner commitSongProjectEdit:YES];
     };
     self.songWindow.modeChangeHandler = ^(BOOL enabled) {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner) return;
         owner->_state->songPlaybackEnabled = enabled;
+        // Mode is an escape/control switch, not an arrangement edit. Apply it
+        // immediately even while REAPER runs so Song mode can always be
+        // disabled after the final non-looping row.
+        owner->_deferredSongRuntimePublication = false;
         [owner commitProject:YES];
+    };
+    self.songWindow.loopChangeHandler = ^(BOOL enabled) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        const bool transportRunning = reaperTransportIsPlaying(
+            *owner->_plugin).value_or(owner->_state->playing);
+        if (transportRunning) {
+            // LOOP SONG is a live transport decision. Persist it without
+            // replacing the active runtime, then send the new value through
+            // the audio-thread mailbox so the current row keeps its phase.
+            [owner commitProjectWithoutRuntime:YES];
+            if (owner->_playingSongArrangementValid)
+                owner->_playingSongArrangement.loop = enabled;
+        } else {
+            owner->_deferredSongRuntimePublication = false;
+            [owner commitProject:YES];
+        }
+        owner->_plugin->songLoopEnabled.store(enabled,
+            std::memory_order_relaxed);
+        owner->_plugin->songLoopRevision.fetch_add(1u,
+            std::memory_order_release);
+        if (owner->_plugin->host && owner->_plugin->host->request_process)
+            owner->_plugin->host->request_process(owner->_plugin->host);
+        owner->_state->status = enabled
+            ? "Song loop enabled" : "Song loop disabled";
+        [owner.workspace appendConsoleMessage:owner->_state->status error:NO];
+        [owner.workspace refreshPlaybackDisplay];
     };
     self.songWindow.launchHandler = ^(NSUInteger row, NSInteger quantization) {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner) return;
         owner->_plugin->songLaunchRow.store(static_cast<uint32_t>(row),
             std::memory_order_relaxed);
+        const auto launch = static_cast<SongLaunchQuantization>(
+            std::clamp<NSInteger>(quantization, 0, 3));
         owner->_plugin->songLaunchQuantization.store(
-            static_cast<uint32_t>(std::clamp<NSInteger>(quantization, 0, 3)),
-            std::memory_order_relaxed);
-        owner->_plugin->songLaunchRevision.fetch_add(1u,
-            std::memory_order_release);
-        if (owner->_plugin->host && owner->_plugin->host->request_process)
-            owner->_plugin->host->request_process(owner->_plugin->host);
+            static_cast<uint32_t>(launch), std::memory_order_relaxed);
+        [owner cancelRuntimePublication];
+        ProjectDocument document = [owner currentDocument];
+        if (!queueSongDocument(*owner->_plugin, document,
+                static_cast<std::size_t>(row), launch)) {
+            owner->_state->status =
+                "Could not prepare the selected Song row for queueing";
+            [owner.workspace appendConsoleMessage:owner->_state->status
+                error:YES];
+            [owner.workspace reloadModel];
+            return;
+        }
+        owner->_deferredSongRuntimePublication = false;
+        owner->_playingSongArrangement = document.song;
+        owner->_playingSongArrangementValid = true;
+        [owner.songWindow setPendingPlaybackRow:row valid:YES
+            quantization:static_cast<NSInteger>(launch)];
         owner->_state->status = "Queued quantized Song row "
             + std::to_string(row + 1u);
         [owner.workspace appendConsoleMessage:owner->_state->status error:NO];
@@ -2194,14 +2472,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 {
     NSMutableArray<NSString*>* ids = [[NSMutableArray alloc] init];
     NSMutableArray<NSString*>* names = [[NSMutableArray alloc] init];
+    NSMutableArray<NSNumber*>* patternLengths = [[NSMutableArray alloc] init];
+    NSMutableArray<NSNumber*>* patternLaneCounts =
+        [[NSMutableArray alloc] init];
     for (const auto& entry : _state->patternBank.entries) {
         [ids addObject:[NSString stringWithUTF8String:entry.id.c_str()]];
         [names addObject:[NSString stringWithUTF8String:
             entry.pattern.name.c_str()]];
+        [patternLengths addObject:@(longestPatternColumnLength(
+            entry.pattern))];
+        [patternLaneCounts addObject:@(entry.pattern.tracks.size())];
     }
     NSString* active = [NSString stringWithUTF8String:
         _state->patternBank.activePatternId.c_str()];
     [self.songWindow setAvailablePatternIds:ids patternNames:names
+        patternLengths:patternLengths patternLaneCounts:patternLaneCounts
         activePatternId:active];
 }
 
@@ -2328,10 +2613,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->songPlaybackEnabled = midiDocument.session.songPlaybackEnabled;
     _state->status = "REAPER host sync • MIDI output ready";
     [self refreshSongWarps];
+    // Song rows validate their mute masks against the pattern catalog. Load
+    // that catalog first so rows referencing anything other than the initial
+    // A01 placeholder do not have their saved lane mutes pruned as unknown.
+    [self refreshSongPatterns];
     [self.songWindow setSongArrangement:midiDocument.song];
     self.songWindow.playbackEnabled = _state->songPlaybackEnabled;
     [self updateMidiMonitorChannel];
-    [self refreshSongPatterns];
     [self.workspace reloadModel];
 }
 
@@ -2414,6 +2702,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->selectedRackInstrument = document.instrumentRack.selectedNode;
     (void)loadActivePatternIntoSession(*_state);
     [self updateMidiMonitorChannel];
+    [self refreshSongPatterns];
     if (dirty) [self recordHistory:document];
     storeDocumentWithoutRuntime(*_plugin, std::move(document), dirty);
     [self scheduleRuntimePublication];
@@ -2429,9 +2718,34 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->selectedRackInstrument = document.instrumentRack.selectedNode;
     (void)loadActivePatternIntoSession(*_state);
     [self updateMidiMonitorChannel];
+    [self refreshSongPatterns];
     if (dirty) [self recordHistory:document];
     storeDocumentWithoutRuntime(*_plugin, std::move(document), dirty);
     [self.workspace reloadModel];
+}
+
+- (void)commitSongProjectEdit:(BOOL)dirty
+{
+    if (!_state) return;
+    const bool transportRunning = reaperTransportIsPlaying(*_plugin)
+        .value_or(_state->playing);
+    if (!transportRunning) {
+        _deferredSongRuntimePublication = false;
+        [self commitProject:dirty];
+        return;
+    }
+
+    // Replacing the DSP runtime while Song playback is active would arm a new
+    // planner at row zero. Keep the editor responsive, store every edit and
+    // publish the final arrangement once the host transport has stopped.
+    [self cancelRuntimePublication];
+    // An edit after SELECT QUEUE supersedes the prepared handoff so the
+    // button can rebuild it from the latest Song state on the next press.
+    cancelQueuedVariation(*_plugin);
+    [self commitProjectWithoutRuntime:dirty];
+    _deferredSongRuntimePublication = true;
+    _state->status =
+        "Song edit saved • playback update waits for REAPER stop";
 }
 
 - (void)scheduleRuntimePublication
@@ -2568,6 +2882,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [alert addButtonWithTitle:@"Cancel"];
     NSTextField* field = [[NSTextField alloc]
         initWithFrame:NSMakeRect(0.0, 0.0, 320.0, 24.0)];
+    S3GTrackerStyleTextField(field, NSTextAlignmentLeft);
     field.stringValue = [NSString stringWithUTF8String:entry->pattern.name.c_str()];
     alert.accessoryView = field;
     if ([alert runModal] != NSAlertFirstButtonReturn) return;
@@ -2613,6 +2928,26 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const auto words = commandWords(command);
     if (!words.empty()) {
         const auto& verb = words.front();
+        if ((verb == "phase" || verb == "ph") && words.size() == 3u
+            && words[1u] == "reset" && words[2u] == "bank") {
+            if (!syncSessionToActivePattern(*_state)) {
+                [self.workspace appendConsoleMessage:
+                    "Could not synchronize the active pattern before resetting phases"
+                    error:YES];
+                return;
+            }
+            bool changed = false;
+            for (auto& entry : _state->patternBank.entries)
+                changed |= resetPatternPhases(entry.pattern);
+            (void)loadActivePatternIntoSession(*_state);
+            _state->status = changed
+                ? "Reset every column phase in the pattern bank"
+                : "Every pattern-bank column phase is already zero";
+            [self.workspace appendConsoleMessage:_state->status error:NO];
+            if (changed) [self commitProject:YES];
+            else [self.workspace reloadModel];
+            return;
+        }
         const bool variationCommand = verb == "variation" || verb == "vary";
         const bool quantizedVariationLaunch = variationCommand
             && words.size() >= 4u
@@ -2750,11 +3085,33 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     (void)timer;
     drainRetiredRuntimes(*_plugin);
     [self consumeMidiStepCaptures];
-    const bool playing = _plugin->visualPlaying.load(
-        std::memory_order_relaxed);
+    const bool playing = reaperTransportIsPlaying(*_plugin).value_or(
+        _plugin->visualPlaying.load(std::memory_order_relaxed));
+    if (!playing)
+        _plugin->visualPlaying.store(false, std::memory_order_relaxed);
+    if (playing && !_transportWasPlaying) {
+        _playingSongArrangement = [self.songWindow songArrangement];
+        _playingSongArrangementValid = true;
+    } else if (!playing && _transportWasPlaying) {
+        _playingSongArrangementValid = false;
+        if (_deferredSongRuntimePublication) {
+            _deferredSongRuntimePublication = false;
+            if (publishStoredDocumentRuntime(*_plugin)) {
+                [self.workspace appendConsoleMessage:
+                    "Song edits applied for the next transport start"
+                    error:NO];
+            } else {
+                [self.workspace appendConsoleMessage:
+                    "Could not prepare the edited Song playback runtime"
+                    error:YES];
+            }
+        }
+    }
+    _transportWasPlaying = playing;
     _state->playing = playing;
     _state->hostBpm = _plugin->visualHostTempo.load(
         std::memory_order_relaxed);
+    [self.pageView setHostBpm:_state->hostBpm];
     _state->paused = false;
     VisualPlaybackFrame captured;
     for (std::size_t track = 0u;
@@ -2791,6 +3148,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     captured.pendingSongQuantization
         = _plugin->visualPendingSongQuantization.load(
             std::memory_order_relaxed);
+    captured.timingWarpTick = _plugin->visualTimingWarpTick.load(
+        std::memory_order_relaxed);
     if (playing && _visualFramePrimed) {
         _state->notePlayheads = _pendingVisualFrame.notePlayheads;
         _state->noteHits = _pendingVisualFrame.noteHits;
@@ -2802,8 +3161,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         _state->velocityPlayheads = _pendingVisualFrame.velocityPlayheads;
         _state->fxActionPlayheads = _pendingVisualFrame.fxActionPlayheads;
         _state->fxValuePlayheads = _pendingVisualFrame.fxValuePlayheads;
+        _state->timingWarpPlaybackTick
+            = _pendingVisualFrame.timingWarpTick;
     } else {
         _state->noteHits.fill(false);
+        if (!playing) _state->timingWarpPlaybackTick = 0u;
     }
     const int32_t songRow = playing && _visualFramePrimed
         ? _pendingVisualFrame.songRow : captured.songRow;
@@ -2821,13 +3183,37 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         ? static_cast<std::size_t>(songRow) : 0u;
     _state->songPlaybackPatternId.clear();
     _state->songPlaybackMutedTracks = 0u;
+    _state->timingWarpPlaybackActive = false;
+    _state->timingWarpPlaybackFromSong = false;
+    _state->timingWarpPlaybackCycleTicks = 1u;
+    _state->timingWarpPlaybackStack.clear();
+    if (_state->playing && !_state->songPlaybackEnabled
+        && _state->session.transport.timingWarpEnabled) {
+        _state->timingWarpPlaybackActive = true;
+        _state->timingWarpPlaybackCycleTicks = std::max<uint32_t>(1u,
+            _state->session.transport.warpCycleTicks);
+        _state->timingWarpPlaybackStack
+            = _state->session.transport.timingWarp;
+    }
     if (_state->songPlaybackActive) {
-        const auto arrangement = [self.songWindow songArrangement];
+        const auto arrangement = _playingSongArrangementValid
+            ? _playingSongArrangement : [self.songWindow songArrangement];
         if (_state->songPlaybackRow < arrangement.rows.size()) {
             const auto& activeRow = arrangement.rows[
                 _state->songPlaybackRow];
             _state->songPlaybackPatternId = activeRow.patternId;
             _state->songPlaybackMutedTracks = activeRow.mutedTracks;
+            if (activeRow.timingWarpLibraryIndex) {
+                const auto* entry = _state->session.warpLibrary.entry(
+                    *activeRow.timingWarpLibraryIndex);
+                if (entry) {
+                    _state->timingWarpPlaybackActive = true;
+                    _state->timingWarpPlaybackFromSong = true;
+                    _state->timingWarpPlaybackCycleTicks
+                        = std::max<uint32_t>(1u, entry->cycleTicks);
+                    _state->timingWarpPlaybackStack = entry->stack;
+                }
+            }
         }
     }
     [self.songWindow setPlaybackRow:_state->songPlaybackRow
@@ -2837,7 +3223,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         valid:pendingSongRow >= 0
         quantization:static_cast<NSInteger>(std::min<uint32_t>(
             pendingSongQuantization, 3u))];
-    [self.songWindow setPlaybackLocked:_state->songPlaybackActive];
+    // Queueing follows the REAPER clock, not the presence of an active Song
+    // row. This keeps it available for looping/non-looping playback and after
+    // a non-looping arrangement reaches its end while REAPER keeps running.
+    [self.songWindow setPlaybackLocked:_state->playing];
     _state->sentEventCount = _plugin->sentEvents.load(
         std::memory_order_relaxed);
     _state->droppedEventCount = _plugin->droppedEvents.load(

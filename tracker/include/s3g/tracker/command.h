@@ -42,6 +42,19 @@ struct TrackerSession {
     std::size_t selectedField = 0u;
 };
 
+// The lane anchor is the authoritative pitch used whenever a rhythm-editing
+// operation creates a NOTE hit. Legacy sessions that predate an explicit
+// anchor fall back to the first authored note, then to Tracker's deterministic
+// lane defaults.
+uint8_t laneDefaultNote(const TrackerSession& session,
+    std::size_t lane) noexcept;
+
+// Set a lane's anchor and replace every explicit NOTE pitch in that lane.
+// NOTE symbols (rest, retrigger, hold, and kill) are deliberately preserved.
+// Returns true when either the stored anchor or an authored pitch changed.
+bool setLaneDefaultNote(TrackerSession& session, std::size_t lane,
+    uint8_t note, std::size_t* replacedNoteCount = nullptr);
+
 enum class CommandEffect : uint32_t {
     None = 0u,
     PatternChanged = 1u << 0u,
@@ -66,6 +79,9 @@ enum class PatternVariationLaunch : uint8_t {
     NextTick,
     NextBeat,
     NextPatternCycle,
+    // Runtime handoffs for Song's SELECT QUEUE use the same lock-free
+    // boundary mailbox, with the Song planner supplying the row boundary.
+    NextSongRow,
 };
 
 bool patternVariationLaunchIsDue(PatternVariationLaunch launch,

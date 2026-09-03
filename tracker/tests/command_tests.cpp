@@ -69,6 +69,7 @@ std::string sessionFingerprint(const TrackerSession& session)
            << session.transport.bpm << '|' << session.transport.ticksPerBeat
            << '|' << session.transport.swing << '|'
            << session.transport.warpCycleTicks << '|'
+           << session.transport.timingWarpEnabled << '|'
            << session.gateMilliseconds << '|' << session.selectedTrack << '|'
            << session.selectedRow << '|' << session.selectedPage << '|'
            << session.selectedField << '|' << session.commandRngState << '|'
@@ -317,9 +318,9 @@ void testHelpCatalogCoversAuditedParserVerbs()
     const std::set<std::string> auditedParserVerbs {
         "@", "?", "accent", "actions", "alias", "aliases", "autoalias", "delay", "demo",
         "density", "dir", "drumscene", "e", "eu", "euclid", "euclidfx", "f1", "f2", "fill", "flam", "fx", "fx1", "fx2", "fxv", "fxvalue", "generate", "generateseed",
-        "gate", "help", "hit", "hold", "kill", "kit",
+        "defaultnote", "gate", "help", "hit", "hold", "kill", "kit",
         "ghost", "humanize", "len", "length", "loop", "mask", "micro", "microtime", "mode", "mute", "name", "note",
-        "mutate", "panic", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
+        "mutate", "panic", "pitch", "play", "rand", "random", "randomize", "repeat", "rest", "reverse", "rot",
         "repeatprev", "retrigger", "retrig", "rotate", "rotatehits", "scene", "select", "sieve", "skip", "solo", "spd", "speed", "stop", "stutter",
         "stride", "swing", "thin", "undo", "redo", "unmute", "vel", "velseq", "vol", "warp", "phase", "ph", "prob", "probability", "ratchet", "offset", "interp", "interpolation",
         "variation", "vary", "warps", "track",
@@ -405,7 +406,13 @@ void testTempoAndSwing()
 void testTimingWarpCommands()
 {
     auto session = makeSession();
-    auto result = CommandEngine::execute(session, "warp cycle 5");
+    check(!session.transport.timingWarpEnabled,
+        "Pattern timing warps should begin bypassed");
+    auto result = CommandEngine::execute(session, "warp on");
+    check(result.ok && result.hasEffect(CommandEffect::TransportChanged)
+            && session.transport.timingWarpEnabled,
+        "warp on should explicitly enable Pattern timing-warp playback");
+    result = CommandEngine::execute(session, "warp cycle 5");
     check(result.ok && result.hasEffect(CommandEffect::TransportChanged)
             && session.transport.warpCycleTicks == 5u,
         "warp cycle should set the normalized timing period");
@@ -429,7 +436,9 @@ void testTimingWarpCommands()
             && second->pulses == 2u && second->steps == 5u,
         "warp eu should append a serial Euclidean timing transform");
     result = CommandEngine::execute(session, "warps");
-    check(result.ok && result.message.find("2 transforms")
+    check(result.ok && result.message.find("Warp mode ON")
+                != std::string::npos
+            && result.message.find("2 transforms")
                 != std::string::npos
             && result.message.find("eu 2/5") != std::string::npos,
         "warps should expose a readable compiled-stack summary");
@@ -442,12 +451,18 @@ void testTimingWarpCommands()
             && saved && saved->name == "Broken Quintuplet"
             && saved->cycleTicks == 5u && saved->stack.size() == 2u,
         "warp save should store the complete composition at a stable index");
-    check(CommandEngine::execute(session, "warp clear").ok
+    check(CommandEngine::execute(session, "warp off").ok
+            && !session.transport.timingWarpEnabled
+            && CommandEngine::execute(session, "warp clear").ok
             && CommandEngine::execute(session, "warp cycle 4").ok
             && CommandEngine::execute(session, "warp load 7").ok
+            && !session.transport.timingWarpEnabled
             && session.transport.warpCycleTicks == 5u
             && session.transport.timingWarp.size() == 2u,
-        "warp load should recall stack and cycle as one composition");
+        "warp load should recall a composition without silently enabling playback");
+    check(CommandEngine::execute(session, "warp toggle").ok
+            && session.transport.timingWarpEnabled,
+        "warp toggle should expose the bypass switch to live code");
     result = CommandEngine::execute(session, "wrp 1 2 7");
     check(!result.ok,
         "warp recall must not remain available as a lane-local command");
@@ -464,6 +479,12 @@ void testTimingWarpCommands()
         "a reversed console segment must be rejected transactionally");
     checkRejectedWithoutMutation(session, "warp eu 6 5",
         "a timing Euclid with too many pulses must be rejected");
+    checkRejectedWithoutMutation(session, "warp step 65",
+        "live step quantize should stop at 64 musically legible divisions");
+    checkRejectedWithoutMutation(session, "warp eu 1 65",
+        "live Euclidean quantize should stop at 64 steps");
+    checkRejectedWithoutMutation(session, "warp exp 2 repeat 17",
+        "live warp repetition should stop at 16 subdivisions");
 
     result = CommandEngine::execute(session, "warp clear");
     check(result.ok && session.transport.timingWarp.empty(),
@@ -473,7 +494,7 @@ void testTimingWarpCommands()
         "the live command path must reject an unsafe long continuous cycle");
     check(CommandEngine::execute(session, "warp cycle 16").ok
             && CommandEngine::execute(session, "warp exp 64").ok
-            && CommandEngine::execute(session, "warp step 1").ok,
+            && CommandEngine::execute(session, "warp step 64 repeat 16").ok,
         "extreme continuous and stepped warps should fit the bounded live cycle");
     checkRejectedWithoutMutation(session, "warp cycle 17",
         "the eight-lane live event budget must cap every warp kind");
@@ -538,6 +559,18 @@ void testSelectionAndLaneControls()
     result = CommandEngine::execute(session, "ph 1 vel 2");
     check(result.ok && session.pattern.tracks[0].velocityColumn.phase == 2u,
         "phase should address each polymetric column independently");
+    session.pattern.tracks[0].instrumentColumn.phase = 2u;
+    session.pattern.tracks[0].fxPairs[0u].actionColumn.phase = 3u;
+    session.pattern.tracks[0].fxPairs[1u].valueColumn.phase = 4u;
+    result = CommandEngine::execute(session, "phase reset");
+    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
+            && session.pattern.tracks[0].noteColumn.phase == 0u
+            && session.pattern.tracks[0].instrumentColumn.phase == 0u
+            && session.pattern.tracks[0].velocityColumn.phase == 0u
+            && session.pattern.tracks[0].fxPairs[0u].actionColumn.phase == 0u
+            && session.pattern.tracks[0].fxPairs[1u].valueColumn.phase == 0u,
+        "phase reset should clear every independent column offset in the current pattern");
+    session.pattern.tracks[0].noteColumn.phase = 11u;
     result = CommandEngine::execute(session, "len 1 4");
     check(result.ok && session.pattern.tracks[0].noteColumn.phase == 3u,
         "shrinking a column should keep its authored phase normalized");
@@ -621,6 +654,32 @@ void testNoteAndVelocityEdits()
             && session.pattern.tracks[0].notes[1].state
                 == NoteCellState::Hold,
         "hold should provide a concise cell edit");
+
+    auto& pitchLane = session.pattern.tracks[1];
+    pitchLane.notes = { NoteCell::withNote(41u), NoteCell::rest(),
+        NoteCell::retriggerPrevious(), NoteCell::withNote(77u) };
+    result = CommandEngine::execute(session, "pitch 2 F#3");
+    check(result.ok && result.hasEffect(CommandEffect::PatternChanged)
+            && laneDefaultNote(session, 1u) == 54u
+            && session.pattern.tracks[1].notes[0u].note == 54u
+            && session.pattern.tracks[1].notes[1u].state
+                == NoteCellState::Rest
+            && session.pattern.tracks[1].notes[2u].state
+                == NoteCellState::RetriggerPrevious
+            && session.pattern.tracks[1].notes[3u].note == 54u
+            && result.message.find("MIDI 54") != std::string::npos,
+        "pitch should persist the anchor, replace explicit pitches, and preserve symbols");
+    check(CommandEngine::execute(session, "defaultnote 2 36").ok
+            && laneDefaultNote(session, 1u) == 36u
+            && session.pattern.tracks[1].notes[3u].note == 36u,
+        "defaultnote should be an exact numeric alias for pitch");
+    const auto invalidPitch = sessionFingerprint(session);
+    check(!CommandEngine::execute(session, "pitch 2 H3").ok
+            && sessionFingerprint(session) == invalidPitch,
+        "an invalid lane pitch must leave the complete session unchanged");
+    check(CommandEngine::execute(session, "hit 1 2 C-4").ok
+            && session.pattern.tracks[0].notes[1u].note == 60u,
+        "hit should accept the same readable pitch names as pitch");
 }
 
 void testMasks()
@@ -1123,6 +1182,9 @@ void testPatternVariationRequests()
                 14u, 14u, 4u, 16u)
             && patternVariationLaunchIsDue(
                 PatternVariationLaunch::NextPatternCycle,
+                15u, 15u, 4u, 16u)
+            && patternVariationLaunchIsDue(
+                PatternVariationLaunch::NextSongRow,
                 15u, 15u, 4u, 16u),
         "variation launch quantization should become due only at its requested logical boundary");
 

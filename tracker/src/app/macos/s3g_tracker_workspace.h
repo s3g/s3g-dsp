@@ -38,6 +38,15 @@ struct TrackerViewState {
         fxActionPlayheads {};
     std::array<std::array<std::size_t, kFxPairCount>, kVisibleLaneCount>
         fxValuePlayheads {};
+    // View-only timing-warp playback state. The GUI receives the last audible
+    // logical tick plus the exact curve currently owned by Pattern or Song
+    // playback, so the Warps diagram can follow the sounding sequence without
+    // reading mutable scheduler state from the audio thread.
+    uint64_t timingWarpPlaybackTick = 0u;
+    uint32_t timingWarpPlaybackCycleTicks = 1u;
+    TimingWarpStack timingWarpPlaybackStack;
+    bool timingWarpPlaybackActive = false;
+    bool timingWarpPlaybackFromSong = false;
     bool playing = false;
     bool paused = false;
     bool songPlaybackEnabled = false;

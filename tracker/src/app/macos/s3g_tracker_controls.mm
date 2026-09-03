@@ -1,5 +1,10 @@
 #import "s3g_tracker_controls.h"
 
+#include "s3g_gui_layout.h"
+#define S3G_COCOA_GUI_DRAWING_ONLY 1
+#include "s3g_cocoa_gui.h"
+#undef S3G_COCOA_GUI_DRAWING_ONLY
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -125,6 +130,13 @@ NSFont* S3GTrackerFont(CGFloat size, NSFontWeight weight)
         weight:weight];
 }
 
+static CGFloat suiteTextOriginY(NSRect rect, NSString* text,
+    NSDictionary* attributes)
+{
+    const NSSize size = [(text ? text : @"") sizeWithAttributes:attributes];
+    return std::floor(NSMidY(rect) - size.height * 0.5);
+}
+
 void S3GTrackerStyleTextField(NSTextField* field, NSTextAlignment alignment)
 {
     if (!field) return;
@@ -145,6 +157,13 @@ void S3GTrackerStyleTextField(NSTextField* field, NSTextAlignment alignment)
         S3GTrackerThemeRole::Border).CGColor;
     field.layer.borderWidth = 1.0;
     field.layer.cornerRadius = 0.0;
+}
+
+void S3GTrackerStyleSuiteTextField(NSTextField* field,
+    NSTextAlignment alignment)
+{
+    S3GTrackerStyleTextField(field, alignment);
+    field.font = s3g::clap_gui::uiFont(10.0);
 }
 
 void S3GTrackerStyleTextEditor(NSTextField* field)
@@ -262,30 +281,87 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
         && self.state == NSControlStateValueOn;
     const bool success = self.tag == 3
         && self.state == NSControlStateValueOn;
+    const bool binaryStatus =
+        [self.identifier isEqualToString:@"binary-status"];
+    const bool binaryOn = binaryStatus
+        && self.state == NSControlStateValueOn;
+    const bool binaryOff = binaryStatus && !binaryOn;
+    const bool positive = success || binaryOn;
     const bool danger = self.tag == 2
         || [self.identifier isEqualToString:@"danger"];
     const bool pressed = self.highlighted;
     const NSRect rect = NSInsetRect(self.bounds, 0.5, 0.5);
+    if (self.s3gUsesSuiteStyle) {
+        NSColor* fill = pressed
+            ? s3g::clap_gui::color(0x414141)
+            : positive ? S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Success, 0.20)
+            : live ? S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Live, 0.16)
+            : binaryOff ? S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Danger, 0.16)
+            : self.s3gHovered ? s3g::clap_gui::color(0x343434)
+                              : s3g::clap_gui::color(0x292929);
+        NSColor* border = !enabled
+            ? s3g::clap_gui::color(0x383838)
+            : danger ? S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Danger, 0.75)
+            : positive ? S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Success)
+            : live ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live)
+            : binaryOff ? S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Danger)
+                                : s3g::clap_gui::color(0x777777);
+        [fill setFill];
+        NSRectFill(rect);
+        [border setStroke];
+        NSFrameRect(rect);
+        NSDictionary* attrs = enabled
+            ? self.s3gUsesNeutralTitle ? s3g::clap_gui::softValueAttrs()
+            : (positive || live || binaryOff) ? @{
+                NSForegroundColorAttributeName:
+                    S3GTrackerThemeColor(positive
+                        ? S3GTrackerThemeRole::Success
+                        : binaryOff ? S3GTrackerThemeRole::Danger
+                                    : S3GTrackerThemeRole::Live),
+                NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
+            } : s3g::clap_gui::softValueAttrs()
+            : @{
+                NSForegroundColorAttributeName: s3g::clap_gui::color(
+                    0x656565),
+                NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
+            };
+        NSString* title = self.title.uppercaseString;
+        const NSSize size = [title sizeWithAttributes:attrs];
+        [title drawAtPoint:NSMakePoint(
+            NSMidX(rect) - size.width * 0.5,
+            NSMidY(rect) - size.height * 0.5 - 0.5)
+            withAttributes:attrs];
+        return;
+    }
     NSColor* fill = pressed
         ? S3GTrackerThemeColor(S3GTrackerThemeRole::Selection)
-        : success ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success, 0.16)
+        : positive ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success, 0.16)
         : live ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live, 0.16)
+        : binaryOff ? S3GTrackerThemeColor(S3GTrackerThemeRole::Danger, 0.16)
         : self.s3gHovered
             ? S3GTrackerThemeColor(S3GTrackerThemeRole::ControlHover)
             : S3GTrackerThemeColor(S3GTrackerThemeRole::Control);
     NSColor* border = !enabled
         ? S3GTrackerThemeColor(S3GTrackerThemeRole::Grid)
-        : success ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success)
+        : positive ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success)
         : live ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live)
+        : binaryOff ? S3GTrackerThemeColor(S3GTrackerThemeRole::Danger)
         : danger ? S3GTrackerThemeColor(S3GTrackerThemeRole::Danger, 0.75)
         : S3GTrackerThemeColor(S3GTrackerThemeRole::BorderStrong);
     [fill setFill];
     NSRectFill(rect);
     [border setStroke];
     NSFrameRect(rect);
-    if (live || success) {
-        [S3GTrackerThemeColor(success ? S3GTrackerThemeRole::Success
-                                     : S3GTrackerThemeRole::Live) setFill];
+    if (live || positive || binaryOff) {
+        [S3GTrackerThemeColor(positive ? S3GTrackerThemeRole::Success
+            : binaryOff ? S3GTrackerThemeRole::Danger
+                        : S3GTrackerThemeRole::Live) setFill];
         NSRectFill(NSMakeRect(rect.origin.x + 1.0,
             NSMaxY(rect) - 3.0, rect.size.width - 2.0, 2.0));
     }
@@ -295,7 +371,8 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     }
     NSDictionary* attributes = @{
         NSForegroundColorAttributeName: enabled
-            ? success ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success)
+            ? positive ? S3GTrackerThemeColor(S3GTrackerThemeRole::Success)
+            : binaryOff ? S3GTrackerThemeColor(S3GTrackerThemeRole::Danger)
             : live ? S3GTrackerThemeColor(S3GTrackerThemeRole::Live)
                    : S3GTrackerThemeColor(S3GTrackerThemeRole::TextSecondary)
             : S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint),
@@ -308,6 +385,205 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
         rect.origin.x + (rect.size.width - size.width) * 0.5,
         rect.origin.y + (rect.size.height - size.height) * 0.5 - 0.5)
         withAttributes:attributes];
+}
+
+@end
+
+@interface S3GTrackerSwingSlider ()
+@property(nonatomic) BOOL s3gDragging;
+@property(nonatomic) BOOL s3gGestureChanged;
+@property(nonatomic) CGFloat s3gScrollAccumulator;
+@end
+
+@implementation S3GTrackerSwingSlider
+
+- (NSRect)sliderTrackRect
+{
+    const CGFloat labelWidth = self.s3gLabel.length > 0u ? 20.0 : 0.0;
+    const CGFloat valueWidth = 34.0;
+    return NSMakeRect(2.0 + labelWidth, 9.0,
+        std::max<CGFloat>(18.0,
+            NSWidth(self.bounds) - valueWidth - labelWidth - 8.0), 9.0);
+}
+
+- (NSRect)valueTextRect
+{
+    const CGFloat valueWidth = 34.0;
+    return NSMakeRect(NSWidth(self.bounds) - valueWidth, 6.0,
+        valueWidth - 2.0, 15.0);
+}
+
+- (void)setS3gLabel:(NSString*)s3gLabel
+{
+    _s3gLabel = [s3gLabel copy];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setSwingValue:(double)value hasOverride:(BOOL)hasOverride
+{
+    _s3gSwingValue = std::clamp(value, 50.0, 75.0);
+    _s3gHasOverride = hasOverride;
+    self.stringValue = hasOverride
+        ? [NSString stringWithFormat:@"%.1f", _s3gSwingValue] : @"—";
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const NSRect track = [self sliderTrackRect];
+    const NSRect value = [self valueTextRect];
+    const CGFloat normalized = static_cast<CGFloat>(std::clamp(
+        (self.s3gSwingValue - 50.0) / 25.0, 0.0, 1.0));
+    auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* valueAttrs = s3g::clap_gui::softValueAttrs();
+    if (!self.enabled) {
+        style.fill = s3g::clap_gui::color(0x333333);
+        style.text = s3g::clap_gui::color(0x656565);
+        valueAttrs = s3g::clap_gui::textAttrs(
+            s3g::clap_gui::color(0x656565), 10.0);
+    } else if (!self.s3gHasOverride) {
+        style.fill = S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint);
+    }
+    NSString* label = self.s3gLabel != nil ? self.s3gLabel : @"";
+    s3g::clap_gui::drawSlider(label, self.stringValue,
+        normalized, NSMinY(track) - 1.0,
+        s3g::clap_gui::softLabelAttrs(), valueAttrs, style,
+        -100.0, 2.0, NSMinX(value), NSWidth(track), NSWidth(value));
+}
+
+- (void)resetCursorRects
+{
+    if (!self.enabled) return;
+    [self addCursorRect:[self sliderTrackRect]
+        cursor:NSCursor.resizeLeftRightCursor];
+}
+
+- (BOOL)acceptsFirstResponder { return NO; }
+
+- (BOOL)acceptsFirstMouse:(NSEvent*)event
+{
+    (void)event;
+    return self.enabled;
+}
+
+- (NSView*)hitTest:(NSPoint)point
+{
+    (void)point;
+    return self.enabled && !self.hidden ? self : nil;
+}
+
+- (void)publishValue:(double)value
+{
+    const double rounded = std::round(std::clamp(value, 50.0, 75.0)
+        * 10.0) / 10.0;
+    if (self.s3gHasOverride && rounded == self.s3gSwingValue) return;
+    [self setSwingValue:rounded hasOverride:YES];
+    [self sendAction:self.action to:self.target];
+}
+
+- (void)stageGestureValue:(double)value
+{
+    const double rounded = std::round(std::clamp(value, 50.0, 75.0)
+        * 10.0) / 10.0;
+    if (self.s3gHasOverride && rounded == self.s3gSwingValue) return;
+    [self setSwingValue:rounded hasOverride:YES];
+    self.s3gGestureChanged = YES;
+}
+
+- (void)resetToBase
+{
+    if (!self.enabled || !self.s3gHasOverride) return;
+    [self setSwingValue:self.s3gSwingValue hasOverride:NO];
+    [self sendAction:self.action to:self.target];
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    if (!self.enabled || !self.window) return;
+    if ((event.modifierFlags & NSEventModifierFlagOption) != 0u) {
+        self.s3gDragging = NO;
+        [self resetToBase];
+        return;
+    }
+    const NSRect track = [self sliderTrackRect];
+    const NSPoint initial = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    self.s3gDragging = NSPointInRect(initial,
+        NSInsetRect(track, -2.0, -7.0));
+    if (!self.s3gDragging) return;
+    self.s3gGestureChanged = NO;
+    const double normalized = std::clamp(static_cast<double>(
+        (initial.x - NSMinX(track)) / std::max<CGFloat>(1.0,
+            NSWidth(track))), 0.0, 1.0);
+    [self stageGestureValue:50.0 + normalized * 25.0];
+}
+
+- (void)mouseDragged:(NSEvent*)event
+{
+    if (!self.enabled || !self.s3gDragging) return;
+    const NSRect track = [self sliderTrackRect];
+    const NSPoint point = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    const double normalized = std::clamp(static_cast<double>(
+        (point.x - NSMinX(track)) / std::max<CGFloat>(1.0,
+            NSWidth(track))), 0.0, 1.0);
+    [self stageGestureValue:50.0 + normalized * 25.0];
+}
+
+- (void)mouseUp:(NSEvent*)event
+{
+    if (self.s3gDragging) [self mouseDragged:event];
+    const BOOL changed = self.s3gDragging && self.s3gGestureChanged;
+    self.s3gDragging = NO;
+    self.s3gGestureChanged = NO;
+    if (changed) [self sendAction:self.action to:self.target];
+}
+
+- (void)rightMouseDown:(NSEvent*)event
+{
+    (void)event;
+    self.s3gDragging = NO;
+    [self resetToBase];
+}
+
+- (BOOL)adjustByScrollDelta:(CGFloat)delta
+    modifierFlags:(NSEventModifierFlags)modifierFlags
+{
+    if (!self.enabled || delta == 0.0) return NO;
+    const double increment = (modifierFlags
+        & NSEventModifierFlagOption) != 0u ? 0.1 : 0.5;
+    const double direction = delta > 0.0 ? 1.0 : -1.0;
+    const double next = std::clamp(std::round((self.s3gSwingValue
+        + direction * increment) * 10.0) / 10.0, 50.0, 75.0);
+    if (self.s3gHasOverride && next == self.s3gSwingValue) return NO;
+    [self publishValue:next];
+    return YES;
+}
+
+- (void)scrollWheel:(NSEvent*)event
+{
+    if (!self.enabled) {
+        [super scrollWheel:event];
+        return;
+    }
+    CGFloat delta = event.scrollingDeltaY;
+    if (event.hasPreciseScrollingDeltas) {
+        self.s3gScrollAccumulator += delta;
+        const CGFloat steps = std::trunc(self.s3gScrollAccumulator);
+        self.s3gScrollAccumulator -= steps;
+        delta = steps;
+    } else {
+        self.s3gScrollAccumulator = 0.0;
+        delta = delta > 0.0 ? 1.0 : delta < 0.0 ? -1.0 : 0.0;
+    }
+    if (delta == 0.0) return;
+    const NSInteger steps = static_cast<NSInteger>(std::abs(delta));
+    const CGFloat direction = delta > 0.0 ? 1.0 : -1.0;
+    for (NSInteger step = 0; step < steps; ++step) {
+        if (![self adjustByScrollDelta:direction
+                modifierFlags:event.modifierFlags]) break;
+    }
 }
 
 @end
@@ -390,9 +666,165 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
 
 @end
 
+@class S3GTrackerPopupButton;
+
+@interface S3GTrackerCanvasMenuOverlay : NSView
+@property(nonatomic, weak) S3GTrackerPopupButton* popup;
+@property(nonatomic) NSRect menuRect;
+@property(nonatomic) NSUInteger columns;
+@property(nonatomic) NSInteger hoverIndex;
+@property(nonatomic, strong) NSTrackingArea* s3gTrackingArea;
+@end
+
 @interface S3GTrackerPopupButton ()
 @property(nonatomic, strong) NSTrackingArea* s3gTrackingArea;
 @property(nonatomic) BOOL s3gHovered;
+@property(nonatomic, strong) S3GTrackerCanvasMenuOverlay* s3gMenuOverlay;
+- (void)s3gOpenCanvasMenu;
+- (void)s3gDismissCanvasMenu;
+@end
+
+@implementation S3GTrackerCanvasMenuOverlay
+
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)acceptsFirstMouse:(NSEvent*)event
+{
+    (void)event;
+    return YES;
+}
+
+- (void)updateTrackingAreas
+{
+    [super updateTrackingAreas];
+    if (self.s3gTrackingArea)
+        [self removeTrackingArea:self.s3gTrackingArea];
+    self.s3gTrackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds
+        options:(NSTrackingMouseMoved | NSTrackingActiveInKeyWindow
+            | NSTrackingInVisibleRect)
+        owner:self userInfo:nil];
+    [self addTrackingArea:self.s3gTrackingArea];
+}
+
+- (NSInteger)itemIndexAtPoint:(NSPoint)point
+{
+    const auto count = static_cast<uint32_t>(
+        std::max<NSInteger>(0, self.popup.numberOfItems));
+    return s3g::clap_gui::multiColumnDropdownHitIndex(point,
+        self.menuRect, 21.0, count,
+        static_cast<uint32_t>(std::max<NSUInteger>(1u, self.columns)));
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    const NSPoint point = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    const NSInteger hover = [self itemIndexAtPoint:point];
+    if (hover == self.hoverIndex) return;
+    self.hoverIndex = hover;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)mouseDown:(NSEvent*)event
+{
+    const NSPoint point = [self convertPoint:event.locationInWindow
+        fromView:nil];
+    const NSInteger index = [self itemIndexAtPoint:point];
+    S3GTrackerPopupButton* popup = self.popup;
+    if (index < 0 || index >= popup.numberOfItems) {
+        [popup s3gDismissCanvasMenu];
+        return;
+    }
+    NSMenuItem* item = [popup itemAtIndex:index];
+    if (!item.enabled || item.separatorItem) return;
+    [popup selectItemAtIndex:index];
+    [popup s3gDismissCanvasMenu];
+    [popup sendAction:popup.action to:popup.target];
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+    if (event.keyCode == 53u) {
+        [self.popup s3gDismissCanvasMenu];
+        return;
+    }
+    [super keyDown:event];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    S3GTrackerPopupButton* popup = self.popup;
+    const uint32_t count = static_cast<uint32_t>(
+        std::max<NSInteger>(0, popup.numberOfItems));
+    if (!popup || count == 0u) return;
+    const auto style = s3g::clap_gui::softTextStyle();
+    NSDictionary* attrs = s3g::clap_gui::softValueAttrs();
+    const uint32_t columns = static_cast<uint32_t>(
+        std::max<NSUInteger>(1u, self.columns));
+    const uint32_t rows = s3g::clap_gui::multiColumnMenuRows(
+        count, columns);
+    const CGFloat columnWidth = NSWidth(self.menuRect)
+        / static_cast<CGFloat>(columns);
+
+    [s3g::clap_gui::color(0x080808) setFill];
+    NSRectFill(NSInsetRect(self.menuRect, -2.0, -2.0));
+    [style.strip setFill];
+    NSRectFill(self.menuRect);
+    [style.grid setStroke];
+    NSFrameRect(self.menuRect);
+    for (uint32_t index = 0u; index < count; ++index) {
+        const uint32_t column = index / rows;
+        const uint32_t rowIndex = index % rows;
+        const NSRect row = NSMakeRect(
+            NSMinX(self.menuRect) + columnWidth * column,
+            NSMinY(self.menuRect) + 21.0 * rowIndex,
+            columnWidth, 21.0);
+        const bool selected = static_cast<NSInteger>(index)
+            == popup.indexOfSelectedItem;
+        const bool hovered = static_cast<NSInteger>(index)
+            == self.hoverIndex;
+        if (hovered) {
+            [s3g::clap_gui::color(0x343434) setFill];
+            NSRectFill(NSInsetRect(row, 1.0, 1.0));
+        } else if (selected) {
+            [s3g::clap_gui::color(0x292929) setFill];
+            NSRectFill(NSInsetRect(row, 1.0, 1.0));
+        } else if ((rowIndex % 2u) == 1u) {
+            [s3g::clap_gui::color(0x181818) setFill];
+            NSRectFill(NSInsetRect(row, 1.0, 1.0));
+        }
+        if (selected || hovered) {
+            [style.fill setFill];
+            NSRectFill(NSMakeRect(NSMinX(row) + 2.0,
+                NSMinY(row) + 2.0, 3.0, NSHeight(row) - 4.0));
+        }
+        if (rowIndex > 0u) {
+            [s3g::clap_gui::color(0x3a3a3a) setStroke];
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(
+                NSMinX(row), NSMinY(row)) toPoint:NSMakePoint(
+                NSMaxX(row), NSMinY(row))];
+        }
+        if (column > 0u && rowIndex == 0u) {
+            [s3g::clap_gui::color(0x565656) setStroke];
+            [NSBezierPath strokeLineFromPoint:NSMakePoint(
+                NSMinX(row), NSMinY(self.menuRect))
+                toPoint:NSMakePoint(NSMinX(row), NSMaxY(self.menuRect))];
+        }
+        NSMenuItem* item = [popup itemAtIndex:index];
+        NSString* title = s3g::clap_gui::menuDisplayText(item.title,
+            std::max<CGFloat>(0.0, NSWidth(row) - 18.0), attrs);
+        NSDictionary* itemAttrs = item.enabled ? attrs : @{
+            NSForegroundColorAttributeName: S3GTrackerThemeColor(
+                S3GTrackerThemeRole::TextFaint),
+            NSFontAttributeName: s3g::clap_gui::uiFont(10.0),
+        };
+        [title drawAtPoint:NSMakePoint(NSMinX(row) + 9.0,
+            suiteTextOriginY(row, title, itemAttrs))
+            withAttributes:itemAttrs];
+    }
+}
+
 @end
 
 @implementation S3GTrackerPopupButton
@@ -409,12 +841,95 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     return self;
 }
 
+- (BOOL)acceptsFirstMouse:(NSEvent*)event
+{
+    (void)event;
+    return self.enabled;
+}
+
+- (void)setS3gUsesCanvasMenu:(BOOL)usesCanvasMenu
+{
+    if (_s3gUsesCanvasMenu == usesCanvasMenu) return;
+    _s3gUsesCanvasMenu = usesCanvasMenu;
+    self.font = usesCanvasMenu ? s3g::clap_gui::uiFont(10.0)
+                              : S3GTrackerFont(10.0);
+    self.menu.font = self.font;
+    if (!usesCanvasMenu) [self s3gDismissCanvasMenu];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)s3gOpenCanvasMenu
+{
+    if (!self.s3gUsesCanvasMenu || !self.enabled
+        || self.numberOfItems <= 0 || !self.window.contentView) return;
+    if (self.s3gMenuOverlay) {
+        [self s3gDismissCanvasMenu];
+        return;
+    }
+    NSView* root = self.window.contentView;
+    const NSRect source = [root convertRect:self.bounds fromView:self];
+    constexpr CGFloat itemHeight = 21.0;
+    constexpr CGFloat outerInset = 8.0;
+    const CGFloat availableHeight = std::max<CGFloat>(itemHeight,
+        NSHeight(root.bounds) - outerInset * 2.0);
+    const NSUInteger maximumRows = std::max<NSUInteger>(1u,
+        static_cast<NSUInteger>(std::floor(
+            availableHeight / itemHeight)));
+    const NSUInteger count = static_cast<NSUInteger>(self.numberOfItems);
+    const NSUInteger columns = std::max<NSUInteger>(1u,
+        (count + maximumRows - 1u) / maximumRows);
+    const NSUInteger rows = (count + columns - 1u) / columns;
+    const CGFloat menuHeight = itemHeight * static_cast<CGFloat>(rows);
+    const CGFloat naturalColumnWidth = std::max<CGFloat>(
+        NSWidth(source), 132.0);
+    const CGFloat menuWidth = std::min<CGFloat>(
+        naturalColumnWidth * static_cast<CGFloat>(columns),
+        std::max<CGFloat>(naturalColumnWidth,
+            NSWidth(root.bounds) - outerInset * 2.0));
+    CGFloat x = std::clamp(NSMinX(source), outerInset,
+        std::max<CGFloat>(outerInset,
+            NSWidth(root.bounds) - menuWidth - outerInset));
+    CGFloat y = NSMaxY(source) + 2.0;
+    if (y + menuHeight > NSHeight(root.bounds) - outerInset)
+        y = NSMinY(source) - menuHeight - 2.0;
+    y = std::clamp(y, outerInset,
+        std::max<CGFloat>(outerInset,
+            NSHeight(root.bounds) - menuHeight - outerInset));
+
+    S3GTrackerCanvasMenuOverlay* overlay =
+        [[S3GTrackerCanvasMenuOverlay alloc] initWithFrame:root.bounds];
+    overlay.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    overlay.popup = self;
+    overlay.menuRect = NSMakeRect(x, y, menuWidth, menuHeight);
+    overlay.columns = columns;
+    overlay.hoverIndex = -1;
+    self.s3gMenuOverlay = overlay;
+    [root addSubview:overlay positioned:NSWindowAbove relativeTo:nil];
+    [self.window makeFirstResponder:overlay];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)s3gDismissCanvasMenu
+{
+    if (!self.s3gMenuOverlay) return;
+    [self.s3gMenuOverlay removeFromSuperview];
+    self.s3gMenuOverlay = nil;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)viewWillMoveToWindow:(NSWindow*)newWindow
+{
+    if (!newWindow) [self s3gDismissCanvasMenu];
+    [super viewWillMoveToWindow:newWindow];
+}
+
 - (NSSize)intrinsicContentSize
 {
     NSString* title = self.titleOfSelectedItem;
     if (!title) title = @"—";
     const NSSize titleSize = [title sizeWithAttributes:@{
-        NSFontAttributeName: S3GTrackerFont(10.0),
+        NSFontAttributeName: self.s3gUsesCanvasMenu
+            ? s3g::clap_gui::uiFont(10.0) : S3GTrackerFont(10.0),
     }];
     return NSMakeSize(std::ceil(titleSize.width) + 34.0, 26.0);
 }
@@ -450,6 +965,40 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     (void)dirtyRect;
     const bool enabled = self.enabled;
     const NSRect rect = NSInsetRect(self.bounds, 0.5, 0.5);
+    if (self.s3gUsesCanvasMenu) {
+        const auto style = s3g::clap_gui::softTextStyle();
+        NSDictionary* attrs = s3g::clap_gui::softValueAttrs();
+        [(self.s3gMenuOverlay ? s3g::clap_gui::color(0x292929)
+                              : style.strip) setFill];
+        NSRectFill(rect);
+        [(enabled ? style.grid
+                  : S3GTrackerThemeColor(S3GTrackerThemeRole::Grid))
+            setStroke];
+        NSFrameRect(rect);
+        [(enabled ? style.fill
+                  : S3GTrackerThemeColor(S3GTrackerThemeRole::Grid))
+            setFill];
+        NSRectFill(NSMakeRect(NSMinX(rect) + 1.0,
+            NSMinY(rect) + 1.0, 2.0, NSHeight(rect) - 2.0));
+        NSString* value = self.titleOfSelectedItem;
+        NSString* title = s3g::clap_gui::menuDisplayText(
+            value ? value : @"—", std::max<CGFloat>(0.0,
+                NSWidth(rect) - 28.0), attrs);
+        [title drawAtPoint:NSMakePoint(NSMinX(rect) + 8.0,
+            suiteTextOriginY(rect, title, attrs)) withAttributes:attrs];
+        const CGFloat arrowX = NSMaxX(rect) - 9.0;
+        const CGFloat arrowY = NSMidY(rect);
+        NSBezierPath* arrow = [NSBezierPath bezierPath];
+        [arrow moveToPoint:NSMakePoint(arrowX - 3.5, arrowY + 1.5)];
+        [arrow lineToPoint:NSMakePoint(arrowX + 3.5, arrowY + 1.5)];
+        [arrow lineToPoint:NSMakePoint(arrowX, arrowY - 2.5)];
+        [arrow closePath];
+        [(enabled ? style.text
+                  : S3GTrackerThemeColor(S3GTrackerThemeRole::Grid))
+            setFill];
+        [arrow fill];
+        return;
+    }
     [S3GTrackerThemeColor(!enabled ? S3GTrackerThemeRole::Panel
         : self.highlighted ? S3GTrackerThemeRole::Selection
         : self.s3gHovered ? S3GTrackerThemeRole::ControlHover
@@ -500,6 +1049,60 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     [arrow fill];
 }
 
+- (void)mouseDown:(NSEvent*)event
+{
+    if (!self.s3gUsesCanvasMenu) {
+        [super mouseDown:event];
+        return;
+    }
+    (void)event;
+    [self s3gOpenCanvasMenu];
+}
+
+@end
+
+@implementation S3GTrackerSuiteLabel
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+    self = [super initWithFrame:frameRect];
+    if (self) {
+        self.editable = NO;
+        self.selectable = NO;
+        self.bezeled = NO;
+        self.bordered = NO;
+        self.drawsBackground = NO;
+        self.focusRingType = NSFocusRingTypeNone;
+        self.font = s3g::clap_gui::uiFont(10.0);
+        self.textColor = s3g::clap_gui::color(0xa8a8a8);
+        self.lineBreakMode = NSLineBreakByClipping;
+        self.usesSingleLineMode = YES;
+    }
+    return self;
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    NSFont* font = self.font ? self.font : s3g::clap_gui::uiFont(10.0);
+    NSColor* color = self.textColor
+        ? self.textColor : s3g::clap_gui::color(0xa8a8a8);
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc]
+        init];
+    paragraph.alignment = self.alignment;
+    paragraph.lineBreakMode = self.lineBreakMode;
+    NSDictionary* attributes = @{
+        NSForegroundColorAttributeName: color,
+        NSFontAttributeName: font,
+        NSParagraphStyleAttributeName: paragraph,
+    };
+    NSString* text = self.stringValue ? self.stringValue : @"";
+    NSRect textRect = self.bounds;
+    textRect.origin.y = suiteTextOriginY(self.bounds, text, attributes);
+    textRect.size.height = [text sizeWithAttributes:attributes].height;
+    [text drawInRect:textRect withAttributes:attributes];
+}
+
 @end
 
 @implementation S3GTrackerFocusReleaseView
@@ -541,6 +1144,42 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
     [S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted) setFill];
     NSRectFill(NSMakeRect(0.0, NSMaxY(self.bounds) - 2.0,
         NSWidth(self.bounds), 2.0));
+}
+
+@end
+
+@implementation S3GTrackerToolboxView
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)setToolboxTitle:(NSString*)toolboxTitle
+{
+    _toolboxTitle = [toolboxTitle copy];
+    [self setNeedsDisplay:YES];
+}
+
+- (void)setToolboxIndex:(NSInteger)toolboxIndex
+{
+    _toolboxIndex = toolboxIndex;
+    [self setNeedsDisplay:YES];
+}
+
+- (void)drawRect:(NSRect)dirtyRect
+{
+    (void)dirtyRect;
+    const CGFloat headerHeight = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.headerHeight);
+    const auto style = s3g::clap_gui::softTextStyle();
+    NSString* title = self.toolboxTitle != nil ? self.toolboxTitle : @"";
+    if (self.toolboxIndex > 0) {
+        title = [NSString stringWithFormat:@"%ld  %@",
+            static_cast<long>(self.toolboxIndex), title];
+    }
+    s3g::clap_gui::drawPanelFrame(0.0, 0.0,
+        NSWidth(self.bounds), NSHeight(self.bounds), style);
+    s3g::clap_gui::drawPanelHeader(title.uppercaseString, true,
+        0.0, 0.0, NSWidth(self.bounds), headerHeight,
+        s3g::clap_gui::softLabelAttrs(), style);
 }
 
 @end

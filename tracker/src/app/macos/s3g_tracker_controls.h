@@ -49,15 +49,32 @@ NSFont* S3GTrackerFont(CGFloat size = 10.0,
 
 void S3GTrackerStyleTextField(NSTextField* field,
     NSTextAlignment alignment = NSTextAlignmentRight);
+void S3GTrackerStyleSuiteTextField(NSTextField* field,
+    NSTextAlignment alignment = NSTextAlignmentRight);
 void S3GTrackerStyleTextEditor(NSTextField* field);
 void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName);
 
 // Tags follow the existing s3g-dsp standalone convention:
 // 0 = ordinary, 1 = live/toggled, 2 = danger.
 @interface S3GTrackerActionButton : NSButton
+@property(nonatomic) BOOL s3gUsesSuiteStyle;
+// Keep semantic state in the button fill and border while drawing every
+// enabled title at the same suite-gray level. Compact action banks use this
+// when colored titles would make neighboring labels appear mismatched.
+@property(nonatomic) BOOL s3gUsesNeutralTitle;
 @end
 
 @interface S3GTrackerPopupButton : NSPopUpButton
+// Song and Warps opt into the suite-wide in-canvas dropdown contract. The
+// Tracker grid leaves this disabled so its established native tracker menu
+// behavior remains unchanged.
+@property(nonatomic) BOOL s3gUsesCanvasMenu;
+@end
+
+// Labels beside suite controls use the same regular Menlo face and vertical
+// centering as values inside the custom canvas menus. Tracker grid text keeps
+// its separate IBM Plex treatment.
+@interface S3GTrackerSuiteLabel : NSTextField
 @end
 
 // Background containers accept first responder so clicking unused space ends
@@ -84,5 +101,27 @@ void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName);
     modifierFlags:(NSEventModifierFlags)modifierFlags;
 @end
 
+// Shared compact Swing control used by both the Tracker transport and Song
+// rows. It follows the suite's thin-track/value treatment, publishes once on
+// mouse-up, supports wheel adjustment, and can optionally represent an
+// inherited (non-override) value.
+@interface S3GTrackerSwingSlider : NSControl
+@property(nonatomic, copy) NSString* s3gLabel;
+@property(nonatomic) double s3gSwingValue;
+@property(nonatomic) BOOL s3gHasOverride;
+- (void)setSwingValue:(double)value hasOverride:(BOOL)hasOverride;
+- (void)resetToBase;
+- (BOOL)adjustByScrollDelta:(CGFloat)delta
+    modifierFlags:(NSEventModifierFlags)modifierFlags;
+@end
+
 @interface S3GTrackerPanelView : S3GTrackerFocusReleaseView
+@end
+
+// Standard Tracker toolbox container. Its geometry and drawing mirror the
+// shared s3g-dsp 21 px static header contract; callers position it with the
+// family layouts in s3g_gui_layout.h.
+@interface S3GTrackerToolboxView : S3GTrackerFocusReleaseView
+@property(nonatomic, copy) NSString* toolboxTitle;
+@property(nonatomic) NSInteger toolboxIndex;
 @end

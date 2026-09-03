@@ -17,6 +17,14 @@ constexpr std::size_t kMaximumSongRows = 4096u;
 constexpr uint32_t kMaximumSongDurationTicks = 1u << 20u;
 constexpr uint32_t kMaximumSongRepeats = 65535u;
 constexpr uint32_t kMaximumSongTicksPerBeat = 96u;
+constexpr uint32_t kMaximumSongPatternRows = 256u;
+
+// Zero-based half-open range. The UI presents this as one-based inclusive
+// LOOP IN–OUT text, so {4, 8} is shown as 5–8 and plays rows 5 through 8.
+struct SongPatternLoop {
+    uint32_t startRow = 0u;
+    uint32_t endRow = 16u;
+};
 
 // One arrangement row launches a named project pattern for durationTicks,
 // then continues that pattern's phase for any additional repeats. A following
@@ -27,6 +35,8 @@ constexpr uint32_t kMaximumSongTicksPerBeat = 96u;
 // 32-lane bit positions as the tracker core. timingWarpLibraryIndex selects
 // one saved project warp for the entire Song row; absence explicitly means
 // identity timing (OFF), rather than inheriting the preceding row's warp.
+// patternLoop is likewise row-local: absence means OFF. When present it sets
+// the pattern rows played during this Song row without changing durationTicks.
 struct SongRow {
     std::string patternId;
     uint32_t durationTicks = 16u;
@@ -35,6 +45,7 @@ struct SongRow {
     std::optional<double> swing;
     uint32_t mutedTracks = 0u;
     std::optional<std::size_t> timingWarpLibraryIndex;
+    std::optional<SongPatternLoop> patternLoop;
 };
 
 struct SongArrangement {
@@ -57,6 +68,7 @@ enum class SongValidationCode : uint8_t {
     InvalidBpm,
     InvalidSwing,
     InvalidTimingWarpLibraryIndex,
+    InvalidPatternLoop,
 };
 
 constexpr std::size_t kNoSongRow = static_cast<std::size_t>(-1);
@@ -138,6 +150,12 @@ public:
 
     bool isRunning() const noexcept { return running_; }
     bool isFinished() const noexcept { return finished_; }
+    // Runtime-safe transport control. This changes only the final-row routing
+    // decision and preserves the current row, tick, repeat, and pending queue.
+    void setLoopEnabled(bool enabled) noexcept
+    {
+        arrangement_.loop = enabled;
+    }
 
     SongQueueResult queueRow(std::size_t rowIndex,
         SongLaunchQuantization quantization) noexcept;

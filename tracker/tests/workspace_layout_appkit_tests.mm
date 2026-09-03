@@ -4,10 +4,13 @@
 #import "s3g_tracker_workspace.h"
 
 #include "s3g_tracker_workspace_layout.h"
+#include "s3g_gui_layout.h"
 
 #include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/geometry_edit.h"
+#include "s3g/tracker/command.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -20,19 +23,48 @@
 - (NSMenu*)sequenceActionMenuForTrack:(std::size_t)track
     row:(std::size_t)row field:(std::size_t)field;
 - (void)sequenceActionSelected:(NSMenuItem*)sender;
+- (NSString*)displayedPatternId;
+- (NSUInteger)displayedLaneCount;
+- (NSUInteger)displayedMutedLaneCount;
+- (NSUInteger)displayedVisibleRowCount;
+- (NSInteger)displayedNoteNumberAtLane:(std::size_t)lane
+    row:(std::size_t)row;
 - (void)beginGridSelectionAtTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row page:(std::size_t)page;
 - (void)extendGridSelectionToTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row;
 - (NSPoint)geometryCenter;
+- (CGFloat)ringRadiusForLane:(std::size_t)lane;
 - (BOOL)selectedRingLane:(std::size_t*)lane radius:(CGFloat*)radius;
 - (NSPoint)geometryPointAtRadius:(CGFloat)radius angle:(CGFloat)angle;
-- (NSPoint)phaseHandlePoint;
+- (NSRect)canvasRect;
+- (NSRect)laneCyclePanelRect;
+- (NSRect)viewPanelRect;
+- (NSRect)laneMenuBoxRect;
+- (NSRect)directionMenuBoxRect;
+- (NSRect)viewMenuBoxRect;
+- (NSRect)linkVelocityLengthToggleRect;
+- (NSRect)lengthSliderTrack;
+- (NSRect)defaultNoteSliderTrack;
+- (NSRect)rotateSliderTrack;
+- (NSRect)densitySliderTrack;
+- (BOOL)handleToolboxClickAtPoint:(NSPoint)point;
+- (void)syncToolboxControls;
+- (void)openGeometryMenu:(NSInteger)menu;
+- (void)applyGeometryMenuSelection:(NSInteger)index;
+- (NSUInteger)allStepsUnderlayNodeCount;
+- (NSPoint)rotateHandlePoint;
 - (NSPoint)densityHandlePoint;
 - (BOOL)revealBeadAtPoint:(NSPoint)point;
+- (void)selectLane:(std::size_t)lane;
+- (BOOL)beginSliderGestureAtPoint:(NSPoint)point;
+- (void)updateSliderGestureAtPoint:(NSPoint)point;
 - (BOOL)beginShapeGestureAtPoint:(NSPoint)point;
 - (void)updateShapeGestureAtPoint:(NSPoint)point;
 - (void)finishGeometryGesture;
+- (NSRect)sliderTrackRect;
+- (NSRect)valueTextRect;
+- (NSRect)pinnedRectForGridRect:(NSRect)gridRect;
 @end
 
 namespace {
@@ -95,8 +127,11 @@ void seedTracks(s3g::tracker::app::TrackerViewState& state)
     s3g::tracker::PatternBankEntry second = *first;
     second.id = "A02";
     second.pattern.name = "BREAK";
+    second.pattern.visibleRows = 32u;
     second.pattern.tracks.resize(2u);
     second.pattern.tracks[0u].name = "SONG LEAD";
+    second.pattern.tracks[0u].notes[0u]
+        = s3g::tracker::NoteCell::withNote(67u);
     second.pattern.tracks[1u].noteColumn.muted = true;
     state.patternBank.entries.push_back(std::move(second));
 }
@@ -165,12 +200,24 @@ int main()
             "real workspace window should reach its 760-point minimum width");
 
         NSScrollView* grid = [controller valueForKey:@"gridScroll"];
+        NSView* trackerGrid = grid.documentView;
+        NSView* rowGutter = [controller valueForKey:@"rowGutterView"];
         check(near(grid.magnification,
                 s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
             "tracker lanes should initialize at the 16-row default zoom");
         NSScrollView* transport = [controller valueForKey:@"transportScroll"];
-        NSScrollView* modules = [controller valueForKey:@"moduleScroll"];
-        NSStackView* moduleControls = [controller valueForKey:@"moduleControls"];
+        S3GTrackerToolboxView* patternPanel = [controller
+            valueForKey:@"patternPanel"];
+        S3GTrackerToolboxView* transportPanel = [controller
+            valueForKey:@"transportPanel"];
+        S3GTrackerToolboxView* inputViewPanel = [controller
+            valueForKey:@"inputViewPanel"];
+        NSStackView* patternPrimaryControls = [controller
+            valueForKey:@"patternPrimaryControls"];
+        NSStackView* transportPrimaryControls = [controller
+            valueForKey:@"transportPrimaryControls"];
+        NSStackView* inputPrimaryControls = [controller
+            valueForKey:@"inputPrimaryControls"];
         NSPopUpButton* patternPopup = [controller valueForKey:@"patternPopup"];
         NSButton* createPatternButton = [controller
             valueForKey:@"createPatternButton"];
@@ -189,15 +236,24 @@ int main()
         NSButton* redoButton = [controller valueForKey:@"redoButton"];
         NSButton* noteDisplayButton = [controller
             valueForKey:@"noteDisplayButton"];
+        NSButton* playButton = [controller valueForKey:@"playButton"];
         NSPopUpButton* midiStepRecordPopup = [controller
             valueForKey:@"midiStepRecordPopup"];
-        NSTextField* bpmDisplay = [controller valueForKey:@"bpmDisplay"];
         NSPopUpButton* tempoScalePopup = [controller
             valueForKey:@"tempoScalePopup"];
-        NSTextField* swingField = [controller valueForKey:@"swingField"];
+        S3GTrackerSwingSlider* swingField = [controller
+            valueForKey:@"swingField"];
+        S3GTrackerPopupButton* gateField = [controller
+            valueForKey:@"gateField"];
+        S3GTrackerPopupButton* loopStartField = [controller
+            valueForKey:@"loopStartField"];
+        S3GTrackerPopupButton* loopEndField = [controller
+            valueForKey:@"loopEndField"];
         NSButton* restartButton = [controller valueForKey:@"restartButton"];
         NSView* envelope = [controller valueForKey:@"envelopeView"];
         NSView* consoleOutput = [controller consolePageView];
+        S3GTrackerToolboxView* consoleToolbox = [controller
+            valueForKey:@"consoleOutputPanel"];
         NSTextField* trackerLiveCode = [controller valueForKey:@"consoleInput"];
         NSTextField* consoleLiveCode = [controller
             valueForKey:@"consolePageInput"];
@@ -205,6 +261,10 @@ int main()
         NSView* warpPage = [controller warpPageView];
         NSPopUpButton* geometryViewMode = [geometryPage
             valueForKey:@"viewModePopup"];
+        NSPopUpButton* geometryLanePopup = [geometryPage
+            valueForKey:@"lanePopup"];
+        NSPopUpButton* geometryDirectionPopup = [geometryPage
+            valueForKey:@"directionPopup"];
         NSArray<NSButton*>* geometryTools = [geometryPage
             valueForKey:@"toolButtons"];
         NSButton* geometryRotateBack = [geometryPage
@@ -219,7 +279,10 @@ int main()
             valueForKey:@"reverseButton"];
         NSButton* geometryReflect = [geometryPage
             valueForKey:@"reflectButton"];
-        NSButton* geometryMorph = [geometryPage valueForKey:@"morphButton"];
+        NSArray<NSButton*>* geometryMorphButtons = [geometryPage
+            valueForKey:@"morphButtons"];
+        NSPopUpButton* geometryMorphTarget = [geometryPage
+            valueForKey:@"morphTargetPopup"];
         NSButton* geometryReveal = [geometryPage valueForKey:@"revealButton"];
 
         check(near(NSWidth(grid.frame), NSWidth(root.bounds)),
@@ -230,13 +293,28 @@ int main()
                 && consoleOutput != geometryPage
                 && geometryPage != warpPage,
             "console, geometry, and warp modules should expose distinct pages");
+        [consoleOutput layoutSubtreeIfNeeded];
+        check([consoleToolbox isKindOfClass:
+                    NSClassFromString(@"S3GTrackerToolboxView")]
+                && consoleToolbox.toolboxIndex == 0
+                && [consoleToolbox.toolboxTitle
+                    isEqualToString:@"CONSOLE / LIVE CODE"]
+                && near(NSMinX(consoleToolbox.frame),
+                    s3g::gui_layout::kTrackerPageHorizontalInset)
+                && near(NSHeight(consoleOutput.bounds)
+                        - NSMaxY(consoleToolbox.frame),
+                    s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMinY(consoleToolbox.frame),
+                    s3g::gui_layout::kTrackerPageBottomInset),
+            "Console should use the shared unnumbered toolbox header and page insets");
         check(trackerLiveCode != nil && consoleLiveCode != nil
                 && trackerLiveCode != consoleLiveCode
                 && [trackerLiveCode.accessibilityLabel
                     isEqualToString:@"Live command input"]
                 && [consoleLiveCode.accessibilityLabel
-                    isEqualToString:@"Console live command input"],
-            "Tracker and detachable Console pages should each expose Live Code entry");
+                    isEqualToString:@"Console live command input"]
+                && NSMinX(trackerLiveCode.frame) < 100.0,
+            "Tracker and detachable Console pages should each expose Live Code entry, with the Tracker field using the compact label inset");
         consoleLiveCode.stringValue = @"aliases";
         [consoleLiveCode sendAction:consoleLiveCode.action
             to:consoleLiveCode.target];
@@ -274,19 +352,27 @@ int main()
                 && [geometryTools[3u].title isEqualToString:@"VELOCITY"]
                 && geometryRotateBack && geometryRotateForward
                 && geometryDensityDown && geometryDensityUp
-                && geometryReverse && geometryReflect && geometryMorph
+                && geometryReverse && geometryReflect
+                && geometryMorphButtons.count == 4u
+                && geometryMorphTarget.numberOfItems == 2u
                 && geometryReveal,
-            "Geometry workspace should expose direct tools and the complete inspector operation set");
+            "Geometry workspace should expose direct tools, two morph targets, and four morph amounts");
         const auto phaseBeforeGeometry =
             state.session.pattern.tracks[0u].noteColumn.phase;
         [geometryRotateForward performClick:nil];
+        const BOOL rowRotatedForward =
+            state.session.pattern.tracks[0u].notes[1u].state
+                == s3g::tracker::NoteCellState::Note;
         [geometryRotateBack performClick:nil];
         [geometryReveal performClick:nil];
-        check(state.session.pattern.tracks[0u].noteColumn.phase
+        check(rowRotatedForward
+                && state.session.pattern.tracks[0u].notes[0u].state
+                    == s3g::tracker::NoteCellState::Note
+                && state.session.pattern.tracks[0u].noteColumn.phase
                     == phaseBeforeGeometry
                 && patternChangeRequests == 2
                 && trackerRevealRequests == 1,
-            "Geometry phase controls should use the shared pattern history path and Reveal should bridge to Tracker");
+            "Geometry row rotation should use shared pattern history without changing playback phase, and Reveal should bridge to Tracker");
         patternChangeRequests = 0;
         const auto originalGeometryTrack = state.session.pattern.tracks[0u];
         state.session.selectedTrack = 0u;
@@ -305,26 +391,48 @@ int main()
         check(foundSelectedRing && selectedRingLane == 0u && revealedBead
                 && trackerRevealRequests == 2,
             "double-click bead targeting should reveal its exact Tracker location");
-        const NSPoint phaseHandle = [geometryPage phaseHandlePoint];
-        check(std::hypot(phaseHandle.x - selectedRowBead.x,
-                    phaseHandle.y - selectedRowBead.y) > 11.0,
-            "phase handle should remain clear of note-bead hit targets");
-        const CGFloat phaseRadius = std::hypot(
-            phaseHandle.x - geometryCenter.x,
-            phaseHandle.y - geometryCenter.y);
-        const NSPoint quarterTurn = NSMakePoint(
-            geometryCenter.x + phaseRadius, geometryCenter.y);
-        const BOOL beganPhaseGesture = [geometryPage
-            beginShapeGestureAtPoint:phaseHandle];
-        [geometryPage updateShapeGestureAtPoint:quarterTurn];
-        const BOOL phaseStayedPreviewOnly =
-            state.session.pattern.tracks[0u].noteColumn.phase
-                == phaseBeforeGeometry;
+        const NSRect defaultNoteSlider = [geometryPage
+            defaultNoteSliderTrack];
+        const NSPoint defaultNote64 = NSMakePoint(
+            NSMinX(defaultNoteSlider) + NSWidth(defaultNoteSlider)
+                * 64.0 / 127.0,
+            NSMidY(defaultNoteSlider));
+        const BOOL beganDefaultNoteGesture = [geometryPage
+            beginSliderGestureAtPoint:defaultNote64];
+        const BOOL defaultNoteStayedPreviewOnly =
+            s3g::tracker::laneDefaultNote(state.session, 0u) == 60u;
         [geometryPage finishGeometryGesture];
-        check(beganPhaseGesture && phaseStayedPreviewOnly
-                && state.session.pattern.tracks[0u].noteColumn.phase == 16u
+        check(beganDefaultNoteGesture && defaultNoteStayedPreviewOnly
+                && s3g::tracker::laneDefaultNote(state.session, 0u) == 64u
+                && state.session.pattern.tracks[0u].notes[0u].note == 64u
+                && state.session.pattern.tracks[0u].notes[1u].state
+                    == s3g::tracker::NoteCellState::Rest
                 && patternChangeRequests == 1,
-            "dragging the phase handle should preview without mutation and commit one quarter-turn history change");
+            "Geometry default-note drag should preview, replace explicit pitches, preserve symbols, and commit once");
+        patternChangeRequests = 0;
+        const NSPoint rotateHandle = [geometryPage rotateHandlePoint];
+        check(std::hypot(rotateHandle.x - selectedRowBead.x,
+                    rotateHandle.y - selectedRowBead.y) > 11.0,
+            "rotate handle should remain clear of note-bead hit targets");
+        const CGFloat rotateRadius = std::hypot(
+            rotateHandle.x - geometryCenter.x,
+            rotateHandle.y - geometryCenter.y);
+        const NSPoint quarterTurn = NSMakePoint(
+            geometryCenter.x + rotateRadius, geometryCenter.y);
+        const BOOL beganRotateGesture = [geometryPage
+            beginShapeGestureAtPoint:rotateHandle];
+        [geometryPage updateShapeGestureAtPoint:quarterTurn];
+        const BOOL rotationStayedPreviewOnly =
+            state.session.pattern.tracks[0u].notes[0u].state
+                == s3g::tracker::NoteCellState::Note;
+        [geometryPage finishGeometryGesture];
+        check(beganRotateGesture && rotationStayedPreviewOnly
+                && state.session.pattern.tracks[0u].notes[16u].state
+                    == s3g::tracker::NoteCellState::Note
+                && state.session.pattern.tracks[0u].noteColumn.phase
+                    == phaseBeforeGeometry
+                && patternChangeRequests == 1,
+            "dragging the rotate handle should preview and commit one quarter-turn of authored rows without moving playback phase");
 
         state.session.pattern.tracks[0u] = originalGeometryTrack;
         patternChangeRequests = 0;
@@ -351,8 +459,313 @@ int main()
             "dragging the density handle should ghost sixteen added hits and commit once");
         state.session.pattern.tracks[0u] = originalGeometryTrack;
         patternChangeRequests = 0;
-        check(NSMinY(geometryViewMode.frame) >= 24.0,
-            "Geometry view selector should sit below the title strip");
+        [geometryPage syncToolboxControls];
+        const NSRect geometryCanvas = [geometryPage canvasRect];
+        const NSRect laneCyclePanel = [geometryPage laneCyclePanelRect];
+        const NSRect laneMenuBox = [geometryPage laneMenuBoxRect];
+        const NSRect directionMenuBox = [geometryPage directionMenuBoxRect];
+        check(geometryLanePopup.numberOfItems == 12u
+                && [geometryLanePopup.itemArray[0u].title
+                    isEqualToString:@"01  TRACK 1"]
+                && NSContainsRect(laneCyclePanel,
+                    [geometryPage laneMenuBoxRect])
+                && NSContainsRect(laneCyclePanel,
+                    [geometryPage directionMenuBoxRect])
+                && geometryLanePopup.hidden
+                && geometryDirectionPopup.hidden
+                && geometryViewMode.hidden
+                && near(NSMinX(geometryCanvas), 18.0)
+                && near(NSMinY(geometryCanvas),
+                    s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMinY(laneCyclePanel),
+                    s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMaxY(geometryCanvas),
+                    NSHeight(geometryPage.bounds) - 18.0)
+                && near(NSMinX(laneCyclePanel) - NSMaxX(geometryCanvas),
+                    12.0)
+                && near(NSHeight(laneCyclePanel), 210.0),
+            "Geometry should share the Tracker page top and retain the 12/26 seven-row toolbox contract with custom in-canvas menus");
+        const CGFloat expectedGeometryMenuWidth = NSWidth(laneCyclePanel)
+            - static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.controlInset)
+            - static_cast<CGFloat>(
+                s3g::gui_layout::kStandardMetrics.panelRightInset);
+        const NSPoint laneMenuFarEdge = NSMakePoint(
+            NSMaxX(laneMenuBox) - 2.0, NSMidY(laneMenuBox));
+        check(near(NSWidth(laneMenuBox), expectedGeometryMenuWidth)
+                && near(NSWidth(directionMenuBox), expectedGeometryMenuWidth)
+                && [geometryPage handleToolboxClickAtPoint:laneMenuFarEdge],
+            "Geometry menus should open across the complete width of their drawn boxes");
+        [geometryPage openGeometryMenu:1];
+
+        warpPage.frame = NSMakeRect(0.0, 0.0, 1320.0, 780.0);
+        [warpPage layoutSubtreeIfNeeded];
+        id warpController = [warpPage valueForKey:@"layoutOwner"];
+        NSView* warpFieldPanel = [warpController valueForKey:@"fieldPanel"];
+        NSView* warpLibraryPanel = [warpController valueForKey:@"libraryPanel"];
+        NSView* warpStackPanel = [warpController valueForKey:@"stackPanel"];
+        NSView* warpTransformPanel = [warpController valueForKey:@"transformPanel"];
+        NSView* warpCurve = [warpController valueForKey:@"curveView"];
+        S3GTrackerPopupButton* warpLibraryMenu = [warpController
+            valueForKey:@"libraryPopup"];
+        S3GTrackerPopupButton* warpTransformMenu = [warpController
+            valueForKey:@"transformPopup"];
+        S3GTrackerPopupButton* warpTypeMenu = [warpController
+            valueForKey:@"typePopup"];
+        NSTextField* warpCycleSlider = [warpController
+            valueForKey:@"cycleField"];
+        NSTextField* warpNameField = [warpController
+            valueForKey:@"libraryNameField"];
+        S3GTrackerActionButton* warpModeButton = [warpController
+            valueForKey:@"warpModeButton"];
+        S3GTrackerDragNumberField* warpPrimarySlider = [warpController
+            valueForKey:@"primaryField"];
+        S3GTrackerDragNumberField* warpRepeatSlider = [warpController
+            valueForKey:@"repeatsField"];
+        NSArray<NSTextField*>* warpLibraryLabels = [warpController
+            valueForKey:@"libraryLabels"];
+        NSArray<NSTextField*>* warpStackLabels = [warpController
+            valueForKey:@"stackLabels"];
+        NSArray<NSTextField*>* warpTransformLabels = [warpController
+            valueForKey:@"transformLabels"];
+        const auto warpFamily = s3g::gui_layout::trackerWarpFamilyLayout({
+            1320.0, 780.0,
+        });
+        const NSRect warpCycleTrack = [warpCycleSlider sliderTrackRect];
+        const NSRect warpCycleValue = [warpCycleSlider valueTextRect];
+        check(near(NSMinY(warpFieldPanel.frame),
+                    s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMinY(warpLibraryPanel.frame),
+                    s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMinY(warpStackPanel.frame)
+                    - NSMaxY(warpLibraryPanel.frame), 12.0)
+                && near(NSMinY(warpTransformPanel.frame)
+                    - NSMaxY(warpStackPanel.frame), 12.0)
+                && near(NSHeight(warpStackPanel.frame),
+                    s3g::gui_layout::toolboxHeightForRows(5u))
+                && warpLibraryMenu.s3gUsesCanvasMenu
+                && warpTransformMenu.s3gUsesCanvasMenu
+                && warpTypeMenu.s3gUsesCanvasMenu
+                && [warpLibraryLabels[0u]
+                    isKindOfClass:S3GTrackerSuiteLabel.class]
+                && [warpStackLabels[2u]
+                    isKindOfClass:S3GTrackerSuiteLabel.class]
+                && [warpTransformLabels[0u]
+                    isKindOfClass:S3GTrackerSuiteLabel.class]
+                && [warpLibraryLabels[0u].font.fontName
+                    isEqualToString:warpLibraryMenu.font.fontName]
+                && [warpStackLabels[2u].font.fontName
+                    isEqualToString:warpTransformMenu.font.fontName]
+                && [warpTransformLabels[0u].font.fontName
+                    isEqualToString:warpTypeMenu.font.fontName]
+                && [warpNameField.font.fontName
+                    isEqualToString:warpLibraryMenu.font.fontName]
+                && near(NSMidY(warpLibraryLabels[0u].frame),
+                    NSMidY(warpLibraryMenu.frame), 0.01)
+                && near(NSMidY(warpStackLabels[2u].frame),
+                    NSMidY(warpTransformMenu.frame), 0.01)
+                && near(NSMidY(warpTransformLabels[0u].frame),
+                    NSMidY(warpTypeMenu.frame), 0.01)
+                && [warpLibraryPanel isKindOfClass:
+                    NSClassFromString(@"S3GTrackerToolboxView")],
+            "Warps should use shared toolboxes plus one suite font and vertical center for labels, text entry, and canvas menus");
+        check([warpCycleSlider isKindOfClass:
+                    NSClassFromString(@"S3GTrackerWarpSliderField")]
+                && near(NSHeight(warpCycleSlider.frame),
+                    s3g::gui_layout::kStandardMetrics.hitHeight)
+                && near(NSMinY(warpCycleTrack), 9.0)
+                && near(NSHeight(warpCycleTrack), 9.0)
+                && near(NSWidth(warpCycleTrack),
+                    s3g::gui_layout::processorTrackWidth(
+                        warpFamily.stack.frame.width))
+                && near(NSMinX(warpCycleValue),
+                    NSWidth(warpCycleSlider.bounds)
+                        - s3g::gui_layout::kStandardMetrics
+                            .processorValueWidth)
+                && near(NSWidth(warpCycleValue),
+                    s3g::gui_layout::kStandardMetrics.processorValueWidth)
+                && !warpCycleSlider.editable
+                && !warpCycleSlider.selectable
+                && !warpCycleSlider.acceptsFirstResponder
+                && !warpCycleSlider.drawsBackground
+                && near(warpCycleSlider.layer.borderWidth, 0.0),
+            "Warps sliders should use the exact shared 9-point track, capped processor width, 24-point hit row, and read-only value display");
+        check(![warpNameField isKindOfClass:
+                    NSClassFromString(@"S3GTrackerWarpSliderField")]
+                && warpNameField.editable && warpNameField.selectable
+                && warpNameField.drawsBackground
+                && near(warpNameField.layer.borderWidth, 1.0)
+                && near(NSHeight(warpNameField.frame),
+                    s3g::gui_layout::kStandardMetrics.hitHeight)
+                && warpNameField.alignment == NSTextAlignmentLeft,
+            "the Warps library name should be a full-height conventional suite text field, independent of numeric sliders");
+        check(warpModeButton.tag == 1
+                && [warpModeButton.title
+                    isEqualToString:@"WARP PLAYBACK: OFF"]
+                && near(warpPrimarySlider.s3gMaximumValue, 16.0)
+                && near(warpRepeatSlider.s3gMaximumValue, 16.0),
+            "Warps should expose the standard live toggle and cap repeat authoring at sixteen");
+        [warpModeButton performClick:nil];
+        check(state.session.transport.timingWarpEnabled
+                && warpModeButton.state == NSControlStateValueOn
+                && [warpModeButton.title
+                    isEqualToString:@"WARP PLAYBACK: ON"]
+                && transportChangeRequests == 1,
+            "the Warps mode button should publish explicit Pattern warp enablement");
+        [warpModeButton performClick:nil];
+        check(!state.session.transport.timingWarpEnabled
+                && transportChangeRequests == 2,
+            "the Warps mode button should restore a true playback bypass");
+        state.playing = true;
+        state.timingWarpPlaybackActive = true;
+        state.timingWarpPlaybackFromSong = false;
+        state.timingWarpPlaybackTick = 3u;
+        state.timingWarpPlaybackCycleTicks = 8u;
+        state.timingWarpPlaybackStack = state.session.transport.timingWarp;
+        [warpController performSelector:@selector(refreshPlaybackDisplay)];
+        check([warpCurve.accessibilityValue
+                    isEqualToString:@"Pattern warp playback, step 4 of 8"]
+                && warpCurve.needsDisplay,
+            "the Warps curve should expose and redraw the active sequence position");
+        state.playing = false;
+        state.timingWarpPlaybackActive = false;
+        [warpController performSelector:@selector(refreshPlaybackDisplay)];
+        check([warpCurve.accessibilityValue
+                    isEqualToString:@"Warp playback inactive"],
+            "the Warps curve playhead should disappear when playback or warp mode is inactive");
+        transportChangeRequests = 0;
+
+        const auto originalSecondGeometryTrack =
+            state.session.pattern.tracks[1u];
+        [geometryPage openGeometryMenu:1];
+        [geometryPage applyGeometryMenuSelection:1u];
+        check(state.session.selectedTrack == 1u,
+            "the custom Geometry lane menu should update the shared Tracker lane selection");
+        [geometryPage openGeometryMenu:2];
+        [geometryPage applyGeometryMenuSelection:2u];
+        check(state.session.pattern.tracks[1u].noteColumn.direction
+                    == s3g::tracker::Direction::Palindrome
+                && patternChangeRequests == 1,
+            "the repeated direction menu should edit the selected NOTE cycle through shared history");
+
+        const auto sliderPoint = [](NSRect slider, CGFloat normalized) {
+            return NSMakePoint(NSMinX(slider) + NSWidth(slider) * normalized,
+                NSMidY(slider));
+        };
+        const NSRect lengthSlider = [geometryPage lengthSliderTrack];
+        const BOOL beganLengthSlider = [geometryPage
+            beginSliderGestureAtPoint:sliderPoint(lengthSlider,
+                std::sqrt((64.0 - 1.0) / 255.0))];
+        [geometryPage updateSliderGestureAtPoint:
+            sliderPoint(lengthSlider, std::sqrt((32.0 - 1.0) / 255.0))];
+        const BOOL lengthStayedPreviewOnly =
+            state.session.pattern.tracks[1u].noteColumn.length == 64u;
+        [geometryPage finishGeometryGesture];
+        check(beganLengthSlider && lengthStayedPreviewOnly
+                && state.session.pattern.tracks[1u].noteColumn.length == 32u
+                && state.session.pattern.tracks[1u].velocityColumn.length
+                    == 32u
+                && patternChangeRequests == 2,
+            "the repeated length slider should preview and publish one undoable NOTE and linked VOL length edit");
+
+        const NSRect linkToggle = [geometryPage
+            linkVelocityLengthToggleRect];
+        const BOOL linkWasOn = [[geometryPage
+            valueForKey:@"linkVelocityLength"] boolValue];
+        (void)[geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(linkToggle), NSMidY(linkToggle))];
+        const BOOL linkTurnedOff = ![[geometryPage
+            valueForKey:@"linkVelocityLength"] boolValue];
+        (void)[geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(linkToggle), NSMidY(linkToggle))];
+        check(linkWasOn && linkTurnedOff && [[geometryPage
+                valueForKey:@"linkVelocityLength"] boolValue]
+                && patternChangeRequests == 2,
+            "Geometry should expose a default-on VOL length link that can be disabled for independent cycles");
+
+        state.session.pattern.tracks[1u].notes[0u]
+            = s3g::tracker::NoteCell::withNote(67u);
+        const NSRect rotateSlider = [geometryPage rotateSliderTrack];
+        const BOOL beganRotateSlider = [geometryPage
+            beginSliderGestureAtPoint:sliderPoint(rotateSlider, 0.5)];
+        const CGFloat rotateEight = 0.5 + 0.5
+            * std::sqrt(8.0 / 31.0);
+        [geometryPage updateSliderGestureAtPoint:
+            sliderPoint(rotateSlider, rotateEight)];
+        const BOOL sliderRotationStayedPreviewOnly =
+            state.session.pattern.tracks[1u].notes[0u].state
+                == s3g::tracker::NoteCellState::Note;
+        [geometryPage finishGeometryGesture];
+        check(beganRotateSlider && sliderRotationStayedPreviewOnly
+                && state.session.pattern.tracks[1u].notes[8u].state
+                    == s3g::tracker::NoteCellState::Note
+                && state.session.pattern.tracks[1u].noteColumn.phase == 0u
+                && patternChangeRequests == 3,
+            "the toolbox rotate slider should share the ring handle's authored-row preview and history path");
+
+        std::fill(state.session.pattern.tracks[1u].notes.begin(),
+            state.session.pattern.tracks[1u].notes.end(),
+            s3g::tracker::NoteCell::rest());
+        const NSRect densitySlider = [geometryPage densitySliderTrack];
+        const BOOL beganDensitySlider = [geometryPage
+            beginSliderGestureAtPoint:sliderPoint(densitySlider, 0.0)];
+        [geometryPage updateSliderGestureAtPoint:
+            sliderPoint(densitySlider, 8.0 / 32.0)];
+        const BOOL sliderDensityStayedPreviewOnly =
+            s3g::tracker::geometryHitCount(
+                state.session.pattern.tracks[1u]) == 0u;
+        [geometryPage finishGeometryGesture];
+        check(beganDensitySlider && sliderDensityStayedPreviewOnly
+                && s3g::tracker::geometryHitCount(
+                    state.session.pattern.tracks[1u]) == 8u
+                && patternChangeRequests == 4,
+            "the toolbox density slider should ghost its distribution and commit once");
+        [geometryMorphTarget selectItemAtIndex:0];
+        [geometryMorphButtons[3u] performClick:nil];
+        check(state.session.pattern.tracks[1u].notes[0u].state
+                    == s3g::tracker::NoteCellState::Note
+                && patternChangeRequests == 5,
+            "the expanded morph controls should support a full morph toward the previous visible lane");
+        state.session.pattern.tracks[1u] = originalSecondGeometryTrack;
+        [geometryPage selectLane:0u];
+        [geometryPage syncToolboxControls];
+        patternChangeRequests = 0;
+        check(NSContainsRect([geometryPage viewPanelRect],
+                [geometryPage viewMenuBoxRect]),
+            "Geometry view selector should use the shared in-canvas menu slot");
+        check([[trackerGrid displayedPatternId] isEqualToString:@"A01"]
+                && [trackerGrid displayedLaneCount] == 12u
+                && [trackerGrid displayedVisibleRowCount] == 64u
+                && [trackerGrid displayedNoteNumberAtLane:0u row:0u] == 60,
+            "Tracker should initially present the editor pattern");
+        state.playing = true;
+        state.songPlaybackActive = true;
+        state.songPlaybackPatternId = "A02";
+        state.songPlaybackMutedTracks = 1u << 0u;
+        [controller refreshPlaybackDisplay];
+        [root layoutSubtreeIfNeeded];
+        check([[trackerGrid displayedPatternId] isEqualToString:@"A02"]
+                && [trackerGrid displayedLaneCount] == 2u
+                && [trackerGrid displayedVisibleRowCount] == 32u
+                && [trackerGrid displayedNoteNumberAtLane:0u row:0u] == 67
+                && [patternPopup.selectedItem.representedObject
+                    isEqualToString:@"A02"]
+                && !patternPopup.enabled && !trackAddButton.enabled
+                && !trackRemoveButton.enabled,
+            "Tracker should follow the sounding Song pattern, its dimensions and content, while locking editor mutations");
+        state.playing = false;
+        state.songPlaybackActive = false;
+        state.songPlaybackPatternId.clear();
+        state.songPlaybackMutedTracks = 0u;
+        [controller refreshPlaybackDisplay];
+        [root layoutSubtreeIfNeeded];
+        check([[trackerGrid displayedPatternId] isEqualToString:@"A01"]
+                && [trackerGrid displayedLaneCount] == 12u
+                && [trackerGrid displayedVisibleRowCount] == 64u
+                && [patternPopup.selectedItem.representedObject
+                    isEqualToString:@"A01"]
+                && patternPopup.enabled && trackAddButton.enabled,
+            "Tracker should restore the unchanged editor pattern when Song playback stops");
         check([[geometryPage valueForKey:@"displayedPatternId"]
                 isEqualToString:@"A01"],
             "Geometry should initially display the editor pattern");
@@ -361,20 +774,27 @@ int main()
         state.songPlaybackPatternId = "A02";
         state.songPlaybackMutedTracks = 1u << 0u;
         [geometryPage performSelector:@selector(refreshPlaybackDisplay)];
+        const CGFloat mutedLaneRadius = [geometryPage ringRadiusForLane:0u];
         check([[geometryPage valueForKey:@"displayedPatternId"]
                     isEqualToString:@"A02"]
                 && [[geometryPage valueForKey:@"displayedLaneCount"]
-                    unsignedIntegerValue] == 0u
+                    unsignedIntegerValue] == 2u
+                && [[geometryPage valueForKey:@"displayedMutedLaneCount"]
+                    unsignedIntegerValue] == 2u
                 && geometryPage.needsDisplay,
-            "Geometry should combine the sounding pattern NOTE mutes with the active Song-row lane mutes");
+            "Geometry should retain every sounding-pattern ring slot while combining Pattern and Song-row mutes");
         [geometryPage displayIfNeeded];
         geometryPage.needsDisplay = NO;
         state.songPlaybackMutedTracks = 0u;
         [geometryPage performSelector:@selector(refreshPlaybackDisplay)];
+        const CGFloat unmutedLaneRadius = [geometryPage ringRadiusForLane:0u];
         check([[geometryPage valueForKey:@"displayedLaneCount"]
+                    unsignedIntegerValue] == 2u
+                && [[geometryPage valueForKey:@"displayedMutedLaneCount"]
                     unsignedIntegerValue] == 1u
+                && near(mutedLaneRadius, unmutedLaneRadius, 0.01)
                 && geometryPage.needsDisplay,
-            "Geometry should retain pattern NOTE mutes and redraw when only the Song-row mute mask changes");
+            "unmuting a Song lane should restore its content without moving that lane's ring radius or removing Pattern-mute placeholders");
         state.songPlaybackActive = false;
         state.songPlaybackPatternId.clear();
         state.songPlaybackMutedTracks = 0u;
@@ -389,21 +809,28 @@ int main()
         BOOL geometryModesDispatch = YES;
         for (NSInteger mode = 1; mode < 6; ++mode) {
             geometryPlaybackOverlay.needsDisplay = NO;
-            [geometryViewMode selectItemAtIndex:mode];
-            [geometryViewMode sendAction:geometryViewMode.action
-                to:geometryViewMode.target];
+            [geometryPage openGeometryMenu:3];
+            [geometryPage applyGeometryMenuSelection:mode];
             geometryModesDispatch = geometryModesDispatch
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == mode
                 && [geometryPage.accessibilityValue
                     isEqualToString:geometryDescriptions[(NSUInteger)mode]]
                 && geometryPlaybackOverlay.needsDisplay;
+            if (mode == 1)
+                geometryModesDispatch = geometryModesDispatch
+                    && [geometryPage allStepsUnderlayNodeCount] == 0u;
+            if (mode == 2)
+                geometryModesDispatch = geometryModesDispatch
+                    && [geometryPage allStepsUnderlayNodeCount] > 0u;
+            if (mode == 3)
+                geometryModesDispatch = geometryModesDispatch
+                    && [geometryPage allStepsUnderlayNodeCount] == 0u;
         }
         check(geometryModesDispatch,
-            "every Geometry view should update its base and playback overlays");
-        [geometryViewMode selectItemAtIndex:0u];
-        [geometryViewMode sendAction:geometryViewMode.action
-            to:geometryViewMode.target];
+            "every Geometry view should dispatch, with All Steps alone exposing the complete row-node lattice");
+        [geometryPage openGeometryMenu:3];
+        [geometryPage applyGeometryMenuSelection:0u];
         [window displayIfNeeded];
         grid.documentView.needsDisplay = NO;
         envelope.needsDisplay = NO;
@@ -446,13 +873,13 @@ int main()
         check(midiStepRecordPopup.enabled
                 && midiStepRecordPopup.numberOfItems == 4u
                 && [midiStepRecordPopup.selectedItem.title
-                    isEqualToString:@"OFF"]
+                    isEqualToString:@"REC OFF"]
                 && [[midiStepRecordPopup itemAtIndex:1u].title
-                    isEqualToString:@"STEP"]
+                    isEqualToString:@"REC STEP"]
                 && [[midiStepRecordPopup itemAtIndex:2u].title
-                    isEqualToString:@"LIVE Q"]
+                    isEqualToString:@"REC Q"]
                 && [[midiStepRecordPopup itemAtIndex:3u].title
-                    isEqualToString:@"LIVE MT"],
+                    isEqualToString:@"REC MT"],
             "MIDI recording should expose STEP plus two live timing modes");
         [midiStepRecordPopup selectItemAtIndex:1u];
         [midiStepRecordPopup sendAction:midiStepRecordPopup.action
@@ -470,15 +897,80 @@ int main()
         const CGFloat initialSequenceX = NSMinX(sequenceColumnsButton.frame);
         const CGFloat initialAddTrackX = NSMinX(trackAddButton.frame);
         const CGFloat initialRemoveTrackX = NSMinX(trackRemoveButton.frame);
-        check(moduleControls.arrangedSubviews.count >= 5u
-                && moduleControls.arrangedSubviews[0u]
-                    == sequenceColumnsButton
-                && moduleControls.arrangedSubviews[1u] == trackAddButton
-                && moduleControls.arrangedSubviews[2u] == trackRemoveButton
-                && moduleControls.arrangedSubviews[3u] == undoButton
-                && moduleControls.arrangedSubviews[4u] == redoButton
-                && near(initialSequenceX, 14.0),
-            "sequence, track, and history controls should form a left-aligned fixed group");
+        NSStackView* toolboxStack = static_cast<NSStackView*>(
+            transport.documentView);
+        check(transportPanel.toolboxIndex == 1
+                && [transportPanel.toolboxTitle
+                    containsString:@"TRANSPORT / RATE"]
+                && near(NSMinX(transportPanel.frame),
+                    s3g::gui_layout::kTrackerPageHorizontalInset)
+                && patternPanel.toolboxIndex == 2
+                && [patternPanel.toolboxTitle isEqualToString:@"PATTERN"]
+                && inputViewPanel.toolboxIndex == 3
+                && [inputViewPanel.toolboxTitle
+                    isEqualToString:@"INPUT / VIEW"]
+                && toolboxStack.arrangedSubviews[0u] == transportPanel
+                && toolboxStack.arrangedSubviews[1u] == patternPanel
+                && toolboxStack.arrangedSubviews[2u] == inputViewPanel,
+            "tracker toolbar should use the standard three-toolbox hierarchy");
+        check(patternPrimaryControls.arrangedSubviews.count == 9u
+                && patternPrimaryControls.arrangedSubviews[0u] == patternPopup
+                && patternPrimaryControls.arrangedSubviews[1u]
+                    == renamePatternButton
+                && patternPrimaryControls.arrangedSubviews[2u]
+                    == duplicatePatternButton
+                && patternPrimaryControls.arrangedSubviews[3u]
+                    == createPatternButton
+                && patternPrimaryControls.arrangedSubviews[4u]
+                    == deletePatternButton
+                && patternPrimaryControls.arrangedSubviews[5u]
+                    == trackAddButton
+                && patternPrimaryControls.arrangedSubviews[6u]
+                    == trackRemoveButton
+                && patternPrimaryControls.arrangedSubviews[7u] == undoButton
+                && patternPrimaryControls.arrangedSubviews[8u] == redoButton
+                && [inputPrimaryControls.arrangedSubviews
+                    containsObject:sequenceColumnsButton]
+                && [inputPrimaryControls.arrangedSubviews
+                    containsObject:noteDisplayButton]
+                && [inputPrimaryControls.arrangedSubviews
+                    containsObject:midiStepRecordPopup]
+                && transportPrimaryControls.arrangedSubviews.count == 9u
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:tempoScalePopup]
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:swingField]
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:gateField]
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:loopStartField]
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:loopEndField],
+            "all Pattern, Transport, and Input / View controls should occupy one compact row");
+        check([swingField isKindOfClass:S3GTrackerSwingSlider.class]
+                && [swingField.s3gLabel isEqualToString:@"SW"]
+                && [(S3GTrackerPopupButton*)gateField s3gUsesCanvasMenu]
+                && [(S3GTrackerPopupButton*)loopStartField s3gUsesCanvasMenu]
+                && [(S3GTrackerPopupButton*)loopEndField s3gUsesCanvasMenu]
+                && near(NSMidY(swingField.frame),
+                    NSMidY(tempoScalePopup.frame), 0.01)
+                && near(NSMidY(gateField.frame),
+                    NSMidY(tempoScalePopup.frame), 0.01),
+            "Tracker transport values should use the Song-style Swing slider and suite canvas menus");
+        check([(S3GTrackerPopupButton*)patternPopup s3gUsesCanvasMenu]
+                && [(S3GTrackerPopupButton*)tempoScalePopup
+                    s3gUsesCanvasMenu]
+                && [(S3GTrackerPopupButton*)midiStepRecordPopup
+                    s3gUsesCanvasMenu]
+                && [(S3GTrackerActionButton*)playButton
+                    s3gUsesSuiteStyle]
+                && [(S3GTrackerActionButton*)playButton
+                    s3gUsesNeutralTitle]
+                && [(S3GTrackerActionButton*)renamePatternButton
+                    s3gUsesNeutralTitle]
+                && [(S3GTrackerActionButton*)deletePatternButton
+                    s3gUsesNeutralTitle],
+            "Tracker header menus and actions should use shared controls and one neutral title level");
         [sequenceColumnsButton performClick:nil];
         [root layoutSubtreeIfNeeded];
         check(state.sequenceColumnsExpanded
@@ -487,13 +979,23 @@ int main()
                 && near(NSMinX(sequenceColumnsButton.frame), initialSequenceX)
                 && near(NSMinX(trackAddButton.frame), initialAddTrackX)
                 && near(NSMinX(trackRemoveButton.frame), initialRemoveTrackX),
-            "Expand Seq should reveal both sequencing pairs without moving the left control group");
+            "Expand Seq should reveal both sequencing pairs without moving its direct toolbox controls");
         state.hostBpm = 128.25;
         state.tempoScale = 0.5;
         [controller reloadModel];
-        check([bpmDisplay.stringValue isEqualToString:@"128.25"]
-                && [tempoScalePopup.selectedItem.title isEqualToString:@"1/2×"],
-            "transport should display host BPM and the persisted musical rate");
+        check([tempoScalePopup.selectedItem.title isEqualToString:@"1/2×"],
+            "transport should display the persisted musical rate");
+        state.playing = true;
+        [controller reloadModel];
+        check([playButton.title isEqualToString:@"▶"]
+                && playButton.state == NSControlStateValueOn
+                && playButton.tag == 3,
+            "active transport should retain the play glyph and engage its green state");
+        state.playing = false;
+        [controller reloadModel];
+        check([playButton.title isEqualToString:@"▶"]
+                && playButton.state == NSControlStateValueOff,
+            "paused transport should retain the play glyph and return to gray");
         [tempoScalePopup selectItemAtIndex:4u];
         [tempoScalePopup sendAction:tempoScalePopup.action
             to:tempoScalePopup.target];
@@ -508,6 +1010,53 @@ int main()
                 NSHeight(grid.contentView.bounds)
                 && grid.hasVerticalScroller,
             "many rows should heighten the grid document and scroll");
+        const NSRect pinnedRowBefore = [rowGutter pinnedRectForGridRect:
+            NSMakeRect(0.0, s3g::tracker::app::kTrackerGridHeaderHeight,
+                s3g::tracker::app::kTrackerRowNumberWidth,
+                s3g::tracker::app::kTrackerGridRowHeight)];
+        const CGFloat frozenGutterX = NSMinX(rowGutter.frame);
+        [grid.contentView scrollToPoint:NSMakePoint(420.0, 0.0)];
+        [grid reflectScrolledClipView:grid.contentView];
+        [root layoutSubtreeIfNeeded];
+        const NSPoint gutterHitPoint = NSMakePoint(
+            NSMinX(grid.contentView.frame) + 5.0,
+            NSMidY(grid.contentView.frame));
+        const NSRect pinnedRowAfter = [rowGutter pinnedRectForGridRect:
+            NSMakeRect(0.0, s3g::tracker::app::kTrackerGridHeaderHeight,
+                s3g::tracker::app::kTrackerRowNumberWidth,
+                s3g::tracker::app::kTrackerGridRowHeight)];
+        check(rowGutter.superview == grid
+                && near(NSMinX(rowGutter.frame), frozenGutterX)
+                && near(NSMinX(rowGutter.frame),
+                    NSMinX(grid.contentView.frame))
+                && NSWidth(rowGutter.frame) >=
+                    s3g::tracker::app::kTrackerRowNumberWidth - 1.0
+                && [grid hitTest:gutterHitPoint] == rowGutter,
+            "the row-number gutter should remain frozen and interactive while lanes scroll horizontally");
+        check(near(NSMinX(pinnedRowBefore), NSMinX(pinnedRowAfter), 0.01)
+                && near(NSWidth(pinnedRowBefore), NSWidth(pinnedRowAfter),
+                    0.01)
+                && near(NSMinX(pinnedRowAfter), 0.0, 0.01),
+            "horizontal scrolling should not move or redraw a second copy of the frozen row labels");
+        const auto gutterRowPoint = [&](std::size_t row) {
+            return [grid.documentView convertPoint:NSMakePoint(4.0,
+                s3g::tracker::app::kTrackerGridHeaderHeight
+                    + static_cast<CGFloat>(row)
+                        * s3g::tracker::app::kTrackerGridRowHeight
+                    + 4.0) toView:nil];
+        };
+        [rowGutter mouseDown:mouseDownEvent(window,
+            gutterRowPoint(4u), 1)];
+        [rowGutter mouseDragged:mouseDownEvent(window,
+            gutterRowPoint(7u), 1)];
+        [rowGutter mouseUp:mouseDownEvent(window,
+            gutterRowPoint(7u), 1)];
+        check(state.session.transport.loopStartRow == 4u
+                && state.session.transport.loopEndRow == 8u
+                && state.session.selectedRow == 7u,
+            "the frozen row gutter should preserve drag-to-select loop behavior");
+        [grid.contentView scrollToPoint:NSZeroPoint];
+        [grid reflectScrolledClipView:grid.contentView];
         const CGFloat laneWidth = (NSWidth(grid.documentView.bounds)
                 - s3g::tracker::app::kTrackerRowNumberWidth
                 - 11.0 * s3g::tracker::app::kTrackerLaneGutter) / 12.0;
@@ -532,33 +1081,58 @@ int main()
         check(trackResyncRequests == 1 && resyncedTrack == 0u
                 && patternChangeRequests == 0,
             "the lane-header SYNC control should target only that track without editing the pattern");
-        headerClick(44.0, 1);
+        headerClick(40.0, 1);
         check(state.session.pattern.tracks[0u].noteColumn.muted
                     == initiallyMuted
                 && patternChangeRequests == 0,
             "clicking the dedicated length row must not toggle column mute");
+        headerClick(40.0, 2);
+        NSTextField* columnHeaderEditor = [grid.documentView
+            valueForKey:@"cellEditor"];
+        check([columnHeaderEditor.accessibilityLabel
+                    isEqualToString:@"Column length and stride"],
+            "double-clicking length should open the direct column editor");
+        columnHeaderEditor.stringValue = @"24x2";
+        [columnHeaderEditor sendAction:columnHeaderEditor.action
+            to:columnHeaderEditor.target];
+        check(state.session.pattern.tracks[0u].noteColumn.length == 24u
+                && state.session.pattern.tracks[0u].noteColumn.stride == 2u
+                && patternChangeRequests == 1,
+            "length entry should accept compact length x stride notation");
+        headerClick(53.0, 2);
+        columnHeaderEditor = [grid.documentView valueForKey:@"cellEditor"];
+        check([columnHeaderEditor.accessibilityLabel
+                    isEqualToString:@"Column read start row"],
+            "double-clicking Read should open its direct column editor");
+        columnHeaderEditor.stringValue = @"7";
+        [columnHeaderEditor sendAction:columnHeaderEditor.action
+            to:columnHeaderEditor.target];
+        check(state.session.pattern.tracks[0u].noteColumn.phase == 6u
+                && patternChangeRequests == 2,
+            "Read should store a one-based start row as the column phase");
+        patternChangeRequests = 0;
         const auto initialDirection
             = state.session.pattern.tracks[0u].noteColumn.direction;
-        headerClick(60.0, 1);
+        headerClick(66.0, 1);
         check(state.session.pattern.tracks[0u].noteColumn.direction
                     != initialDirection
                 && state.session.pattern.tracks[0u].noteColumn.muted
                     == initiallyMuted
                 && patternChangeRequests == 1,
             "the dedicated direction row should cycle without toggling mute");
-        headerClick(60.0, 1);
-        headerClick(60.0, 1);
-        headerClick(60.0, 1);
+        headerClick(66.0, 1);
+        headerClick(66.0, 1);
+        headerClick(66.0, 1);
         check(state.session.pattern.tracks[0u].noteColumn.direction
                     == initialDirection
                 && patternChangeRequests == 4,
             "four direction-row clicks should cycle back to the original mode");
-        headerClick(76.0, 1);
+        headerClick(79.0, 1);
         check(state.session.pattern.tracks[0u].noteColumn.muted
                     != initiallyMuted
                 && patternChangeRequests == 5,
             "the dedicated MUTE row should be the column mute mouse target");
-        headerClick(76.0, 1);
+        headerClick(79.0, 1);
         check(state.session.pattern.tracks[0u].noteColumn.muted
                     == initiallyMuted,
             "the dedicated MUTE row should toggle independently");
@@ -566,7 +1140,7 @@ int main()
         check(NSWidth(transport.documentView.frame) >
                 NSWidth(transport.contentView.bounds) + 200.0
                 && transport.hasHorizontalScroller,
-            "pattern and transport controls should remain scrollable");
+            "pattern, transport, and input/view toolboxes should remain scrollable");
         check(patternPopup.numberOfItems == 2u && patternPopup.enabled
                 && patternPopup.target == controller
                 && patternPopup.action == @selector(patternSelectionChanged:),
@@ -575,31 +1149,32 @@ int main()
                 && patternPopup.menu.font != nil
                 && near(patternPopup.intrinsicContentSize.height, 26.0),
             "tracker popups should share centered mono menu typography");
-        check([swingField isKindOfClass:S3GTrackerDragNumberField.class],
-            "toolbar numeric fields should support vertical tracker dragging");
-        if ([swingField isKindOfClass:S3GTrackerDragNumberField.class]) {
-            auto* dragField = (S3GTrackerDragNumberField*)swingField;
-            check(near([dragField s3gValueFromStart:60.0 verticalDelta:10.0
-                           modifierFlags:0u], 61.0)
-                    && near([dragField s3gValueFromStart:50.0
-                           verticalDelta:-100.0 modifierFlags:0u], 50.0),
-                "vertical number dragging should increase upward and clamp to range");
-        }
+        const double swingBefore = state.session.transport.swing;
+        const BOOL swingAdjusted = [swingField adjustByScrollDelta:1.0
+            modifierFlags:0u];
+        check(swingAdjusted
+                && near(state.session.transport.swing,
+                    swingBefore + 0.005, 0.0001),
+            "toolbar Swing should reuse Song's drag/scroll slider behavior");
+        [gateField selectItemAtIndex:[gateField
+            indexOfItemWithRepresentedObject:@100.0]];
+        [gateField sendAction:gateField.action to:gateField.target];
+        [loopStartField selectItemAtIndex:[loopStartField
+            indexOfItemWithRepresentedObject:@4]];
+        [loopStartField sendAction:loopStartField.action
+            to:loopStartField.target];
+        [loopEndField selectItemAtIndex:[loopEndField
+            indexOfItemWithRepresentedObject:@12]];
+        [loopEndField sendAction:loopEndField.action
+            to:loopEndField.target];
+        check(near(state.session.gateMilliseconds, 100.0, 0.0001)
+                && state.session.transport.loopStartRow == 3u
+                && state.session.transport.loopEndRow == 12u
+                && [loopEndField indexOfItemWithRepresentedObject:@3] < 0,
+            "Gate and conditioned loop boundaries should publish from compact menus");
         check([root isKindOfClass:S3GTrackerFocusReleaseView.class]
                 && [controller valueForKey:@"toolbar"] != nil,
             "workspace backgrounds should support click-away field release");
-        const double unchangedSwing = swingField.doubleValue;
-        [window makeFirstResponder:swingField];
-        [swingField selectText:nil];
-        NSText* activeFieldEditor = swingField.currentEditor;
-        check(activeFieldEditor != nil && window.firstResponder == activeFieldEditor,
-            "click-away test should begin with the numeric field editor active");
-        [(S3GTrackerFocusReleaseView*)root mouseDown:mouseDownEvent(
-            window, NSMakePoint(1.0, 1.0), 1)];
-        check(window.firstResponder == root
-                && swingField.currentEditor == nil
-                && near(swingField.doubleValue, unchangedSwing, 0.0001),
-            "clicking blank workspace should release an unchanged text field");
         check(restartButton != nil
                 && [restartButton.title isEqualToString:@"SYNC ALL"]
                 && [restartButton.accessibilityLabel
@@ -644,15 +1219,15 @@ int main()
                 && renamePatternButton.enabled
                 && deletePatternButton.enabled,
             "pattern-bank controls should unlock after Song playback");
-        const CGFloat moduleDocumentWidth = NSWidth(
-            modules.documentView.frame);
-        const NSView* lastModule = moduleControls.arrangedSubviews.lastObject;
-        check(moduleDocumentWidth > 0.0 && lastModule
-                && NSMaxX(lastModule.frame) <= moduleDocumentWidth + 1.0
-                && (moduleDocumentWidth
-                        <= NSWidth(modules.contentView.bounds) + 1.0
-                    || modules.hasHorizontalScroller),
-            "module buttons should fit or remain horizontally scrollable");
+        const CGFloat toolboxDocumentWidth = NSWidth(
+            transport.documentView.frame);
+        check(toolboxDocumentWidth > 0.0
+                && NSMaxX(inputViewPanel.frame)
+                    <= toolboxDocumentWidth + 1.0
+                && (toolboxDocumentWidth
+                        <= NSWidth(transport.contentView.bounds) + 1.0
+                    || transport.hasHorizontalScroller),
+            "tracker toolboxes should fit or remain horizontally scrollable");
         check(!grid.hasAmbiguousLayout && !envelope.hasAmbiguousLayout,
             "compact workspace constraints should be unambiguous");
 
@@ -775,6 +1350,20 @@ int main()
         check(near(grid.magnification,
                 s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
             "tracker zoom reset should restore the 16-row default");
+        state.songPlaybackActive = true;
+        const CGFloat songZoomBefore = grid.magnification;
+        NSEvent* trackerZoomIn = keyEvent(window, @"+", 24u,
+            NSEventModifierFlagControl);
+        check([grid.documentView performKeyEquivalent:trackerZoomIn]
+                && grid.magnification > songZoomBefore,
+            "Control-plus should zoom directly during Song playback without forwarding recursively through the host");
+        NSEvent* trackerZoomReset = keyEvent(window, @"0", 29u,
+            NSEventModifierFlagControl);
+        check([grid.documentView performKeyEquivalent:trackerZoomReset]
+                && near(grid.magnification,
+                    s3g::tracker::app::kTrackerDefaultMagnification, 0.001),
+            "Control-zero should reset zoom safely during Song playback");
+        state.songPlaybackActive = false;
 
         state.session.selectedTrack = 0u;
         state.session.selectedRow = 1u;
@@ -828,6 +1417,65 @@ int main()
         check(NSWidth(grid.documentView.frame) >
                 NSWidth(grid.contentView.bounds),
             "track count should never force the main window wider");
+
+        const auto clickCanvasMenuItem = ^BOOL(
+            NSPopUpButton* popup, NSInteger item) {
+            const NSPoint popupPoint = [popup convertPoint:NSMakePoint(
+                NSMidX(popup.bounds), NSMidY(popup.bounds)) toView:nil];
+            NSView* popupHit = [window.contentView hitTest:popupPoint];
+            if (popupHit != popup) return NO;
+            [popupHit mouseDown:mouseDownEvent(window, popupPoint, 1)];
+            NSView* overlay = [popup valueForKey:@"s3gMenuOverlay"];
+            if (!overlay) return NO;
+            const NSRect menuRect = [[overlay valueForKey:@"menuRect"]
+                rectValue];
+            const NSPoint itemPoint = NSMakePoint(
+                NSMinX(menuRect) + 10.0,
+                NSMinY(menuRect) + 10.5 + 21.0 * item);
+            const NSPoint itemInWindow = [overlay convertPoint:itemPoint
+                toView:nil];
+            NSView* itemHit = [window.contentView hitTest:itemInWindow];
+            if (itemHit != overlay) return NO;
+            [itemHit mouseDown:mouseDownEvent(window,
+                itemInWindow, 1)];
+            return [popup valueForKey:@"s3gMenuOverlay"] == nil
+                && popup.indexOfSelectedItem == item;
+        };
+        const BOOL patternMenuClicked = clickCanvasMenuItem(patternPopup, 1);
+        const BOOL midiMenuClicked = clickCanvasMenuItem(
+            midiStepRecordPopup, 1);
+        check(patternMenuClicked && selectedPattern == "A02"
+                && midiMenuClicked
+                && state.midiStepRecordMode
+                    == s3g::tracker::MidiStepRecordMode::Step,
+            "Pattern and MIDI REC menus should open, select, dispatch, and dismiss through real window hit testing");
+
+        [grid.contentView scrollToPoint:NSZeroPoint];
+        [grid reflectScrolledClipView:grid.contentView];
+        const CGFloat clickLaneWidth = (NSWidth(grid.documentView.bounds)
+                - s3g::tracker::app::kTrackerRowNumberWidth
+                - 11.0 * s3g::tracker::app::kTrackerLaneGutter) / 12.0;
+        const NSPoint secondLaneHeader = [grid.documentView convertPoint:
+            NSMakePoint(s3g::tracker::app::kTrackerRowNumberWidth
+                    + clickLaneWidth
+                    + s3g::tracker::app::kTrackerLaneGutter + 10.0,
+                10.0)
+            toView:nil];
+        NSView* laneHit = [window.contentView hitTest:secondLaneHeader];
+        [laneHit mouseDown:mouseDownEvent(window, secondLaneHeader, 1)];
+        check(laneHit == grid.documentView
+                && state.session.selectedTrack == 1u,
+            "a real lane-header click should reach the Tracker grid and select that lane after using canvas menus");
+        state.session.selectedTrack = 0u;
+        state.songPlaybackPatternId = "A02";
+        state.songPlaybackActive = true;
+        laneHit = [window.contentView hitTest:secondLaneHeader];
+        [laneHit mouseDown:mouseDownEvent(window, secondLaneHeader, 1)];
+        check(laneHit == grid.documentView
+                && state.session.selectedTrack == 1u,
+            "lane selection should remain available while Tracker follows the sounding Song pattern");
+        state.songPlaybackActive = false;
+        state.songPlaybackPatternId.clear();
 
         [[controller valueForKey:@"geometryWindowController"] close];
         [[controller valueForKey:@"warpWindowController"] close];

@@ -79,7 +79,9 @@ if(BUILD_TESTING)
       src/app/macos/s3g_song_window.mm
       src/app/macos/s3g_tracker_controls.mm)
     target_include_directories(s3g_tracker_song_window_roundtrip_tests PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos)
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos
+      ${CMAKE_SOURCE_DIR}/plugins/common
+      ${CMAKE_SOURCE_DIR}/dsp)
     target_link_libraries(s3g_tracker_song_window_roundtrip_tests PRIVATE
       s3g_tracker_core "-framework Cocoa" "-framework CoreText"
       "-framework CoreFoundation")
@@ -96,7 +98,9 @@ if(BUILD_TESTING)
       src/app/macos/s3g_tracker_controls.mm
       src/app/macos/s3g_tracker_warp_window.mm)
     target_include_directories(s3g_tracker_workspace_layout_appkit_tests PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos)
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos
+      ${CMAKE_SOURCE_DIR}/plugins/common
+      ${CMAKE_SOURCE_DIR}/dsp)
     target_link_libraries(s3g_tracker_workspace_layout_appkit_tests PRIVATE
       s3g_tracker_core "-framework Cocoa" "-framework CoreText"
       "-framework CoreFoundation")

@@ -761,6 +761,12 @@ void Sequencer::relaunchColumnsAtTickBoundary(std::size_t row) noexcept
     }
 }
 
+void Sequencer::launchSongRegionAtTickBoundary(std::size_t row) noexcept
+{
+    transportRow_ = row;
+    relaunchColumnsAtTickBoundary(row);
+}
+
 bool Sequencer::resyncTrackColumnsAtTickBoundary(std::size_t trackIndex,
     std::size_t row) noexcept
 {
@@ -1560,8 +1566,10 @@ long double Sequencer::warpedTickPhase(const TransportSettings& settings,
     const long double cycle = std::floor(swungTick / cycleTicks);
     const long double phase = std::clamp(
         (swungTick - cycle * cycleTicks) / cycleTicks, 0.0L, 1.0L);
-    const long double mapped = static_cast<long double>(
-        settings.timingWarp.map(static_cast<double>(phase)));
+    const long double mapped = settings.timingWarpEnabled
+        ? static_cast<long double>(
+            settings.timingWarp.map(static_cast<double>(phase)))
+        : phase;
     return cycle + mapped;
 }
 

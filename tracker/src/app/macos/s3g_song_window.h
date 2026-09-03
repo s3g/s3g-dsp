@@ -11,6 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^S3GTrackerSongDidChangeHandler)(NSString* summary);
 typedef void (^S3GTrackerSongModeDidChangeHandler)(BOOL enabled);
+typedef void (^S3GTrackerSongLoopDidChangeHandler)(BOOL enabled);
 typedef void (^S3GTrackerSongLaunchHandler)(NSUInteger row,
     NSInteger quantization);
 typedef void (^S3GTrackerSongProjectFileHandler)(void);
@@ -28,6 +29,8 @@ typedef void (^S3GTrackerSongProjectFileHandler)(void);
 @property(nonatomic, copy, nullable) S3GTrackerSongDidChangeHandler changeHandler;
 @property(nonatomic, copy, nullable) S3GTrackerSongModeDidChangeHandler
     modeChangeHandler;
+@property(nonatomic, copy, nullable) S3GTrackerSongLoopDidChangeHandler
+    loopChangeHandler;
 @property(nonatomic, copy, nullable) S3GTrackerSongLaunchHandler launchHandler;
 /// Save/load handlers are owned by the host coordinator because the file is a
 /// complete Tracker project: Song arrangement plus every referenced pattern.
@@ -50,6 +53,15 @@ typedef void (^S3GTrackerSongProjectFileHandler)(void);
     activePatternId:(NSString*)activePatternId;
 - (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
     patternNames:(NSArray<NSString*>*)patternNames
+    activePatternId:(NSString*)activePatternId;
+- (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
+    patternNames:(NSArray<NSString*>*)patternNames
+    patternLengths:(NSArray<NSNumber*>*)patternLengths
+    activePatternId:(NSString*)activePatternId;
+- (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
+    patternNames:(NSArray<NSString*>*)patternNames
+    patternLengths:(NSArray<NSNumber*>*)patternLengths
+    patternLaneCounts:(NSArray<NSNumber*>*)patternLaneCounts
     activePatternId:(NSString*)activePatternId;
 
 #ifdef __cplusplus

@@ -283,7 +283,7 @@ void ensureDefaultFxColumns(Track& track, std::size_t rows)
     }
 }
 
-uint8_t defaultNoteForLane(std::size_t lane)
+uint8_t fallbackNoteForLane(std::size_t lane)
 {
     constexpr std::array<uint8_t, 8u> drumNotes {
         36u, 38u, 42u, 46u, 39u, 45u, 51u, 49u,
@@ -292,26 +292,28 @@ uint8_t defaultNoteForLane(std::size_t lane)
     return static_cast<uint8_t>(std::min<std::size_t>(127u, 52u + lane));
 }
 
+std::string midiNoteNameText(uint8_t note)
+{
+    constexpr std::array<const char*, 12u> names {
+        "C-", "C#", "D-", "D#", "E-", "F-",
+        "F#", "G-", "G#", "A-", "A#", "B-",
+    };
+    return std::string(names[note % 12u])
+        + std::to_string(static_cast<int>(note) / 12 - 1);
+}
+
 void ensureLaneDefaultNotes(TrackerSession& session)
 {
     const auto previousSize = session.laneDefaultNotes.size();
     session.laneDefaultNotes.resize(session.pattern.tracks.size());
     for (std::size_t lane = previousSize;
          lane < session.laneDefaultNotes.size(); ++lane)
-        session.laneDefaultNotes[lane] = defaultNoteForLane(lane);
+        session.laneDefaultNotes[lane] = fallbackNoteForLane(lane);
 }
 
 uint8_t anchorNote(const TrackerSession& session, std::size_t lane)
 {
-    const auto& track = session.pattern.tracks[lane];
-    const auto found = std::find_if(track.notes.begin(), track.notes.end(),
-        [](const NoteCell& cell) {
-            return cell.state == NoteCellState::Note;
-        });
-    if (found != track.notes.end()) return found->note;
-    if (lane < session.laneDefaultNotes.size())
-        return session.laneDefaultNotes[lane];
-    return defaultNoteForLane(lane);
+    return laneDefaultNote(session, lane);
 }
 
 void addAliasesForToken(TrackerSession& session, std::string_view token,
@@ -709,8 +711,9 @@ bool parseWarpOptions(const std::vector<std::string>& tokens,
             uint32_t repetitions = 0u;
             if (!parseUnsigned(tokens[index + 1u], repetitions)
                 || repetitions == 0u
-                || repetitions > TimingWarpStack::kMaximumRepetitions) {
-                error = "Warp repeat must be between 1 and 1024.";
+                || repetitions > kMaximumLiveWarpRepetitions) {
+                error = "Warp repeat must be between 1 and "
+                    + std::to_string(kMaximumLiveWarpRepetitions) + ".";
                 return false;
             }
             options.repetitions = repetitions;
@@ -728,7 +731,9 @@ std::string timingWarpsText(const TrackerSession& session)
 {
     const auto& stack = session.transport.timingWarp;
     std::ostringstream stream;
-    stream << "Warp cycle " << session.transport.warpCycleTicks
+    stream << "Warp mode "
+           << (session.transport.timingWarpEnabled ? "ON" : "OFF")
+           << "; cycle " << session.transport.warpCycleTicks
            << " ticks; " << stack.size() << " transform";
     if (stack.size() != 1u) stream << 's';
     stream << '.';
@@ -2419,9 +2424,23 @@ CommandResult executeTokens(TrackerSession& session,
     }
     if (verb == "warp") {
         if (tokens.size() < 2u) {
-            return failure("Usage: warp <save|load|delete|rename|clear|cycle|exp|step|eu> ...");
+            return failure("Usage: warp <on|off|toggle|save|load|delete|rename|clear|cycle|exp|step|eu> ...");
         }
         const auto operation = asciiLower(tokens[1]);
+        if (operation == "on" || operation == "off"
+            || operation == "toggle") {
+            if (tokens.size() != 2u)
+                return failure("Usage: warp <on|off|toggle>");
+            if (operation == "on") session.transport.timingWarpEnabled = true;
+            else if (operation == "off")
+                session.transport.timingWarpEnabled = false;
+            else session.transport.timingWarpEnabled
+                = !session.transport.timingWarpEnabled;
+            return success(session.transport.timingWarpEnabled
+                    ? "Pattern timing-warp playback enabled."
+                    : "Pattern timing-warp playback bypassed.",
+                CommandEffect::TransportChanged);
+        }
         if (operation == "save") {
             std::size_t index = 0u;
             if (tokens.size() < 3u
@@ -2528,8 +2547,9 @@ CommandResult executeTokens(TrackerSession& session,
             uint32_t steps = 0u;
             if (tokens.size() < 3u || !parseUnsigned(tokens[2], steps)
                 || steps == 0u
-                || steps > TimingWarpStack::kMaximumSteps) {
-                return failure("Warp step count must be between 1 and 65536.");
+                || steps > kMaximumLiveWarpSteps) {
+                return failure("Warp step count must be between 1 and "
+                    + std::to_string(kMaximumLiveWarpSteps) + ".");
             }
             transform = TimingWarpTransform::stepQuantize(steps);
             optionsBegin = 3u;
@@ -2540,14 +2560,15 @@ CommandResult executeTokens(TrackerSession& session,
                 || !parseUnsigned(tokens[2], pulses)
                 || !parseUnsigned(tokens[3], steps) || pulses == 0u
                 || steps == 0u || pulses > steps
-                || steps > TimingWarpStack::kMaximumSteps) {
-                return failure("Warp Euclid requires 1..steps pulses and 1..65536 steps.");
+                || steps > kMaximumLiveWarpSteps) {
+                return failure("Warp Euclid requires 1..steps pulses and 1.."
+                    + std::to_string(kMaximumLiveWarpSteps) + " steps.");
             }
             transform = TimingWarpTransform::euclideanQuantize(
                 pulses, steps);
             optionsBegin = 4u;
         } else {
-            return failure("Warp operation must be save, load, delete, rename, exp, step, eu, cycle, or clear.");
+            return failure("Warp operation must be on, off, toggle, save, load, delete, rename, exp, step, eu, cycle, or clear.");
         }
 
         std::string error;
@@ -2584,6 +2605,25 @@ CommandResult executeTokens(TrackerSession& session,
         return success(stream.str(), CommandEffect::SelectionChanged);
     }
 
+    if (verb == "pitch" || verb == "defaultnote") {
+        if (tokens.size() != 3u)
+            return failure("Usage: pitch|defaultnote <lane|@alias> <MIDI note|note name>");
+        std::size_t lane = 0u;
+        std::string error;
+        if (!parseLane(session, tokens[1], lane, error))
+            return failure(std::move(error));
+        uint8_t note = 0u;
+        if (!parseMidiNote(tokens[2], note))
+            return failure("Pitch must be MIDI 0..127 or a note name such as C-2 or F#3.");
+        std::size_t replaced = 0u;
+        (void)setLaneDefaultNote(session, lane, note, &replaced);
+        return success("Set " + laneLabel(session, lane)
+                + " default pitch to " + midiNoteNameText(note) + " (MIDI "
+                + std::to_string(note) + "); replaced "
+                + std::to_string(replaced) + " explicit note cell(s).",
+            CommandEffect::PatternChanged);
+    }
+
     if (verb == "hit" || verb == "rest" || verb == "repeat"
         || verb == "kill" || verb == "hold") {
         const bool isHit = verb == "hit";
@@ -2601,11 +2641,10 @@ CommandResult executeTokens(TrackerSession& session,
             return failure(std::move(error));
         NoteCell cell;
         if (isHit) {
-            uint32_t note = anchorNote(session, lane);
-            if (tokens.size() == 4u
-                && (!parseUnsigned(tokens[3], note) || note > 127u))
-                return failure("MIDI note must be an integer from 0 to 127.");
-            cell = NoteCell::withNote(static_cast<uint8_t>(note));
+            uint8_t note = anchorNote(session, lane);
+            if (tokens.size() == 4u && !parseMidiNote(tokens[3], note))
+                return failure("MIDI note must be 0..127 or a note name such as C-2.");
+            cell = NoteCell::withNote(note);
         } else if (verb == "repeat") {
             cell = NoteCell::retriggerPrevious();
         } else if (verb == "kill") {
@@ -2846,9 +2885,23 @@ CommandResult executeTokens(TrackerSession& session,
         const bool isLength = verb == "len" || verb == "length";
         const bool isStride = verb == "stride" || verb == "speed"
             || verb == "spd";
+        if ((verb == "phase" || verb == "ph") && tokens.size() == 2u
+            && asciiLower(tokens[1]) == "reset") {
+            for (auto& track : session.pattern.tracks) {
+                track.noteColumn.phase = 0u;
+                track.instrumentColumn.phase = 0u;
+                track.velocityColumn.phase = 0u;
+                for (auto& pair : track.fxPairs) {
+                    pair.actionColumn.phase = 0u;
+                    pair.valueColumn.phase = 0u;
+                }
+            }
+            return success("Reset every column phase in the current pattern.",
+                CommandEffect::PatternChanged);
+        }
         if (tokens.size() != 3u && tokens.size() != 4u)
             return failure("Usage: " + verb
-                + " <lane|@alias> [note|ins|vel|fx1|v1|fx2|v2] <value>");
+                + " <lane|@alias> [note|ins|vel|fx1|v1|fx2|v2] <value>, or phase reset");
         std::size_t lane = 0u;
         std::string error;
         if (!parseLane(session, tokens[1], lane, error))
@@ -3147,16 +3200,16 @@ CommandResult executeTokens(TrackerSession& session,
         if (verb == "note") {
             NoteCell cell;
             const auto value = asciiLower(tokens[3]);
-            uint32_t midiNote = 0u;
+            uint8_t midiNote = 0u;
             if (value == "rest") cell = NoteCell::rest();
             else if (value == "rpt") cell = NoteCell::retriggerPrevious();
             else if (value == "kill") cell = NoteCell::kill();
             else if (value == "hold" || value == "hld")
                 cell = NoteCell::hold();
-            else if (parseUnsigned(tokens[3], midiNote) && midiNote <= 127u)
-                cell = NoteCell::withNote(static_cast<uint8_t>(midiNote));
+            else if (parseMidiNote(tokens[3], midiNote))
+                cell = NoteCell::withNote(midiNote);
             else
-                return failure("Note must be MIDI 0..127, rest, rpt, hold, or kill.");
+                return failure("Note must be MIDI 0..127, a note name, rest, rpt, hold, or kill.");
             auto& track = session.pattern.tracks[lane];
             ensureNoteStorage(session, track, row + 1u);
             track.notes[row] = cell;
@@ -3602,6 +3655,40 @@ CommandResult executeTokens(TrackerSession& session,
 
 } // namespace
 
+uint8_t laneDefaultNote(const TrackerSession& session,
+    std::size_t lane) noexcept
+{
+    if (lane < session.laneDefaultNotes.size())
+        return session.laneDefaultNotes[lane];
+    if (lane < session.pattern.tracks.size()) {
+        const auto& notes = session.pattern.tracks[lane].notes;
+        const auto found = std::find_if(notes.begin(), notes.end(),
+            [](const NoteCell& cell) {
+                return cell.state == NoteCellState::Note;
+            });
+        if (found != notes.end()) return found->note;
+    }
+    return fallbackNoteForLane(lane);
+}
+
+bool setLaneDefaultNote(TrackerSession& session, std::size_t lane,
+    uint8_t note, std::size_t* replacedNoteCount)
+{
+    if (replacedNoteCount) *replacedNoteCount = 0u;
+    if (lane >= session.pattern.tracks.size()) return false;
+    const auto previous = laneDefaultNote(session, lane);
+    ensureLaneDefaultNotes(session);
+    bool changed = session.laneDefaultNotes[lane] != note;
+    session.laneDefaultNotes[lane] = note;
+    for (auto& cell : session.pattern.tracks[lane].notes) {
+        if (cell.state != NoteCellState::Note) continue;
+        if (replacedNoteCount) ++*replacedNoteCount;
+        changed |= cell.note != note;
+        cell.note = note;
+    }
+    return changed || previous != note;
+}
+
 bool patternVariationLaunchIsDue(PatternVariationLaunch launch,
     uint64_t completedTickIndex, uint64_t completedTransportRow,
     uint32_t ticksPerBeat, std::size_t patternRows) noexcept
@@ -3611,7 +3698,11 @@ bool patternVariationLaunchIsDue(PatternVariationLaunch launch,
         return ((completedTickIndex + 1u)
             % std::max<uint32_t>(ticksPerBeat, 1u)) == 0u;
     }
-    if (launch == PatternVariationLaunch::NextPatternCycle) {
+    if (launch == PatternVariationLaunch::NextPatternCycle
+        || launch == PatternVariationLaunch::NextSongRow) {
+        // A Song runtime supplies its true row boundary. Before Song mode has
+        // reached the audio thread, use the current pattern cycle as the
+        // nearest meaningful boundary so SELECT QUEUE cannot be stranded.
         return ((completedTransportRow + 1u)
             % std::max<std::size_t>(patternRows, 1u)) == 0u;
     }
@@ -3655,15 +3746,16 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "gate <1..5000 ms>", "Set external MIDI note-gate duration.", "gate", "gate 90" },
             { "loop <on|off|toggle>  |  loop [rows] <start> <end>", "Toggle the global loop or set its inclusive one-based row region.", "loop", "loop 1 16" },
             { "warps", "List the current composition and indexed warp library.", "warps", "warps" },
+            { "warp on|off|toggle", "Enable or bypass the current Pattern timing-warp composition.", "", "warp on" },
             { "warp clear", "Remove every timing transform.", "warp", "warp clear" },
             { "warp save <1..64> [name]", "Store the current composed stack and cycle in a library slot.", "", "warp save 1 GROOVE" },
             { "warp load|recall|use <1..64>", "Recall a library warp immediately.", "", "warp load 1" },
             { "warp rename <1..64> <name>  |  warp delete <1..64>", "Edit indexed warp-library metadata.", "", "warp rename 1 SWUNG GROOVE" },
             { "warp cycle <1..16 ticks>", "Set the repeating live-warp cycle.", "", "warp cycle 8" },
             { "warp exp|exponential <power> [options]", "Append an exponential warp.", "", "warp exp 1.5 mix 0.7" },
-            { "warp step|quantize <steps> [options]", "Append a stepped quantizer warp.", "", "warp step 4 mix 0.8" },
-            { "warp eu|euclid <pulses> <steps> [options]", "Append a Euclidean quantizer warp.", "", "warp eu 5 8 mix 0.6" },
-            { "  options: [mix|alpha <0..1>] [segment <begin> <end>] [repeat <count>]", "Options apply to exp, step, and Euclidean timing warps.", "", "warp exp 1.25 segment .25 .75 repeat 2" },
+            { "warp step|quantize <1..64 steps> [options]", "Append a stepped quantizer warp.", "", "warp step 4 mix 0.8" },
+            { "warp eu|euclid <pulses> <1..64 steps> [options]", "Append a Euclidean quantizer warp.", "", "warp eu 5 8 mix 0.6" },
+            { "  options: [mix|alpha <0..1>] [segment <begin> <end>] [repeat <1..16>]", "Options apply to exp, step, and Euclidean timing warps.", "", "warp exp 1.25 segment .25 .75 repeat 2" },
         } },
         { "KITS, TARGETS & SELECTION", {
             { "kit [gm|superior] <compact|basic|toms>", "Configure a named drum map, template, and aliases.", "kit", "kit superior compact" },
@@ -3684,7 +3776,8 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "mutate [amount] [all|notes|drums|values|fx|symbols|structure|meta]", "Vary the current pattern within one typed native scope.", "mutate", "mutate 0.25 notes" },
             { "drumscene <techno|broken|sparse|blast|ritual> [seed]", "Generate seeded rhythms for recognized kit lanes.", "drumscene", "drumscene techno 101" },
         } },
-        { "RHYTHM & NOTE CELLS", {
+        { "PITCH, RHYTHM & NOTE CELLS", {
+            { "pitch|defaultnote <target> <MIDI|note name>", "Set the lane's default pitch and replace every explicit NOTE pitch while preserving symbols.", "pitch defaultnote", "pitch @kick C-2" },
             { "hit <target> <row> [MIDI note]", "Write a note using the lane anchor or an explicit pitch.", "hit", "hit @kick 1 36" },
             { "rest <target> <row>", "Write a NOTE rest.", "rest", "rest @kick 2" },
             { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat", "repeat @kick 3" },
@@ -3711,6 +3804,7 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "len|length <target> [column] <1..256>", "Set an independent column length; NOTE is the default.", "len length", "len @kick vol 12" },
             { "stride|speed|spd <target> [column] <positive integer>", "Set an independent column stride.", "stride speed spd", "stride @kick note 2" },
             { "phase|ph <target> [column] <signed rows>", "Set an independent per-column phase rotation.", "phase ph", "phase @kick note -1" },
+            { "phase|ph reset [bank]", "Clear every NOTE, VOL, and sequencing-column phase in the current pattern; BANK applies it to every saved pattern in the Tracker plug-in.", "", "phase reset" },
             { "dir|mode <target> [column] <direction>", "Set forward, reverse, palindrome, or random traversal.", "dir mode", "dir @kick note <>" },
             { "mute <target> [column] [on|off|toggle]", "Mute or toggle a lane column; NOTE is the default.", "mute", "mute @kick vol toggle" },
             { "unmute <target|all>", "Unmute one NOTE lane or every NOTE lane.", "unmute", "unmute all" },

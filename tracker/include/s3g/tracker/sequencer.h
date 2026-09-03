@@ -426,8 +426,10 @@ struct TransportSettings {
     double swing = 0.5;
     // Functional warps repeat over this many tracker ticks. Legacy two-part
     // swing is applied first, then the serial stack maps the resulting
-    // normalized phase. The default stack is an exact identity.
+    // normalized phase. The stack remains editable while disabled; playback
+    // applies it only after timingWarpEnabled is explicitly switched on.
     uint32_t warpCycleTicks = 16u;
+    bool timingWarpEnabled = false;
     TimingWarpStack timingWarp;
     // MT can move a note early only if the sequencer knows about it before its
     // nominal tick. When a pattern contains MT, every note is delayed by this
@@ -501,6 +503,11 @@ public:
     // while retaining the sample/tick clock, active voice ownership, FX
     // recall, deterministic random streams, and last-emitted note state.
     void relaunchColumnsAtTickBoundary(std::size_t row = 0u) noexcept;
+    // Start a Song row at an explicit pattern position. Unlike a column-only
+    // relaunch, this also moves the transport row so a nonzero loop-in point
+    // is active on the very next tick. The global tick/sample clock and voice
+    // ownership remain continuous.
+    void launchSongRegionAtTickBoundary(std::size_t row) noexcept;
     // Performance resync for one track: move NOTE, INS, VOL, and both FX
     // action/value read heads to the same absolute row, deliberately ignoring
     // their independent authored phase rotations. The next logical tick

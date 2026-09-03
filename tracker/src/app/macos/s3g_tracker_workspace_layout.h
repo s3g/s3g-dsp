@@ -8,9 +8,12 @@ namespace s3g::tracker::app {
 // the responsive workspace contract can be regression-tested as ordinary C++.
 // AppKit consumes the resulting values as points.
 inline constexpr double kWorkspaceMinimumContentWidth = 760.0;
-inline constexpr double kWorkspaceMinimumContentHeight = 560.0;
-inline constexpr double kWorkspaceToolbarHeight = 92.0;
+inline constexpr double kWorkspaceMinimumContentHeight = 620.0;
+// One standard toolbox header, one compact control row, and one status line.
+// The former two-row header left dead vertical space above the tracker grid.
+inline constexpr double kWorkspaceToolbarHeight = 69.0;
 inline constexpr double kWorkspaceConsoleInputHeight = 44.0;
+inline constexpr double kWorkspaceTransportFooterHeight = 57.0;
 inline constexpr double kTrackerGridHeaderHeight = 86.0;
 inline constexpr double kTrackerGridRowHeight = 25.0;
 // The native CLAP page loses 40 points to its page selector. A slightly

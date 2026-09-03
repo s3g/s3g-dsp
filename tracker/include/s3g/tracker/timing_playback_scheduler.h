@@ -71,6 +71,10 @@ public:
     {
         sequencer_.relaunchColumnsAtTickBoundary(row);
     }
+    void launchSongRegionAtTickBoundary(std::size_t row) noexcept
+    {
+        sequencer_.launchSongRegionAtTickBoundary(row);
+    }
     bool resyncTrackColumnsAtTickBoundary(std::size_t track,
         std::size_t row = 0u) noexcept
     {

@@ -33,6 +33,7 @@ struct HostContext {
     uint32_t playRequests = 0u;
     uint32_t pauseRequests = 0u;
     uint32_t stopRequests = 0u;
+    int playState = 0;
     clap_host_state_t state {};
     ReaperHostBridge reaper {};
 };
@@ -41,17 +42,31 @@ HostContext* activeReaperHost = nullptr;
 
 void reaperPlay()
 {
-    if (activeReaperHost) ++activeReaperHost->playRequests;
+    if (activeReaperHost) {
+        ++activeReaperHost->playRequests;
+        activeReaperHost->playState = 1;
+    }
 }
 
 void reaperPause()
 {
-    if (activeReaperHost) ++activeReaperHost->pauseRequests;
+    if (activeReaperHost) {
+        ++activeReaperHost->pauseRequests;
+        activeReaperHost->playState = 2;
+    }
 }
 
 void reaperStop()
 {
-    if (activeReaperHost) ++activeReaperHost->stopRequests;
+    if (activeReaperHost) {
+        ++activeReaperHost->stopRequests;
+        activeReaperHost->playState = 0;
+    }
+}
+
+int reaperGetPlayState()
+{
+    return activeReaperHost ? activeReaperHost->playState : 0;
 }
 
 void* reaperGetFunction(const char* name)
@@ -63,6 +78,8 @@ void* reaperGetFunction(const char* name)
         return reinterpret_cast<void*>(&reaperPause);
     if (std::strcmp(name, "OnStopButton") == 0)
         return reinterpret_cast<void*>(&reaperStop);
+    if (std::strcmp(name, "GetPlayState") == 0)
+        return reinterpret_cast<void*>(&reaperGetPlayState);
     return nullptr;
 }
 
@@ -284,8 +301,8 @@ NSWindow* waitForOrderedDetachedWindow(NSString* title, NSWindow* parent)
     NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:0.5];
     do {
         NSWindow* window = visibleWindow(title);
-        if (window && window.parentWindow == parent
-            && window.level > parent.level && window.hidesOnDeactivate)
+        if (window && window.parentWindow == nil
+            && window.level > parent.level && !window.hidesOnDeactivate)
             return window;
         [[NSRunLoop currentRunLoop] runUntilDate:
             [NSDate dateWithTimeIntervalSinceNow:0.01]];
@@ -350,6 +367,51 @@ bool prepareDocumentationSongMuteControls(NSView* root)
     }
     [table layoutSubtreeIfNeeded];
     return true;
+}
+
+bool setDocumentationSongPatternLoop(NSView* root, NSUInteger row,
+    NSInteger loopStart, NSInteger loopEnd)
+{
+    NSTableView* table = findTableView(root);
+    if (!table || row >= static_cast<NSUInteger>(table.numberOfRows))
+        return false;
+    NSInteger loopColumn = -1;
+    for (NSUInteger column = 0u;
+         column < table.tableColumns.count; ++column) {
+        if ([table.tableColumns[column].identifier
+                isEqualToString:@"patternLoop"]) {
+            loopColumn = static_cast<NSInteger>(column);
+            break;
+        }
+    }
+    if (loopColumn < 0) return false;
+    NSView* cell = [table viewAtColumn:loopColumn
+        row:static_cast<NSInteger>(row) makeIfNecessary:YES];
+    NSString* inLabel = [NSString stringWithFormat:
+        @"Song row %lu pattern loop in",
+        static_cast<unsigned long>(row + 1u)];
+    NSView* inView = findAccessibleView(cell, inLabel);
+    if (![inView isKindOfClass:NSPopUpButton.class]) return false;
+    NSPopUpButton* inPopup = static_cast<NSPopUpButton*>(inView);
+    const NSInteger inIndex = [inPopup
+        indexOfItemWithRepresentedObject:@(loopStart)];
+    if (inIndex < 0) return false;
+    [inPopup selectItemAtIndex:inIndex];
+    if (![inPopup sendAction:inPopup.action to:inPopup.target]) return false;
+
+    cell = [table viewAtColumn:loopColumn
+        row:static_cast<NSInteger>(row) makeIfNecessary:YES];
+    NSString* outLabel = [NSString stringWithFormat:
+        @"Song row %lu pattern loop out",
+        static_cast<unsigned long>(row + 1u)];
+    NSView* outView = findAccessibleView(cell, outLabel);
+    if (![outView isKindOfClass:NSPopUpButton.class]) return false;
+    NSPopUpButton* outPopup = static_cast<NSPopUpButton*>(outView);
+    const NSInteger outIndex = [outPopup
+        indexOfItemWithRepresentedObject:@(loopEnd)];
+    if (outIndex < 0) return false;
+    [outPopup selectItemAtIndex:outIndex];
+    return [outPopup sendAction:outPopup.action to:outPopup.target];
 }
 
 bool selectTrackerGridVolumeField(NSView* root)
@@ -560,16 +622,29 @@ int main(int argc, char** argv)
                 "full tracker workspace lifecycle failed");
             if (shown) {
                 [parent setFrameSize:NSMakeSize(resizedWidth, resizedHeight)];
+                [parent layoutSubtreeIfNeeded];
                 NSView* routeStatusView = findAccessibleView(parent,
                     @"Tracker route status");
                 NSTextField* routeStatus =
                     [routeStatusView isKindOfClass:NSTextField.class]
                         ? static_cast<NSTextField*>(routeStatusView) : nil;
+                NSView* hostBpmView = findAccessibleView(parent,
+                    @"Host tempo in beats per minute");
+                NSTextField* hostBpm =
+                    [hostBpmView isKindOfClass:NSTextField.class]
+                        ? static_cast<NSTextField*>(hostBpmView) : nil;
+                const NSRect hostBpmFrame = hostBpm
+                    ? [hostBpm convertRect:hostBpm.bounds toView:parent]
+                    : NSZeroRect;
                 ok &= expect([routeStatus.stringValue
                             containsString:@"1 OUT • 1 REC IN • CH 1–16"]
                         && ![routeStatus.stringValue
                             containsString:@"8 REAPER MIDI BUSES"],
                     "routing status did not reflect the single CLAP MIDI port");
+                ok &= expect([hostBpm.stringValue hasPrefix:@"HOST BPM"]
+                        && NSMaxX(hostBpmFrame)
+                            >= NSWidth(parent.bounds) - 20.0,
+                    "host BPM should use the shared passive top-right status position");
                 ok &= expect(clickButton(parent, nil,
                             @"Expand tracker sequencing columns", nil)
                         && clickButton(parent, nil,
@@ -651,10 +726,10 @@ int main(int argc, char** argv)
                     [stepModeView isKindOfClass:NSPopUpButton.class]
                         ? static_cast<NSPopUpButton*>(stepModeView) : nil;
                 const bool stepModeAvailable = stepMode.numberOfItems == 4u
-                    && [stepMode.itemArray[0u].title isEqualToString:@"OFF"]
-                    && [stepMode.itemArray[1u].title isEqualToString:@"STEP"]
-                    && [stepMode.itemArray[2u].title isEqualToString:@"LIVE Q"]
-                    && [stepMode.itemArray[3u].title isEqualToString:@"LIVE MT"];
+                    && [stepMode.itemArray[0u].title isEqualToString:@"REC OFF"]
+                    && [stepMode.itemArray[1u].title isEqualToString:@"REC STEP"]
+                    && [stepMode.itemArray[2u].title isEqualToString:@"REC Q"]
+                    && [stepMode.itemArray[3u].title isEqualToString:@"REC MT"];
                 if (stepModeAvailable) {
                     [stepMode selectItemAtIndex:1u];
                     [stepMode sendAction:stepMode.action to:stepMode.target];
@@ -662,6 +737,7 @@ int main(int argc, char** argv)
                 const bool stepCursorSelected = submitCommand(parent,
                     @"select 1 5");
                 bool stepMonitorPassed = false;
+                context.playState = 1;
                 bool stepRecordProcessing = plugin->activate(
                         plugin, 48000.0, 16u, 32768u)
                     && plugin->start_processing(plugin);
@@ -704,12 +780,14 @@ int main(int argc, char** argv)
                         [NSDate dateWithTimeIntervalSinceNow:0.08]];
                     plugin->stop_processing(plugin);
                     plugin->deactivate(plugin);
+                    context.playState = 0;
                 }
                 if (stepModeAvailable) {
                     [stepMode selectItemAtIndex:3u];
                     [stepMode sendAction:stepMode.action to:stepMode.target];
                 }
                 bool liveMonitorPassed = false;
+                context.playState = 1;
                 bool liveRecordProcessing = plugin->activate(
                         plugin, 48000.0, 16u, 32768u)
                     && plugin->start_processing(plugin);
@@ -772,6 +850,7 @@ int main(int argc, char** argv)
                         [NSDate dateWithTimeIntervalSinceNow:0.08]];
                     plugin->stop_processing(plugin);
                     plugin->deactivate(plugin);
+                    context.playState = 0;
                 }
                 NSView* consoleMessages = findAccessibleView(parent,
                     @"Console printed messages");
@@ -815,9 +894,7 @@ int main(int argc, char** argv)
                     "Song file menu or named stable-ID pattern selector is incomplete");
                 hostWindow = [[NSWindow alloc] initWithContentRect:
                     NSMakeRect(0.0, 0.0, requestedWidth, requestedHeight)
-                    styleMask:(NSWindowStyleMaskTitled
-                        | NSWindowStyleMaskClosable
-                        | NSWindowStyleMaskResizable)
+                    styleMask:NSWindowStyleMaskBorderless
                     backing:NSBackingStoreBuffered defer:NO];
                 hostWindow.title = @"s3g Tracker smoke host";
                 hostWindow.releasedWhenClosed = NO;
@@ -826,13 +903,78 @@ int main(int argc, char** argv)
                     requestedWidth, requestedHeight)];
                 [parent setFrame:NSMakeRect(
                     0.0, 0.0, requestedWidth, requestedHeight)];
+                (void)gui->set_size(
+                    plugin, requestedWidth, requestedHeight);
                 [parent layoutSubtreeIfNeeded];
                 [hostWindow orderFront:nil];
+                [hostWindow setContentSize:NSMakeSize(
+                    requestedWidth, requestedHeight)];
+                [parent setFrame:NSMakeRect(
+                    0.0, 0.0, requestedWidth, requestedHeight)];
+                (void)gui->set_size(
+                    plugin, requestedWidth, requestedHeight);
+                [parent layoutSubtreeIfNeeded];
+                [parent displayIfNeeded];
+                NSButton* trackerPageButton = findButton(
+                    parent, nil, @"TRACKER page", nil);
+                ok &= expect(trackerPageButton
+                        && ![[trackerPageButton valueForKey:
+                            @"s3gUsesSuiteStyle"] boolValue]
+                        && trackerPageButton.state
+                            == NSControlStateValueOn,
+                    "active page navigation should retain its cyan Tracker highlight");
+                NSView* activePatternView = findAccessibleView(parent,
+                    @"Active pattern");
+                NSView* midiRecordView = findAccessibleView(parent,
+                    @"MIDI recording mode");
+                NSPopUpButton* activePatternMenu =
+                    [activePatternView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(activePatternView) : nil;
+                NSPopUpButton* midiRecordMenu =
+                    [midiRecordView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(midiRecordView) : nil;
+                [activePatternMenu selectItemAtIndex:0];
+                const bool patternDispatched = [activePatternMenu sendAction:
+                    activePatternMenu.action to:activePatternMenu.target];
+                [midiRecordMenu selectItemAtIndex:1];
+                const bool midiDispatched = [midiRecordMenu sendAction:
+                    midiRecordMenu.action to:midiRecordMenu.target];
+                [midiRecordMenu selectItemAtIndex:0];
+                [midiRecordMenu sendAction:midiRecordMenu.action
+                    to:midiRecordMenu.target];
+                ok &= expect(activePatternMenu.enabled
+                        && midiRecordMenu.enabled && patternDispatched
+                        && midiDispatched,
+                    "embedded Pattern and MIDI REC menus did not dispatch through the plug-in coordinator");
+                const bool songMenuPage = clickButton(
+                    parent, nil, @"SONG page", nil);
+                [parent layoutSubtreeIfNeeded];
+                NSView* songPatternClickView = findAccessibleView(parent,
+                    @"Song row 1 pattern");
+                NSPopUpButton* songPatternClickMenu =
+                    [songPatternClickView isKindOfClass:NSPopUpButton.class]
+                        ? static_cast<NSPopUpButton*>(songPatternClickView)
+                        : nil;
+                ok &= expect(songMenuPage
+                        && [songPatternClickMenu sendAction:
+                            songPatternClickMenu.action
+                            to:songPatternClickMenu.target]
+                        && clickButton(parent, nil, @"TRACKER page", nil),
+                    "embedded Song row menus did not dispatch through the plug-in coordinator");
                 const bool consoleSelected = clickButton(parent, nil,
                     @"CONSOLE page", nil);
                 [parent layoutSubtreeIfNeeded];
                 NSView* consoleLiveCode = findAccessibleView(parent,
                     @"Console live command input");
+                NSView* consolePanel = findAccessibleView(parent,
+                    @"Console output page");
+                const bool consoleHeadingMatches = [consolePanel
+                        isKindOfClass:NSClassFromString(
+                            @"S3GTrackerToolboxView")]
+                    && [[consolePanel valueForKey:@"toolboxTitle"]
+                        isEqualToString:@"CONSOLE / LIVE CODE"]
+                    && [[consolePanel valueForKey:@"toolboxIndex"]
+                        integerValue] == 0;
                 bool consoleCommandWorked = false;
                 if ([consoleLiveCode isKindOfClass:NSTextField.class]) {
                     NSTextField* field = static_cast<NSTextField*>(
@@ -867,14 +1009,15 @@ int main(int argc, char** argv)
                     @"Detach selected tool page", nil);
                 NSWindow* detachedConsole = waitForOrderedDetachedWindow(
                     @"s3g Tracker — Console", hostWindow);
-                ok &= expect(consoleSelected && consoleCommandWorked
+                ok &= expect(consoleSelected && consoleHeadingMatches
+                        && consoleCommandWorked
                         && consoleDetached && detachedConsole != nil
-                        && detachedConsole.parentWindow == hostWindow
+                        && detachedConsole.parentWindow == nil
                         && detachedConsole.level > hostWindow.level
-                        && detachedConsole.hidesOnDeactivate
+                        && !detachedConsole.hidesOnDeactivate
                         && findAccessibleView(detachedConsole.contentView,
                             @"Console live command input") != nil,
-                    "Console autoalias/listing or detached-window ordering failed");
+                    "Console autoalias/listing or independent detached-window ordering failed");
                 [detachedConsole close];
                 ok &= expect(visibleWindow(@"s3g Tracker — Console") == nil
                         && clickButton(parent, nil, @"TRACKER page", nil),
@@ -884,8 +1027,19 @@ int main(int argc, char** argv)
                 [parent layoutSubtreeIfNeeded];
                 NSView* helpTextView = findAccessibleView(parent,
                     @"All console commands, grouped by function");
-                BOOL neutralExampleHeading = NO;
+                NSView* helpPanel = findAccessibleView(parent,
+                    @"Help command reference panel");
+                const bool helpHeadingMatches = [helpPanel
+                        isKindOfClass:NSClassFromString(
+                            @"S3GTrackerToolboxView")]
+                    && [[helpPanel valueForKey:@"toolboxTitle"]
+                        isEqualToString:@"HELP / COMMAND REFERENCE"]
+                    && [[helpPanel valueForKey:@"toolboxIndex"]
+                        integerValue] == 0;
+                BOOL differentiatedExampleStyling = NO;
                 BOOL helpDocumentsCompactSymbols = NO;
+                BOOL helpUsesCompactSectionRules = NO;
+                BOOL helpOrganizesWorkflowReference = NO;
                 if ([helpTextView isKindOfClass:NSTextView.class]) {
                     NSTextStorage* storage =
                         static_cast<NSTextView*>(helpTextView).textStorage;
@@ -899,35 +1053,82 @@ int main(int argc, char** argv)
                         && [storage.string containsString:
                             @"? is reserved for Help"]
                         && [storage.string containsString:
-                            @"QUICK ENTRY  NOTE X toggles"];
+                            @"PITCH, RHYTHM & NOTE CELLS"]
+                        && [storage.string containsString:
+                            @"pitch|defaultnote <target> <MIDI|note name>"]
+                        && [storage.string containsString:
+                            @"pitch @kick C-2"]
+                        && [storage.string containsString:@"QUICK ENTRY"]
+                        && [storage.string containsString:
+                            @"X toggles an anchored hit"];
+                    helpOrganizesWorkflowReference =
+                        [storage.string containsString:
+                            @"TRACKER GRID WORKFLOW"]
+                        && [storage.string containsString:
+                            @"MIDI + LANE ROUTING"]
+                        && [storage.string containsString:
+                            @"TRANSPORT + SONG"]
+                        && [storage.string containsString:
+                            @"SONG ROW LENGTH"]
+                        && [storage.string containsString:
+                            @"TICKS is the number of tracker-row advances"]
+                        && [storage.string containsString:
+                            @"GEOMETRY + TOOL WINDOWS"];
+                    const NSRange pitchHeading = [storage.string
+                        rangeOfString:@"PITCH, RHYTHM & NOTE CELLS"];
+                    NSFont* pitchHeadingFont = pitchHeading.location
+                            != NSNotFound
+                        ? [storage attribute:NSFontAttributeName
+                            atIndex:pitchHeading.location
+                            effectiveRange:nullptr] : nil;
+                    helpUsesCompactSectionRules =
+                        [storage.string containsString:
+                            @"────────────────────────────────"]
+                        && pitchHeadingFont
+                        && pitchHeadingFont.pointSize <= 11.0;
                     const NSRange exampleRange = [storage.string
                         rangeOfString:@"EXAMPLE  "];
                     if (exampleRange.location != NSNotFound
                         && NSMaxRange(exampleRange) < storage.length) {
-                        NSColor* headingColor = [storage attribute:
+                        NSColor* exampleLabelColor = [storage attribute:
                             NSForegroundColorAttributeName
                             atIndex:exampleRange.location
                             effectiveRange:nullptr];
-                        NSColor* commandColor = [storage attribute:
+                        NSColor* exampleCommandColor = [storage attribute:
                             NSForegroundColorAttributeName
                             atIndex:NSMaxRange(exampleRange)
                             effectiveRange:nullptr];
-                        neutralExampleHeading = headingColor && commandColor
-                            && ![headingColor isEqual:commandColor];
+                        const NSRange syntaxRange = [storage.string
+                            rangeOfString:
+                                @"pitch|defaultnote <target> <MIDI|note name>"];
+                        NSColor* syntaxColor = syntaxRange.location
+                                != NSNotFound
+                            ? [storage attribute:
+                                NSForegroundColorAttributeName
+                                atIndex:syntaxRange.location
+                                effectiveRange:nullptr] : nil;
+                        differentiatedExampleStyling = exampleLabelColor
+                            && exampleCommandColor && syntaxColor
+                            && ![exampleLabelColor
+                                isEqual:exampleCommandColor]
+                            && ![syntaxColor isEqual:exampleCommandColor];
                     }
                 }
-                ok &= expect(helpSelected && neutralExampleHeading
+                ok &= expect(helpSelected && helpHeadingMatches
+                        && differentiatedExampleStyling
                         && helpDocumentsCompactSymbols
+                        && helpUsesCompactSectionRules
+                        && helpOrganizesWorkflowReference
                         && clickButton(parent, nil,
                             @"Detach selected tool page", nil),
                     "Help symbol reference, example styling, or detach action is incomplete");
                 NSWindow* detachedHelp = waitForOrderedDetachedWindow(
                     @"s3g Tracker — Help", hostWindow);
                 ok &= expect(detachedHelp != nil
-                        && detachedHelp.parentWindow == hostWindow
+                        && detachedHelp.parentWindow == nil
                         && detachedHelp.level > hostWindow.level
-                        && detachedHelp.hidesOnDeactivate,
-                    "detached Help did not remain above its plug-in window");
+                        && !detachedHelp.hidesOnDeactivate,
+                    "detached Help did not remain an independent visible window");
                 [detachedHelp close];
                 ok &= expect(visibleWindow(@"s3g Tracker — Help") == nil
                         && clickButton(parent, nil, @"TRACKER page", nil),
@@ -951,7 +1152,7 @@ int main(int argc, char** argv)
                         "tracker documentation patterns could not be prepared");
                     for (int row = 0; row < 4; ++row) {
                         ok &= expect(clickButton(
-                                parent, @"＋ ADD ROW", nil, nil),
+                            parent, @"＋ ADD", nil, nil),
                             "tracker documentation Song rows could not be added");
                     }
                     ok &= expect(clickButton(
@@ -959,14 +1160,23 @@ int main(int argc, char** argv)
                         "Song documentation page could not be prepared");
                     [parent layoutSubtreeIfNeeded];
                     [parent displayIfNeeded];
-                    const std::array<std::pair<NSUInteger, NSUInteger>, 14u>
+                    ok &= expect(prepareDocumentationSongMuteControls(parent),
+                        "tracker documentation Song mute controls could not be prepared");
+                    NSButton* fourthLane = findButton(parent, nil,
+                        @"Song row 1 lane 4 mute", nil);
+                    NSButton* fifthLane = findButton(parent, nil,
+                        @"Song row 1 lane 5 mute", nil);
+                    ok &= expect(fourthLane && fourthLane.enabled
+                            && fifthLane && !fifthLane.enabled,
+                        "Song mute availability did not follow the selected pattern's actual lane count");
+                    const std::array<std::pair<NSUInteger, NSUInteger>, 9u>
                         songLaneMutes {{
-                        { 0u, 4u }, { 0u, 5u },
-                        { 1u, 2u }, { 1u, 6u },
-                        { 2u, 1u }, { 2u, 3u }, { 2u, 5u },
-                        { 3u, 0u }, { 3u, 4u },
-                        { 4u, 2u }, { 4u, 3u }, { 4u, 6u },
-                        { 5u, 1u }, { 5u, 5u },
+                        { 0u, 0u }, { 0u, 1u },
+                        { 1u, 2u },
+                        { 2u, 1u }, { 2u, 3u },
+                        { 3u, 0u },
+                        { 4u, 2u }, { 4u, 3u },
+                        { 5u, 1u },
                     }};
                     for (const auto& mute : songLaneMutes) {
                         ok &= expect(prepareDocumentationSongMuteControls(parent),
@@ -978,6 +1188,13 @@ int main(int argc, char** argv)
                         ok &= expect(clickButton(parent, nil, label, nil),
                             "tracker documentation Song lane mute could not be set");
                     }
+                    ok &= expect(setDocumentationSongPatternLoop(
+                                parent, 1u, 1, 4)
+                            && setDocumentationSongPatternLoop(
+                                parent, 3u, 5, 8)
+                            && setDocumentationSongPatternLoop(
+                                parent, 5u, 9, 12),
+                        "tracker documentation Song pattern loops could not be set");
                     ok &= expect(clickButton(
                             parent, @"LOOP SONG: OFF", nil, nil)
                             && clickButton(parent,
@@ -990,6 +1207,7 @@ int main(int argc, char** argv)
                             && clickButton(parent,
                                 nil, nil, @"warp-add-2"),
                         "tracker documentation warp stack could not be prepared");
+                    context.playState = 1;
                     documentationProcessing = plugin->activate(
                             plugin, 48000.0, 16u, 32768u)
                         && plugin->start_processing(plugin);
@@ -1073,6 +1291,23 @@ int main(int argc, char** argv)
                 if (documentationProcessing) {
                     plugin->stop_processing(plugin);
                     plugin->deactivate(plugin);
+                    context.playState = 0;
+                    [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.05]];
+                }
+                if (directory) {
+                    // The capture deliberately shows Song transport enabled,
+                    // but the DSP assertions below exercise the active
+                    // pattern directly. Stop first so Song controls unlock,
+                    // then restore pattern transport and identity timing.
+                    ok &= expect(clickButton(parent, nil, @"SONG page", nil)
+                            && clickButton(parent,
+                                @"SONG TRANSPORT: ON", nil, nil)
+                            && clickButton(parent, nil, @"TRACKER page", nil)
+                            && submitCommand(parent, @"warp clear"),
+                        "tracker documentation transport state could not be restored");
+                    [[NSRunLoop currentRunLoop] runUntilDate:
+                        [NSDate dateWithTimeIntervalSinceNow:0.05]];
                 }
                 ok &= expect(gui->hide(plugin),
                     "full tracker workspace hide failed");
@@ -1080,6 +1315,23 @@ int main(int argc, char** argv)
             gui->destroy(plugin);
             [hostWindow close];
         }
+    }
+#endif
+#if defined(__APPLE__)
+    // Documentation mode has already exercised the complete native GUI and
+    // written every requested PDF above. Its intentionally embellished Song,
+    // Warp, and pattern state is not the deterministic DSP fixture used by
+    // the ordinary no-environment smoke run below.
+    const char* documentationDirectory = std::getenv(
+        "S3G_GUI_SMOKE_PDF_DIR");
+    if (documentationDirectory && documentationDirectory[0]) {
+        if (plugin) plugin->destroy(plugin);
+        activeReaperHost = nullptr;
+        if (entry) entry->deinit();
+        if (library) dlclose(library);
+        if (!ok) return 1;
+        std::puts("s3g tracker CLAP documentation smoke: ok");
+        return 0;
     }
 #endif
     StateBuffer stateBuffer;

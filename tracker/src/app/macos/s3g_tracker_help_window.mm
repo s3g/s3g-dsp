@@ -2,6 +2,7 @@
 
 #import "s3g_tracker_controls.h"
 
+#include "s3g_gui_layout.h"
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/fx_catalog.h"
 
@@ -33,14 +34,72 @@ NSMutableParagraphStyle* paragraph(CGFloat before, CGFloat after,
     return style;
 }
 
+void appendSectionRule(NSMutableAttributedString* document,
+    CGFloat spacingBefore = 5.0)
+{
+    NSDictionary* attributes = @{
+        NSFontAttributeName: helpFont(7.5, NSFontWeightRegular),
+        NSForegroundColorAttributeName: S3GTrackerColor(0x45494a),
+        NSParagraphStyleAttributeName: paragraph(spacingBefore, 2.0, 0.0),
+        NSKernAttributeName: @0.15,
+    };
+    [document appendAttributedString:[[NSAttributedString alloc]
+        initWithString:
+            @"────────────────────────────────────────────────────────────────────────\n"
+        attributes:attributes]];
+}
+
+void appendGuideSection(NSMutableAttributedString* document,
+    NSString* title, NSArray<NSArray<NSString*>*>* entries)
+{
+    appendSectionRule(document, 7.0);
+    NSDictionary* headingAttributes = @{
+        NSFontAttributeName: helpFont(9.5, NSFontWeightSemibold),
+        NSForegroundColorAttributeName: S3GTrackerThemeColor(
+            S3GTrackerThemeRole::Focus),
+        NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 0.5),
+        NSKernAttributeName: @0.65,
+    };
+    [document appendAttributedString:[[NSAttributedString alloc]
+        initWithString:[title stringByAppendingString:@"\n"]
+        attributes:headingAttributes]];
+
+    for (NSArray<NSString*>* entry in entries) {
+        if (entry.count < 2u) continue;
+        NSDictionary* labelAttributes = @{
+            NSFontAttributeName: helpFont(8.5, NSFontWeightSemibold),
+            NSForegroundColorAttributeName: S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Note),
+            NSParagraphStyleAttributeName: paragraph(2.0, 0.0, 0.25),
+            NSKernAttributeName: @0.35,
+        };
+        [document appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[entry[0u] stringByAppendingString:@"\n"]
+            attributes:labelAttributes]];
+
+        NSMutableParagraphStyle* bodyParagraph = paragraph(0.0, 2.0, 0.5);
+        bodyParagraph.firstLineHeadIndent = 10.0;
+        bodyParagraph.headIndent = 10.0;
+        bodyParagraph.tailIndent = -4.0;
+        NSDictionary* bodyAttributes = @{
+            NSFontAttributeName: helpFont(8.25, NSFontWeightRegular),
+            NSForegroundColorAttributeName: S3GTrackerColor(0x92999b),
+            NSParagraphStyleAttributeName: bodyParagraph,
+        };
+        [document appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[entry[1u] stringByAppendingString:@"\n"]
+            attributes:bodyAttributes]];
+    }
+}
+
 NSAttributedString* helpDocument()
 {
     NSMutableAttributedString* document = [[NSMutableAttributedString alloc]
         init];
     NSDictionary* introAttributes = @{
-        NSFontAttributeName: helpFont(10.5, NSFontWeightRegular),
+        NSFontAttributeName: helpFont(9.0, NSFontWeightRegular),
         NSForegroundColorAttributeName: S3GTrackerColor(0x92999b),
-        NSParagraphStyleAttributeName: paragraph(0.0, 15.0, 3.0),
+        NSParagraphStyleAttributeName: paragraph(0.0, 4.0, 1.0),
     };
     [document appendAttributedString:[[NSAttributedString alloc]
         initWithString:@"Lane and row addresses are one-based. Targets accept a lane number or @alias. Commands are case-insensitive and invalid input leaves the session unchanged.\n"
@@ -48,13 +107,14 @@ NSAttributedString* helpDocument()
 
     const auto& sections = s3g::tracker::CommandEngine::helpSections();
     for (const auto& section : sections) {
+        appendSectionRule(document);
         const std::string_view visibleTitle = section.title;
         NSDictionary* sectionAttributes = @{
-            NSFontAttributeName: helpFont(11.0, NSFontWeightSemibold),
+            NSFontAttributeName: helpFont(9.5, NSFontWeightSemibold),
             NSForegroundColorAttributeName: S3GTrackerThemeColor(
                 S3GTrackerThemeRole::Focus),
-            NSParagraphStyleAttributeName: paragraph(14.0, 7.0, 1.0),
-            NSKernAttributeName: @0.8,
+            NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 0.5),
+            NSKernAttributeName: @0.65,
         };
         [document appendAttributedString:[[NSAttributedString alloc]
             initWithString:[stringFromView(visibleTitle)
@@ -70,10 +130,10 @@ NSAttributedString* helpDocument()
                 visibleDescription = "Load the General MIDI tracker demonstration.";
             }
             NSDictionary* syntaxAttributes = @{
-                NSFontAttributeName: helpFont(11.0, NSFontWeightMedium),
+                NSFontAttributeName: helpFont(9.5, NSFontWeightMedium),
                 NSForegroundColorAttributeName: S3GTrackerThemeColor(
                     S3GTrackerThemeRole::Note),
-                NSParagraphStyleAttributeName: paragraph(5.0, 2.0, 1.5),
+                NSParagraphStyleAttributeName: paragraph(2.0, 0.0, 0.5),
             };
             [document appendAttributedString:[[NSAttributedString alloc]
                 initWithString:[stringFromView(visibleSyntax)
@@ -81,9 +141,9 @@ NSAttributedString* helpDocument()
                 attributes:syntaxAttributes]];
 
             NSDictionary* descriptionAttributes = @{
-                NSFontAttributeName: helpFont(10.0, NSFontWeightRegular),
+                NSFontAttributeName: helpFont(8.75, NSFontWeightRegular),
                 NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
-                NSParagraphStyleAttributeName: paragraph(0.0, 4.0, 2.0),
+                NSParagraphStyleAttributeName: paragraph(0.0, 1.0, 0.75),
             };
             [document appendAttributedString:[[NSAttributedString alloc]
                 initWithString:[stringFromView(visibleDescription)
@@ -91,15 +151,15 @@ NSAttributedString* helpDocument()
                 attributes:descriptionAttributes]];
 
             NSDictionary* exampleLabelAttributes = @{
-                NSFontAttributeName: helpFont(10.5, NSFontWeightMedium),
+                NSFontAttributeName: helpFont(8.75, NSFontWeightMedium),
                 NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
-                NSParagraphStyleAttributeName: paragraph(0.0, 6.0, 2.5),
+                NSParagraphStyleAttributeName: paragraph(0.0, 2.0, 0.75),
             };
             NSDictionary* exampleCommandAttributes = @{
-                NSFontAttributeName: helpFont(10.5, NSFontWeightMedium),
+                NSFontAttributeName: helpFont(8.75, NSFontWeightMedium),
                 NSForegroundColorAttributeName: S3GTrackerThemeColor(
-                    S3GTrackerThemeRole::Live),
-                NSParagraphStyleAttributeName: paragraph(0.0, 6.0, 2.5),
+                    S3GTrackerThemeRole::Value),
+                NSParagraphStyleAttributeName: paragraph(0.0, 2.0, 0.75),
             };
             [document appendAttributedString:[[NSAttributedString alloc]
                 initWithString:@"EXAMPLE  "
@@ -111,12 +171,13 @@ NSAttributedString* helpDocument()
         }
     }
 
+    appendSectionRule(document, 7.0);
     NSDictionary* actionHeadingAttributes = @{
-        NSFontAttributeName: helpFont(11.0, NSFontWeightSemibold),
+        NSFontAttributeName: helpFont(9.5, NSFontWeightSemibold),
         NSForegroundColorAttributeName: S3GTrackerThemeColor(
             S3GTrackerThemeRole::Focus),
-        NSParagraphStyleAttributeName: paragraph(14.0, 7.0, 1.0),
-        NSKernAttributeName: @0.8,
+        NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 0.5),
+        NSKernAttributeName: @0.65,
     };
     [document appendAttributedString:[[NSAttributedString alloc]
         initWithString:@"SEQUENCING ACTIONS\n"
@@ -130,53 +191,52 @@ NSAttributedString* helpDocument()
             stringFromView(action->displayName).uppercaseString,
             stringFromView(action->valueMeaning)];
         NSDictionary* actionAttributes = @{
-            NSFontAttributeName: helpFont(10.0, NSFontWeightRegular),
+            NSFontAttributeName: helpFont(8.75, NSFontWeightRegular),
             NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
-            NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 2.0),
+            NSParagraphStyleAttributeName: paragraph(0.0, 1.0, 0.75),
         };
         [document appendAttributedString:[[NSAttributedString alloc]
             initWithString:line attributes:actionAttributes]];
     }
     NSDictionary* midiCcAttributes = @{
-        NSFontAttributeName: helpFont(10.0, NSFontWeightRegular),
+        NSFontAttributeName: helpFont(8.75, NSFontWeightRegular),
         NSForegroundColorAttributeName: S3GTrackerColor(0xb2b7b8),
-        NSParagraphStyleAttributeName: paragraph(1.0, 3.0, 2.0),
+        NSParagraphStyleAttributeName: paragraph(0.0, 1.0, 0.75),
     };
     [document appendAttributedString:[[NSAttributedString alloc]
         initWithString:@"CC0–CC127  MIDI CONTROL CHANGE  —  MIDI value 0–127; STEP or LINEAR between visited rows\n"
         attributes:midiCcAttributes]];
 
-    NSDictionary* footerAttributes = @{
-        NSFontAttributeName: helpFont(9.5, NSFontWeightRegular),
-        NSForegroundColorAttributeName: S3GTrackerColor(0x777e80),
-        NSParagraphStyleAttributeName: paragraph(17.0, 8.0, 2.0),
-    };
-    [document appendAttributedString:[[NSAttributedString alloc]
-        initWithString:
-            @"COLUMNS  Compact lanes show NOTE · VOL · EXPAND SEQ reveals SEQ1 · V1 · SEQ2 · V2 · Double-click a column length to edit it\n"
-            @"NOTE VIEW  NOTE: NAME shows pitches such as C-4 · NOTE: MIDI shows the same stored pitch as decimal value 60\n"
-            @"CELL TEXT  NOTE --- rest · RPT retrigger previous · HLD continue active note · KIL kill active note · VOL DEF default · VOL/SEQ PRV previous\n"
-            @"SEQUENCING  Right-click a SEQ1/SEQ2 cell to choose an action or CC number, or double-click and type its code · Click V1 STP/LIN or V2 STP/LIN to switch interpolation\n"
-            @"ROUTING  Tracker exposes one CLAP MIDI output plus one record input · Click CH01–CH16 in a lane header to set that track's output channel · Use another Tracker instance for more than 16 destinations · Double-click the lane name to rename it\n"
-            @"MIDI RECORD  OFF disarms · STEP, LIVE Q, and LIVE MT immediately monitor incoming note-on/off on the selected lane's MIDI channel · STEP writes note/velocity at the cursor, clears MT there, and advances one row · LIVE Q records the onset at the nearest playback row, then writes HLD rows and a KIL release from the physical note-off · LIVE MT also writes measured onset and release offsets into available SEQ pairs · Live recording preserves lane lengths and moves the cursor highlight to each written boundary without advancing · Live modes require REAPER playback and pattern transport\n"
-            @"ALIASES  aliases groups bindings by lane · alias name 3 assigns or reassigns @name · autoalias replaces the map with the shortest available prefix of every lane name (k, then ki, then kit as needed)\n"
-            @"HISTORY  UNDO/REDO buttons or undo/redo commands restore persistent Tracker states · Control-Z undo · Control-Shift-Z redo · Command-Z remains REAPER's\n"
-            @"VALUES  VOL and sequence values use normalized 0.000–1.000 · CC values also accept MIDI integers 0–127 (use 1.0 for normalized maximum) · STEP holds between rows · LINEAR emits bounded intermediate CC values\n"
-            @"WARPS  Compose EXP/STEP/EUCLID serially · SAVE/RECALL named project slots · Song WARP selects OFF or a saved slot per row\n"
-            @"DIRECTIONS  FORWARD (>) · REVERSE (<) · PALINDROME (<>) · RANDOM (write random; header displays RND) · ? opens Help\n"
-            @"\nTRANSPORT  Tempo follows REAPER · RATE selects 1/4×, 1/2×, 2/3×, 1×, 3/2×, 2×, or 4× · Space play/pause · Shift-Space loop · SYNC ALL forces every lane and column to row 1 without moving REAPER and ignores phase for that launch\n"
-            @"SONG QUEUE  Select a target row · Choose NEXT TICK/BEAT/CYCLE/SONG ROW · QUEUE SELECTED · The pending row and boundary appear in yellow · Pattern, warp, swing, and mutes switch together on launch\n"
-            @"SONG FILE  SAVE/LOAD SONG + PATTERNS uses a complete validated .s3gt project file\n"
-            @"GEOMETRY VIEW  ACTIVE PULSES original · ALL STEPS reference · PHASE SPOKES live position · LANE FOCUS selected lane · COMPOSITE RING normalized cycle · Pattern NOTE mutes and active Song-row lane mutes are omitted\n"
-            @"TRACKER  Type a MIDI number or note name, then Return · Drag cells for a rectangle\n"
-            @"QUICK ENTRY  NOTE X toggles an anchored hit · R writes RPT · H writes HLD · K writes KIL · Delete clears the active cell or every cell in a drag selection · [ and ] adjust VOL/V values · M toggles the selected column mute\n"
-            @"TRACKER MODIFIER  Control-A/C/X/V select all, copy, cut, paste · Control-Z/Shift-Z undo/redo · Control-=/−/0 zoom\n"
-            @"HOST SAFETY  Command-key combinations are not claimed by the tracker and remain available to REAPER\n"
-            @"NAVIGATE  Left/Right fields · Up/Down rows · Shift-Left/Right lanes · Page Up/Down · Home/End · F9–F12 jump to 0/25/50/75%\n"
-            @"LOOP REGION  Drag the row-number gutter or use Shift-Up/Down; the region applies to every column\n"
-            @"TOOLS  Geometry, Warps, Console, and Help can be detached with ↗ or by double-clicking their page tab · Detached Console retains its own Live Code line\n"
-            @"\nUse the scroll bar to navigate. Text is selectable and copyable.\n"
-        attributes:footerAttributes]];
+    appendGuideSection(document, @"TRACKER GRID WORKFLOW", @[
+        @[ @"COLUMNS", @"Compact lanes show NOTE and VOL. EXPAND SEQ reveals SEQ1, V1, SEQ2, and V2. Double-click a length to enter a stride such as 24x2; double-click READ to set its one-based starting row." ],
+        @[ @"NOTE DISPLAY", @"NOTE: NAME shows pitches such as C-4. NOTE: MIDI shows the same stored pitch as decimal value 60." ],
+        @[ @"CELL SYMBOLS", @"NOTE: --- rest, RPT retrigger previous, HLD continue the active note, KIL kill. VOL: DEF default. VOL/SEQ: PRV previous." ],
+        @[ @"QUICK ENTRY", @"In NOTE, X toggles an anchored hit; R writes RPT; H writes HLD; K writes KIL. Delete clears the active cell or drag selection. [ and ] adjust VOL/V values. M toggles the selected column mute." ],
+        @[ @"SEQUENCING + VALUES", @"Right-click SEQ1/SEQ2 to choose an action or CC, or double-click and type its code. VOL and sequence values use 0.000–1.000; CC also accepts 0–127. STP holds values; LIN emits bounded intermediate CC values." ],
+        @[ @"SELECTION + HISTORY", @"Drag cells for a rectangle. Control-A/C/X/V selects all, copies, cuts, and pastes. Control-Z and Control-Shift-Z undo and redo Tracker states; Command-Z remains REAPER's." ],
+        @[ @"NAVIGATION", @"Left/Right moves between fields; Up/Down moves rows; Shift-Left/Right moves lanes. Page Up/Down, Home/End, and F9–F12 jump through the pattern. Control-=/−/0 changes zoom." ],
+        @[ @"DIRECTIONS + LOOP", @"FORWARD (>), REVERSE (<), PALINDROME (<>), RANDOM (header: RND). Drag the fixed row-number gutter or use Shift-Up/Down to set the global loop region." ],
+    ]);
+    appendGuideSection(document, @"MIDI + LANE ROUTING", @[
+        @[ @"ROUTING", @"Tracker exposes one CLAP MIDI output and one record input. CH01–CH16 sets each lane's output channel. Use another Tracker instance for more than 16 destinations. Double-click a lane name to rename it." ],
+        @[ @"MIDI RECORD", @"OFF disarms. STEP writes note/velocity at the cursor, clears MT there, and advances. LIVE Q writes quantized onset, HLD rows, and KIL release. LIVE MT also writes measured offsets into available SEQ pairs. Live modes require REAPER playback and pattern transport." ],
+        @[ @"ALIASES", @"aliases lists bindings by lane. alias name 3 assigns or reassigns @name. autoalias rebuilds the map with the shortest available prefix of each lane name." ],
+    ]);
+    appendGuideSection(document, @"TRANSPORT + SONG", @[
+        @[ @"TRANSPORT", @"Tempo follows REAPER. RATE selects 1/4×, 1/2×, 2/3×, 1×, 3/2×, 2×, or 4×. Space plays/pauses; Shift-Space toggles loop. SYNC ALL restarts every lane and column at row 1 without moving REAPER." ],
+        @[ @"SONG ROW LENGTH", @"TICKS is the number of tracker-row advances in one pass. FULL / 1× always selects the complete longest pattern column, or the active Loop In–Out span. Fixed musical intervals extend through 256 ticks. REP adds passes while column phase continues." ],
+        @[ @"SONG ROW EDIT", @"ADD inserts after the selection. DUP makes an exact copy. The ↑ and ↓ controls move the selected row. Arrangement edits remain available while REAPER runs and publish to playback after transport stops." ],
+        @[ @"SONG QUEUE", @"Select a target row, choose NEXT TICK, NEXT BEAT, END OF PASS, or END OF ROW, then SELECT QUEUE. END OF ROW is the default and waits through all repetitions. Queue remains available while REAPER runs with Song Transport on, whether LOOP SONG is on or off, and can relaunch after a non-looping Song ends. The pending row is yellow; pattern, warp, swing, and mutes switch together." ],
+        @[ @"LOOP SONG", @"LOOP SONG can be switched on or off while REAPER is running. The current Song row keeps its position; the new loop rule takes effect when playback reaches the end of the arrangement." ],
+        @[ @"SONG FILE", @"SAVE/LOAD SONG + PATTERNS uses one complete validated .s3gt project file." ],
+        @[ @"WARPS", @"Compose EXP, STEP, and EUCLID serially; SAVE/RECALL named project slots. During playback the diagram traces the active curve and marks its current cycle step; Song WARP follows the saved slot selected by the sounding row." ],
+    ]);
+    appendGuideSection(document, @"GEOMETRY + TOOL WINDOWS", @[
+        @[ @"GEOMETRY", @"ACTIVE PULSES shows authored notes; ALL STEPS is the reference; PHASE SPOKES shows live position; LANE FOCUS isolates a lane; COMPOSITE RING normalizes cycles. Pattern and active Song-row NOTE mutes retain their fixed ring positions as dark dashed M placeholders; their pulses and playheads are hidden." ],
+        @[ @"TOOLS + LIVE CODE", @"Geometry, Warps, Console, and Help detach with ↗ or a double-click on the page tab. Detached Console keeps its Live Code line. Press : or backtick to focus Live Code; Escape returns to the grid." ],
+        @[ @"HOST SAFETY", @"Command-key combinations are not claimed by Tracker and remain available to REAPER. ? opens Help." ],
+        @[ @"READING HELP", @"Use the scroll bar to navigate. All text is selectable and copyable." ],
+    ]);
     return document;
 }
 
@@ -186,17 +246,13 @@ NSAttributedString* helpDocument()
 @end
 
 @implementation S3GTrackerHelpRootView
+- (BOOL)isFlipped { return YES; }
+
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
-    [S3GTrackerColor(0x0c0c0c) setFill];
+    [S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas) setFill];
     NSRectFill(self.bounds);
-    [S3GTrackerColor(0x131313) setFill];
-    NSRectFill(NSMakeRect(0.0, NSMaxY(self.bounds) - 74.0,
-        NSWidth(self.bounds), 74.0));
-    [S3GTrackerColor(0x3d4142) setFill];
-    NSRectFill(NSMakeRect(0.0, NSMaxY(self.bounds) - 75.0,
-        NSWidth(self.bounds), 1.0));
 }
 @end
 
@@ -216,6 +272,7 @@ NSAttributedString* helpDocument()
 
 @interface S3GTrackerConsoleHelpWindowController () <NSWindowDelegate>
 @property(nonatomic, strong) S3GTrackerHelpTextView* helpTextView;
+@property(nonatomic, strong) S3GTrackerToolboxView* helpPanel;
 @end
 
 @implementation S3GTrackerConsoleHelpWindowController
@@ -256,19 +313,14 @@ NSAttributedString* helpDocument()
         initWithFrame:window.contentView.bounds];
     window.contentView = root;
 
-    NSTextField* title = [NSTextField labelWithString:@"CONSOLE HELP"];
-    title.translatesAutoresizingMaskIntoConstraints = NO;
-    title.font = helpFont(18.0, NSFontWeightMedium);
-    title.textColor = S3GTrackerColor(0xa8a8a8);
-    title.accessibilityRoleDescription = @"Console help heading";
-    [root addSubview:title];
-
-    NSTextField* subtitle = [NSTextField
-        labelWithString:@"COMPLETE NATIVE COMMAND LANGUAGE  /  EMBEDDED HELP PAGE"];
-    subtitle.translatesAutoresizingMaskIntoConstraints = NO;
-    subtitle.font = helpFont(9.0, NSFontWeightMedium);
-    subtitle.textColor = S3GTrackerColor(0x737a7c);
-    [root addSubview:subtitle];
+    _helpPanel = [[S3GTrackerToolboxView alloc] initWithFrame:NSZeroRect];
+    _helpPanel.translatesAutoresizingMaskIntoConstraints = NO;
+    _helpPanel.toolboxIndex = 0;
+    _helpPanel.toolboxTitle = @"HELP / COMMAND REFERENCE";
+    _helpPanel.accessibilityElement = YES;
+    _helpPanel.accessibilityRole = NSAccessibilityGroupRole;
+    _helpPanel.accessibilityLabel = @"Help command reference panel";
+    [root addSubview:_helpPanel];
 
     NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
@@ -281,7 +333,7 @@ NSAttributedString* helpDocument()
     scroll.drawsBackground = YES;
     scroll.backgroundColor = S3GTrackerColor(0x101214);
     scroll.accessibilityLabel = @"Console command reference";
-    [root addSubview:scroll];
+    [_helpPanel addSubview:scroll];
 
     NSSize contentSize = scroll.contentSize;
     _helpTextView = [[S3GTrackerHelpTextView alloc]
@@ -295,7 +347,7 @@ NSAttributedString* helpDocument()
     _helpTextView.textContainer.containerSize = NSMakeSize(
         contentSize.width, CGFLOAT_MAX);
     _helpTextView.textContainer.widthTracksTextView = YES;
-    _helpTextView.textContainerInset = NSMakeSize(25.0, 22.0);
+    _helpTextView.textContainerInset = NSMakeSize(18.0, 14.0);
     _helpTextView.drawsBackground = YES;
     _helpTextView.backgroundColor = S3GTrackerColor(0x101214);
     _helpTextView.editable = NO;
@@ -315,19 +367,22 @@ NSAttributedString* helpDocument()
     scroll.documentView = _helpTextView;
 
     [NSLayoutConstraint activateConstraints:@[
-        [title.leadingAnchor constraintEqualToAnchor:root.leadingAnchor
-            constant:24.0],
-        [title.topAnchor constraintEqualToAnchor:root.topAnchor constant:13.0],
-        [subtitle.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [subtitle.topAnchor constraintEqualToAnchor:title.bottomAnchor
-            constant:3.0],
-        [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor
-            constant:14.0],
-        [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor
-            constant:-14.0],
-        [scroll.topAnchor constraintEqualToAnchor:root.topAnchor constant:86.0],
-        [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor
-            constant:-14.0],
+        [_helpPanel.leadingAnchor constraintEqualToAnchor:root.leadingAnchor
+            constant:s3g::gui_layout::kTrackerPageHorizontalInset],
+        [_helpPanel.trailingAnchor constraintEqualToAnchor:root.trailingAnchor
+            constant:-s3g::gui_layout::kTrackerPageHorizontalInset],
+        [_helpPanel.topAnchor constraintEqualToAnchor:root.topAnchor
+            constant:s3g::gui_layout::kTrackerPageContentTop],
+        [_helpPanel.bottomAnchor constraintEqualToAnchor:root.bottomAnchor
+            constant:-s3g::gui_layout::kTrackerPageBottomInset],
+        [scroll.leadingAnchor constraintEqualToAnchor:_helpPanel.leadingAnchor
+            constant:8.0],
+        [scroll.trailingAnchor constraintEqualToAnchor:_helpPanel.trailingAnchor
+            constant:-8.0],
+        [scroll.topAnchor constraintEqualToAnchor:_helpPanel.topAnchor
+            constant:s3g::gui_layout::kStandardMetrics.headerHeight + 8.0],
+        [scroll.bottomAnchor constraintEqualToAnchor:_helpPanel.bottomAnchor
+            constant:-8.0],
     ]];
     return self;
 }

@@ -3,9 +3,11 @@
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 
+#if !defined(S3G_COCOA_GUI_DRAWING_ONLY)
 #include <clap/ext/gui.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#endif
 
 #include "s3g_gui_layout.h"
 #include "s3g_math.h"
@@ -18,6 +20,7 @@
 
 namespace s3g::clap_gui {
 
+#if !defined(S3G_COCOA_GUI_DRAWING_ONLY)
 inline bool sliderDoubleClickDefault(NSEvent* event,
                                      const clap_plugin_t* plugin,
                                      clap_id paramId,
@@ -40,6 +43,7 @@ inline bool sliderDoubleClickDefault(NSEvent* event,
     }
     return false;
 }
+#endif
 
 // Editors use a fixed-size drawing surface so visual geometry, hit testing,
 // and native controls remain stable. This state adds a resizable viewport
@@ -185,6 +189,7 @@ inline bool getResponsiveViewportSize(const ResponsiveViewport& state,
     return true;
 }
 
+#if !defined(S3G_COCOA_GUI_DRAWING_ONLY)
 inline bool getResponsiveResizeHints(clap_gui_resize_hints_t* hints)
 {
     if (!hints) return false;
@@ -195,6 +200,7 @@ inline bool getResponsiveResizeHints(clap_gui_resize_hints_t* hints)
     hints->aspect_ratio_height = 0u;
     return true;
 }
+#endif
 
 inline bool adjustResponsiveViewportSize(const ResponsiveViewport& state,
                                          uint32_t nativeWidth,
@@ -232,6 +238,7 @@ inline bool setResponsiveViewportSize(ResponsiveViewport& state,
     return true;
 }
 
+#if !defined(S3G_COCOA_GUI_DRAWING_ONLY)
 inline void requestResponsiveViewportFit(ResponsiveViewport& state, const clap_host_t* host)
 {
     if (!state.container || !host || !host->get_extension) return;
@@ -288,6 +295,7 @@ inline bool setResponsiveViewportParent(ResponsiveViewport& state,
     requestResponsiveViewportFit(state, host);
     return true;
 }
+#endif
 
 inline bool setResponsiveViewportHidden(const ResponsiveViewport& state, bool hidden)
 {
@@ -406,7 +414,10 @@ struct Style {
 
 inline NSFont* uiFont(CGFloat size = 10.0)
 {
-    return [NSFont fontWithName:@"Menlo" size:size] ?: [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
+    NSFont* font = [NSFont fontWithName:@"Menlo" size:size];
+    return font ? font
+        : [NSFont monospacedSystemFontOfSize:size
+            weight:NSFontWeightRegular];
 }
 
 inline NSDictionary* textAttrs(NSColor* textColor, CGFloat size = 10.0)
@@ -441,7 +452,7 @@ inline NSString* sliderValueTextToFit(NSString* value,
 {
     if (!value || maximumWidth <= 0.0
         || [value sizeWithAttributes:attrs].width <= maximumWidth) {
-        return value ?: @"";
+        return value ? value : @"";
     }
 
     NSScanner* scanner = [NSScanner scannerWithString:value];
@@ -817,7 +828,7 @@ inline NSString* menuDisplayText(NSString* value,
                                  CGFloat maximumWidth,
                                  NSDictionary* attrs)
 {
-    NSString* text = [(value ?: @"") uppercaseString];
+    NSString* text = [(value ? value : @"") uppercaseString];
     if (maximumWidth <= 0.0
         || [text sizeWithAttributes:attrs].width <= maximumWidth) {
         return text;
@@ -908,6 +919,26 @@ inline void drawReadOnlyValue(NSString* name,
         withAttributes:valueAttrs];
 }
 
+inline void drawProcessorSliderWithValueWidth(NSString* name,
+                                              NSString* value,
+                                              CGFloat norm,
+                                              CGFloat y,
+                                              CGFloat panelX,
+                                              CGFloat panelWidth,
+                                              CGFloat valueWidth,
+                                              NSDictionary* labelAttrs,
+                                              NSDictionary* valueAttrs,
+                                              const Style& style)
+{
+    drawSlider(name, value, norm, y, labelAttrs, valueAttrs, style,
+        static_cast<CGFloat>(s3g::gui_layout::processorLabelX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorControlX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorValueX(
+            panelX, panelWidth, valueWidth)),
+        static_cast<CGFloat>(s3g::gui_layout::processorTrackWidth(
+            panelWidth, valueWidth)), valueWidth);
+}
+
 inline void drawProcessorSlider(NSString* name,
                                 NSString* value,
                                 CGFloat norm,
@@ -918,14 +949,10 @@ inline void drawProcessorSlider(NSString* name,
                                 NSDictionary* valueAttrs,
                                 const Style& style)
 {
-    drawSlider(name, value, norm, y, labelAttrs, valueAttrs, style,
-        static_cast<CGFloat>(s3g::gui_layout::processorLabelX(panelX)),
-        static_cast<CGFloat>(s3g::gui_layout::processorControlX(panelX)),
-        static_cast<CGFloat>(s3g::gui_layout::processorValueX(
-            panelX, panelWidth)),
-        static_cast<CGFloat>(s3g::gui_layout::processorTrackWidth(panelWidth)),
-        static_cast<CGFloat>(
-            s3g::gui_layout::kStandardMetrics.processorValueWidth));
+    drawProcessorSliderWithValueWidth(name, value, norm, y, panelX,
+        panelWidth, static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.processorValueWidth),
+        labelAttrs, valueAttrs, style);
 }
 
 inline void drawProcessorMenu(NSString* name,
@@ -966,6 +993,21 @@ inline void drawToggle(NSString* name,
         withAttributes:valueAttrs];
     [style.fill setFill];
     NSRectFill(NSMakeRect(box.origin.x + 1, box.origin.y + 1, 2, box.size.height - 2));
+}
+
+inline void drawProcessorToggle(NSString* name,
+                                bool on,
+                                CGFloat y,
+                                CGFloat panelX,
+                                CGFloat panelWidth,
+                                NSDictionary* labelAttrs,
+                                NSDictionary* valueAttrs,
+                                const Style& style)
+{
+    drawToggle(name, on, y, labelAttrs, valueAttrs, style,
+        static_cast<CGFloat>(s3g::gui_layout::processorLabelX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorControlX(panelX)),
+        static_cast<CGFloat>(s3g::gui_layout::processorMenuWidth(panelWidth)));
 }
 
 inline NSRect dropdownRowRect(NSRect menuRect, CGFloat itemH, uint32_t index)
@@ -1108,6 +1150,7 @@ inline void drawHeaderButton(NSRect button,
                                    button.origin.y + (button.size.height - size.height) * 0.5 - 0.5)
         withAttributes:attrs];
     (void)headerRect;
+    (void)style;
 }
 
 inline void drawToolboxHeaderButton(NSRect button,
@@ -1472,6 +1515,7 @@ inline void drawImprintTitleBand(
         softTitleAttrs(), softLabelAttrs(), softValueAttrs(), style);
 }
 
+#if !defined(S3G_COCOA_GUI_DRAWING_ONLY)
 struct DefaultParamEventList {
     std::vector<clap_event_param_value_t> events;
     clap_input_events_t input {
@@ -1734,6 +1778,7 @@ inline bool loadPluginStatePresetPreservingParam(
     if (!loadPluginStatePreset(plugin, pluginName, loadedName)) return false;
     return flushPluginParamValue(plugin, preservedParamId, preservedValue);
 }
+#endif
 
 struct TopologyUiValues {
     const char* shape = "";

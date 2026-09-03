@@ -120,6 +120,16 @@ void testValidationAndTransactionalInstall()
     check(validateSongArrangement(invalidWarp).code
             == SongValidationCode::InvalidTimingWarpLibraryIndex,
         "Song warp references should remain inside the fixed project library");
+    auto invalidLoop = song;
+    invalidLoop.rows[0u].patternLoop = SongPatternLoop { 8u, 8u };
+    check(validateSongArrangement(invalidLoop).code
+            == SongValidationCode::InvalidPatternLoop,
+        "Song pattern loops must contain at least one row");
+    invalidLoop.rows[0u].patternLoop = SongPatternLoop {
+        0u, kMaximumSongPatternRows + 1u };
+    check(validateSongArrangement(invalidLoop).code
+            == SongValidationCode::InvalidPatternLoop,
+        "Song pattern loops must remain inside Tracker's 256-row authoring range");
 }
 
 void testNaturalRepeatRowAndFinishBoundaries()
@@ -195,6 +205,52 @@ void testLoopWrap()
             && planner.absoluteTick() == 1u
             && planner.ticksCompletedInRow() == 0u,
         "a one-row loop should report an explicit same-row relaunch");
+}
+
+void testLiveLoopChangesPreservePlaybackPosition()
+{
+    auto song = arrangement();
+    song.rows = { song.rows[2] };
+    SongPlaybackPlanner planner;
+    check(planner.setArrangement(std::move(song)).ok() && planner.start(),
+        "live-loop fixture should start without arrangement looping");
+    planner.setLoopEnabled(true);
+    auto result = planner.advanceTick();
+    check(result.transition
+            && result.transition->reason == SongTransitionReason::LoopWrap
+            && planner.isRunning() && !planner.isFinished()
+            && planner.absoluteTick() == 1u,
+        "enabling Song loop during playback should wrap without resetting its clock");
+
+    planner.setLoopEnabled(false);
+    result = planner.advanceTick();
+    check(result.finished && !result.transition
+            && !planner.isRunning() && planner.isFinished()
+            && planner.absoluteTick() == 2u,
+        "disabling Song loop during playback should finish at the next arrangement end without resetting position");
+}
+
+void testQueueCanRelaunchAfterNonLoopingEnd()
+{
+    auto song = arrangement();
+    song.rows = { song.rows[2] };
+    SongPlaybackPlanner planner;
+    check(planner.setArrangement(std::move(song)).ok() && planner.start(),
+        "post-end queue fixture should start");
+    check(planner.advanceTick().finished && planner.isFinished(),
+        "post-end queue fixture should reach its non-looping end");
+    check(planner.queueRow(0u, SongLaunchQuantization::NextSongRow)
+            == SongQueueResult::Queued
+            && planner.isRunning() && planner.pendingRowIndex() == 0u,
+        "queue should reopen a completed planner while its host clock continues");
+    const auto result = planner.advanceTick();
+    check(result.consumed && result.transition
+            && result.transition->reason
+                == SongTransitionReason::QuantizedLaunch
+            && result.transition->toRow == 0u
+            && planner.isRunning() && !planner.isFinished()
+            && !planner.pendingRowIndex(),
+        "the first safe tick after Song end should relaunch the queued row");
 }
 
 void testNextTickQueueAndReplacement()
@@ -339,6 +395,8 @@ int main()
     testValidationAndTransactionalInstall();
     testNaturalRepeatRowAndFinishBoundaries();
     testLoopWrap();
+    testLiveLoopChangesPreservePlaybackPosition();
+    testQueueCanRelaunchAfterNonLoopingEnd();
     testNextTickQueueAndReplacement();
     testBeatQuantizationUsesStableGlobalClock();
     testPatternAndSongRowQuantization();

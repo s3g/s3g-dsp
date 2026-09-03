@@ -84,13 +84,20 @@ struct SongSchedulerRuntime {
         auto result = base;
         result.loopEnabled = false;
         result.timingWarp.clear();
+        result.timingWarpEnabled = false;
         if (row.bpm) result.bpm = *row.bpm;
         if (row.swing) result.swing = *row.swing;
+        if (row.patternLoop) {
+            result.loopEnabled = true;
+            result.loopStartRow = row.patternLoop->startRow;
+            result.loopEndRow = row.patternLoop->endRow;
+        }
         if (row.timingWarpLibraryIndex) {
             if (const auto* entry = scheduler->timingWarpLibrary().entry(
                     *row.timingWarpLibraryIndex)) {
                 result.warpCycleTicks = entry->cycleTicks;
                 result.timingWarp = entry->stack;
+                result.timingWarpEnabled = true;
             }
         }
         return result;
@@ -102,7 +109,8 @@ struct SongSchedulerRuntime {
         if (!row) return;
         scheduler->setTransportAtTickBoundary(rowTransport(*row));
         scheduler->setRuntimeTrackMuteMask(row->mutedTracks);
-        scheduler->relaunchColumnsAtTickBoundary(0u);
+        scheduler->launchSongRegionAtTickBoundary(row->patternLoop
+            ? row->patternLoop->startRow : 0u);
     }
 };
 
@@ -133,6 +141,8 @@ void armRuntime(SongSchedulerRuntime& runtime,
     scheduler.setRuntimeTrackMuteMask(first->mutedTracks);
     scheduler.setLogicalTickObserver(&advanceSong, &runtime);
     scheduler.start();
+    scheduler.launchSongRegionAtTickBoundary(first->patternLoop
+        ? first->patternLoop->startRow : 0u);
 }
 
 std::vector<ScheduledEvent> noteOnsForTrack(
@@ -214,6 +224,34 @@ void testQuantizedLaunchUsesPatternBoundary()
         "a quantized row launch must relaunch authored columns at row zero");
 }
 
+void testSongRowPatternLoopStartsAtInPointAndWraps()
+{
+    SongArrangement song;
+    song.name = "Sub-pattern";
+    song.ticksPerBeat = 1u;
+    SongRow row;
+    row.patternId = "ONLY PATTERN";
+    row.durationTicks = 6u;
+    row.patternLoop = SongPatternLoop { 1u, 3u };
+    song.rows.push_back(row);
+
+    TimingPlaybackScheduler scheduler;
+    SongSchedulerRuntime runtime;
+    armRuntime(runtime, scheduler, std::move(song), runtimePattern());
+    std::array<ScheduledEvent, 64u> events {};
+    const auto count = scheduler.process(40001u,
+        events.data(), events.size());
+    const auto lane = noteOnsForTrack(events.data(), count, 0u);
+    const std::array<uint8_t, 6u> expected { 61u, 62u, 61u, 62u, 61u, 62u };
+    check(lane.size() == expected.size(),
+        "a six-tick Song sub-pattern should emit six looped notes");
+    for (std::size_t index = 0u;
+         index < std::min(lane.size(), expected.size()); ++index) {
+        check(lane[index].note == expected[index],
+            "Song loop-in must play first and wrap at the exclusive loop-out boundary");
+    }
+}
+
 void testSongRowsRecallSavedWarpAndOffRestoresIdentity()
 {
     SongArrangement song;
@@ -259,7 +297,8 @@ void testSongRowsRecallSavedWarpAndOffRestoresIdentity()
         check(notes[index].absoluteSampleTime == expectedFrames[index],
             "Song WARP should retime its row and OFF should restore identity timing");
     }
-    check(scheduler.transport().timingWarp.empty(),
+    check(!scheduler.transport().timingWarpEnabled
+            && scheduler.transport().timingWarp.empty(),
         "the final OFF row must not inherit the preceding saved warp");
 }
 
@@ -310,6 +349,7 @@ int main()
 {
     testNaturalRowsApplyTempoMuteAndRelaunch();
     testQuantizedLaunchUsesPatternBoundary();
+    testSongRowPatternLoopStartsAtInPointAndWraps();
     testSongRowsRecallSavedWarpAndOffRestoresIdentity();
     testFinalStutterTailDrainsAfterStopBoundary();
     if (failures != 0) return EXIT_FAILURE;

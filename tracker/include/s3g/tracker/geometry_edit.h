@@ -17,7 +17,9 @@ bool setGeometryHit(Track& track, std::size_t row, bool hit,
     uint8_t defaultNote);
 bool setGeometryVelocity(Track& track, std::size_t row,
     float normalized);
-bool rotateGeometryPhase(Track& track, int delta) noexcept;
+bool setGeometryNoteLength(Track& track, std::size_t length,
+    bool linkVelocityLength);
+bool rotateGeometryRows(Track& track, int delta);
 bool setGeometryDensity(Track& track, std::size_t pulses,
     uint8_t defaultNote);
 bool reverseGeometry(Track& track);

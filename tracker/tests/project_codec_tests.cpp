@@ -128,6 +128,7 @@ ProjectDocument makeDocument()
     document.transport.ticksPerBeat = 8u;
     document.transport.swing = 0.61;
     document.transport.warpCycleTicks = 24u;
+    document.transport.timingWarpEnabled = true;
     document.transport.timingLookaheadMilliseconds = 34.0;
     document.transport.microTimingRangeMilliseconds = 28.0;
     document.transport.loopEnabled = true;
@@ -195,6 +196,7 @@ ProjectDocument makeDocument()
     firstRow.swing = 0.63;
     firstRow.mutedTracks = 0x80000000u;
     firstRow.timingWarpLibraryIndex = 6u;
+    firstRow.patternLoop = SongPatternLoop { 4u, 12u };
     document.song.rows.push_back(std::move(firstRow));
     SongRow secondRow;
     secondRow.patternId = "B02";
@@ -211,7 +213,7 @@ void testCompleteDeterministicRoundTrip()
     const auto encoded = encodeProjectDocument(source, firstEncoding);
     check(encoded.ok() && !firstEncoding.empty(),
         "complete native project should encode");
-    check(firstEncoding.find("\"schemaVersion\": 6") != std::string::npos
+    check(firstEncoding.find("\"schemaVersion\": 8") != std::string::npos
             && firstEncoding.find("\"patternBank\"") != std::string::npos
             && firstEncoding.find("\"probability\"") != std::string::npos
             && firstEncoding.find("\"midi-control-change\"")
@@ -260,7 +262,8 @@ void testCompleteDeterministicRoundTrip()
             && decoded.patternBank.entries[1u].aliases.at("aux") == 1u
             && decoded.song.rows[1u].patternId == "B02",
         "pattern order, IDs, selection, per-pattern authoring state, and Song references should round trip");
-    check(decoded.transport.timingWarp.size() == 2u
+    check(decoded.transport.timingWarpEnabled
+            && decoded.transport.timingWarp.size() == 2u
             && decoded.transport.loopEnabled
             && decoded.transport.loopEndRow == 11u,
         "warp stack and global loop should round trip");
@@ -293,9 +296,13 @@ void testCompleteDeterministicRoundTrip()
             && decoded.song.rows[0u].bpm == 145.0
             && decoded.song.rows[0u].timingWarpLibraryIndex
                 == std::optional<std::size_t>(6u)
+            && decoded.song.rows[0u].patternLoop
+            && decoded.song.rows[0u].patternLoop->startRow == 4u
+            && decoded.song.rows[0u].patternLoop->endRow == 12u
             && !decoded.song.rows[1u].bpm.has_value()
-            && !decoded.song.rows[1u].timingWarpLibraryIndex.has_value(),
-        "song arrangement, warp selection, and optional row overrides should round trip");
+            && !decoded.song.rows[1u].timingWarpLibraryIndex.has_value()
+            && !decoded.song.rows[1u].patternLoop.has_value(),
+        "song arrangement, warp selection, pattern loop, and optional row overrides should round trip");
 }
 
 void testEmptyOptionalSongIsAValidProject()
@@ -366,8 +373,8 @@ void testStrictTransactionalRejection()
     ProjectDocument destination;
     activePattern(destination).name = "sentinel";
     std::string badVersion = encoded;
-    const auto schema = badVersion.find("\"schemaVersion\": 6");
-    badVersion.replace(schema, std::string("\"schemaVersion\": 6").size(),
+    const auto schema = badVersion.find("\"schemaVersion\": 8");
+    badVersion.replace(schema, std::string("\"schemaVersion\": 8").size(),
         "\"schemaVersion\": 2");
     const auto unsupported = decodeProjectDocument(badVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion
@@ -375,9 +382,9 @@ void testStrictTransactionalRejection()
         "unsupported schemas should reject without mutating destination");
 
     std::string legacy = encoded;
-    const auto legacySchema = legacy.find("\"schemaVersion\": 6");
+    const auto legacySchema = legacy.find("\"schemaVersion\": 8");
     legacy.replace(legacySchema,
-        std::string("\"schemaVersion\": 6").size(),
+        std::string("\"schemaVersion\": 8").size(),
         "\"schemaVersion\": 5");
     const std::string linearInterpolation
         = "\"valueInterpolation\": \"linear\",\n";
@@ -393,6 +400,36 @@ void testStrictTransactionalRejection()
                     .fxPairs[1u].valueInterpolation
                 == ValueInterpolation::Step,
         "schema 5 projects should migrate missing interpolation modes to STEP");
+
+    auto schemaSixDocument = makeDocument();
+    schemaSixDocument.song.rows[0u].patternLoop.reset();
+    std::string schemaSix;
+    check(encodeProjectDocument(schemaSixDocument, schemaSix).ok(),
+        "schema 6 migration fixture should encode without a pattern loop");
+    const auto schemaSixVersion = schemaSix.find("\"schemaVersion\": 8");
+    schemaSix.replace(schemaSixVersion,
+        std::string("\"schemaVersion\": 8").size(),
+        "\"schemaVersion\": 6");
+    ProjectDocument migratedSix;
+    check(decodeProjectDocument(schemaSix, migratedSix).ok()
+            && !migratedSix.song.rows[0u].patternLoop,
+        "schema 6 projects should migrate missing Song pattern loops to OFF");
+
+    std::string schemaSeven = encoded;
+    const auto schemaSevenVersion = schemaSeven.find("\"schemaVersion\": 8");
+    schemaSeven.replace(schemaSevenVersion,
+        std::string("\"schemaVersion\": 8").size(),
+        "\"schemaVersion\": 7");
+    const std::string warpEnableField = "\"warpEnabled\": true,\n";
+    const auto warpEnable = schemaSeven.find(warpEnableField);
+    check(warpEnable != std::string::npos,
+        "schema 8 migration fixture should contain explicit warp enablement");
+    if (warpEnable != std::string::npos)
+        schemaSeven.erase(warpEnable, warpEnableField.size());
+    ProjectDocument migratedSeven;
+    check(decodeProjectDocument(schemaSeven, migratedSeven).ok()
+            && migratedSeven.transport.timingWarpEnabled,
+        "schema 7 projects with an authored stack should preserve their audible warp state");
 
     auto invalidBank = makeDocument();
     invalidBank.patternBank.entries[1u].id = "A01";
@@ -413,6 +450,12 @@ void testStrictTransactionalRejection()
     check(encodeProjectDocument(invalidBank, untouchedBank).code
                 == ProjectErrorCode::InconsistentData,
         "Song rows must resolve stable pattern IDs inside the bank");
+
+    invalidBank = makeDocument();
+    invalidBank.song.rows[0u].patternLoop = SongPatternLoop { 12u, 12u };
+    check(encodeProjectDocument(invalidBank, untouchedBank).code
+                == ProjectErrorCode::InconsistentData,
+        "empty Song pattern-loop ranges should reject transactionally");
 
     std::string badEnum = encoded;
     const auto action = badEnum.find("\"ratchet\"");

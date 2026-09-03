@@ -331,6 +331,33 @@ struct AnalyzerFamilyLayout {
     double bottomInset = 26.0;
 };
 
+struct TrackerGeometryFamilyLayout {
+    Canvas canvas {};
+    Rect fieldPanel {};
+    Column inspectorColumn {};
+    Panel laneCycle {};
+    Panel editShape {};
+    Panel view {};
+    Panel trackerBridge {};
+};
+
+struct TrackerWarpFamilyLayout {
+    Canvas canvas {};
+    Rect fieldPanel {};
+    Column inspectorColumn {};
+    Panel library {};
+    Panel stack {};
+    Panel transform {};
+};
+
+struct TrackerSongFamilyLayout {
+    Canvas canvas {};
+    Panel project {};
+    Panel transport {};
+    Panel rowTools {};
+    Panel arrangement {};
+};
+
 struct OutputUtilityFamilyLayout {
     Canvas canvas {};
     Rect fieldPanel {};
@@ -364,6 +391,11 @@ struct NoInputMixerFamilyLayout {
 };
 
 inline constexpr Metrics kStandardMetrics {};
+// Tracker pages already live beneath their shared tab strip, so they do not
+// reserve the suite-wide title band a second time.
+inline constexpr double kTrackerPageContentTop = 2.0;
+inline constexpr double kTrackerPageHorizontalInset = 18.0;
+inline constexpr double kTrackerPageBottomInset = 18.0;
 
 inline constexpr EnvironmentalFieldHeader kEnvironmentalFieldHeader {};
 
@@ -413,12 +445,30 @@ constexpr double processorValueX(double panelX, double panelWidth)
         - kStandardMetrics.processorValueWidth;
 }
 
+constexpr double processorValueX(double panelX, double panelWidth,
+                                 double valueWidth)
+{
+    return panelX + panelWidth - kStandardMetrics.panelRightInset
+        - valueWidth;
+}
+
 constexpr double processorTrackWidth(double panelWidth)
 {
     const double available = panelWidth
         - kStandardMetrics.controlInset
         - kStandardMetrics.panelRightInset
         - kStandardMetrics.processorValueWidth
+        - kStandardMetrics.processorValueGap;
+    return available < kStandardMetrics.processorTrackWidth
+        ? available : kStandardMetrics.processorTrackWidth;
+}
+
+constexpr double processorTrackWidth(double panelWidth, double valueWidth)
+{
+    const double available = panelWidth
+        - kStandardMetrics.controlInset
+        - kStandardMetrics.panelRightInset
+        - valueWidth
         - kStandardMetrics.processorValueGap;
     return available < kStandardMetrics.processorTrackWidth
         ? available : kStandardMetrics.processorTrackWidth;
@@ -1238,6 +1288,136 @@ constexpr Panel fittedStackPanel(PanelRole role,
         rowCount, rowPitch, firstRowOffset, panelGap);
 }
 
+constexpr double trackerGeometryInspectorWidth(Canvas canvas)
+{
+    const double proportional = canvas.width * 0.27;
+    return proportional < 280.0 ? 280.0
+        : proportional > 344.0 ? 344.0 : proportional;
+}
+
+constexpr TrackerGeometryFamilyLayout trackerGeometryFamilyLayout(
+    Canvas canvas)
+{
+    const double inspectorWidth = trackerGeometryInspectorWidth(canvas);
+    const Column inspector {
+        canvas.width - kTrackerPageHorizontalInset - inspectorWidth,
+        inspectorWidth,
+        kTrackerPageContentTop,
+    };
+    const Rect field {
+        kTrackerPageHorizontalInset,
+        kTrackerPageContentTop,
+        inspector.x - kStandardMetrics.panelGap - kTrackerPageHorizontalInset,
+        canvas.height - kTrackerPageContentTop - kTrackerPageBottomInset,
+    };
+    const Panel lane = fittedPanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Lanes, inspector, inspector.top, 7u);
+    const Panel edit = fittedStackPanel(PanelRole::Utility, lane, 4u);
+    const Panel view = fittedStackPanel(PanelRole::Diagnostics, edit, 1u);
+    const double bridgeY = view.frame.y + view.frame.height
+        + kStandardMetrics.panelGap;
+    const Panel bridge = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::SelectedObject, inspector, bridgeY,
+        canvas.height - kTrackerPageBottomInset - bridgeY, 4u);
+    return { canvas, field, inspector, lane, edit, view, bridge };
+}
+
+constexpr TrackerWarpFamilyLayout trackerWarpFamilyLayout(Canvas canvas)
+{
+    const double inspectorWidth = trackerGeometryInspectorWidth(canvas);
+    const Column inspector {
+        canvas.width - kTrackerPageHorizontalInset - inspectorWidth,
+        inspectorWidth,
+        kTrackerPageContentTop,
+    };
+    const Rect field {
+        kTrackerPageHorizontalInset,
+        kTrackerPageContentTop,
+        inspector.x - kStandardMetrics.panelGap - kTrackerPageHorizontalInset,
+        canvas.height - kTrackerPageContentTop - kTrackerPageBottomInset,
+    };
+    const Panel library = fittedPanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Capture, inspector, inspector.top, 3u);
+    const Panel stack = fittedStackPanel(PanelRole::Relationships,
+        library, 5u);
+    const double transformY = stack.frame.y + stack.frame.height
+        + kStandardMetrics.panelGap;
+    const Panel transform = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::SelectedObject, inspector, transformY,
+        canvas.height - kTrackerPageBottomInset - transformY, 7u);
+    return { canvas, field, inspector, library, stack, transform };
+}
+
+constexpr TrackerSongFamilyLayout trackerSongFamilyLayout(Canvas canvas)
+{
+    const double available = canvas.width - kTrackerPageHorizontalInset * 2.0
+        - kStandardMetrics.panelGap * 2.0;
+    const double projectWidth = available * 0.20;
+    const double transportWidth = available * 0.40;
+    const double toolsWidth = available - projectWidth - transportWidth;
+    const double top = kTrackerPageContentTop;
+    const double panelHeight = toolboxHeightForRows(1u);
+    const Column projectColumn {
+        kTrackerPageHorizontalInset, projectWidth, top };
+    const Column transportColumn {
+        kTrackerPageHorizontalInset + projectWidth
+            + kStandardMetrics.panelGap,
+        transportWidth,
+        top,
+    };
+    const Column toolsColumn {
+        transportColumn.x + transportWidth + kStandardMetrics.panelGap,
+        toolsWidth,
+        top,
+    };
+    const Panel project = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Capture, projectColumn, top, panelHeight, 1u);
+    const Panel transport = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::EventTiming, transportColumn, top, panelHeight, 1u);
+    const Panel rowTools = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Utility, toolsColumn, top, panelHeight, 1u);
+    const double arrangementY = top + panelHeight
+        + kStandardMetrics.panelGap;
+    const Column arrangementColumn {
+        kTrackerPageHorizontalInset,
+        canvas.width - kTrackerPageHorizontalInset * 2.0,
+        arrangementY,
+    };
+    const Panel arrangement = makePanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Lanes, arrangementColumn, arrangementY,
+        canvas.height - kTrackerPageBottomInset - arrangementY, 0u);
+    return { canvas, project, transport, rowTools, arrangement };
+}
+
+inline constexpr TrackerGeometryFamilyLayout kTrackerGeometryNativeLayout =
+    trackerGeometryFamilyLayout({ 1320.0, 780.0 });
+static_assert(kTrackerGeometryNativeLayout.fieldPanel.y
+    == kTrackerPageContentTop);
+static_assert(kTrackerGeometryNativeLayout.inspectorColumn.x
+    == kTrackerGeometryNativeLayout.fieldPanel.x
+        + kTrackerGeometryNativeLayout.fieldPanel.width
+        + kStandardMetrics.panelGap);
+static_assert(kTrackerGeometryNativeLayout.trackerBridge.frame.y
+    + kTrackerGeometryNativeLayout.trackerBridge.frame.height == 762.0);
+
+inline constexpr TrackerWarpFamilyLayout kTrackerWarpNativeLayout =
+    trackerWarpFamilyLayout({ 1320.0, 780.0 });
+static_assert(kTrackerWarpNativeLayout.fieldPanel.y
+    == kTrackerPageContentTop);
+static_assert(kTrackerWarpNativeLayout.transform.frame.y
+    + kTrackerWarpNativeLayout.transform.frame.height == 762.0);
+
+inline constexpr TrackerSongFamilyLayout kTrackerSongNativeLayout =
+    trackerSongFamilyLayout({ 1320.0, 780.0 });
+static_assert(kTrackerSongNativeLayout.project.frame.y
+    == kTrackerPageContentTop);
+static_assert(kTrackerSongNativeLayout.arrangement.frame.y
+    == kTrackerSongNativeLayout.project.frame.y
+        + kTrackerSongNativeLayout.project.frame.height
+        + kStandardMetrics.panelGap);
+static_assert(kTrackerSongNativeLayout.arrangement.frame.y
+    + kTrackerSongNativeLayout.arrangement.frame.height == 762.0);
+
 constexpr Panel compactEffectOutputPanel(uint32_t rowCount)
 {
     return fittedPanel(PluginClass::CompactEffect, PanelRole::Output,
@@ -1402,6 +1582,18 @@ constexpr Rect menuBoxRect(const Panel& panel,
         panel.frame.x + metrics.controlInset,
         rowY(panel, row) - 1.0,
         metrics.menuWidth,
+        15.0,
+    };
+}
+
+constexpr Rect processorMenuBoxRect(const Panel& panel,
+                                    uint32_t row,
+                                    const Metrics& metrics = kStandardMetrics)
+{
+    return {
+        panel.frame.x + metrics.controlInset,
+        rowY(panel, row) - 1.0,
+        processorMenuWidth(panel.frame.width),
         15.0,
     };
 }

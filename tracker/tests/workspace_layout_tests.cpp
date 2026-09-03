@@ -32,7 +32,7 @@ int main()
 
     const double compactTrackerHeight = kWorkspaceMinimumContentHeight
         - kWorkspaceToolbarHeight - kWorkspaceConsoleInputHeight
-        - compact.envelopeHeight - 2.0;
+        - kWorkspaceTransportFooterHeight - compact.envelopeHeight - 2.0;
     check(compactTrackerHeight >= 320.0,
         "minimum window should use removed device space for tracker rows");
 
@@ -40,19 +40,19 @@ int main()
     check(near(spacious.envelopeHeight, 140.0),
         "large workspace should cap the envelope at its designed size");
 
-    // The CLAP page selector consumes 40 points from the 780-point native
+    // The CLAP page selector consumes 40 points from the 840-point native
     // window before laying out the workspace.
-    constexpr double nativeWorkspaceHeight = 740.0;
+    constexpr double nativeWorkspaceHeight = 800.0;
     const auto native = workspaceLayoutMetrics(
         1320.0, nativeWorkspaceHeight);
     const double nativeTrackerViewport = nativeWorkspaceHeight
         - kWorkspaceToolbarHeight - kWorkspaceConsoleInputHeight
-        - native.envelopeHeight - 3.0;
+        - kWorkspaceTransportFooterHeight - native.envelopeHeight - 3.0;
     const double visibleTrackerRows = (nativeTrackerViewport
             / kTrackerDefaultMagnification - kTrackerGridHeaderHeight)
         / kTrackerGridRowHeight;
-    check(visibleTrackerRows >= 16.0 && visibleTrackerRows < 17.0,
-        "logical 100% should show 16 complete rows in the native CLAP window");
+    check(visibleTrackerRows >= 17.0 && visibleTrackerRows < 18.0,
+        "the one-row toolbar should show 17 complete rows in the native CLAP window");
 
     check(near(trackerDocumentWidth(1u, 500.0, false), 500.0),
         "a sparse compact tracker should leave unused viewport space blank");
