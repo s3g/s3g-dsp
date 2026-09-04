@@ -261,14 +261,30 @@ NSString* midiNoteName(uint8_t note)
     return [NSString stringWithFormat:@"%s%d", names[note % 12u], octave];
 }
 
-NSString* noteText(const NoteCell& cell, bool showMidiValue)
+NSString* noteVoiceText(uint8_t note, bool showMidiValue)
+{
+    return showMidiValue
+        ? [NSString stringWithFormat:@"%u", static_cast<unsigned int>(note)]
+        : midiNoteName(note);
+}
+
+NSString* noteText(const NoteCell& cell, bool showMidiValue,
+    bool compact = true)
 {
     switch (cell.state) {
-    case NoteCellState::Note:
-        return showMidiValue
-            ? [NSString stringWithFormat:@"%u",
-                static_cast<unsigned int>(cell.note)]
-            : midiNoteName(cell.note);
+    case NoteCellState::Note: {
+        const auto voices = cell.noteVoiceCount();
+        if (compact && voices > 1u)
+            return [NSString stringWithFormat:@"%@+%lu",
+                noteVoiceText(cell.note, showMidiValue),
+                static_cast<unsigned long>(voices - 1u)];
+        NSMutableArray<NSString*>* values = [NSMutableArray arrayWithCapacity:
+            static_cast<NSUInteger>(voices)];
+        for (std::size_t voice = 0u; voice < voices; ++voice)
+            [values addObject:noteVoiceText(
+                cell.noteVoice(voice), showMidiValue)];
+        return [values componentsJoinedByString:@"+"];
+    }
     case NoteCellState::Burst:
         return nsString(s3g::tracker::burstSlotToken(cell.note));
     case NoteCellState::RetriggerPrevious: return @"RPT";
@@ -277,6 +293,49 @@ NSString* noteText(const NoteCell& cell, bool showMidiValue)
     case NoteCellState::Rest:
     default: return @"---";
     }
+}
+
+bool parseNoteStack(NSString* source,
+    std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>& output,
+    std::size_t& count)
+{
+    NSArray<NSString*>* parts = [source componentsSeparatedByString:@"+"];
+    if (parts.count == 0u
+        || parts.count > s3g::tracker::kMaximumNoteVoices) return false;
+    count = 0u;
+    for (NSString* part in parts) {
+        NSString* trimmed = [part stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        uint8_t note = 0u;
+        const char* utf8 = trimmed.UTF8String;
+        if (!utf8 || !s3g::tracker::parseMidiNote(utf8, note)) return false;
+        output[count++] = note;
+    }
+    std::sort(output.begin(), output.begin()
+        + static_cast<std::ptrdiff_t>(count));
+    count = static_cast<std::size_t>(std::unique(output.begin(),
+        output.begin() + static_cast<std::ptrdiff_t>(count)) - output.begin());
+    return count > 0u;
+}
+
+bool parseVelocityStack(NSString* source,
+    std::array<float, s3g::tracker::kMaximumNoteVoices>& output,
+    std::size_t& count)
+{
+    NSArray<NSString*>* parts = [source componentsSeparatedByString:@"+"];
+    if (parts.count == 0u
+        || parts.count > s3g::tracker::kMaximumNoteVoices) return false;
+    count = 0u;
+    for (NSString* part in parts) {
+        NSString* trimmed = [part stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        const char* utf8 = trimmed.UTF8String;
+        float value = 0.0f;
+        if (!utf8 || !s3g::tracker::app::parseGridNormalizedValue(
+                std::string_view(utf8), value)) return false;
+        output[count++] = value;
+    }
+    return count > 0u;
 }
 
 bool noteCellIsActivePulse(const NoteCell& cell) noexcept
@@ -346,14 +405,25 @@ float resolvedFxValue(const Track& track, std::size_t pair,
     return value;
 }
 
-NSString* volumeText(const Track& track, std::size_t row)
+NSString* volumeText(const Track& track, std::size_t row,
+    bool compact = true)
 {
     if (row >= track.velocities.size()) return @"DEF";
     const auto& cell = track.velocities[row];
     if (cell.state == ValueCellState::Previous) return @"PRV";
     if (cell.state == ValueCellState::Default) return @"DEF";
-    return [NSString stringWithFormat:@"%.3f", static_cast<double>(
-        std::clamp(cell.normalized, 0.0f, 1.0f))];
+    const auto voices = cell.valueVoiceCount();
+    if (compact && voices > 1u)
+        return [NSString stringWithFormat:@"%.3f+%lu", static_cast<double>(
+            std::clamp(cell.normalized, 0.0f, 1.0f)),
+            static_cast<unsigned long>(voices - 1u)];
+    NSMutableArray<NSString*>* values = [NSMutableArray arrayWithCapacity:
+        static_cast<NSUInteger>(voices)];
+    for (std::size_t voice = 0u; voice < voices; ++voice)
+        [values addObject:[NSString stringWithFormat:@"%.3f",
+            static_cast<double>(std::clamp(
+                cell.valueVoice(voice), 0.0f, 1.0f))]];
+    return [values componentsJoinedByString:@"+"];
 }
 
 uint32_t laneInitialInstrument(const Track& track) noexcept
@@ -899,6 +969,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) NSButton* zoomActualButton;
 @property(nonatomic, strong) NSButton* zoomInButton;
 @property(nonatomic, strong) S3GTrackerPopupButton* midiStepRecordPopup;
+@property(nonatomic, strong) S3GTrackerPopupButton* midiRecordTrackPopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* patternPopup;
 @property(nonatomic, strong) NSButton* createPatternButton;
 @property(nonatomic, strong) NSButton* duplicatePatternButton;
@@ -922,6 +993,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)toggleNoteDisplay:(id)sender;
 - (void)stepJumpChanged:(id)sender;
 - (void)midiStepRecordModeChanged:(id)sender;
+- (void)midiRecordTrackChanged:(id)sender;
+- (void)refreshMidiRecordTrackMenu;
 - (void)zoomOutPressed:(id)sender;
 - (void)zoomActualPressed:(id)sender;
 - (void)zoomInPressed:(id)sender;
@@ -1051,7 +1124,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. During Song playback Tracker follows the sounding pattern and becomes read-only, then returns to the editor pattern when playback stops. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length and stride, read start, direction, and MUTE rows. Double-click length to enter forms such as 24x2, or double-click READ to set its one-based starting row. Click DIR to cycle direction or MUTE to toggle that column. Left and right move across visible fields; up and down move by the View toolbox JUMP value. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. Shift-click row numbers to select complete rows, then right-click a selected number for structural edits, MT quantize, humanize, and pattern-wide rhythm transforms. Select cells within one NOTE or VOL column and right-click that selection for lane-specific pitch, Burst, or velocity actions. NOTE accepts a MIDI number, note name, RPT, HLD, or KIL; H writes HLD directly. VOL and sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. During Song playback Tracker follows the sounding pattern and becomes read-only, then returns to the editor pattern when playback stops. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length and stride, read start, direction, and MUTE rows. Double-click length to enter forms such as 24x2, or double-click READ to set its one-based starting row. Click DIR to cycle direction or MUTE to toggle that column. Left and right move across visible fields; up and down move by the View toolbox JUMP value. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. Shift-click row numbers to select complete rows, then right-click a selected number for structural edits, MT quantize, humanize, and pattern-wide rhythm transforms. Select cells within one NOTE or VOL column and right-click that selection for lane-specific pitch, Burst, or velocity actions. NOTE accepts one pitch or a plus-separated stack such as 60+64+67, plus RPT, HLD, or KIL. VOL accepts one broadcast value or a matching stack such as 0.866+0.646+0.756; shorter stacks repeat their final value. H writes HLD directly. Sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -1553,6 +1626,25 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     _gridSelection.active = !_gridSelection.isSingleCell();
 }
 
+- (BOOL)extendGridSelectionInColumnToTrack:(std::size_t)track
+    field:(std::size_t)field row:(std::size_t)row
+{
+    auto* model = self.trackerState;
+    if (!model || model->session.selectedTrack != track
+        || model->session.selectedField != field) return NO;
+    std::size_t anchor = model->session.selectedRow;
+    if (_gridSelection.page == 0u
+        && _gridSelection.anchorTrack == track
+        && _gridSelection.anchorField == field)
+        anchor = _gridSelection.anchorRow;
+    [self beginGridSelectionAtTrack:track field:field row:anchor page:0u];
+    [self extendGridSelectionToTrack:track field:field row:row];
+    model->session.selectedField = field;
+    [self selectTrack:track row:row];
+    [self setNeedsDisplay:YES];
+    return YES;
+}
+
 - (s3g::tracker::app::GridSelectionRange)effectiveGridSelection
 {
     auto* model = self.trackerState;
@@ -1834,8 +1926,19 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (track.velocities.size() <= row) track.velocities.resize(row + 1u,
         ValueCell::defaultValue());
     const float current = resolvedVelocity(track, row);
-    track.velocities[row] = ValueCell::withValue(std::clamp(
-        current + delta, 0.0f, 1.0f));
+    auto& cell = track.velocities[row];
+    if (cell.state == ValueCellState::Value
+        && cell.valueVoiceCount() > 1u) {
+        std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+        const auto count = cell.valueVoiceCount();
+        for (std::size_t voice = 0u; voice < count; ++voice)
+            voices[voice] = std::clamp(
+                cell.valueVoice(voice) + delta, 0.0f, 1.0f);
+        cell = ValueCell::withValues(voices, count);
+    } else {
+        cell = ValueCell::withValue(std::clamp(
+            current + delta, 0.0f, 1.0f));
+    }
     track.velocityColumn.length = std::max(track.velocityColumn.length,
         row + 1u);
     session.pattern.visibleRows = std::max(session.pattern.visibleRows,
@@ -2742,9 +2845,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         (point.y - kGridHeaderHeight) / kGridRowHeight);
     if (row < 0 || row >= static_cast<NSInteger>(visibleRows(model))) return;
     const auto page = 0u;
-    model->session.selectedField = gridFieldAtX(
+    const auto field = gridFieldAtX(
         localFieldX, fieldWidth, model->sequenceColumnsExpanded);
-    const auto field = model->session.selectedField;
+    if ((event.modifierFlags & NSEventModifierFlagShift) != 0u
+        && [self extendGridSelectionInColumnToTrack:lane
+            field:field row:static_cast<std::size_t>(row)]) {
+        [self.window makeFirstResponder:self];
+        return;
+    }
+    model->session.selectedField = field;
     [self beginGridSelectionAtTrack:lane
         field:field row:static_cast<std::size_t>(row)
         page:page];
@@ -2806,8 +2915,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 if (track.velocities.size() <= self.numericDragRow)
                     track.velocities.resize(self.numericDragRow + 1u,
                         ValueCell::defaultValue());
-                track.velocities[self.numericDragRow]
-                    = ValueCell::withValue(value);
+                auto& cell = track.velocities[self.numericDragRow];
+                if (cell.state == ValueCellState::Value
+                    && cell.valueVoiceCount() > 1u) {
+                    std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+                    const float source = std::max(
+                        self.numericDragStartValue, 0.00001f);
+                    const float factor = value / source;
+                    const auto count = cell.valueVoiceCount();
+                    for (std::size_t voice = 0u; voice < count; ++voice)
+                        voices[voice] = std::clamp(
+                            cell.valueVoice(voice) * factor, 0.0f, 1.0f);
+                    cell = ValueCell::withValues(voices, count);
+                } else {
+                    cell = ValueCell::withValue(value);
+                }
                 track.velocityColumn.length = std::max(
                     track.velocityColumn.length, self.numericDragRow + 1u);
             } else {
@@ -2886,14 +3008,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (self.editingField == 0u) {
         if (self.editingRow >= track.notes.size()) return @"---";
         const auto& cell = track.notes[self.editingRow];
-        return noteText(cell, model->showMidiNoteValues);
+        return noteText(cell, model->showMidiNoteValues, false);
     }
     if (self.editingField == 1u) {
         if (self.editingRow >= track.velocities.size()) return @"DEF";
         const auto& cell = track.velocities[self.editingRow];
         if (cell.state == ValueCellState::Value)
-            return [NSString stringWithFormat:@"%.3f", static_cast<double>(
-                std::clamp(cell.normalized, 0.0f, 1.0f))];
+            return volumeText(track, self.editingRow, false);
         return cell.state == ValueCellState::Previous ? @"PRV" : @"DEF";
     }
     const auto pairIndex = gridSequencePair(self.editingField);
@@ -2932,6 +3053,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             + static_cast<CGFloat>(row) * kGridRowHeight,
         fieldWidth, kGridRowHeight, model->sequenceColumnsExpanded, field);
     rect = NSInsetRect(rect, 1.0, 1.0);
+    if (field <= 1u && NSWidth(rect) < 280.0) {
+        const CGFloat width = std::min<CGFloat>(280.0, NSWidth(self.bounds));
+        rect.origin.x = std::clamp(NSMinX(rect), 0.0,
+            std::max<CGFloat>(0.0, NSWidth(self.bounds) - width));
+        rect.size.width = width;
+    }
     self.editingTrack = lane;
     self.editingRow = row;
     self.editingPage = page;
@@ -3108,7 +3235,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (field == 0u) {
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
-        uint8_t value = 0u;
         std::size_t burstSlot = 0u;
         const char* noteUtf8 = lower.UTF8String;
         if ([lower isEqualToString:@"---"] || [lower isEqualToString:@"rest"]
@@ -3128,27 +3254,30 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             && !model->session.pattern.bursts[burstSlot].empty())
             track.notes[row] = NoteCell::withBurst(
                 static_cast<uint8_t>(burstSlot));
-        else if (noteUtf8 && s3g::tracker::parseMidiNote(noteUtf8, value))
-            track.notes[row] = NoteCell::withNote(value);
-        else return NO;
+        else {
+            std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> voices {};
+            std::size_t count = 0u;
+            if (!parseNoteStack(lower, voices, count)) return NO;
+            track.notes[row] = NoteCell::withNotes(voices, count);
+        }
         track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
         return YES;
     }
     if (field == 1u) {
         if (track.velocities.size() <= row)
             track.velocities.resize(row + 1u, ValueCell::defaultValue());
-        float normalized = 0.0f;
         if ([lower isEqualToString:@"def"]
             || [lower isEqualToString:@"default"] || lower.length == 0u)
             track.velocities[row] = ValueCell::defaultValue();
         else if ([lower isEqualToString:@"prv"]
             || [lower isEqualToString:@"previous"])
             track.velocities[row] = ValueCell::previous();
-        else if (s3g::tracker::app::parseGridNormalizedValue(
-                std::string_view(lower.UTF8String ? lower.UTF8String : ""),
-                normalized))
-            track.velocities[row] = ValueCell::withValue(normalized);
-        else return NO;
+        else {
+            std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+            std::size_t count = 0u;
+            if (!parseVelocityStack(lower, voices, count)) return NO;
+            track.velocities[row] = ValueCell::withValues(voices, count);
+        }
         track.velocityColumn.length = std::max(
             track.velocityColumn.length, row + 1u);
         return YES;
@@ -3335,7 +3464,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     originalTrack = std::move(candidate);
     model->session.pattern.visibleRows = std::max(
         model->session.pattern.visibleRows, row + 1u);
-    model->session.selectedRow = std::min(row + 1u, visibleRows(model) - 1u);
+    model->session.selectedRow = std::min(
+        row + 1u, visibleRows(model) - 1u);
     [self.cellEditor removeFromSuperview];
     self.cellEditor = nil;
     self.editingColumnLength = NO;
@@ -3829,7 +3959,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self selectTrack:session.selectedTrack row:row];
         return;
     }
-    if (session.selectedField == 0u && key.length == 1u) {
+    if (!shift && session.selectedField == 0u && key.length == 1u) {
         const unichar direct = [key characterAtIndex:0u];
         if ((direct >= '0' && direct <= '9')
             || (direct >= 'a' && direct <= 'g')) {
@@ -3837,14 +3967,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             return;
         }
     }
-    if (session.selectedField == 1u && key.length == 1u) {
+    if (!shift && session.selectedField == 1u && key.length == 1u) {
         const unichar direct = [key characterAtIndex:0u];
         if ((direct >= '0' && direct <= '9') || direct == '.') {
             [self beginCellEditingWithInitialText:key];
             return;
         }
     }
-    if (gridFieldIsSequence(session.selectedField) && key.length == 1u) {
+    if (!shift && gridFieldIsSequence(session.selectedField)
+        && key.length == 1u) {
         const unichar direct = [key characterAtIndex:0u];
         if ((gridFieldIsSequenceAction(session.selectedField)
                 && ((direct >= 'a' && direct <= 'z') || direct == '-'))
@@ -4111,6 +4242,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
     for (std::size_t lane = 0u; lane < laneCount; ++lane) {
         const auto& track = pattern->tracks[lane];
+        const bool recordArmed = model->midiStepRecordMode
+                != MidiStepRecordMode::Off
+            && lane == std::min(model->midiRecordTrack, laneCount - 1u);
         const bool songMuted = model->songPlaybackActive
             && (model->songPlaybackMutedTracks
                 & (uint32_t { 1u } << lane)) != 0u;
@@ -4147,10 +4281,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         fillRect(NSMakeRect(laneX, 2.0, 3.0,
                 std::max<CGFloat>(0.0, laneHeight - 2.0)),
             identityColor);
+        CGFloat nameInset = 6.0;
+        if (recordArmed) {
+            const NSRect armedRect = NSMakeRect(x + 5.0, 5.0, 25.0, 13.0);
+            fillRect(armedRect, S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Danger, 0.24));
+            strokeRect(armedRect, S3GTrackerThemeColor(
+                S3GTrackerThemeRole::Danger));
+            drawCenteredText(@"REC", armedRect,
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Danger),
+                6.5, NSFontWeightSemibold, NSTextAlignmentCenter);
+            nameInset = 34.0;
+        }
         drawCenteredText(nsString(track.name.empty()
                 ? "LANE " + std::to_string(lane + 1u) : track.name),
-            NSMakeRect(x + 6.0, 3.0,
-                std::max<CGFloat>(1.0, fieldWidth - 94.0), 18.0),
+            NSMakeRect(x + nameInset, 3.0,
+                std::max<CGFloat>(1.0, fieldWidth - 88.0 - nameInset),
+                18.0),
             allMuted ? dim : text,
             9.5, NSFontWeightSemibold, NSTextAlignmentLeft);
         const NSRect channelRect = gridLaneChannelRect(x, fieldWidth);
@@ -5053,6 +5200,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     std::size_t _pitchFirstRow;
     std::size_t _pitchLastRow;
     BOOL _pitchUseFullCycle;
+    BOOL _pitchEditingIntervals;
     NSInteger _pitchDragAssignment;
     NSString* _pitchStatus;
 }
@@ -5124,6 +5272,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         _pitchFirstRow = 0u;
         _pitchLastRow = 63u;
         _pitchUseFullCycle = YES;
+        _pitchEditingIntervals = NO;
         _pitchDragAssignment = -1;
         _pitchStatus = @"READY TO PREVIEW";
         self.linkVelocityLength = YES;
@@ -5295,7 +5444,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Rhythm geometry";
-        self.accessibilityHelp = @"Ring Field edits the same lanes and rows as Tracker. The Lane and Cycle toolbox sets lane, default pitch, note length, direction, row rotation, density, and optional linked velocity length. Drag the R diamond to rotate authored rows or the D arc handle for density; edits preview before one undoable commit. Morph can use the previous or next visible lane at 25, 50, 75, or 100 percent. Choose Select, Paint, Erase, or Velocity. Option-drag with Paint temporarily erases, and double-clicking a bead reveals it in Tracker. Burst Editor shows all substeps in a matrix and follows their shared row clock during playback; gate is a percentage of one complete Tracker row measured from each substep onset. Pitch Map fits, generates, or manually shapes a scale-guided contour over selected NOTE cells without changing rests, note symbols, or Burst cells. Transpose, invert, and reverse remain preview-only until Apply; Preview auditions the result at project BPM while transport is stopped. Space toggles playback.";
+        self.accessibilityHelp = @"Ring Field edits the same lanes and rows as Tracker. The Lane and Cycle toolbox sets lane, default pitch, note length, direction, row rotation, density, and optional linked velocity length. Drag the R diamond to rotate authored rows or the D arc handle for density; edits preview before one undoable commit. Morph can use the previous or next visible lane at 25, 50, 75, or 100 percent. Choose Select, Paint, Erase, or Velocity. Option-drag with Paint temporarily erases, and double-clicking a bead reveals it in Tracker. Burst Editor shows all substeps in a matrix and follows their shared row clock during playback; gate is a percentage of one complete Tracker row measured from each substep onset. Pitch Map fits, generates, or manually shapes selected NOTE cells without changing rests, note symbols, or Burst cells. Absolute Contour and scale-degree Interval graphs appear together and share selection. Interval keeps the first note anchored and shifts the selected note plus the following phrase. Transpose, invert, and reverse remain preview-only until Apply; Preview auditions the result at project BPM while transport is stopped. Space toggles playback.";
     }
     return self;
 }
@@ -5566,7 +5715,25 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (NSRect)pitchGraphRect
 {
-    return NSInsetRect([self canvasPlotRect], 54.0, 42.0);
+    const NSRect plot = [self canvasPlotRect];
+    const CGFloat top = NSMinY(plot) + 42.0;
+    const CGFloat bottom = NSMaxY(plot) - 42.0;
+    constexpr CGFloat gap = 62.0;
+    const CGFloat available = std::max<CGFloat>(120.0,
+        bottom - top - gap);
+    const CGFloat height = std::floor(available * 0.58);
+    return NSMakeRect(NSMinX(plot) + 54.0, top,
+        std::max<CGFloat>(1.0, NSWidth(plot) - 108.0), height);
+}
+
+- (NSRect)pitchIntervalGraphRect
+{
+    const NSRect plot = [self canvasPlotRect];
+    const NSRect contour = [self pitchGraphRect];
+    constexpr CGFloat gap = 62.0;
+    const CGFloat y = NSMaxY(contour) + gap;
+    return NSMakeRect(NSMinX(contour), y, NSWidth(contour),
+        std::max<CGFloat>(80.0, NSMaxY(plot) - 42.0 - y));
 }
 
 - (BOOL)pitchMapNoteMatchesScale:(uint8_t)note
@@ -5581,6 +5748,69 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         if (static_cast<uint8_t>(scale.semitones[degree]) == relative)
             return YES;
     return NO;
+}
+
+- (int)pitchScaleOrdinalForNote:(int)note
+{
+    note = std::clamp(note, 0, 127);
+    int ordinal = 0;
+    int nearestOrdinal = 0;
+    int nearestDistance = 128;
+    for (int candidate = 0; candidate <= 127; ++candidate) {
+        if (![self pitchMapNoteMatchesScale:
+                static_cast<uint8_t>(candidate)]) continue;
+        const int distance = std::abs(candidate - note);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestOrdinal = ordinal;
+        }
+        if (candidate == note) return ordinal;
+        ++ordinal;
+    }
+    return nearestOrdinal;
+}
+
+- (int)pitchScaleNoteForOrdinal:(int)requestedOrdinal
+{
+    int noteCount = 0;
+    for (int note = 0; note <= 127; ++note)
+        if ([self pitchMapNoteMatchesScale:static_cast<uint8_t>(note)])
+            ++noteCount;
+    if (noteCount == 0) return 60;
+    requestedOrdinal = std::clamp(requestedOrdinal, 0, noteCount - 1);
+    int ordinal = 0;
+    for (int note = 0; note <= 127; ++note) {
+        if (![self pitchMapNoteMatchesScale:static_cast<uint8_t>(note)])
+            continue;
+        if (ordinal == requestedOrdinal) return note;
+        ++ordinal;
+    }
+    return 127;
+}
+
+- (int)pitchIntervalAtIndex:(std::size_t)index original:(BOOL)original
+{
+    if (index == 0u || index >= _pitchPreview.assignments.size()) return 0;
+    const auto& previous = _pitchPreview.assignments[index - 1u];
+    const auto& current = _pitchPreview.assignments[index];
+    const int previousNote = original
+        ? previous.originalNote : previous.note;
+    const int currentNote = original ? current.originalNote : current.note;
+    return [self pitchScaleOrdinalForNote:currentNote]
+        - [self pitchScaleOrdinalForNote:previousNote];
+}
+
+- (int)pitchIntervalExtent
+{
+    int extent = std::max<int>(4, _pitchSettings.maximumLeapDegrees);
+    for (std::size_t index = 1u;
+         index < _pitchPreview.assignments.size(); ++index) {
+        extent = std::max(extent,
+            std::abs([self pitchIntervalAtIndex:index original:NO]));
+        extent = std::max(extent,
+            std::abs([self pitchIntervalAtIndex:index original:YES]));
+    }
+    return extent;
 }
 
 - (int)pitchMapDisplayMinimum
@@ -5619,22 +5849,75 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             / pitchSpan * NSHeight(graph));
 }
 
+- (NSPoint)pitchMapPointForAssignmentAtIndex:(std::size_t)index
+    original:(BOOL)original
+{
+    return [self pitchMapPointForAssignmentAtIndex:index
+        original:original interval:NO];
+}
+
+- (NSPoint)pitchMapPointForAssignmentAtIndex:(std::size_t)index
+    original:(BOOL)original interval:(BOOL)interval
+{
+    if (index >= _pitchPreview.assignments.size()) return NSZeroPoint;
+    if (!interval) {
+        PitchMapAssignment assignment = _pitchPreview.assignments[index];
+        if (original) assignment.note = assignment.originalNote;
+        return [self pitchMapPointForAssignment:assignment];
+    }
+    std::size_t first = 0u;
+    std::size_t last = 0u;
+    [self pitchMapRowsFirst:&first last:&last];
+    const NSRect graph = [self pitchIntervalGraphRect];
+    const auto row = _pitchPreview.assignments[index].row;
+    const CGFloat x = NSMinX(graph)
+        + static_cast<CGFloat>(row - first)
+            / static_cast<CGFloat>(std::max<std::size_t>(1u, last - first))
+            * NSWidth(graph);
+    const int extent = [self pitchIntervalExtent];
+    const int degreeInterval = [self pitchIntervalAtIndex:index
+        original:original];
+    const CGFloat usableHalfHeight = std::max<CGFloat>(1.0,
+        NSHeight(graph) * 0.5 - 12.0);
+    const CGFloat y = NSMidY(graph)
+        - static_cast<CGFloat>(degreeInterval)
+            / static_cast<CGFloat>(std::max(1, extent)) * usableHalfHeight;
+    return NSMakePoint(x, y);
+}
+
 - (NSInteger)pitchMapAssignmentAtPoint:(NSPoint)point
 {
     [self refreshPitchMapPreview];
+    const BOOL interval = NSPointInRect(point, [self pitchIntervalGraphRect]);
+    if (!interval && !NSPointInRect(point, [self pitchGraphRect])) return -1;
     NSInteger result = -1;
     CGFloat best = 12.0;
     for (std::size_t index = 0u;
          index < _pitchPreview.assignments.size(); ++index) {
-        const NSPoint marker = [self pitchMapPointForAssignment:
-            _pitchPreview.assignments[index]];
+        const NSPoint marker = [self pitchMapPointForAssignmentAtIndex:index
+            original:NO interval:interval];
         const CGFloat distance = std::hypot(
             point.x - marker.x, point.y - marker.y);
         if (distance >= best) continue;
         best = distance;
         result = static_cast<NSInteger>(index);
     }
+    if (result >= 0) _pitchEditingIntervals = interval;
     return result;
+}
+
+- (NSString*)pitchSelectedPointFlagText
+{
+    auto* model = self.trackerState;
+    if (!model) return nil;
+    [self refreshPitchMapPreview];
+    for (const auto& assignment : _pitchPreview.assignments) {
+        if (assignment.row != model->session.selectedRow) continue;
+        return [NSString stringWithFormat:@"%@ · MIDI %03u",
+            midiNoteName(assignment.note),
+            static_cast<unsigned int>(assignment.note)];
+    }
+    return nil;
 }
 
 - (void)updatePitchMapPointAtPoint:(NSPoint)point
@@ -5642,6 +5925,76 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (_pitchDragAssignment < 0
         || static_cast<std::size_t>(_pitchDragAssignment)
             >= _pitchPreview.assignments.size()) return;
+    const auto assignmentIndex = static_cast<std::size_t>(
+        _pitchDragAssignment);
+    if (_pitchEditingIntervals) {
+        if (assignmentIndex == 0u) {
+            _pitchStatus = @"FIRST NOTE IS THE INTERVAL ANCHOR";
+            [self setNeedsDisplay:YES];
+            return;
+        }
+        const NSRect intervalGraph = [self pitchIntervalGraphRect];
+        const CGFloat usableHalfHeight = std::max<CGFloat>(1.0,
+            NSHeight(intervalGraph) * 0.5 - 12.0);
+        const int extent = [self pitchIntervalExtent];
+        const int requestedInterval = std::clamp<int>(
+            static_cast<int>(std::lround(
+                (NSMidY(intervalGraph) - point.y) / usableHalfHeight
+                    * static_cast<CGFloat>(extent))),
+            -extent, extent);
+        const int previousOrdinal = [self pitchScaleOrdinalForNote:
+            _pitchPreview.assignments[assignmentIndex - 1u].note];
+        const int currentOrdinal = [self pitchScaleOrdinalForNote:
+            _pitchPreview.assignments[assignmentIndex].note];
+        int ordinalShift = previousOrdinal + requestedInterval
+            - currentOrdinal;
+
+        int minimumAllowedOrdinal = 128;
+        int maximumAllowedOrdinal = -1;
+        for (int note = [self pitchMapDisplayMinimum];
+             note <= [self pitchMapDisplayMaximum]; ++note) {
+            if (![self pitchMapNoteMatchesScale:static_cast<uint8_t>(note)])
+                continue;
+            const int ordinal = [self pitchScaleOrdinalForNote:note];
+            minimumAllowedOrdinal = std::min(minimumAllowedOrdinal, ordinal);
+            maximumAllowedOrdinal = std::max(maximumAllowedOrdinal, ordinal);
+        }
+        int minimumTailOrdinal = 128;
+        int maximumTailOrdinal = -1;
+        for (std::size_t index = assignmentIndex;
+             index < _pitchPreview.assignments.size(); ++index) {
+            const int ordinal = [self pitchScaleOrdinalForNote:
+                _pitchPreview.assignments[index].note];
+            minimumTailOrdinal = std::min(minimumTailOrdinal, ordinal);
+            maximumTailOrdinal = std::max(maximumTailOrdinal, ordinal);
+        }
+        if (maximumAllowedOrdinal >= minimumAllowedOrdinal
+            && maximumTailOrdinal >= minimumTailOrdinal) {
+            ordinalShift = std::clamp(ordinalShift,
+                minimumAllowedOrdinal - minimumTailOrdinal,
+                maximumAllowedOrdinal - maximumTailOrdinal);
+        }
+        if (ordinalShift != 0) {
+            for (std::size_t index = assignmentIndex;
+                 index < _pitchPreview.assignments.size(); ++index) {
+                const int ordinal = [self pitchScaleOrdinalForNote:
+                    _pitchPreview.assignments[index].note];
+                const int note = [self pitchScaleNoteForOrdinal:
+                    ordinal + ordinalShift];
+                const auto row = _pitchPreview.assignments[index].row;
+                if (row < _pitchOverrides.size())
+                    _pitchOverrides[row] = static_cast<int16_t>(note);
+            }
+            _geometryGestureChanged = YES;
+            [self refreshPitchMapPreview];
+        }
+        const int resolvedInterval = [self pitchIntervalAtIndex:
+            assignmentIndex original:NO];
+        _pitchStatus = [NSString stringWithFormat:
+            @"INTERVAL %+d DEG · FOLLOWING NOTES SHIFTED", resolvedInterval];
+        [self setNeedsDisplay:YES];
+        return;
+    }
     const NSRect graph = [self pitchGraphRect];
     const CGFloat normalized = std::clamp(
         (NSMaxY(graph) - point.y) / std::max<CGFloat>(1.0, NSHeight(graph)),
@@ -5663,8 +6016,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         nearest = note;
     }
     if (best == 128) return;
-    const auto row = _pitchPreview.assignments[
-        static_cast<std::size_t>(_pitchDragAssignment)].row;
+    const auto row = _pitchPreview.assignments[assignmentIndex].row;
     if (row < _pitchOverrides.size())
         _pitchOverrides[row] = static_cast<int16_t>(nearest);
     _pitchStatus = @"POINT OVERRIDE · SCALE SNAPPED";
@@ -6125,6 +6477,28 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
 }
 
+- (void)freezePitchPreviewForManualEditing
+{
+    [self refreshPitchMapPreview];
+    const BOOL generated = _pitchSettings.contour != PitchContour::Manual
+        || _pitchSettings.transposeSemitones != 0
+        || _pitchSettings.invertScaleDegrees
+        || _pitchSettings.reversePitchOrder;
+    if (!generated) return;
+    const auto frozen = _pitchPreview.assignments;
+    _pitchSettings.contour = PitchContour::Manual;
+    _pitchSettings.transposeSemitones = 0;
+    _pitchSettings.invertScaleDegrees = false;
+    _pitchSettings.reversePitchOrder = false;
+    _pitchOverrides.fill(-1);
+    for (const auto& assignment : frozen) {
+        if (assignment.row < _pitchOverrides.size())
+            _pitchOverrides[assignment.row] = assignment.note;
+    }
+    [self refreshPitchMapPreview];
+    _pitchStatus = @"GENERATED CONTOUR FROZEN FOR MANUAL EDIT";
+}
+
 - (void)analyzePitchMap
 {
     [self refreshPitchMapPreview];
@@ -6190,15 +6564,20 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         notes[assignment.row].note = assignment.note;
         ++changed;
     }
+    _pitchSettings.contour = PitchContour::Manual;
+    _pitchSettings.transposeSemitones = 0;
+    _pitchSettings.invertScaleDegrees = false;
+    _pitchSettings.reversePitchOrder = false;
+    _pitchOverrides.fill(-1);
     if (changed > 0u) {
         _pitchStatus = [NSString stringWithFormat:@"APPLIED · %lu NOTES",
             static_cast<unsigned long>(changed)];
-        _pitchOverrides.fill(-1);
         [self.owner modulePatternChanged];
     } else {
         _pitchStatus = @"NO PITCH CHANGES";
         [self setNeedsDisplay:YES];
     }
+    [self refreshPitchMapPreview];
 }
 
 - (void)applyPitchMapContour:(PitchContour)contour
@@ -7659,6 +8038,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (_geometryGestureKind == S3GTrackerGeometryGesturePitchMinimum
         || _geometryGestureKind == S3GTrackerGeometryGesturePitchMaximum
         || _geometryGestureKind == S3GTrackerGeometryGesturePitchVariation
+        || _geometryGestureKind == S3GTrackerGeometryGesturePitchTranspose
         || _geometryGestureKind == S3GTrackerGeometryGesturePitchPoint) {
         _geometryGestureActive = NO;
         _geometrySliderGesture = NO;
@@ -8182,7 +8562,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 _geometryGestureChanged = NO;
                 _geometrySliderGesture = NO;
                 _geometryGestureKind = S3GTrackerGeometryGesturePitchPoint;
-                [self updatePitchMapPointAtPoint:point];
             }
         }
         return;
@@ -8255,6 +8634,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return;
     }
     if (_geometryGestureKind == S3GTrackerGeometryGesturePitchPoint) {
+        [self freezePitchPreviewForManualEditing];
         [self updatePitchMapPointAtPoint:point];
         return;
     }
@@ -9273,38 +9653,90 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             ? S3GTrackerThemeRole::TextMuted
             : S3GTrackerThemeRole::Warning));
 
-    const NSRect graph = [self pitchGraphRect];
-    fillRect(graph, S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.86));
-    strokeRect(NSInsetRect(graph, 0.5, 0.5),
-        S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
     const int low = [self pitchMapDisplayMinimum];
     const int high = [self pitchMapDisplayMaximum];
     const CGFloat pitchSpan = static_cast<CGFloat>(std::max(1, high - low));
-    for (int note = low; note <= high; ++note) {
-        if (![self pitchMapNoteMatchesScale:static_cast<uint8_t>(note)])
-            continue;
-        const CGFloat y = NSMaxY(graph)
-            - static_cast<CGFloat>(note - low) / pitchSpan * NSHeight(graph);
-        const int effectiveRoot = (static_cast<int>(
-            _pitchSettings.rootPitchClass) + static_cast<int>(
-                _pitchSettings.transposeSemitones) + 120) % 12;
-        const bool root = note % 12 == effectiveRoot;
-        NSBezierPath* guide = [NSBezierPath bezierPath];
-        [guide moveToPoint:NSMakePoint(NSMinX(graph), y)];
-        [guide lineToPoint:NSMakePoint(NSMaxX(graph), y)];
-        guide.lineWidth = root ? 0.9 : 0.45;
-        [S3GTrackerThemeColor(root ? S3GTrackerThemeRole::BorderStrong
-                                   : S3GTrackerThemeRole::Grid,
-            root ? 0.62 : 0.38) setStroke];
-        [guide stroke];
-        if (root || note == low || note == high) {
-            drawText([NSString stringWithFormat:@"%@ · %03d",
-                    midiNoteName(static_cast<uint8_t>(note)), note],
+    if (_pitchPreview.assignments.empty()) {
+        for (const NSRect graph : { [self pitchGraphRect],
+                 [self pitchIntervalGraphRect] }) {
+            fillRect(graph,
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.86));
+            strokeRect(NSInsetRect(graph, 0.5, 0.5),
+                S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+            drawCenteredText(@"NO EXPLICIT NOTE HITS IN THIS RANGE", graph,
+                S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 8.0,
+                NSFontWeightMedium);
+        }
+        return;
+    }
+    for (NSUInteger graphIndex = 0u; graphIndex < 2u; ++graphIndex) {
+        const BOOL drawingInterval = graphIndex == 1u;
+        const NSRect graph = drawingInterval
+            ? [self pitchIntervalGraphRect] : [self pitchGraphRect];
+        fillRect(graph,
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas, 0.86));
+        strokeRect(NSInsetRect(graph, 0.5, 0.5),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::Border));
+    if (drawingInterval) {
+        const int extent = [self pitchIntervalExtent];
+        const CGFloat usableHalfHeight = std::max<CGFloat>(1.0,
+            NSHeight(graph) * 0.5 - 12.0);
+        int previousDegree = std::numeric_limits<int>::min();
+        for (int guideIndex = 0; guideIndex <= 4; ++guideIndex) {
+            const int degree = static_cast<int>(std::lround(
+                -static_cast<double>(extent)
+                    + static_cast<double>(extent * 2 * guideIndex) / 4.0));
+            if (degree == previousDegree) continue;
+            previousDegree = degree;
+            const CGFloat y = NSMidY(graph)
+                - static_cast<CGFloat>(degree)
+                    / static_cast<CGFloat>(extent) * usableHalfHeight;
+            NSBezierPath* guide = [NSBezierPath bezierPath];
+            [guide moveToPoint:NSMakePoint(NSMinX(graph), y)];
+            [guide lineToPoint:NSMakePoint(NSMaxX(graph), y)];
+            guide.lineWidth = degree == 0 ? 1.15 : 0.5;
+            [S3GTrackerThemeColor(degree == 0
+                    ? S3GTrackerThemeRole::BorderStrong
+                    : S3GTrackerThemeRole::Grid,
+                degree == 0 ? 0.82 : 0.42) setStroke];
+            [guide stroke];
+            drawText(degree == 0 ? @"0 DEG" : [NSString stringWithFormat:
+                    @"%+d DEG", degree],
                 NSMakeRect(NSMinX(graph) - 50.0, y - 6.0, 46.0, 12.0),
-                S3GTrackerThemeColor(root
+                S3GTrackerThemeColor(degree == 0
                     ? S3GTrackerThemeRole::TextSecondary
                     : S3GTrackerThemeRole::TextFaint), 6.4,
                 NSFontWeightRegular, NSTextAlignmentRight);
+        }
+    } else {
+        for (int note = low; note <= high; ++note) {
+            if (![self pitchMapNoteMatchesScale:static_cast<uint8_t>(note)])
+                continue;
+            const CGFloat y = NSMaxY(graph)
+                - static_cast<CGFloat>(note - low) / pitchSpan
+                    * NSHeight(graph);
+            const int effectiveRoot = (static_cast<int>(
+                _pitchSettings.rootPitchClass) + static_cast<int>(
+                    _pitchSettings.transposeSemitones) + 120) % 12;
+            const bool root = note % 12 == effectiveRoot;
+            NSBezierPath* guide = [NSBezierPath bezierPath];
+            [guide moveToPoint:NSMakePoint(NSMinX(graph), y)];
+            [guide lineToPoint:NSMakePoint(NSMaxX(graph), y)];
+            guide.lineWidth = root ? 0.9 : 0.45;
+            [S3GTrackerThemeColor(root
+                    ? S3GTrackerThemeRole::BorderStrong
+                    : S3GTrackerThemeRole::Grid,
+                root ? 0.62 : 0.38) setStroke];
+            [guide stroke];
+            if (root || note == low || note == high) {
+                drawText([NSString stringWithFormat:@"%@ · %03d",
+                        midiNoteName(static_cast<uint8_t>(note)), note],
+                    NSMakeRect(NSMinX(graph) - 50.0, y - 6.0, 46.0, 12.0),
+                    S3GTrackerThemeColor(root
+                        ? S3GTrackerThemeRole::TextSecondary
+                        : S3GTrackerThemeRole::TextFaint), 6.4,
+                    NSFontWeightRegular, NSTextAlignmentRight);
+            }
         }
     }
     const std::size_t rowCount = last - first + 1u;
@@ -9333,21 +9765,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 6.4,
             NSFontWeightRegular);
     }
-    if (_pitchPreview.assignments.empty()) {
-        drawCenteredText(@"NO EXPLICIT NOTE HITS IN THIS RANGE", graph,
-            S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 8.0,
-            NSFontWeightMedium);
-        return;
-    }
     NSBezierPath* contour = [NSBezierPath bezierPath];
     bool started = false;
     NSColor* laneColor = trackerColor(
         kLaneColors[lane % kLaneColors.size()], 0.92);
-    for (const auto& assignment : _pitchPreview.assignments) {
-        const NSPoint previewPoint = [self pitchMapPointForAssignment:assignment];
-        PitchMapAssignment original = assignment;
-        original.note = original.originalNote;
-        const NSPoint originalPoint = [self pitchMapPointForAssignment:original];
+    for (std::size_t index = 0u;
+         index < _pitchPreview.assignments.size(); ++index) {
+        const NSPoint previewPoint = [self
+            pitchMapPointForAssignmentAtIndex:index original:NO
+            interval:drawingInterval];
+        const NSPoint originalPoint = [self
+            pitchMapPointForAssignmentAtIndex:index original:YES
+            interval:drawingInterval];
         NSBezierPath* originalMarker = [NSBezierPath bezierPathWithOvalInRect:
             NSMakeRect(originalPoint.x - 3.0, originalPoint.y - 3.0, 6.0, 6.0)];
         [S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint, 0.72) setStroke];
@@ -9361,8 +9790,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     contour.lineWidth = 1.35;
     [laneColor setStroke];
     [contour stroke];
-    for (const auto& assignment : _pitchPreview.assignments) {
-        const NSPoint point = [self pitchMapPointForAssignment:assignment];
+    const PitchMapAssignment* selectedAssignment = nullptr;
+    NSPoint selectedPoint = NSZeroPoint;
+    for (std::size_t index = 0u;
+         index < _pitchPreview.assignments.size(); ++index) {
+        const auto& assignment = _pitchPreview.assignments[index];
+        const NSPoint point = [self
+            pitchMapPointForAssignmentAtIndex:index original:NO
+            interval:drawingInterval];
         const bool selected = assignment.row == model->session.selectedRow;
         const CGFloat radius = selected ? 5.0 : 4.0;
         NSBezierPath* marker = [NSBezierPath bezierPathWithOvalInRect:
@@ -9379,12 +9814,60 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             [laneColor setFill];
             [center fill];
         }
+        if (selected) {
+            selectedAssignment = &assignment;
+            selectedPoint = point;
+        }
     }
-    drawText(@"HOLLOW = ORIGINAL  ·  LANE COLOR = PREVIEW  ·  DRAG POINTS TO SCALE DEGREES",
+    if (selectedAssignment) {
+        NSString* flagText = [NSString stringWithFormat:@"%@ · MIDI %03u",
+            midiNoteName(selectedAssignment->note),
+            static_cast<unsigned int>(selectedAssignment->note)];
+        if (drawingInterval) {
+            const auto selectedIndex = static_cast<std::size_t>(
+                selectedAssignment - _pitchPreview.assignments.data());
+            flagText = selectedIndex == 0u
+                ? [flagText stringByAppendingString:@" · ANCHOR"]
+                : [flagText stringByAppendingFormat:@" · %+d DEG",
+                    [self pitchIntervalAtIndex:selectedIndex original:NO]];
+        }
+        const CGFloat flagWidth = drawingInterval ? 156.0 : 104.0;
+        constexpr CGFloat flagHeight = 18.0;
+        CGFloat flagX = selectedPoint.x + 11.0;
+        if (flagX + flagWidth > NSMaxX(graph) - 4.0)
+            flagX = selectedPoint.x - flagWidth - 11.0;
+        CGFloat flagY = selectedPoint.y - flagHeight - 10.0;
+        if (flagY < NSMinY(graph) + 4.0)
+            flagY = selectedPoint.y + 10.0;
+        flagX = std::clamp(flagX, NSMinX(graph) + 4.0,
+            NSMaxX(graph) - flagWidth - 4.0);
+        flagY = std::clamp(flagY, NSMinY(graph) + 4.0,
+            NSMaxY(graph) - flagHeight - 4.0);
+        const NSRect flag = NSMakeRect(
+            std::floor(flagX), std::floor(flagY), flagWidth, flagHeight);
+        NSBezierPath* leader = [NSBezierPath bezierPath];
+        [leader moveToPoint:selectedPoint];
+        [leader lineToPoint:NSMakePoint(
+            selectedPoint.x < NSMidX(flag) ? NSMinX(flag) : NSMaxX(flag),
+            NSMidY(flag))];
+        leader.lineWidth = 1.0;
+        [laneColor setStroke];
+        [leader stroke];
+        fillRect(flag, S3GTrackerThemeColor(S3GTrackerThemeRole::Raised,
+            0.98));
+        strokeRect(NSInsetRect(flag, 0.5, 0.5), laneColor, 1.1);
+        drawCenteredText(flagText, NSInsetRect(flag, 5.0, 0.0),
+            S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary), 7.4,
+            NSFontWeightSemibold);
+    }
+    drawText(!drawingInterval
+            ? @"HOLLOW = ORIGINAL  ·  LANE COLOR = PREVIEW  ·  DRAG POINTS TO SCALE DEGREES"
+            : @"0 = REPEAT  ·  + / − = SCALE-DEGREE MOTION  ·  DRAG SHIFTS THIS NOTE + FOLLOWING PHRASE",
         NSMakeRect(NSMinX(graph), NSMinY(graph) - 26.0,
             NSWidth(graph), 12.0),
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint), 6.6,
         NSFontWeightMedium, NSTextAlignmentCenter);
+    }
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -9409,7 +9892,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         @"LANE FOCUS  /  SELECTED CYCLE",
         @"COMPOSITE RING  /  PHASE COMPARISON",
         @"BURST EDITOR  /  SUB-ROW MIDI PHRASES",
-        @"PITCH MAP  /  SCALE-CONSTRAINED NOTE CONTOUR",
+        @"PITCH MAP  /  CONTOUR + SCALE-DEGREE INTERVALS",
     ];
     NSString* fieldTitle = fieldTitles[static_cast<NSUInteger>(
         std::clamp<NSInteger>(self.geometryViewMode, 0, 7))];
@@ -10087,17 +10570,27 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self pitchMapRowsFirst:&first last:&last];
         const auto row = model->notePlayheads[lane];
         if (row < first || row > last) return;
-        const NSRect graph = [self pitchGraphRect];
-        const CGFloat x = NSMinX(graph) + static_cast<CGFloat>(row - first)
-            / static_cast<CGFloat>(std::max<std::size_t>(1u, last - first))
-                * NSWidth(graph);
-        fillRect(NSMakeRect(x - 1.0, NSMinY(graph), 2.0, NSHeight(graph)),
-            trackerColor(0xffdf3f, 0.62));
-        for (const auto& assignment : _pitchPreview.assignments) {
-            if (assignment.row != row) continue;
-            const NSPoint point = [self pitchMapPointForAssignment:assignment];
-            drawGeometryReadHead(point, 1.0, model->noteHits[lane], true);
-            break;
+        for (NSUInteger graphIndex = 0u; graphIndex < 2u; ++graphIndex) {
+            const BOOL interval = graphIndex == 1u;
+            const NSRect graph = interval
+                ? [self pitchIntervalGraphRect] : [self pitchGraphRect];
+            const CGFloat x = NSMinX(graph)
+                + static_cast<CGFloat>(row - first)
+                    / static_cast<CGFloat>(std::max<std::size_t>(
+                        1u, last - first)) * NSWidth(graph);
+            fillRect(NSMakeRect(x - 1.0, NSMinY(graph), 2.0,
+                    NSHeight(graph)), trackerColor(0xffdf3f, 0.62));
+            for (std::size_t index = 0u;
+                 index < _pitchPreview.assignments.size(); ++index) {
+                const auto& assignment = _pitchPreview.assignments[index];
+                if (assignment.row != row) continue;
+                const NSPoint point = [self
+                    pitchMapPointForAssignmentAtIndex:index original:NO
+                    interval:interval];
+                drawGeometryReadHead(point, 1.0,
+                    model->noteHits[lane], true);
+                break;
+            }
         }
         return;
     }
@@ -10741,7 +11234,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSStackView* transportPrimary = self.transportPrimaryControls;
     NSStackView* inputPrimary = self.inputPrimaryControls;
     patternPrimary.spacing = 8.0;
-    transportPrimary.spacing = 5.0;
+    transportPrimary.spacing = 3.0;
     inputPrimary.spacing = 8.0;
 
     self.patternPopup = [[S3GTrackerPopupButton alloc]
@@ -10931,10 +11424,20 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.midiStepRecordPopup.target = self;
     self.midiStepRecordPopup.action = @selector(midiStepRecordModeChanged:);
     self.midiStepRecordPopup.accessibilityLabel = @"MIDI recording mode";
-    self.midiStepRecordPopup.toolTip = @"Armed modes monitor incoming notes on the selected lane's MIDI channel; STEP advances the cursor; live modes follow the written NOTE; LIVE MT preserves timing in a SEQ pair";
+    self.midiStepRecordPopup.toolTip = @"Arm recording to the lane shown beside this menu; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves timing in a SEQ pair";
     [self.midiStepRecordPopup.widthAnchor
         constraintEqualToConstant:75.0].active = YES;
     [transportPrimary addArrangedSubview:self.midiStepRecordPopup];
+    self.midiRecordTrackPopup = [[S3GTrackerPopupButton alloc]
+        initWithFrame:NSZeroRect pullsDown:NO];
+    self.midiRecordTrackPopup.s3gUsesCanvasMenu = YES;
+    self.midiRecordTrackPopup.target = self;
+    self.midiRecordTrackPopup.action = @selector(midiRecordTrackChanged:);
+    self.midiRecordTrackPopup.accessibilityLabel = @"MIDI recording lane";
+    self.midiRecordTrackPopup.toolTip = @"Choose the fixed lane that receives MIDI recording; editing selection remains independent";
+    [self.midiRecordTrackPopup.widthAnchor
+        constraintEqualToConstant:50.0].active = YES;
+    [transportPrimary addArrangedSubview:self.midiRecordTrackPopup];
 
     self.zoomOutButton = [self button:@"−" action:@selector(zoomOutPressed:)];
     self.zoomOutButton.accessibilityLabel = @"Zoom Tracker out";
@@ -11228,6 +11731,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.redoButton.enabled = state->canRedo && editable;
     self.midiStepRecordPopup.enabled = state->midiStepInputAvailable
         && editable;
+    self.midiRecordTrackPopup.enabled = state->midiStepInputAvailable
+        && !state->session.pattern.tracks.empty() && editable;
 
     if (patternChanged || editStateChanged) {
         [self.gridView clearGridSelection];
@@ -11237,6 +11742,45 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self.view setNeedsLayout:YES];
         [self.gridView refreshAccessibilityValue];
     }
+}
+
+- (void)refreshMidiRecordTrackMenu
+{
+    auto* state = self.trackerState;
+    if (!state || !self.midiRecordTrackPopup) return;
+    [self.midiRecordTrackPopup removeAllItems];
+    const auto& tracks = state->session.pattern.tracks;
+    if (tracks.empty()) {
+        state->midiRecordTrack = 0u;
+        [self.midiRecordTrackPopup addItemWithTitle:@"NO REC LANE"];
+        self.midiRecordTrackPopup.lastItem.representedObject = @(0u);
+        self.midiRecordTrackPopup.s3gDisplayTitle = @"L—";
+        [self.midiRecordTrackPopup setNeedsDisplay:YES];
+        return;
+    }
+    state->midiRecordTrack = std::min(
+        state->midiRecordTrack, tracks.size() - 1u);
+    for (std::size_t lane = 0u; lane < tracks.size(); ++lane) {
+        const std::string fallback = "LANE " + std::to_string(lane + 1u);
+        NSString* name = nsString(tracks[lane].name.empty()
+            ? fallback : tracks[lane].name);
+        [self.midiRecordTrackPopup addItemWithTitle:[NSString
+            stringWithFormat:@"REC L%02lu · %@",
+            static_cast<unsigned long>(lane + 1u), name]];
+        self.midiRecordTrackPopup.lastItem.representedObject = @(lane);
+    }
+    [self.midiRecordTrackPopup selectItemAtIndex:
+        static_cast<NSInteger>(state->midiRecordTrack)];
+    self.midiRecordTrackPopup.s3gDisplayTitle = [NSString stringWithFormat:
+        @"L%02lu", static_cast<unsigned long>(state->midiRecordTrack + 1u)];
+    const auto& armed = tracks[state->midiRecordTrack];
+    NSString* armedName = nsString(armed.name.empty()
+        ? "LANE " + std::to_string(state->midiRecordTrack + 1u)
+        : armed.name);
+    self.midiRecordTrackPopup.toolTip = [NSString stringWithFormat:
+        @"Recording destination L%02lu · %@; editing selection remains independent",
+        static_cast<unsigned long>(state->midiRecordTrack + 1u), armedName];
+    [self.midiRecordTrackPopup setNeedsDisplay:YES];
 }
 
 - (void)refreshTransportValueMenus
@@ -11298,8 +11842,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (!state || !self.isViewLoaded) return;
     if (state->session.pattern.tracks.empty()) {
         state->session.selectedTrack = 0u;
+        state->midiRecordTrack = 0u;
     } else {
         state->session.selectedTrack = std::min(state->session.selectedTrack,
+            state->session.pattern.tracks.size() - 1u);
+        state->midiRecordTrack = std::min(state->midiRecordTrack,
             state->session.pattern.tracks.size() - 1u);
     }
     state->session.selectedRow = std::min<std::size_t>(
@@ -11318,6 +11865,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     state->mixerSelectedStrip = std::min(state->mixerSelectedStrip,
         state->session.pattern.tracks.size());
     [self refreshTransportValueMenus];
+    [self refreshMidiRecordTrackMenu];
     [self.patternPopup removeAllItems];
     NSInteger activePattern = -1;
     for (const auto& entry : state->patternBank.entries) {
@@ -11366,10 +11914,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self.stepJumpPopup selectItemAtIndex:static_cast<NSInteger>(
         state->trackerRowJump - 1u)];
     self.midiStepRecordPopup.enabled = state->midiStepInputAvailable;
+    self.midiRecordTrackPopup.enabled = state->midiStepInputAvailable
+        && !state->session.pattern.tracks.empty()
+        && !state->songPlaybackActive;
     [self.midiStepRecordPopup selectItemAtIndex:static_cast<NSInteger>(
         state->midiStepRecordMode)];
     self.midiStepRecordPopup.toolTip = state->midiStepInputAvailable
-        ? @"Armed modes monitor incoming notes on the selected lane's MIDI channel; STEP advances the cursor; live modes follow the written NOTE; LIVE MT preserves timing in a SEQ pair"
+        ? @"Armed modes record to the fixed REC LANE target; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves timing in a SEQ pair"
         : @"This build does not expose a host MIDI input";
     self.undoButton.enabled = state->canUndo;
     self.redoButton.enabled = state->canRedo;
@@ -11688,6 +12239,35 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             == MidiStepRecordMode::LiveUnquantized ? "LIVE MT" : "OFF";
     [self appendConsoleMessage:std::string("MIDI recording ") + mode
         error:NO];
+    [self reloadModel];
+}
+
+- (void)midiRecordTrackChanged:(id)sender
+{
+    (void)sender;
+    auto* state = self.trackerState;
+    if (!state || state->songPlaybackActive
+        || state->session.pattern.tracks.empty()) return;
+    NSNumber* selected = self.midiRecordTrackPopup.selectedItem.representedObject;
+    const auto requested = selected
+        ? static_cast<std::size_t>(selected.unsignedIntegerValue) : 0u;
+    state->midiRecordTrack = std::min(
+        requested, state->session.pattern.tracks.size() - 1u);
+    if (self.trackerCallbacks
+        && self.trackerCallbacks->midiRecordTrackChanged) {
+        self.trackerCallbacks->midiRecordTrackChanged(
+            state->midiRecordTrack);
+    }
+    const auto& track = state->session.pattern.tracks[state->midiRecordTrack];
+    const std::string name = track.name.empty()
+        ? "LANE " + std::to_string(state->midiRecordTrack + 1u)
+        : track.name;
+    [self appendConsoleMessage:"MIDI record lane L"
+        + (state->midiRecordTrack + 1u < 10u ? std::string("0")
+                                             : std::string())
+        + std::to_string(state->midiRecordTrack + 1u) + " · " + name
+        error:NO];
+    [self.gridView setNeedsDisplay:YES];
     [self reloadModel];
 }
 

@@ -494,6 +494,48 @@ void testTrackVelocityScale()
         "a non-finite track velocity scale must fail safely to unity");
 }
 
+void testPolyphonicLaneVoicesAndVelocities()
+{
+    std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
+    notes[0u] = 60u;
+    notes[1u] = 64u;
+    notes[2u] = 67u;
+    std::array<float, s3g::tracker::kMaximumNoteVoices> velocities {};
+    velocities[0u] = 1.0f;
+    velocities[1u] = 0.5f;
+    velocities[2u] = 0.25f;
+    Track track;
+    track.destination = EventDestination::Midi;
+    track.notes = { NoteCell::withNotes(notes, 3u), NoteCell::kill() };
+    track.velocities = { ValueCell::withValues(velocities, 3u) };
+    track.noteColumn.length = 2u;
+    track.velocityColumn.length = 1u;
+    Pattern pattern;
+    pattern.tracks.push_back(std::move(track));
+    Sequencer sequencer;
+    sequencer.setPattern(std::move(pattern));
+    sequencer.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    sequencer.start();
+    std::array<ScheduledEvent, 8u> events {};
+    const auto count = sequencer.process(6001u, events.data(), events.size());
+    check(count == 6u
+            && events[0u].kind == ScheduledEventKind::NoteOn
+            && events[1u].kind == ScheduledEventKind::NoteOn
+            && events[2u].kind == ScheduledEventKind::NoteOn
+            && events[0u].note == 60u && events[1u].note == 64u
+            && events[2u].note == 67u
+            && std::abs(events[0u].normalizedVelocity - 1.0f) < 0.00001f
+            && std::abs(events[1u].normalizedVelocity - 0.5f) < 0.00001f
+            && std::abs(events[2u].normalizedVelocity - 0.25f) < 0.00001f
+            && events[3u].kind == ScheduledEventKind::NoteOff
+            && events[4u].kind == ScheduledEventKind::NoteOff
+            && events[5u].kind == ScheduledEventKind::NoteOff
+            && events[3u].noteId == events[0u].noteId
+            && events[4u].noteId == events[1u].noteId
+            && events[5u].noteId == events[2u].noteId,
+        "one lane cell should emit and explicitly release every paired chord voice");
+}
+
 void testInstrumentFxScopeAndReleaseRouting()
 {
     Track track;
@@ -2604,6 +2646,7 @@ int main()
     testPolymetricColumns();
     testConditionalSequencingGate();
     testTrackVelocityScale();
+    testPolyphonicLaneVoicesAndVelocities();
     testInstrumentColumnPolymeterAndMemory();
     testPerTrackColumnResync();
     testInstrumentFxScopeAndReleaseRouting();

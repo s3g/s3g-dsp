@@ -219,7 +219,8 @@ NSAttributedString* helpDocument()
     ]);
     appendGuideSection(document, @"MIDI + LANE ROUTING", @[
         @[ @"ROUTING", @"Tracker exposes one CLAP MIDI output and one record input. CH01–CH16 sets each lane's output channel. Use another Tracker instance for more than 16 destinations. Double-click a lane name to rename it." ],
-        @[ @"MIDI RECORD", @"OFF disarms. STEP writes note/velocity at the cursor, clears MT there, and advances. LIVE Q writes quantized onset, HLD rows, and KIL release. LIVE MT also writes measured offsets into available SEQ pairs. Live modes require REAPER playback and pattern transport." ],
+        @[ @"MIDI RECORD", @"REC LANE fixes the recording destination independently of the editing cursor. OFF disarms. STEP collects held keys into one NOTE/VOL chord and advances by View JUMP once the last key is released. LIVE Q groups notes arriving on the same row, then writes shared HLD rows and KIL release. LIVE MT also writes measured offsets into available SEQ pairs. Each recorded pitch keeps its own attack velocity. Live modes require REAPER playback and pattern transport." ],
+        @[ @"NOTE + VOL STACKS", @"Double-click NOTE to enter up to eight plus-separated pitches, for example 60+64+67. VOL may contain one value broadcast to every pitch or per-note values in the same order. If fewer values are entered, the final value repeats; extra values are ignored." ],
         @[ @"ALIASES", @"aliases lists bindings by lane. alias name 3 assigns or reassigns @name. autoalias rebuilds the map with the shortest available prefix of each lane name." ],
     ]);
     appendGuideSection(document, @"TRANSPORT + SONG", @[

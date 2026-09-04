@@ -317,7 +317,20 @@ std::size_t applyPitchMap(Pattern& pattern, std::size_t lane,
         if (assignment.row >= notes.size()
             || notes[assignment.row].state != NoteCellState::Note
             || notes[assignment.row].note == assignment.note) continue;
-        notes[assignment.row].note = assignment.note;
+        auto& cell = notes[assignment.row];
+        const auto voices = cell.noteVoiceCount();
+        const int requested = static_cast<int>(assignment.note)
+            - static_cast<int>(cell.note);
+        const int delta = std::clamp(requested,
+            -static_cast<int>(cell.noteVoice(0u)),
+            127 - static_cast<int>(cell.noteVoice(voices - 1u)));
+        if (delta == 0) continue;
+        std::array<uint8_t, kMaximumNoteVoices> mapped {};
+        for (std::size_t voice = 0u; voice < voices; ++voice) {
+            mapped[voice] = static_cast<uint8_t>(
+                static_cast<int>(cell.noteVoice(voice)) + delta);
+        }
+        cell = NoteCell::withNotes(mapped, voices);
         ++changed;
     }
     return changed;

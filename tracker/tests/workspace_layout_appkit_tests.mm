@@ -4,6 +4,7 @@
 #import "s3g_tracker_workspace.h"
 
 #include "s3g_tracker_workspace_layout.h"
+#include "s3g_tracker_grid_selection.h"
 #include "s3g_gui_layout.h"
 
 #include "s3g/tracker/fx_catalog.h"
@@ -38,6 +39,13 @@
     field:(std::size_t)field row:(std::size_t)row page:(std::size_t)page;
 - (void)extendGridSelectionToTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row;
+- (BOOL)applyCellText:(NSString*)source toTrack:(s3g::tracker::Track&)track
+    row:(std::size_t)row page:(std::size_t)page field:(std::size_t)field;
+- (NSString*)cellTextForTrack:(std::size_t)trackIndex
+    row:(std::size_t)row page:(std::size_t)page field:(std::size_t)field;
+- (BOOL)extendGridSelectionInColumnToTrack:(std::size_t)track
+    field:(std::size_t)field row:(std::size_t)row;
+- (s3g::tracker::app::GridSelectionRange)effectiveGridSelection;
 - (void)selectWholeRowsFrom:(std::size_t)anchor to:(std::size_t)focus;
 - (BOOL)isWholeRowSelected:(std::size_t)row;
 - (NSPoint)geometryCenter;
@@ -59,6 +67,14 @@
 - (NSRect)pitchTransposeSliderTrack;
 - (NSRect)pitchInvertToggleRect;
 - (NSRect)pitchReverseToggleRect;
+- (NSString*)pitchSelectedPointFlagText;
+- (NSRect)pitchGraphRect;
+- (NSRect)pitchIntervalGraphRect;
+- (NSPoint)pitchMapPointForAssignmentAtIndex:(std::size_t)index
+    original:(BOOL)original;
+- (NSPoint)pitchMapPointForAssignmentAtIndex:(std::size_t)index
+    original:(BOOL)original interval:(BOOL)interval;
+- (void)updatePitchMapPointAtPoint:(NSPoint)point;
 - (NSRect)lengthSliderTrack;
 - (NSRect)defaultNoteSliderTrack;
 - (NSRect)rotateSliderTrack;
@@ -67,6 +83,8 @@
 - (void)syncToolboxControls;
 - (void)openGeometryMenu:(NSInteger)menu;
 - (void)applyGeometryMenuSelection:(NSInteger)index;
+- (NSInteger)selectedIndexForGeometryMenu:(NSInteger)menu;
+- (void)freezePitchPreviewForManualEditing;
 - (NSUInteger)allStepsUnderlayNodeCount;
 - (NSPoint)rotateHandlePoint;
 - (NSPoint)densityHandlePoint;
@@ -191,6 +209,7 @@ int main()
         int restartRequests = 0;
         int trackResyncRequests = 0;
         int stepRecordModeRequests = 0;
+        int recordTrackRequests = 0;
         int viewPreferenceRequests = 0;
         int trackerRevealRequests = 0;
         int burstPreviewRequests = 0;
@@ -231,6 +250,10 @@ int main()
         callbacks.midiStepRecordModeChanged = [&](auto mode) {
             ++stepRecordModeRequests;
             state.midiStepRecordMode = mode;
+        };
+        callbacks.midiRecordTrackChanged = [&](std::size_t track) {
+            ++recordTrackRequests;
+            state.midiRecordTrack = track;
         };
         callbacks.viewPreferencesChanged = [&] {
             ++viewPreferenceRequests;
@@ -330,6 +353,8 @@ int main()
         NSButton* fillButton = [controller valueForKey:@"fillButton"];
         NSPopUpButton* midiStepRecordPopup = [controller
             valueForKey:@"midiStepRecordPopup"];
+        NSPopUpButton* midiRecordTrackPopup = [controller
+            valueForKey:@"midiRecordTrackPopup"];
         NSPopUpButton* tempoScalePopup = [controller
             valueForKey:@"tempoScalePopup"];
         S3GTrackerSwingSlider* swingField = [controller
@@ -635,6 +660,7 @@ int main()
         [geometryPage syncToolboxControls];
         const NSRect geometryCanvas = [geometryPage canvasRect];
         const NSRect laneCyclePanel = [geometryPage laneCyclePanelRect];
+        const NSRect geometryViewPanel = [geometryPage viewPanelRect];
         const NSRect laneMenuBox = [geometryPage laneMenuBoxRect];
         const NSRect directionMenuBox = [geometryPage directionMenuBoxRect];
         check(geometryLanePopup.numberOfItems == 12u
@@ -650,14 +676,16 @@ int main()
                 && near(NSMinX(geometryCanvas), 18.0)
                 && near(NSMinY(geometryCanvas),
                     s3g::gui_layout::kTrackerPageContentTop)
-                && near(NSMinY(laneCyclePanel),
+                && near(NSMinY(geometryViewPanel),
                     s3g::gui_layout::kTrackerPageContentTop)
+                && near(NSMinY(laneCyclePanel) - NSMaxY(geometryViewPanel),
+                    s3g::gui_layout::kStandardMetrics.panelGap)
                 && near(NSMaxY(geometryCanvas),
                     NSHeight(geometryPage.bounds) - 18.0)
                 && near(NSMinX(laneCyclePanel) - NSMaxX(geometryCanvas),
                     12.0)
                 && near(NSHeight(laneCyclePanel), 210.0),
-            "Geometry should share the Tracker page top and retain the 12/26 seven-row toolbox contract with custom in-canvas menus");
+            "Geometry should lead with View and retain the 12/26 seven-row toolbox contract with custom in-canvas menus");
         const CGFloat expectedGeometryMenuWidth = NSWidth(laneCyclePanel)
             - static_cast<CGFloat>(
                 s3g::gui_layout::kStandardMetrics.controlInset)
@@ -1275,6 +1303,9 @@ int main()
         [geometryPage applyGeometryMenuSelection:1u];
         [geometryPage openGeometryMenu:10];
         [geometryPage applyGeometryMenuSelection:0u];
+        check([[geometryPage pitchSelectedPointFlagText]
+                    isEqualToString:@"C-4 · MIDI 060"],
+            "Pitch Map should identify the selected breakpoint with note name and MIDI number");
         const NSRect pitchContourPanel = [geometryPage editPanelRect];
         const NSRect pitchViewPanel = [geometryPage viewPanelRect];
         check(NSContainsRect(pitchContourPanel,
@@ -1283,8 +1314,11 @@ int main()
                     [geometryPage pitchInvertToggleRect])
                 && NSContainsRect(pitchContourPanel,
                     [geometryPage pitchReverseToggleRect])
-                && NSMaxY(pitchContourPanel) < NSMinY(pitchViewPanel),
-            "Pitch Map transform controls should remain inside the expanded Contour toolbox without overlapping View");
+                && NSMaxY(pitchViewPanel)
+                    < NSMinY([geometryPage laneCyclePanelRect])
+                && NSMaxY([geometryPage laneCyclePanelRect])
+                    < NSMinY(pitchContourPanel),
+            "Geometry View should lead the inspector while Pitch Map transforms remain inside the expanded Contour toolbox");
         const NSRect pitchPreviewButton = [geometryPage
             pitchPreviewHeaderButtonRect];
         const BOOL previewedPitchMap = [geometryPage handleToolboxClickAtPoint:
@@ -1317,6 +1351,68 @@ int main()
                 && pitchTrack.notes[1u].note == 60u
                 && patternChangeRequests == changesBeforePitchMap + 1,
             "Pitch Map should use the shared scale catalog, selected rows, visual canvas, and one pattern commit");
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        BOOL appliedPreviewStayedVisible = previewedPitch.size() == 4u
+            && [geometryPage selectedIndexForGeometryMenu:10] == 6;
+        for (std::size_t index = 0u;
+             appliedPreviewStayedVisible && index < previewedPitch.size();
+             ++index) {
+            appliedPreviewStayedVisible = previewedPitch[index].note
+                == pitchTrack.notes[index].note;
+        }
+        [geometryPage openGeometryMenu:10];
+        [geometryPage applyGeometryMenuSelection:5u];
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        const auto generatedBeforeManualEdit = previewedPitch;
+        [geometryPage freezePitchPreviewForManualEditing];
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        BOOL manualBakeStayedVisible = generatedBeforeManualEdit.size()
+            == previewedPitch.size()
+            && [geometryPage selectedIndexForGeometryMenu:10] == 6;
+        for (std::size_t index = 0u;
+             manualBakeStayedVisible && index < previewedPitch.size();
+             ++index) {
+            manualBakeStayedVisible = generatedBeforeManualEdit[index].note
+                == previewedPitch[index].note;
+        }
+        check(appliedPreviewStayedVisible && manualBakeStayedVisible,
+            "Apply and the first manual edit should freeze the exact visible generated contour instead of regenerating it from changed source notes");
+        const NSRect contourGraph = [geometryPage pitchGraphRect];
+        const NSRect intervalGraph = [geometryPage pitchIntervalGraphRect];
+        const NSPoint anchorPoint = [geometryPage
+            pitchMapPointForAssignmentAtIndex:0u original:NO interval:YES];
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        const auto beforeIntervalEdit = previewedPitch;
+        state.session.selectedRow = 1u;
+        [geometryPage setValue:@1 forKey:@"pitchDragAssignment"];
+        [geometryPage setValue:@YES forKey:@"pitchEditingIntervals"];
+        const NSPoint intervalPoint = [geometryPage
+            pitchMapPointForAssignmentAtIndex:1u original:NO interval:YES];
+        [geometryPage updatePitchMapPointAtPoint:NSMakePoint(
+            intervalPoint.x, NSMinY(intervalGraph))];
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        check(NSMaxY(contourGraph) < NSMinY(intervalGraph)
+                && near(NSMinX(contourGraph), NSMinX(intervalGraph))
+                && near(NSWidth(contourGraph), NSWidth(intervalGraph))
+                && near(anchorPoint.y, NSMidY(intervalGraph))
+                && beforeIntervalEdit.size() == previewedPitch.size()
+                && previewedPitch.size() == 4u
+                && previewedPitch[0u].note == beforeIntervalEdit[0u].note
+                && previewedPitch[1u].note != beforeIntervalEdit[1u].note
+                && previewedPitch[3u].note != beforeIntervalEdit[3u].note,
+            "Pitch Map should show Contour and Interval simultaneously while interval editing shifts the selected note plus following phrase in scale degrees");
+        const uint8_t manuallyEditedPitch = previewedPitch[1u].note;
+        [geometryPage applyCurrentPitchMap];
+        check(pitchTrack.notes[1u].note == manuallyEditedPitch
+                && [geometryPage selectedIndexForGeometryMenu:10] == 6,
+            "a manually moved point should remain effective when the frozen contour is applied");
+        state.session.selectedRow = 0u;
+        [geometryPage selectLane:0u];
         [geometryPage openGeometryMenu:3];
         [geometryPage applyGeometryMenuSelection:0u];
         [window displayIfNeeded];
@@ -1369,6 +1465,18 @@ int main()
                 && [[midiStepRecordPopup itemAtIndex:3u].title
                     isEqualToString:@"REC MT"],
             "MIDI recording should expose STEP plus two live timing modes");
+        check(midiRecordTrackPopup.enabled
+                && midiRecordTrackPopup.numberOfItems == 12u
+                && [midiRecordTrackPopup.selectedItem.title
+                    isEqualToString:@"REC L01 · TRACK 1"]
+                && [[midiRecordTrackPopup itemAtIndex:1u].title
+                    isEqualToString:@"REC L02 · TRACK 2"],
+            "MIDI recording should expose an explicit named lane target");
+        [midiRecordTrackPopup selectItemAtIndex:2u];
+        [midiRecordTrackPopup sendAction:midiRecordTrackPopup.action
+            to:midiRecordTrackPopup.target];
+        check(state.midiRecordTrack == 2u && recordTrackRequests == 1,
+            "REC LANE should arm a fixed lane through the coordinator");
         [midiStepRecordPopup selectItemAtIndex:1u];
         [midiStepRecordPopup sendAction:midiStepRecordPopup.action
             to:midiStepRecordPopup.target];
@@ -1432,7 +1540,7 @@ int main()
                     containsObject:zoomInButton]
                 && ![inputPrimaryControls.arrangedSubviews
                     containsObject:midiStepRecordPopup]
-                && transportPrimaryControls.arrangedSubviews.count == 11u
+                && transportPrimaryControls.arrangedSubviews.count == 12u
                 && [transportPrimaryControls.arrangedSubviews
                     containsObject:fillButton]
                 && [transportPrimaryControls.arrangedSubviews
@@ -1446,7 +1554,9 @@ int main()
                 && [transportPrimaryControls.arrangedSubviews
                     containsObject:loopEndField]
                 && [transportPrimaryControls.arrangedSubviews
-                    containsObject:midiStepRecordPopup],
+                    containsObject:midiStepRecordPopup]
+                && [transportPrimaryControls.arrangedSubviews
+                    containsObject:midiRecordTrackPopup],
             "Pattern should lead with a wide long-name menu, while View and bottom Transport controls each occupy one compact row");
         fillButton.state = NSControlStateValueOn;
         [fillButton sendAction:fillButton.action to:fillButton.target];
@@ -1463,6 +1573,8 @@ int main()
                 && near(NSMidY(gateField.frame),
                     NSMidY(tempoScalePopup.frame), 0.01)
                 && near(NSMidY(midiStepRecordPopup.frame),
+                    NSMidY(tempoScalePopup.frame), 0.01)
+                && near(NSMidY(midiRecordTrackPopup.frame),
                     NSMidY(tempoScalePopup.frame), 0.01),
             "Tracker transport values should use the Song-style Swing slider and suite canvas menus");
         bool everyTransportControlHit = true;
@@ -1486,6 +1598,8 @@ int main()
                 && [(S3GTrackerPopupButton*)tempoScalePopup
                     s3gUsesCanvasMenu]
                 && [(S3GTrackerPopupButton*)midiStepRecordPopup
+                    s3gUsesCanvasMenu]
+                && [(S3GTrackerPopupButton*)midiRecordTrackPopup
                     s3gUsesCanvasMenu]
                 && [(S3GTrackerPopupButton*)stepJumpPopup
                     s3gUsesCanvasMenu]
@@ -1739,10 +1853,21 @@ int main()
             "row quantize should commit one edit");
 
         const int changesBeforeSubmenus = patternChangeRequests;
+        state.session.selectedTrack = 0u;
+        state.session.selectedField = 0u;
+        state.session.selectedRow = 7u;
         [grid.documentView beginGridSelectionAtTrack:0u
             field:0u row:7u page:0u];
-        [grid.documentView extendGridSelectionToTrack:0u
-            field:0u row:10u];
+        const BOOL shiftExtendedColumn = [grid.documentView
+            extendGridSelectionInColumnToTrack:0u field:0u row:10u];
+        const auto shiftRange = [grid.documentView effectiveGridSelection];
+        const BOOL rejectedCrossColumnShift = ![grid.documentView
+            extendGridSelectionInColumnToTrack:0u field:1u row:12u];
+        check(shiftExtendedColumn && rejectedCrossColumnShift
+                && shiftRange.firstTrack == 0u && shiftRange.lastTrack == 0u
+                && shiftRange.firstField == 0u && shiftRange.lastField == 0u
+                && shiftRange.firstRow == 7u && shiftRange.lastRow == 10u,
+            "Shift-click selection should extend vertically inside the current Tracker column and reject cross-column ranges");
         NSMenu* noteMenu = [grid.documentView noteMenuForTrack:0u row:8u];
         check(noteMenu.numberOfItems == 2u
                 && [noteMenu.itemArray[0u].title isEqualToString:@"PITCH"]
@@ -2170,6 +2295,19 @@ int main()
                 && patternChangeRequests == changesBeforeHold + 1,
             "H should write HLD in a NOTE cell and advance one row");
 
+        auto& stackTrack = state.session.pattern.tracks[0u];
+        check([grid.documentView applyCellText:@"60+64+67"
+                    toTrack:stackTrack row:5u page:0u field:0u]
+                && [grid.documentView applyCellText:@"0.866+0.646+0.756"
+                    toTrack:stackTrack row:5u page:0u field:1u]
+                && stackTrack.notes[5u].noteVoiceCount() == 3u
+                && stackTrack.notes[5u].noteVoice(1u) == 64u
+                && stackTrack.velocities[5u].valueVoiceCount() == 3u
+                && std::abs(stackTrack.velocities[5u].valueVoice(1u)
+                    - 0.646f) < 0.00001f
+                && [[grid.documentView cellTextForTrack:0u row:5u
+                    page:0u field:0u] hasSuffix:@"+2"],
+            "NOTE/VOL inline expressions should create paired stacks with a compact grid label");
         auto& clearTrack = state.session.pattern.tracks[0u];
         clearTrack.notes[2u] = s3g::tracker::NoteCell::withNote(62u);
         clearTrack.notes[3u] = s3g::tracker::NoteCell::withNote(64u);
@@ -2238,11 +2376,15 @@ int main()
         const BOOL patternMenuClicked = clickCanvasMenuItem(patternPopup, 1);
         const BOOL midiMenuClicked = clickCanvasMenuItem(
             midiStepRecordPopup, 1);
+        const BOOL recordLaneMenuClicked = clickCanvasMenuItem(
+            midiRecordTrackPopup, 3);
         check(patternMenuClicked && selectedPattern == "A02"
                 && midiMenuClicked
+                && recordLaneMenuClicked
+                && state.midiRecordTrack == 3u
                 && state.midiStepRecordMode
                     == s3g::tracker::MidiStepRecordMode::Step,
-            "Pattern and MIDI REC menus should open, select, dispatch, and dismiss through real window hit testing");
+            "Pattern, MIDI REC, and REC LANE menus should dispatch through real window hit testing");
 
         [grid.contentView scrollToPoint:NSZeroPoint];
         [grid reflectScrolledClipView:grid.contentView];
@@ -2258,8 +2400,9 @@ int main()
         NSView* laneHit = [window.contentView hitTest:secondLaneHeader];
         [laneHit mouseDown:mouseDownEvent(window, secondLaneHeader, 1)];
         check(laneHit == grid.documentView
-                && state.session.selectedTrack == 1u,
-            "a real lane-header click should reach the Tracker grid and select that lane after using canvas menus");
+                && state.session.selectedTrack == 1u
+                && state.midiRecordTrack == 3u,
+            "a real lane-header click should select an editing lane without changing REC LANE");
         state.session.selectedTrack = 0u;
         state.songPlaybackPatternId = "A02";
         state.songPlaybackActive = true;

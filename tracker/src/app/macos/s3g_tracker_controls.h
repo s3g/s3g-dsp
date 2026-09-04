@@ -76,6 +76,9 @@ void S3GTrackerDrawSuiteActionButton(NSRect bounds, NSString* title,
 // Tracker grid leaves this disabled so its established native tracker menu
 // behavior remains unchanged.
 @property(nonatomic) BOOL s3gUsesCanvasMenu;
+// Optional compact value painted in the closed control while menu items retain
+// their full descriptive titles in the opened canvas menu.
+@property(nonatomic, copy) NSString* s3gDisplayTitle;
 @end
 
 // Labels beside suite controls use the same regular Menlo face and vertical

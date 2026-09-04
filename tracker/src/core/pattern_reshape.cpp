@@ -705,13 +705,8 @@ PatternReshapeResult reshapePattern(
                 && settings.velocityWrite
                     == PatternReshapeWriteMode::FillMissing;
             if (cell.state != ValueCellState::Value && !create) continue;
-            const float source = cell.state == ValueCellState::Value
-                ? std::clamp(cell.normalized, 0.0f, 1.0f) : 0.787f;
-            float residual = source - laneStats.velocityMedian;
             const float spread = laneStats.velocityMad > 0.0f
                 ? laneStats.velocityMad : working.velocityMad;
-            residual = limitedResidual(residual, spread,
-                settings.velocityOutlierThreshold);
             const float balancedCenter = laneStats.velocityMedian
                 + settings.laneBalance
                     * (working.velocityMedian
@@ -719,11 +714,24 @@ PatternReshapeResult reshapePattern(
             const auto phase = row % working.cycleRows;
             const float accent = inferredVelocityAccent(
                 working, phase);
-            const float next = std::clamp(balancedCenter
-                + residual * settings.velocityRange
-                + accent * (settings.accentDepth - 1.0f), 0.0f, 1.0f);
-            if (create || std::abs(cell.normalized - next) > 0.00001f) {
-                cell = ValueCell::withValue(next);
+            const auto voices = cell.state == ValueCellState::Value
+                ? cell.valueVoiceCount() : 1u;
+            std::array<float, kMaximumNoteVoices> reshaped {};
+            bool rowChanged = create;
+            for (std::size_t voice = 0u; voice < voices; ++voice) {
+                const float source = cell.state == ValueCellState::Value
+                    ? std::clamp(cell.valueVoice(voice), 0.0f, 1.0f)
+                    : 0.787f;
+                float residual = source - laneStats.velocityMedian;
+                residual = limitedResidual(residual, spread,
+                    settings.velocityOutlierThreshold);
+                reshaped[voice] = std::clamp(balancedCenter
+                    + residual * settings.velocityRange
+                    + accent * (settings.accentDepth - 1.0f), 0.0f, 1.0f);
+                rowChanged |= std::abs(source - reshaped[voice]) > 0.00001f;
+            }
+            if (rowChanged) {
+                cell = ValueCell::withValues(reshaped, voices);
                 if (create) ++result.velocityCreated;
                 ++result.velocityChanged;
             }

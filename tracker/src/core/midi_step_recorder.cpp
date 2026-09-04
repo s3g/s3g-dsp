@@ -37,6 +37,77 @@ void clearMicroTime(Track& track, std::size_t row) noexcept
     }
 }
 
+std::size_t recordedVoice(const MidiLiveRecordState& state,
+    uint8_t note, uint8_t channel) noexcept
+{
+    for (std::size_t voice = 0u; voice < state.voiceCount; ++voice) {
+        if (state.notes[voice] == note && state.channels[voice] == channel)
+            return voice;
+    }
+    return kMaximumNoteVoices;
+}
+
+bool addRecordedVoice(MidiLiveRecordState& state, uint8_t note,
+    uint8_t velocity, uint8_t channel) noexcept
+{
+    const auto existing = recordedVoice(state, note, channel);
+    if (existing < state.voiceCount) {
+        state.velocities[existing] = velocity;
+        state.held[existing] = true;
+        return true;
+    }
+    if (state.voiceCount >= kMaximumNoteVoices) return false;
+    std::size_t insertion = 0u;
+    while (insertion < state.voiceCount
+        && state.notes[insertion] < note) ++insertion;
+    for (std::size_t voice = state.voiceCount; voice > insertion; --voice) {
+        state.notes[voice] = state.notes[voice - 1u];
+        state.velocities[voice] = state.velocities[voice - 1u];
+        state.channels[voice] = state.channels[voice - 1u];
+        state.held[voice] = state.held[voice - 1u];
+    }
+    state.notes[insertion] = note;
+    state.velocities[insertion] = velocity;
+    state.channels[insertion] = channel;
+    state.held[insertion] = true;
+    ++state.voiceCount;
+    state.note = state.notes[0u];
+    state.channel = state.channels[0u];
+    return true;
+}
+
+bool releaseRecordedVoice(MidiLiveRecordState& state, uint8_t note,
+    uint8_t channel) noexcept
+{
+    const auto voice = recordedVoice(state, note, channel);
+    if (voice >= state.voiceCount || !state.held[voice]) return false;
+    state.held[voice] = false;
+    return true;
+}
+
+bool anyRecordedVoiceHeld(const MidiLiveRecordState& state) noexcept
+{
+    for (std::size_t voice = 0u; voice < state.voiceCount; ++voice) {
+        if (state.held[voice]) return true;
+    }
+    return false;
+}
+
+void writeRecordedChord(Track& track, std::size_t noteRow,
+    std::size_t velocityRow, const MidiLiveRecordState& state)
+{
+    std::array<uint8_t, kMaximumNoteVoices> notes {};
+    std::array<float, kMaximumNoteVoices> velocities {};
+    for (std::size_t voice = 0u; voice < state.voiceCount; ++voice) {
+        notes[voice] = state.notes[voice];
+        velocities[voice] = static_cast<float>(state.velocities[voice])
+            / 127.0f;
+    }
+    track.notes[noteRow] = NoteCell::withNotes(notes, state.voiceCount);
+    track.velocities[velocityRow] = ValueCell::withValues(
+        velocities, state.voiceCount);
+}
+
 } // namespace
 
 bool MidiStepCaptureQueue::push(const MidiStepCapture& event) noexcept
@@ -64,7 +135,8 @@ bool MidiStepCaptureQueue::pop(MidiStepCapture& event) noexcept
 
 MidiStepRecordResult recordMidiStep(TrackerSession& session,
     MidiStepRecordMode mode, const MidiStepCapture& capture,
-    double sampleRate, MidiLiveRecordState* liveState)
+    double sampleRate, MidiLiveRecordState* liveState,
+    std::size_t stepAdvance)
 {
     MidiStepRecordResult result;
     result.timingKnown = capture.timingKnown;
@@ -75,7 +147,7 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
         || capture.channel > 16u
         || (capture.noteOn
             && (capture.velocity == 0u || capture.velocity > 127u))
-        || (!capture.noteOn && !live)) {
+        || (!capture.noteOn && !live && !liveState)) {
         result.code = MidiStepRecordCode::InvalidEvent;
         return result;
     }
@@ -86,17 +158,66 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
 
     if (!capture.noteOn
         && (!liveState || !liveState->active
-            || liveState->note != capture.note
-            || liveState->channel != capture.channel
+            || recordedVoice(*liveState, capture.note, capture.channel)
+                >= liveState->voiceCount
             || liveState->track >= session.pattern.tracks.size())) {
         result.code = MidiStepRecordCode::InvalidEvent;
         return result;
     }
     const std::size_t trackIndex = capture.noteOn
-        ? std::min(session.selectedTrack, session.pattern.tracks.size() - 1u)
+        ? std::min(capture.targetTrack, session.pattern.tracks.size() - 1u)
         : liveState->track;
     const std::size_t visibleRows = std::max<std::size_t>(
         session.pattern.visibleRows, 1u);
+
+    if (mode == MidiStepRecordMode::Step && liveState) {
+        if (!capture.noteOn) {
+            if (!releaseRecordedVoice(*liveState,
+                    capture.note, capture.channel)) {
+                result.code = MidiStepRecordCode::InvalidEvent;
+                return result;
+            }
+            result.track = liveState->track;
+            result.row = liveState->onsetRow;
+            result.release = true;
+            if (!anyRecordedVoiceHeld(*liveState)) {
+                session.selectedRow = (liveState->onsetRow
+                    + std::max<std::size_t>(stepAdvance, 1u)) % visibleRows;
+                liveState->clear();
+            }
+            result.code = MidiStepRecordCode::Recorded;
+            return result;
+        }
+        if (!liveState->active) {
+            liveState->active = true;
+            liveState->track = trackIndex;
+            liveState->onsetRow = std::min(session.selectedRow,
+                visibleRows - 1u);
+        }
+        if (liveState->track != trackIndex
+            || !addRecordedVoice(*liveState, capture.note,
+                capture.velocity, capture.channel)) {
+            result.code = MidiStepRecordCode::InvalidEvent;
+            return result;
+        }
+        auto& stepTrack = session.pattern.tracks[liveState->track];
+        const auto stepRow = liveState->onsetRow;
+        if (stepTrack.notes.size() <= stepRow)
+            stepTrack.notes.resize(stepRow + 1u, NoteCell::rest());
+        if (stepTrack.velocities.size() <= stepRow)
+            stepTrack.velocities.resize(stepRow + 1u,
+                ValueCell::defaultValue());
+        writeRecordedChord(stepTrack, stepRow, stepRow, *liveState);
+        clearMicroTime(stepTrack, stepRow);
+        stepTrack.noteColumn.length = std::max(
+            stepTrack.noteColumn.length, stepRow + 1u);
+        stepTrack.velocityColumn.length = std::max(
+            stepTrack.velocityColumn.length, stepRow + 1u);
+        result.track = liveState->track;
+        result.row = stepRow;
+        result.code = MidiStepRecordCode::Recorded;
+        return result;
+    }
     if (live && !capture.rowKnown) {
         result.code = MidiStepRecordCode::TimingUnavailable;
         return result;
@@ -108,6 +229,9 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
     std::size_t row = live
         ? capture.row % noteLength
         : std::min(session.selectedRow, visibleRows - 1u);
+    const bool joiningChord = live && capture.noteOn && liveState
+        && liveState->active && liveState->track == trackIndex
+        && liveState->onsetRow % noteLength == row;
     const std::size_t velocityLength = live
         ? std::max<std::size_t>(track.velocityColumn.length, 1u)
         : visibleRows;
@@ -126,10 +250,20 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
     const std::size_t releaseDistance = release
         ? (row + noteLength - onsetRow) % noteLength : 0u;
     const bool writesReleaseCell = release && releaseDistance != 0u;
+    if (release) {
+        (void)releaseRecordedVoice(*liveState,
+            capture.note, capture.channel);
+        if (anyRecordedVoiceHeld(*liveState)) {
+            result.row = onsetRow;
+            result.release = true;
+            result.code = MidiStepRecordCode::Recorded;
+            return result;
+        }
+    }
 
     std::size_t pairIndex = kFxPairCount;
     float microTime = 0.5f;
-    if (mode == MidiStepRecordMode::LiveUnquantized
+    if (mode == MidiStepRecordMode::LiveUnquantized && !joiningChord
         && (!release || writesReleaseCell)) {
         const double range = session.transport.microTimingRangeMilliseconds;
         if (!std::isfinite(sampleRate) || sampleRate <= 0.0
@@ -184,7 +318,7 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
         // A new live onset closes a still-held monophonic take before it
         // replaces the destination cell. Intermediate rows remain explicit
         // HLD cells; the new NOTE is the release/reattack boundary.
-        if (live && liveState && liveState->active
+        if (live && !joiningChord && liveState && liveState->active
             && liveState->track < session.pattern.tracks.size()) {
             auto& previousTrack = session.pattern.tracks[liveState->track];
             const std::size_t previousLength = std::max<std::size_t>(
@@ -193,9 +327,24 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
             result.holdRows += writeHoldSpan(previousTrack,
                 liveState->onsetRow % previousLength, replacementRow, false);
         }
-        track.notes[row] = NoteCell::withNote(capture.note);
-        track.velocities[velocityRow] = ValueCell::withValue(
-            static_cast<float>(capture.velocity) / 127.0f);
+        if (live && liveState) {
+            if (!joiningChord) {
+                liveState->clear();
+                liveState->active = true;
+                liveState->track = trackIndex;
+                liveState->onsetRow = row;
+            }
+            if (!addRecordedVoice(*liveState, capture.note,
+                    capture.velocity, capture.channel)) {
+                result.code = MidiStepRecordCode::InvalidEvent;
+                return result;
+            }
+            writeRecordedChord(track, row, velocityRow, *liveState);
+        } else {
+            track.notes[row] = NoteCell::withNote(capture.note);
+            track.velocities[velocityRow] = ValueCell::withValue(
+                static_cast<float>(capture.velocity) / 127.0f);
+        }
     }
     if (!live) {
         track.noteColumn.length = std::max(
@@ -206,7 +355,7 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
 
     if (mode != MidiStepRecordMode::LiveUnquantized) {
         clearMicroTime(track, row);
-    } else if (!release || writesReleaseCell) {
+    } else if ((!release || writesReleaseCell) && !joiningChord) {
         auto& pair = track.fxPairs[pairIndex];
         if (pair.actions.size() <= row)
             pair.actions.resize(row + 1u, FxActionCell::empty());
@@ -224,26 +373,16 @@ MidiStepRecordResult recordMidiStep(TrackerSession& session,
     if (mode == MidiStepRecordMode::Step) {
         session.pattern.visibleRows = std::max(
             session.pattern.visibleRows, row + 1u);
-        session.selectedRow = (row + 1u) % std::max<std::size_t>(
+        const std::size_t rows = std::max<std::size_t>(
             session.pattern.visibleRows, 1u);
+        session.selectedRow = (row + std::max<std::size_t>(
+            stepAdvance, 1u)) % rows;
     } else {
         // Live capture follows the written NOTE so the highlight and recorded
         // cell agree, but it does not perform STEP's post-write advance.
         session.selectedRow = row;
     }
-    session.selectedTrack = trackIndex;
-    session.selectedField = 0u;
-    if (live && liveState) {
-        if (release) {
-            liveState->clear();
-        } else {
-            liveState->active = true;
-            liveState->note = capture.note;
-            liveState->channel = capture.channel;
-            liveState->track = trackIndex;
-            liveState->onsetRow = row;
-        }
-    }
+    if (live && liveState && release) liveState->clear();
     result.code = MidiStepRecordCode::Recorded;
     result.fxPair = pairIndex;
     result.microTime = microTime;

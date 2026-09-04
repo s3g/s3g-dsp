@@ -26,6 +26,17 @@ constexpr double kMaximumSwing = 0.75;
 constexpr double kMinimumGateMilliseconds = 1.0;
 constexpr double kMaximumGateMilliseconds = 5000.0;
 
+bool noteCellsEqual(const NoteCell& left, const NoteCell& right) noexcept
+{
+    if (left.state != right.state) return false;
+    if (left.state == NoteCellState::Burst) return left.note == right.note;
+    if (left.noteVoiceCount() != right.noteVoiceCount()) return false;
+    for (std::size_t voice = 0u; voice < left.noteVoiceCount(); ++voice) {
+        if (left.noteVoice(voice) != right.noteVoice(voice)) return false;
+    }
+    return true;
+}
+
 enum class ColumnTargetKind : uint8_t {
     Note,
     Instrument,
@@ -488,7 +499,8 @@ void configureKit(TrackerSession& session, std::string_view mapName,
             std::max<std::size_t>(session.pattern.visibleRows, 1u));
         session.laneDefaultNotes[lane] = pitch;
         for (auto& cell : track.notes) {
-            if (cell.state == NoteCellState::Note) cell.note = pitch;
+            if (cell.state == NoteCellState::Note)
+                cell = NoteCell::withNote(pitch);
         }
         addAliasesForToken(session, kitLane.token, lane);
     }
@@ -4429,10 +4441,17 @@ std::size_t transposeNoteRows(TrackerSession& session, std::size_t lane,
     for (std::size_t row = firstRow; row <= lastRow; ++row) {
         auto& cell = track.notes[row];
         if (cell.state != NoteCellState::Note) continue;
-        const auto transposed = static_cast<uint8_t>(std::clamp(
-            static_cast<int>(cell.note) + semitones, 0, 127));
-        if (transposed == cell.note) continue;
-        cell.note = transposed;
+        const auto voices = cell.noteVoiceCount();
+        const int lowest = cell.noteVoice(0u);
+        const int highest = cell.noteVoice(voices - 1u);
+        const int applied = std::clamp(semitones, -lowest, 127 - highest);
+        if (applied == 0) continue;
+        std::array<uint8_t, kMaximumNoteVoices> transposed {};
+        for (std::size_t voice = 0u; voice < voices; ++voice) {
+            transposed[voice] = static_cast<uint8_t>(
+                static_cast<int>(cell.noteVoice(voice)) + applied);
+        }
+        cell = NoteCell::withNotes(transposed, voices);
         ++changed;
     }
     return changed;
@@ -4455,8 +4474,7 @@ std::size_t reverseNoteRows(TrackerSession& session, std::size_t lane,
     for (std::size_t offset = 0u; offset < source.size(); ++offset) {
         const auto& replacement = source[source.size() - 1u - offset];
         auto& destination = track.notes[firstRow + offset];
-        if (destination.state != replacement.state
-            || destination.note != replacement.note) ++changed;
+        if (!noteCellsEqual(destination, replacement)) ++changed;
         destination = replacement;
     }
     return changed;
@@ -4484,8 +4502,7 @@ std::size_t rotateNoteRows(TrackerSession& session, std::size_t lane,
         const auto destinationOffset = (offset + rotation) % rangeLength;
         auto& destination = track.notes[firstRow + destinationOffset];
         const auto& replacement = source[offset];
-        if (destination.state != replacement.state
-            || destination.note != replacement.note) ++changed;
+        if (!noteCellsEqual(destination, replacement)) ++changed;
         destination = replacement;
     }
     return changed;
@@ -4531,8 +4548,7 @@ std::size_t densityNoteRows(TrackerSession& session, std::size_t lane,
             ? (noteCellIsHit(track.notes[row])
                     ? track.notes[row] : NoteCell::withNote(pitch))
             : NoteCell::rest();
-        if (track.notes[row].state != replacement.state
-            || track.notes[row].note != replacement.note) ++changed;
+        if (!noteCellsEqual(track.notes[row], replacement)) ++changed;
         track.notes[row] = replacement;
     }
     return changed;
@@ -4552,10 +4568,18 @@ std::size_t scaleVelocityRows(TrackerSession& session, std::size_t lane,
     for (std::size_t row = firstRow; row <= lastRow; ++row) {
         auto& cell = track.velocities[row];
         if (cell.state != ValueCellState::Value) continue;
-        const auto scaled = static_cast<float>(std::clamp(
-            static_cast<double>(cell.normalized) * factor, 0.0, 1.0));
-        if (std::abs(scaled - cell.normalized) <= 0.00001f) continue;
-        cell.normalized = scaled;
+        const auto voices = cell.valueVoiceCount();
+        std::array<float, kMaximumNoteVoices> scaled {};
+        bool rowChanged = false;
+        for (std::size_t voice = 0u; voice < voices; ++voice) {
+            scaled[voice] = static_cast<float>(std::clamp(
+                static_cast<double>(cell.valueVoice(voice)) * factor,
+                0.0, 1.0));
+            rowChanged |= std::abs(scaled[voice]
+                - cell.valueVoice(voice)) > 0.00001f;
+        }
+        if (!rowChanged) continue;
+        cell = ValueCell::withValues(scaled, voices);
         ++changed;
     }
     return changed;
@@ -4576,16 +4600,26 @@ std::size_t randomizeVelocityRows(TrackerSession& session, std::size_t lane,
     const uint32_t span = static_cast<uint32_t>(maximum - minimum) + 1u;
     std::size_t changed = 0u;
     for (std::size_t row = firstRow; row <= lastRow; ++row) {
-        const auto offset = static_cast<uint32_t>(std::min<double>(
-            static_cast<double>(span - 1u),
-            std::floor(nextCommandRandom(session)
-                * static_cast<double>(span))));
-        const auto replacement = ValueCell::withValue(
-            static_cast<float>(static_cast<uint32_t>(minimum) + offset)
-                / 127.0f);
-        if (track.velocities[row].state != replacement.state
-            || std::abs(track.velocities[row].normalized
-                    - replacement.normalized) > 0.00001f) ++changed;
+        const auto voices = track.velocities[row].state
+                == ValueCellState::Value
+            ? track.velocities[row].valueVoiceCount() : 1u;
+        std::array<float, kMaximumNoteVoices> values {};
+        bool rowChanged = track.velocities[row].state
+            != ValueCellState::Value;
+        for (std::size_t voice = 0u; voice < voices; ++voice) {
+            const auto offset = static_cast<uint32_t>(std::min<double>(
+                static_cast<double>(span - 1u),
+                std::floor(nextCommandRandom(session)
+                    * static_cast<double>(span))));
+            values[voice] = static_cast<float>(
+                static_cast<uint32_t>(minimum) + offset) / 127.0f;
+            rowChanged |= track.velocities[row].state
+                    != ValueCellState::Value
+                || std::abs(track.velocities[row].valueVoice(voice)
+                    - values[voice]) > 0.00001f;
+        }
+        const auto replacement = ValueCell::withValues(values, voices);
+        if (rowChanged) ++changed;
         track.velocities[row] = replacement;
     }
     return changed;
@@ -4619,8 +4653,8 @@ bool setLaneDefaultNote(TrackerSession& session, std::size_t lane,
     for (auto& cell : session.pattern.tracks[lane].notes) {
         if (cell.state != NoteCellState::Note) continue;
         if (replacedNoteCount) ++*replacedNoteCount;
-        changed |= cell.note != note;
-        cell.note = note;
+        changed |= cell.noteVoiceCount() != 1u || cell.note != note;
+        cell = NoteCell::withNote(note);
     }
     return changed || previous != note;
 }

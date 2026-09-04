@@ -14,7 +14,12 @@ std::size_t activeLength(const Track& track) noexcept
 
 bool sameNoteCell(const NoteCell& left, const NoteCell& right) noexcept
 {
-    return left.state == right.state && left.note == right.note;
+    if (left.state != right.state || left.noteVoiceCount()
+        != right.noteVoiceCount()) return false;
+    for (std::size_t voice = 0u; voice < left.noteVoiceCount(); ++voice) {
+        if (left.noteVoice(voice) != right.noteVoice(voice)) return false;
+    }
+    return left.state != NoteCellState::Burst || left.note == right.note;
 }
 
 } // namespace

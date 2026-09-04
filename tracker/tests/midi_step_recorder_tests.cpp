@@ -1,5 +1,6 @@
 #include "s3g/tracker/midi_step_recorder.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -60,6 +61,105 @@ int main()
                 == FxActionCellState::Empty
             && stepped.selectedRow == 3u,
         "STEP should write at the cursor, clear MT, and advance once");
+
+    auto jumpedStep = sessionWithTrack();
+    const auto jumped = recordMidiStep(jumpedStep,
+        MidiStepRecordMode::Step, input, 48000.0, nullptr, 4u);
+    check(jumped.recorded() && jumped.row == 2u
+            && jumpedStep.selectedRow == 6u,
+        "STEP should advance by the Tracker View JUMP interval");
+    const auto wrappedJump = recordMidiStep(jumpedStep,
+        MidiStepRecordMode::Step, input, 48000.0, nullptr, 4u);
+    check(wrappedJump.recorded() && wrappedJump.row == 6u
+            && jumpedStep.selectedRow == 2u,
+        "STEP JUMP should wrap inside the visible pattern rows");
+
+    auto armedLane = sessionWithTrack();
+    armedLane.pattern.tracks.push_back(armedLane.pattern.tracks.front());
+    armedLane.pattern.tracks[1u].name = "armed";
+    std::fill(armedLane.pattern.tracks[1u].notes.begin(),
+        armedLane.pattern.tracks[1u].notes.end(), NoteCell::rest());
+    std::fill(armedLane.pattern.tracks[1u].velocities.begin(),
+        armedLane.pattern.tracks[1u].velocities.end(),
+        ValueCell::defaultValue());
+    armedLane.selectedTrack = 0u;
+    armedLane.selectedField = 1u;
+    MidiStepCapture armedInput = input;
+    armedInput.targetTrack = 1u;
+    const auto armedStep = recordMidiStep(armedLane,
+        MidiStepRecordMode::Step, armedInput, 48000.0);
+    check(armedStep.recorded() && armedStep.track == 1u
+            && armedLane.pattern.tracks[0u].notes[2u].state
+                == NoteCellState::Rest
+            && armedLane.pattern.tracks[1u].notes[2u].state
+                == NoteCellState::Note
+            && armedLane.pattern.tracks[1u].notes[2u].note == 64u
+            && armedLane.selectedTrack == 0u
+            && armedLane.selectedField == 1u,
+        "explicit REC LANE should receive STEP input without moving the editing column");
+
+    auto chordStep = sessionWithTrack();
+    MidiLiveRecordState chordStepState;
+    MidiStepCapture chordVoice = input;
+    chordVoice.note = 60u;
+    chordVoice.velocity = 110u;
+    check(recordMidiStep(chordStep, MidiStepRecordMode::Step,
+              chordVoice, 48000.0, &chordStepState, 4u).recorded(),
+        "STEP should begin a held chord group without advancing");
+    chordVoice.note = 64u;
+    chordVoice.velocity = 70u;
+    check(recordMidiStep(chordStep, MidiStepRecordMode::Step,
+              chordVoice, 48000.0, &chordStepState, 4u).recorded(),
+        "STEP should add a second held pitch to the same row");
+    chordVoice.note = 67u;
+    chordVoice.velocity = 92u;
+    check(recordMidiStep(chordStep, MidiStepRecordMode::Step,
+              chordVoice, 48000.0, &chordStepState, 4u).recorded(),
+        "STEP should add a third held pitch to the same row");
+    const auto& chordCell = chordStep.pattern.tracks[0u].notes[2u];
+    const auto& chordVelocity = chordStep.pattern.tracks[0u].velocities[2u];
+    check(chordStep.selectedRow == 2u && chordCell.noteVoiceCount() == 3u
+            && chordCell.noteVoice(0u) == 60u
+            && chordCell.noteVoice(1u) == 64u
+            && chordCell.noteVoice(2u) == 67u
+            && chordVelocity.valueVoiceCount() == 3u
+            && std::abs(chordVelocity.valueVoice(0u) - 110.0f / 127.0f)
+                < 1.0e-6f
+            && std::abs(chordVelocity.valueVoice(1u) - 70.0f / 127.0f)
+                < 1.0e-6f
+            && std::abs(chordVelocity.valueVoice(2u) - 92.0f / 127.0f)
+                < 1.0e-6f,
+        "STEP chord capture should pair each sorted pitch with its own velocity");
+    for (const uint8_t note : { 60u, 64u, 67u }) {
+        MidiStepCapture off = chordVoice;
+        off.note = note;
+        off.noteOn = false;
+        off.velocity = 0u;
+        check(recordMidiStep(chordStep, MidiStepRecordMode::Step,
+                  off, 48000.0, &chordStepState, 4u).recorded(),
+            "STEP should accept every matching chord note-off");
+    }
+    check(!chordStepState.active && chordStep.selectedRow == 6u,
+        "STEP should advance by JUMP once after the final chord key is released");
+
+    auto chordLive = sessionWithTrack();
+    MidiLiveRecordState chordLiveState;
+    MidiStepCapture liveChordVoice = input;
+    liveChordVoice.rowKnown = true;
+    liveChordVoice.row = 4u;
+    liveChordVoice.note = 60u;
+    liveChordVoice.velocity = 100u;
+    check(recordMidiStep(chordLive, MidiStepRecordMode::LiveQuantized,
+              liveChordVoice, 48000.0, &chordLiveState).recorded(),
+        "LIVE should begin a polyphonic onset group");
+    liveChordVoice.note = 67u;
+    liveChordVoice.velocity = 55u;
+    check(recordMidiStep(chordLive, MidiStepRecordMode::LiveQuantized,
+              liveChordVoice, 48000.0, &chordLiveState).recorded()
+            && chordLive.pattern.tracks[0u].notes[4u].noteVoiceCount() == 2u
+            && chordLive.pattern.tracks[0u].velocities[4u]
+                    .valueVoiceCount() == 2u,
+        "LIVE notes on the same row should form one paired chord cell");
 
     auto liveQuantized = sessionWithTrack();
     liveQuantized.pattern.tracks[0u].fxPairs[0u].actions.resize(

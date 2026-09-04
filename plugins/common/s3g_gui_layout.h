@@ -1322,12 +1322,13 @@ constexpr TrackerGeometryFamilyLayout trackerGeometryFamilyLayout(
         inspector.x - kStandardMetrics.panelGap - kTrackerPageHorizontalInset,
         canvas.height - kTrackerPageContentTop - kTrackerPageBottomInset,
     };
-    const Panel lane = fittedPanel(PluginClass::AnalyzerMonitor,
-        PanelRole::Lanes, inspector, inspector.top, 7u);
+    const Panel view = fittedPanel(PluginClass::AnalyzerMonitor,
+        PanelRole::Diagnostics, inspector, inspector.top, 1u);
+    const Panel lane = fittedStackPanel(
+        PanelRole::Lanes, view, 7u);
     const Panel edit = fittedStackPanel(
         PanelRole::Utility, lane, editShapeRowCount);
-    const Panel view = fittedStackPanel(PanelRole::Diagnostics, edit, 1u);
-    const double bridgeY = view.frame.y + view.frame.height
+    const double bridgeY = edit.frame.y + edit.frame.height
         + kStandardMetrics.panelGap;
     const Panel bridge = makePanel(PluginClass::AnalyzerMonitor,
         PanelRole::SelectedObject, inspector, bridgeY,
@@ -1455,9 +1456,12 @@ static_assert(kTrackerGeometryNativeLayout.trackerBridge.frame.y
 inline constexpr TrackerGeometryFamilyLayout kTrackerPitchMapNativeLayout =
     trackerGeometryFamilyLayout({ 1320.0, 780.0 }, 7u);
 static_assert(kTrackerPitchMapNativeLayout.editShape.rowCount == 7u);
-static_assert(kTrackerPitchMapNativeLayout.editShape.frame.y
-    + kTrackerPitchMapNativeLayout.editShape.frame.height
-    < kTrackerPitchMapNativeLayout.view.frame.y);
+static_assert(kTrackerPitchMapNativeLayout.view.frame.y
+    + kTrackerPitchMapNativeLayout.view.frame.height
+    < kTrackerPitchMapNativeLayout.laneCycle.frame.y);
+static_assert(kTrackerPitchMapNativeLayout.laneCycle.frame.y
+    + kTrackerPitchMapNativeLayout.laneCycle.frame.height
+    < kTrackerPitchMapNativeLayout.editShape.frame.y);
 static_assert(kTrackerPitchMapNativeLayout.trackerBridge.frame.y
     + kTrackerPitchMapNativeLayout.trackerBridge.frame.height == 762.0);
 

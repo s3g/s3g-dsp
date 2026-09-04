@@ -64,10 +64,19 @@ ProjectDocument makeDocument()
     track.notes[2u] = NoteCell::kill();
     track.notes[3u] = NoteCell::hold();
     track.notes[4u] = NoteCell::withBurst(0u);
-    track.notes[7u] = NoteCell::withNote(72u);
+    std::array<uint8_t, kMaximumNoteVoices> chordNotes {};
+    chordNotes[0u] = 60u;
+    chordNotes[1u] = 64u;
+    chordNotes[2u] = 67u;
+    track.notes[7u] = NoteCell::withNotes(chordNotes, 3u);
     track.velocities.resize(12u, ValueCell::defaultValue());
     track.velocities[0u] = ValueCell::withValue(0.91f);
     track.velocities[1u] = ValueCell::previous();
+    std::array<float, kMaximumNoteVoices> chordVelocities {};
+    chordVelocities[0u] = 0.91f;
+    chordVelocities[1u] = 0.63f;
+    chordVelocities[2u] = 0.78f;
+    track.velocities[7u] = ValueCell::withValues(chordVelocities, 3u);
     track.noteColumn = { 12u, 3u, 2u, Direction::Palindrome, false };
     track.velocityColumn = { 9u, 2u, 3u, Direction::Random, false };
 
@@ -207,6 +216,8 @@ void testCompleteDeterministicRoundTrip()
                 != std::string::npos
             && firstEncoding.find("\"phase\": 4") != std::string::npos
             && firstEncoding.find("\"slot\": 0") != std::string::npos
+            && firstEncoding.find("\"notes\": [") != std::string::npos
+            && firstEncoding.find("\"values\": [") != std::string::npos
             && firstEncoding.find("instrumentRack") == std::string::npos
             && firstEncoding.find("instruments") == std::string::npos
             && firstEncoding.find("sampleRate") == std::string::npos
@@ -233,6 +244,14 @@ void testCompleteDeterministicRoundTrip()
                 == NoteCellState::Hold
             && activePattern(decoded).tracks[0u].notes[4u].state
                 == NoteCellState::Burst
+            && activePattern(decoded).tracks[0u].notes[7u].noteVoiceCount()
+                == 3u
+            && activePattern(decoded).tracks[0u].notes[7u].noteVoice(1u)
+                == 64u
+            && activePattern(decoded).tracks[0u].velocities[7u]
+                    .valueVoiceCount() == 3u
+            && std::abs(activePattern(decoded).tracks[0u].velocities[7u]
+                    .valueVoice(2u) - 0.78f) < 0.00001f
             && activePattern(decoded).bursts[0u].name == "Break Rush"
             && activePattern(decoded).bursts[0u].events[2u].note == 50u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u

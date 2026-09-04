@@ -3,6 +3,7 @@
 #include "s3g/tracker/instrument_rack.h"
 #include "s3g/tracker/timing_warp.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -29,6 +30,7 @@ constexpr std::size_t kMaximumScheduledEventsPerBlock = 4096u;
 constexpr std::size_t kMaximumPendingScheduledEvents = 8192u;
 constexpr std::size_t kMaximumCcInterpolationEventsPerTick = 128u;
 constexpr double kMaximumCcInterpolationRateHz = 200.0;
+constexpr std::size_t kMaximumNoteVoices = 8u;
 
 enum class NoteCellState : uint8_t {
     Rest,
@@ -42,6 +44,8 @@ enum class NoteCellState : uint8_t {
 struct NoteCell {
     NoteCellState state = NoteCellState::Rest;
     uint8_t note = 0u;
+    uint8_t voiceCount = 0u;
+    std::array<uint8_t, kMaximumNoteVoices - 1u> additionalNotes {};
 
     static NoteCell rest() { return {}; }
 
@@ -71,7 +75,35 @@ struct NoteCell {
         NoteCell cell;
         cell.state = NoteCellState::Note;
         cell.note = newNote;
+        cell.voiceCount = 1u;
         return cell;
+    }
+
+    static NoteCell withNotes(
+        const std::array<uint8_t, kMaximumNoteVoices>& voices,
+        std::size_t count)
+    {
+        NoteCell cell;
+        cell.state = NoteCellState::Note;
+        count = std::clamp<std::size_t>(count, 1u, kMaximumNoteVoices);
+        cell.note = voices[0u];
+        cell.voiceCount = static_cast<uint8_t>(count);
+        for (std::size_t voice = 1u; voice < count; ++voice)
+            cell.additionalNotes[voice - 1u] = voices[voice];
+        return cell;
+    }
+
+    std::size_t noteVoiceCount() const noexcept
+    {
+        if (state != NoteCellState::Note) return 0u;
+        return std::clamp<std::size_t>(voiceCount == 0u ? 1u : voiceCount,
+            1u, kMaximumNoteVoices);
+    }
+
+    uint8_t noteVoice(std::size_t voice) const noexcept
+    {
+        return voice == 0u ? note : additionalNotes[std::min<std::size_t>(
+            voice - 1u, additionalNotes.size() - 1u)];
     }
 
     static NoteCell withBurst(uint8_t definition)
@@ -123,6 +155,8 @@ enum class ValueCellState : uint8_t {
 struct ValueCell {
     ValueCellState state = ValueCellState::Default;
     float normalized = 0.0f;
+    uint8_t voiceCount = 0u;
+    std::array<float, kMaximumNoteVoices - 1u> additionalValues {};
 
     static ValueCell defaultValue() { return {}; }
 
@@ -138,7 +172,36 @@ struct ValueCell {
         ValueCell cell;
         cell.state = ValueCellState::Value;
         cell.normalized = newValue;
+        cell.voiceCount = 1u;
         return cell;
+    }
+
+    static ValueCell withValues(
+        const std::array<float, kMaximumNoteVoices>& voices,
+        std::size_t count)
+    {
+        ValueCell cell;
+        cell.state = ValueCellState::Value;
+        count = std::clamp<std::size_t>(count, 1u, kMaximumNoteVoices);
+        cell.normalized = voices[0u];
+        cell.voiceCount = static_cast<uint8_t>(count);
+        for (std::size_t voice = 1u; voice < count; ++voice)
+            cell.additionalValues[voice - 1u] = voices[voice];
+        return cell;
+    }
+
+    std::size_t valueVoiceCount() const noexcept
+    {
+        if (state != ValueCellState::Value) return 0u;
+        return std::clamp<std::size_t>(voiceCount == 0u ? 1u : voiceCount,
+            1u, kMaximumNoteVoices);
+    }
+
+    float valueVoice(std::size_t voice) const noexcept
+    {
+        return voice == 0u ? normalized
+            : additionalValues[std::min<std::size_t>(
+                voice - 1u, additionalValues.size() - 1u)];
     }
 };
 
@@ -728,9 +791,17 @@ public:
 private:
     struct TrackMemory {
         uint8_t note = 0u;
+        std::array<uint8_t, kMaximumNoteVoices> notes {};
+        uint8_t noteCount = 0u;
         uint8_t activeNote = 0u;
+        std::array<uint8_t, kMaximumNoteVoices> activeNotes {};
+        std::array<float, kMaximumNoteVoices> activeVelocities {};
+        std::array<uint64_t, kMaximumNoteVoices> activeNoteIds {};
+        uint8_t activeCount = 0u;
         uint8_t activeChannel = 1u;
         float velocity = 0.787f;
+        std::array<float, kMaximumNoteVoices> velocities {};
+        uint8_t velocityCount = 1u;
         float activeVelocity = 0.787f;
         uint64_t noteId = 0u;
         uint32_t instrumentNodeId = kInvalidInstrumentNode;
@@ -741,6 +812,9 @@ private:
         // RP recalls the last onset that actually survived every source and
         // gate transform. This intentionally outlives a later Kill.
         uint8_t lastEmittedNote = 0u;
+        std::array<uint8_t, kMaximumNoteVoices> lastEmittedNotes {};
+        std::array<float, kMaximumNoteVoices> lastEmittedVelocities {};
+        uint8_t lastEmittedCount = 0u;
         uint8_t lastEmittedChannel = 1u;
         float lastEmittedVelocity = 0.787f;
         uint32_t lastEmittedNodeId = kInvalidInstrumentNode;
@@ -816,7 +890,7 @@ private:
     Pattern pattern_;
     std::vector<Pattern> preparedPatterns_;
     std::vector<TrackPlaybackState> playback_;
-    std::array<ScheduledEvent, kMaximumTrackCount>
+    std::array<ScheduledEvent, kMaximumTrackCount * kMaximumNoteVoices>
         pendingBoundaryReleases_ {};
     std::size_t pendingBoundaryReleaseCount_ = 0u;
     std::size_t activePreparedPatternIndex_ = 0u;

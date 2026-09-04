@@ -1005,7 +1005,8 @@ void S3GTrackerConfigureProcessorSlider(
 
 - (NSSize)intrinsicContentSize
 {
-    NSString* title = self.titleOfSelectedItem;
+    NSString* title = self.s3gDisplayTitle.length > 0u
+        ? self.s3gDisplayTitle : self.titleOfSelectedItem;
     if (!title) title = @"—";
     const NSSize titleSize = [title sizeWithAttributes:@{
         NSFontAttributeName: self.s3gUsesCanvasMenu
@@ -1056,7 +1057,8 @@ void S3GTrackerConfigureProcessorSlider(
             attrs = s3g::clap_gui::textAttrs(
                 S3GTrackerThemeColor(S3GTrackerThemeRole::Grid), 10.0);
         }
-        NSString* value = self.titleOfSelectedItem;
+        NSString* value = self.s3gDisplayTitle.length > 0u
+            ? self.s3gDisplayTitle : self.titleOfSelectedItem;
         // Use the very same renderer as the code-native Geometry/Burst menu.
         // y=1 makes its 15 px box and text baselines land at 0, 2 and 1 in
         // this control, exactly matching a processor menu at rowY.

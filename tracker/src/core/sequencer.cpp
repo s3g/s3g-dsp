@@ -385,25 +385,33 @@ void Sequencer::captureRemovedTrackReleases(
          ++track) {
         const auto& memory = playback_[track].memory;
         if (memory.activeNodeId == kInvalidInstrumentNode
-            || memory.activeDestination == EventDestination::None
-            || memory.noteId == 0u) continue;
-        if (pendingBoundaryReleaseCount_
-            >= pendingBoundaryReleases_.size()) {
-            ++droppedEventCount_;
-            continue;
+            || memory.activeDestination == EventDestination::None) continue;
+        const auto count = std::max<std::size_t>(memory.activeCount,
+            memory.noteId != 0u ? 1u : 0u);
+        for (std::size_t voice = 0u; voice < count; ++voice) {
+            const auto noteId = voice < memory.activeCount
+                ? memory.activeNoteIds[voice] : memory.noteId;
+            if (noteId == 0u) continue;
+            if (pendingBoundaryReleaseCount_
+                >= pendingBoundaryReleases_.size()) {
+                ++droppedEventCount_;
+                continue;
+            }
+            auto& release = pendingBoundaryReleases_[
+                pendingBoundaryReleaseCount_++];
+            release = {};
+            release.noteId = noteId;
+            release.track = static_cast<uint32_t>(track);
+            release.targetNode = memory.activeNodeId;
+            release.chokeGroup = previousPattern.tracks[track].chokeGroup;
+            release.normalizedVelocity = voice < memory.activeCount
+                ? memory.activeVelocities[voice] : memory.activeVelocity;
+            release.note = voice < memory.activeCount
+                ? memory.activeNotes[voice] : memory.activeNote;
+            release.channel = memory.activeChannel;
+            release.kind = ScheduledEventKind::NoteOff;
+            release.destination = memory.activeDestination;
         }
-        auto& release = pendingBoundaryReleases_[
-            pendingBoundaryReleaseCount_++];
-        release = {};
-        release.noteId = memory.noteId;
-        release.track = static_cast<uint32_t>(track);
-        release.targetNode = memory.activeNodeId;
-        release.chokeGroup = previousPattern.tracks[track].chokeGroup;
-        release.normalizedVelocity = memory.activeVelocity;
-        release.note = memory.activeNote;
-        release.channel = memory.activeChannel;
-        release.kind = ScheduledEventKind::NoteOff;
-        release.destination = memory.activeDestination;
     }
 }
 
@@ -422,6 +430,7 @@ void Sequencer::resetTrackPlaybackState(std::size_t trackIndex,
     state.instrumentColumn.randomState = columnSeed(trackIndex, 6u);
     state.noteFxRandomState = columnSeed(trackIndex, 7u);
     state.memory.instrumentNodeId = track.initialInstrumentNodeId;
+    state.memory.velocities[0u] = state.memory.velocity;
     for (std::size_t fx = 0u; fx < state.fxPairs.size(); ++fx) {
         state.fxPairs[fx].actionColumn.randomState = columnSeed(
             trackIndex, static_cast<uint32_t>(2u + fx * 2u));
@@ -1145,8 +1154,20 @@ void Sequencer::normalizePattern(Pattern& pattern)
         track.noteColumn.phase = track.noteColumn.length == 0u ? 0u
             : track.noteColumn.phase % track.noteColumn.length;
         for (auto& cell : track.notes) {
-            if (cell.state == NoteCellState::Note && cell.note <= 127u)
+            if (cell.state == NoteCellState::Note && cell.note <= 127u) {
+                std::array<uint8_t, kMaximumNoteVoices> voices {};
+                const auto count = cell.noteVoiceCount();
+                for (std::size_t voice = 0u; voice < count; ++voice)
+                    voices[voice] = cell.noteVoice(voice);
+                std::sort(voices.begin(), voices.begin()
+                    + static_cast<std::ptrdiff_t>(count));
+                const auto unique = static_cast<std::size_t>(std::unique(
+                    voices.begin(), voices.begin()
+                        + static_cast<std::ptrdiff_t>(count)) - voices.begin());
+                cell = NoteCell::withNotes(voices,
+                    std::max<std::size_t>(unique, 1u));
                 continue;
+            }
             if (cell.state == NoteCellState::Burst
                 && cell.note < kBurstDefinitionCount
                 && !pattern.bursts[cell.note].empty()) continue;
@@ -1161,6 +1182,14 @@ void Sequencer::normalizePattern(Pattern& pattern)
                 % track.instrumentColumn.length;
         track.velocityColumn.phase = track.velocityColumn.length == 0u ? 0u
             : track.velocityColumn.phase % track.velocityColumn.length;
+        for (auto& cell : track.velocities) {
+            if (cell.state != ValueCellState::Value) continue;
+            std::array<float, kMaximumNoteVoices> values {};
+            const auto count = cell.valueVoiceCount();
+            for (std::size_t voice = 0u; voice < count; ++voice)
+                values[voice] = normalizedVelocity(cell.valueVoice(voice));
+            cell = ValueCell::withValues(values, count);
+        }
         for (auto& cell : track.instruments) {
             if (cell.state == InstrumentCellState::Instrument
                 && cell.nodeId < kInstrumentRackSlotCount) continue;
@@ -1249,6 +1278,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
 
         struct CandidateNote {
             uint8_t note = 0u;
+            std::array<uint8_t, kMaximumNoteVoices> notes {};
+            std::array<float, kMaximumNoteVoices> velocities {};
+            uint8_t voiceCount = 1u;
             uint8_t channel = 1u;
             float velocity = 0.787f;
             uint32_t nodeId = kInvalidInstrumentNode;
@@ -1277,12 +1309,28 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         if (!track.velocityColumn.muted && velocityLength > 0u) {
             const auto& cell = track.velocities[state.velocityColumn.position
                 % velocityLength];
-            if (cell.state == ValueCellState::Value)
+            if (cell.state == ValueCellState::Value) {
                 memory.velocity = normalizedVelocity(cell.normalized);
-            else if (cell.state == ValueCellState::Default)
+                memory.velocityCount = static_cast<uint8_t>(
+                    cell.valueVoiceCount());
+                for (std::size_t voice = 0u;
+                     voice < memory.velocityCount; ++voice) {
+                    memory.velocities[voice] = normalizedVelocity(
+                        cell.valueVoice(voice));
+                }
+            } else if (cell.state == ValueCellState::Default) {
                 memory.velocity = 0.787f;
+                memory.velocityCount = 1u;
+                memory.velocities[0u] = memory.velocity;
+            }
         }
         candidate.velocity = memory.velocity;
+        const auto candidateVelocity = [&](std::size_t voice) {
+            const auto count = std::max<std::size_t>(
+                memory.velocityCount, 1u);
+            return memory.velocities[std::min(voice, count - 1u)];
+        };
+        candidate.velocities[0u] = candidateVelocity(0u);
         candidate.nodeId = memory.instrumentNodeId;
         candidate.destination = destinationForInstrument(
             candidate.nodeId, track.destination);
@@ -1297,19 +1345,36 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             const auto& cell = track.notes[state.noteColumn.position
                 % noteLength];
             if (cell.state == NoteCellState::Note) {
-                candidate.note = static_cast<uint8_t>(std::min<int>(
-                    cell.note, 127));
+                candidate.voiceCount = static_cast<uint8_t>(
+                    cell.noteVoiceCount());
+                for (std::size_t voice = 0u;
+                     voice < candidate.voiceCount; ++voice) {
+                    candidate.notes[voice] = cell.noteVoice(voice);
+                    candidate.velocities[voice] = candidateVelocity(voice);
+                }
+                candidate.note = candidate.notes[0u];
+                candidate.velocity = candidate.velocities[0u];
                 candidate.trigger = true;
             } else if (cell.state == NoteCellState::Burst
                 && cell.note < pattern_.bursts.size()
                 && !pattern_.bursts[cell.note].empty()) {
                 candidate.note = pattern_.bursts[cell.note].events[0u].note;
+                candidate.notes[0u] = candidate.note;
+                candidate.velocities[0u] = candidate.velocity;
                 candidate.burstDefinition = cell.note;
                 candidate.trigger = true;
             } else if (cell.state == NoteCellState::RetriggerPrevious) {
                 candidate.trigger = memory.hasNote && !memory.noteMuted;
                 candidate.retrigger = candidate.trigger;
                 candidate.note = memory.note;
+                candidate.voiceCount = std::max<uint8_t>(
+                    memory.noteCount, 1u);
+                for (std::size_t voice = 0u;
+                     voice < candidate.voiceCount; ++voice) {
+                    candidate.notes[voice] = memory.notes[voice];
+                    candidate.velocities[voice] = candidateVelocity(voice);
+                }
+                candidate.velocity = candidate.velocities[0u];
             } else if (cell.state == NoteCellState::Kill) {
                 candidate.hardRelease = true;
             } else if (cell.state == NoteCellState::Hold) {
@@ -1544,8 +1609,15 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 : (candidate.sourceRow + noteLength - distance) % noteLength;
             const auto& source = track.notes[offsetRow];
             if (source.state == NoteCellState::Note) {
-                candidate.note = static_cast<uint8_t>(std::min<int>(
-                    source.note, 127));
+                candidate.voiceCount = static_cast<uint8_t>(
+                    source.noteVoiceCount());
+                for (std::size_t voice = 0u;
+                     voice < candidate.voiceCount; ++voice) {
+                    candidate.notes[voice] = source.noteVoice(voice);
+                    candidate.velocities[voice] = candidateVelocity(voice);
+                }
+                candidate.note = candidate.notes[0u];
+                candidate.velocity = candidate.velocities[0u];
                 candidate.sourceRow = offsetRow;
                 candidate.trigger = true;
                 candidate.retrigger = false;
@@ -1554,6 +1626,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 && source.note < pattern_.bursts.size()
                 && !pattern_.bursts[source.note].empty()) {
                 candidate.note = pattern_.bursts[source.note].events[0u].note;
+                candidate.notes[0u] = candidate.note;
+                candidate.velocities[0u] = candidate.velocity;
                 candidate.burstDefinition = source.note;
                 candidate.sourceRow = offsetRow;
                 candidate.trigger = true;
@@ -1567,6 +1641,15 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             if (!candidate.hardRelease && repeat
                 && memory.hasLastEmitted) {
                 candidate.note = memory.lastEmittedNote;
+                candidate.voiceCount = std::max<uint8_t>(
+                    memory.lastEmittedCount, 1u);
+                for (std::size_t voice = 0u;
+                     voice < candidate.voiceCount; ++voice) {
+                    candidate.notes[voice]
+                        = memory.lastEmittedNotes[voice];
+                    candidate.velocities[voice]
+                        = memory.lastEmittedVelocities[voice];
+                }
                 candidate.channel = memory.lastEmittedChannel;
                 candidate.velocity = memory.lastEmittedVelocity;
                 candidate.nodeId = memory.lastEmittedNodeId;
@@ -1627,21 +1710,37 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             && !candidate.hold;
         const bool shouldReleaseForReassignment
             = state.releaseActiveForDefaultReassignment;
-        const uint64_t releaseNoteId = memory.noteId;
         const uint32_t releaseNodeId = memory.activeNodeId;
-        const uint8_t releaseNote = memory.activeNote;
         const uint8_t releaseChannel = memory.activeChannel;
-        const float releaseVelocity = memory.activeVelocity;
         const EventDestination releaseDestination = memory.activeDestination;
-        const uint64_t onsetNoteId = accepted ? allocateNoteId() : 0u;
+        std::array<uint64_t, kMaximumNoteVoices> onsetNoteIds {};
+        if (accepted) {
+            for (std::size_t voice = 0u;
+                 voice < candidate.voiceCount; ++voice)
+                onsetNoteIds[voice] = allocateNoteId();
+        }
+        const uint64_t onsetNoteId = onsetNoteIds[0u];
 
         if (shouldKill || shouldRetrigger || shouldReleaseHeld
             || shouldReleaseForReassignment) {
-            writeNote(ScheduledEventKind::NoteOff, releaseNoteId,
-                releaseNodeId, releaseNote, releaseChannel,
-                releaseVelocity, releaseDestination);
+            const auto releaseCount = std::max<std::size_t>(
+                memory.activeCount, memory.noteId != 0u ? 1u : 0u);
+            for (std::size_t voice = 0u; voice < releaseCount; ++voice) {
+                writeNote(ScheduledEventKind::NoteOff,
+                    voice < memory.activeCount
+                        ? memory.activeNoteIds[voice] : memory.noteId,
+                    releaseNodeId,
+                    voice < memory.activeCount
+                        ? memory.activeNotes[voice] : memory.activeNote,
+                    releaseChannel,
+                    voice < memory.activeCount
+                        ? memory.activeVelocities[voice]
+                        : memory.activeVelocity,
+                    releaseDestination);
+            }
             memory.activeNodeId = kInvalidInstrumentNode;
             memory.activeDestination = EventDestination::None;
+            memory.activeCount = 0u;
             memory.sustainHeld = false;
             state.releaseActiveForDefaultReassignment = false;
         }
@@ -1681,36 +1780,49 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 }
             }
             if (shadowed) continue;
-            const uint64_t targetNoteId = onsetNoteId != 0u
-                ? onsetNoteId : memory.noteId;
             const bool activeAfterRelease = accepted
                 || (!(shouldKill || shouldRetrigger || shouldReleaseHeld
                         || shouldReleaseForReassignment)
                     && memory.activeDestination != EventDestination::None
                     && !memory.noteMuted);
-            if (pending.action.scope == ParameterScope::Note
-                && (targetNoteId == 0u || !activeAfterRelease)) continue;
-            ScheduledEvent event;
-            event.absoluteSampleTime = absoluteSampleTime;
-            event.noteId = pending.action.scope == ParameterScope::Note
-                ? targetNoteId : 0u;
-            event.frameOffset = frameOffset;
-            event.track = static_cast<uint32_t>(trackIndex);
-            event.targetNode = pending.action.targetNode;
-            event.parameterId = pending.action.parameterId;
-            event.parameterValue = pending.value;
-            event.note = accepted ? candidate.note : memory.activeNote;
-            event.channel = accepted
-                ? candidate.channel : memory.activeChannel;
-            event.kind = ScheduledEventKind::Parameter;
-            event.parameterScope = pending.action.scope;
-            event.destination = pending.trackRelativeTarget
-                    && pending.action.scope == ParameterScope::Note
-                ? (accepted ? candidate.destination
-                            : memory.activeDestination)
-                : destinationForInstrument(event.targetNode,
-                      track.destination);
-            writeScheduled(event);
+            const bool noteScope
+                = pending.action.scope == ParameterScope::Note;
+            if (noteScope && !activeAfterRelease) continue;
+            const auto parameterVoices = noteScope
+                ? (accepted ? static_cast<std::size_t>(candidate.voiceCount)
+                            : std::max<std::size_t>(memory.activeCount,
+                                  memory.noteId != 0u ? 1u : 0u))
+                : 1u;
+            for (std::size_t voice = 0u; voice < parameterVoices; ++voice) {
+                const uint64_t targetNoteId = noteScope
+                    ? (accepted ? onsetNoteIds[voice]
+                        : voice < memory.activeCount
+                        ? memory.activeNoteIds[voice] : memory.noteId)
+                    : 0u;
+                if (noteScope && targetNoteId == 0u) continue;
+                ScheduledEvent event;
+                event.absoluteSampleTime = absoluteSampleTime;
+                event.noteId = targetNoteId;
+                event.frameOffset = frameOffset;
+                event.track = static_cast<uint32_t>(trackIndex);
+                event.targetNode = pending.action.targetNode;
+                event.parameterId = pending.action.parameterId;
+                event.parameterValue = pending.value;
+                event.note = accepted
+                    ? candidate.notes[voice]
+                    : voice < memory.activeCount
+                    ? memory.activeNotes[voice] : memory.activeNote;
+                event.channel = accepted
+                    ? candidate.channel : memory.activeChannel;
+                event.kind = ScheduledEventKind::Parameter;
+                event.parameterScope = pending.action.scope;
+                event.destination = pending.trackRelativeTarget && noteScope
+                    ? (accepted ? candidate.destination
+                                : memory.activeDestination)
+                    : destinationForInstrument(event.targetNode,
+                          track.destination);
+                writeScheduled(event);
+            }
         }
         for (std::size_t fx = 0u; fx < pendingFx.size(); ++fx) {
             const auto& pending = pendingFx[fx];
@@ -1752,15 +1864,24 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
         }
         if (accepted) {
             memory.note = candidate.note;
+            memory.noteCount = candidate.voiceCount;
+            memory.notes = candidate.notes;
             memory.hasNote = true;
             memory.noteMuted = false;
             memory.noteId = onsetNoteId;
             memory.activeNote = candidate.note;
+            memory.activeCount = candidate.voiceCount;
+            memory.activeNotes = candidate.notes;
+            memory.activeVelocities = candidate.velocities;
+            memory.activeNoteIds = onsetNoteIds;
             memory.activeChannel = candidate.channel;
             memory.activeVelocity = candidate.velocity;
             memory.activeNodeId = candidate.nodeId;
             memory.activeDestination = candidate.destination;
             memory.lastEmittedNote = candidate.note;
+            memory.lastEmittedCount = candidate.voiceCount;
+            memory.lastEmittedNotes = candidate.notes;
+            memory.lastEmittedVelocities = candidate.velocities;
             memory.lastEmittedChannel = candidate.channel;
             memory.lastEmittedVelocity = candidate.velocity;
             memory.lastEmittedNodeId = candidate.nodeId;
@@ -1768,11 +1889,15 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             memory.lastEmittedBurstDefinition = candidate.burstDefinition;
             memory.hasLastEmitted = true;
             memory.sustainHeld = sustainOnset;
-            writeNote(ScheduledEventKind::NoteOn, onsetNoteId,
-                candidate.nodeId, candidate.note, candidate.channel,
-                candidate.velocity, candidate.destination,
-                sustainOnset ? kSustainUntilExplicitNoteOff : 0u,
-                candidate.burstDefinition);
+            for (std::size_t voice = 0u;
+                 voice < candidate.voiceCount; ++voice) {
+                writeNote(ScheduledEventKind::NoteOn, onsetNoteIds[voice],
+                    candidate.nodeId, candidate.notes[voice],
+                    candidate.channel, candidate.velocities[voice],
+                    candidate.destination,
+                    sustainOnset ? kSustainUntilExplicitNoteOff : 0u,
+                    candidate.burstDefinition);
+            }
         }
 
         advance(track.noteColumn, state.noteColumn);

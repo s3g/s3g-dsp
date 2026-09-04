@@ -18,6 +18,10 @@ enum class MidiStepRecordMode : uint8_t {
 
 struct MidiStepCapture {
     int64_t offsetSamples = 0;
+    // The audio thread snapshots the explicitly armed tracker lane with the
+    // MIDI event. Editing selection may change before the UI consumes the
+    // queue, but the recorded destination must not.
+    std::size_t targetTrack = 0u;
     uint8_t note = 0u;
     uint8_t velocity = 0u;
     uint8_t channel = 1u;
@@ -31,13 +35,17 @@ struct MidiStepCapture {
     bool timingKnown = false;
 };
 
-// LIVE recording is monophonic per selected tracker lane. This UI-thread
-// state links an admitted onset to its physical MIDI note-off without adding
-// mutable recording state to the realtime sequencer.
+// UI-thread chord state links each admitted onset to its physical MIDI
+// note-off without adding mutable recording state to the realtime sequencer.
 struct MidiLiveRecordState {
     bool active = false;
     uint8_t note = 0u;
     uint8_t channel = 1u;
+    std::array<uint8_t, kMaximumNoteVoices> notes {};
+    std::array<uint8_t, kMaximumNoteVoices> velocities {};
+    std::array<uint8_t, kMaximumNoteVoices> channels {};
+    std::array<bool, kMaximumNoteVoices> held {};
+    uint8_t voiceCount = 0u;
     std::size_t track = 0u;
     std::size_t onsetRow = 0u;
 
@@ -91,15 +99,17 @@ struct MidiStepRecordResult {
     }
 };
 
-// STEP writes note/velocity at the current cursor and advances one row. LIVE
-// modes wrap the captured host row independently inside the selected NOTE and
+// STEP writes note/velocity at the current cursor and advances by the View
+// JUMP interval. LIVE
+// modes wrap the captured host row independently inside the armed NOTE and
 // VOL column lengths without changing those lengths. The cursor follows the
-// written NOTE row but does not auto-advance. Quantized recording removes
+// written row but lane/field selection remains independent. Quantized recording removes
 // authored MT at the target row; unquantized live recording writes MT into an
 // existing MT pair or the first empty SEQ pair. The operation preflights the
 // pair so a full row is left completely unchanged.
 MidiStepRecordResult recordMidiStep(TrackerSession& session,
     MidiStepRecordMode mode, const MidiStepCapture& capture,
-    double sampleRate, MidiLiveRecordState* liveState = nullptr);
+    double sampleRate, MidiLiveRecordState* liveState = nullptr,
+    std::size_t stepAdvance = 1u);
 
 } // namespace s3g::tracker

@@ -953,6 +953,7 @@ struct Plugin {
     std::atomic<uint8_t> midiStepRecordMode {
         static_cast<uint8_t>(MidiStepRecordMode::Off)
     };
+    std::atomic<uint32_t> midiRecordTrack { 0u };
     std::atomic<uint8_t> midiMonitorChannel { 0u };
     std::atomic<bool> requestMidiMonitorRelease { false };
     Runtime* audioRuntime = nullptr;
@@ -1059,8 +1060,9 @@ void captureMidiStep(Plugin& plugin, const clap_event_midi_t& event,
     const bool noteOff = kind == 0x80u
         || (kind == 0x90u && event.data[2] == 0u);
     if (!noteOn && !noteOff) return;
-    if (noteOff && mode == MidiStepRecordMode::Step) return;
     MidiStepCapture capture;
+    capture.targetTrack = static_cast<std::size_t>(
+        plugin.midiRecordTrack.load(std::memory_order_relaxed));
     capture.note = static_cast<uint8_t>(event.data[1] & 0x7fu);
     capture.velocity = static_cast<uint8_t>(event.data[2] & 0x7fu);
     capture.channel = static_cast<uint8_t>((status & 0x0fu) + 1u);
@@ -2630,11 +2632,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _playingSongArrangementValid = false;
     _state->midiStepInputAvailable = true;
     _state->midiStepRecordMode = MidiStepRecordMode::Off;
+    _state->midiRecordTrack = 0u;
     _state->fillActive = _plugin->fillActive.load(
         std::memory_order_acquire);
     _plugin->midiStepRecordMode.store(
         static_cast<uint8_t>(MidiStepRecordMode::Off),
         std::memory_order_relaxed);
+    _plugin->midiRecordTrack.store(0u, std::memory_order_relaxed);
 
     __weak S3GTrackerClapCoordinator* weakSelf = self;
     _callbacks->togglePlayback = [weakSelf] {
@@ -2816,8 +2820,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         owner->_state->status = "Audio device is owned by REAPER";
         [owner.workspace reloadModel];
     };
-    _callbacks->selectionChanged = [weakSelf] {
-        [weakSelf updateMidiMonitorChannel];
+    _callbacks->selectionChanged = [] {
+        // Editing selection is intentionally independent from REC LANE.
     };
     _callbacks->patternChanged = [weakSelf] {
         [weakSelf commitProject:YES];
@@ -2871,6 +2875,16 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
                 && owner->_plugin->host->request_process)
                 owner->_plugin->host->request_process(owner->_plugin->host);
         }
+    };
+    _callbacks->midiRecordTrackChanged = [weakSelf](std::size_t track) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state
+            || owner->_state->session.pattern.tracks.empty()) return;
+        owner->_state->midiRecordTrack = std::min(track,
+            owner->_state->session.pattern.tracks.size() - 1u);
+        owner->_plugin->midiRecordTrack.store(static_cast<uint32_t>(
+            owner->_state->midiRecordTrack), std::memory_order_release);
+        [owner updateMidiMonitorChannel];
     };
     _callbacks->executeCommand = [weakSelf](const std::string& command) {
         [weakSelf executeCommand:command];
@@ -3025,7 +3039,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         }
         const auto result = s3g::tracker::recordMidiStep(_state->session,
             capture.mode, capture, _plugin->sampleRate,
-            &_midiLiveRecordState);
+            &_midiLiveRecordState, _state->trackerRowJump);
         if (result.recorded()) {
             changed = true;
             std::ostringstream message;
@@ -3091,11 +3105,16 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)updateMidiMonitorChannel
 {
     if (!_state || _state->session.pattern.tracks.empty()) {
+        if (_state) _state->midiRecordTrack = 0u;
+        _plugin->midiRecordTrack.store(0u, std::memory_order_release);
         _plugin->midiMonitorChannel.store(0u, std::memory_order_release);
         return;
     }
-    const auto lane = std::min(_state->session.selectedTrack,
+    const auto lane = std::min(_state->midiRecordTrack,
         _state->session.pattern.tracks.size() - 1u);
+    _state->midiRecordTrack = lane;
+    _plugin->midiRecordTrack.store(
+        static_cast<uint32_t>(lane), std::memory_order_release);
     const uint8_t channel = static_cast<uint8_t>(std::clamp<int>(
         _state->session.pattern.tracks[lane].midiChannel, 1, 16) - 1);
     _plugin->midiMonitorChannel.store(channel, std::memory_order_release);

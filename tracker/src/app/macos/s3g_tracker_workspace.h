@@ -92,6 +92,9 @@ struct TrackerViewState {
     // an editor is created and is not embedded in project files.
     bool midiStepInputAvailable = false;
     MidiStepRecordMode midiStepRecordMode = MidiStepRecordMode::Off;
+    // Transient, explicitly armed MIDI-record destination. This is independent
+    // of the editing cursor and is deliberately not saved with the project.
+    std::size_t midiRecordTrack = 0u;
     // Project-level history availability is published by the coordinator;
     // view controls do not own or mutate snapshots directly.
     bool canUndo = false;
@@ -173,6 +176,7 @@ struct WorkspaceCallbacks {
     std::function<void(float)> mainOutputGainChanged;
     std::function<void()> viewPreferencesChanged;
     std::function<void(MidiStepRecordMode)> midiStepRecordModeChanged;
+    std::function<void(std::size_t)> midiRecordTrackChanged;
     std::function<void(const std::string&)> executeCommand;
 };
 

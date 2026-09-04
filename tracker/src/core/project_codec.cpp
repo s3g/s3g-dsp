@@ -857,11 +857,18 @@ JsonValue encodeNoteCells(const std::vector<NoteCell>& cells,
             cell.object["state"] = JsonValue::stringValue("hold");
             break;
         case NoteCellState::Note:
-            if (cells[index].note > 127u)
-                setError(result, ProjectErrorCode::OutOfRange,
-                    std::string(path) + "[" + std::to_string(index)
-                        + "].note", "MIDI note must be 0..127");
-            cell.object["note"] = number(static_cast<uint32_t>(cells[index].note));
+            if (cells[index].noteVoiceCount() == 1u) {
+                cell.object["note"] = number(
+                    static_cast<uint32_t>(cells[index].note));
+            } else {
+                JsonValue notes = JsonValue::arrayValue();
+                for (std::size_t voice = 0u;
+                     voice < cells[index].noteVoiceCount(); ++voice) {
+                    notes.array.push_back(number(static_cast<uint32_t>(
+                        cells[index].noteVoice(voice))));
+                }
+                cell.object["notes"] = std::move(notes);
+            }
             cell.object["state"] = JsonValue::stringValue("note");
             break;
         case NoteCellState::Burst:
@@ -909,12 +916,42 @@ bool decodeNoteCells(const JsonValue& input, std::vector<NoteCell>& destination,
         else if (state->string == "hold")
             candidate.push_back(NoteCell::hold());
         else if (state->string == "note") {
-            const auto* note = requiredField(input.array[index], "note",
-                JsonType::Number, cellPath, result);
-            uint32_t value = 0u;
-            if (!note || !checkedUint32(*note, value, 127u,
-                    cellPath + ".note", result)) return false;
-            candidate.push_back(NoteCell::withNote(static_cast<uint8_t>(value)));
+            const auto notes = input.array[index].object.find("notes");
+            if (notes == input.array[index].object.end()) {
+                const auto* note = requiredField(input.array[index], "note",
+                    JsonType::Number, cellPath, result);
+                uint32_t value = 0u;
+                if (!note || !checkedUint32(*note, value, 127u,
+                        cellPath + ".note", result)) return false;
+                candidate.push_back(NoteCell::withNote(
+                    static_cast<uint8_t>(value)));
+            } else {
+                if (notes->second.type != JsonType::Array
+                    || notes->second.array.empty()
+                    || notes->second.array.size() > kMaximumNoteVoices)
+                    return setError(result, ProjectErrorCode::OutOfRange,
+                        cellPath + ".notes",
+                        "note stack must contain 1..8 MIDI notes");
+                std::array<uint8_t, kMaximumNoteVoices> voices {};
+                uint32_t previous = 0u;
+                for (std::size_t voice = 0u;
+                     voice < notes->second.array.size(); ++voice) {
+                    uint32_t value = 0u;
+                    if (!checkedUint32(notes->second.array[voice], value,
+                            127u, cellPath + ".notes["
+                                + std::to_string(voice) + "]", result))
+                        return false;
+                    if (voice > 0u && value <= previous)
+                        return setError(result,
+                            ProjectErrorCode::InconsistentData,
+                            cellPath + ".notes",
+                            "note stack must be strictly ascending");
+                    voices[voice] = static_cast<uint8_t>(value);
+                    previous = value;
+                }
+                candidate.push_back(NoteCell::withNotes(voices,
+                    notes->second.array.size()));
+            }
         } else if (state->string == "burst") {
             const auto* burst = requiredField(input.array[index], "burst",
                 JsonType::Number, cellPath, result);
@@ -1072,11 +1109,26 @@ JsonValue encodeValueCells(const std::vector<ValueCell>& cells,
             cell.object["state"] = JsonValue::stringValue("previous");
             break;
         case ValueCellState::Value:
-            finiteRange(cells[index].normalized, 0.0, 1.0,
-                std::string(path) + "[" + std::to_string(index) + "].value",
-                result);
             cell.object["state"] = JsonValue::stringValue("value");
-            cell.object["value"] = JsonValue::numberValue(cells[index].normalized);
+            if (cells[index].valueVoiceCount() == 1u) {
+                finiteRange(cells[index].normalized, 0.0, 1.0,
+                    std::string(path) + "[" + std::to_string(index)
+                        + "].value", result);
+                cell.object["value"] = JsonValue::numberValue(
+                    cells[index].normalized);
+            } else {
+                JsonValue values = JsonValue::arrayValue();
+                for (std::size_t voice = 0u;
+                     voice < cells[index].valueVoiceCount(); ++voice) {
+                    const float value = cells[index].valueVoice(voice);
+                    finiteRange(value, 0.0, 1.0,
+                        std::string(path) + "[" + std::to_string(index)
+                            + "].values[" + std::to_string(voice) + "]",
+                        result);
+                    values.array.push_back(JsonValue::numberValue(value));
+                }
+                cell.object["values"] = std::move(values);
+            }
             break;
         default:
             setError(result, ProjectErrorCode::OutOfRange,
@@ -1112,13 +1164,36 @@ bool decodeValueCells(const JsonValue& input,
         else if (state->string == "previous")
             candidate.push_back(ValueCell::previous());
         else if (state->string == "value") {
-            const auto* value = requiredField(input.array[index], "value",
-                JsonType::Number, cellPath, result);
-            double normalized = 0.0;
-            if (!value || !checkedNumber(*value, normalized, 0.0, 1.0,
-                    cellPath + ".value", result)) return false;
-            candidate.push_back(ValueCell::withValue(
-                static_cast<float>(normalized)));
+            const auto values = input.array[index].object.find("values");
+            if (values == input.array[index].object.end()) {
+                const auto* value = requiredField(input.array[index], "value",
+                    JsonType::Number, cellPath, result);
+                double normalized = 0.0;
+                if (!value || !checkedNumber(*value, normalized, 0.0, 1.0,
+                        cellPath + ".value", result)) return false;
+                candidate.push_back(ValueCell::withValue(
+                    static_cast<float>(normalized)));
+            } else {
+                if (values->second.type != JsonType::Array
+                    || values->second.array.empty()
+                    || values->second.array.size() > kMaximumNoteVoices)
+                    return setError(result, ProjectErrorCode::OutOfRange,
+                        cellPath + ".values",
+                        "velocity stack must contain 1..8 values");
+                std::array<float, kMaximumNoteVoices> voices {};
+                for (std::size_t voice = 0u;
+                     voice < values->second.array.size(); ++voice) {
+                    double normalized = 0.0;
+                    if (!checkedNumber(values->second.array[voice],
+                            normalized, 0.0, 1.0,
+                            cellPath + ".values["
+                                + std::to_string(voice) + "]", result))
+                        return false;
+                    voices[voice] = static_cast<float>(normalized);
+                }
+                candidate.push_back(ValueCell::withValues(voices,
+                    values->second.array.size()));
+            }
         } else {
             return setError(result, ProjectErrorCode::OutOfRange,
                 cellPath + ".state", "unknown value cell state");

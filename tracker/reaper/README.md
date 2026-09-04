@@ -28,11 +28,15 @@ tab and `/tmp` artifacts may be discarded after inspection.
 The following editor-owned interactions remain a short manual extension to
 the automated host pass:
 
-1. Open Tracker, choose `MIDI REC: STEP`, send a controller note, and verify
-   NOTE/VOL are written at the cursor and the cursor advances.
-2. During pattern playback choose `MIDI REC: LIVE Q`, play across several
-   ticks, and verify notes wrap inside the selected NOTE lane length while the
-   cursor follows each written NOTE without auto-advancing.
+1. Open Tracker, choose a `REC LANE`, select `REC STEP`, hold a three-note
+   chord with visibly different velocities, and verify one paired NOTE/VOL
+   stack is written to the armed lane. The row should advance by View JUMP
+   only when the final key is released; editing-lane selection stays
+   independent.
+2. During pattern playback choose `REC Q`, play across several ticks, and
+   verify notes on the same row form a paired chord, notes wrap inside the
+   armed NOTE lane length, and the cursor follows each written row without
+   auto-advancing.
 3. During pattern playback choose `MIDI REC: LIVE MT`, play slightly ahead of
    and behind ticks, and verify MT appears in an available SEQ pair.
 4. Detach Console, submit Live Code from its repeated entry line, then reattach.
