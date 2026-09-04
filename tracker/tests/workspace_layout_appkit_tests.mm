@@ -147,6 +147,17 @@ bool near(CGFloat actual, CGFloat expected, CGFloat tolerance = 1.0) noexcept
     return std::abs(actual - expected) <= tolerance;
 }
 
+NSButton* descendantButton(NSView* root, NSString* title)
+{
+    for (NSView* view in root.subviews) {
+        if ([view isKindOfClass:NSButton.class]
+            && [static_cast<NSButton*>(view).title isEqualToString:title])
+            return static_cast<NSButton*>(view);
+        if (NSButton* match = descendantButton(view, title)) return match;
+    }
+    return nil;
+}
+
 NSEvent* keyEvent(NSWindow* window, NSString* characters,
     unsigned short keyCode, NSEventModifierFlags modifiers)
 {
@@ -455,6 +466,62 @@ int main()
         phraseTestWindow.contentView = phrasePage;
         [phraseTestWindow makeKeyAndOrderFront:nil];
         [phrasePage layoutSubtreeIfNeeded];
+        S3GTrackerToolboxView* phraseEditorPanel = [phraseController
+            valueForKey:@"editorPanel"];
+        S3GTrackerToolboxView* phraseLibraryPanel = [phraseController
+            valueForKey:@"libraryPanel"];
+        S3GTrackerToolboxView* phraseAuditionPanel = [phraseController
+            valueForKey:@"auditionPanel"];
+        S3GTrackerToolboxView* phrasePlacementPanel = [phraseController
+            valueForKey:@"placementPanel"];
+        NSScrollView* phraseGridScroll = [phraseController
+            valueForKey:@"gridScroll"];
+        const auto expectedPhraseLayout =
+            s3g::gui_layout::trackerGeometryFamilyLayout({
+                static_cast<double>(NSWidth(phrasePage.bounds)),
+                static_cast<double>(NSHeight(phrasePage.bounds)),
+            }, 1u, 7u, false);
+        check([phraseEditorPanel.toolboxTitle
+                    isEqualToString:
+                        @"PHRASE TRACKER  /  PROJECT MIDI PHRASE"]
+                && [phraseLibraryPanel.toolboxTitle
+                    isEqualToString:@"PHRASE LIBRARY"]
+                && [phraseAuditionPanel.toolboxTitle
+                    isEqualToString:@"AUDITION"]
+                && [phrasePlacementPanel.toolboxTitle
+                    isEqualToString:@"TRACKER BRIDGE"]
+                && near(NSMinX(phraseEditorPanel.frame),
+                    expectedPhraseLayout.fieldPanel.x)
+                && near(NSWidth(phraseEditorPanel.frame),
+                    expectedPhraseLayout.fieldPanel.width)
+                && near(NSMinX(phraseLibraryPanel.frame),
+                    expectedPhraseLayout.laneCycle.frame.x)
+                && near(NSWidth(phraseLibraryPanel.frame),
+                    expectedPhraseLayout.laneCycle.frame.width)
+                && near(NSMinY(phraseGridScroll.frame),
+                    s3g::gui_layout::kStandardMetrics.headerHeight),
+            "Phrases should share the Burst left-workspace and stacked right-inspector geometry");
+        NSButton* phraseImportPack = descendantButton(
+            phrasePage, @"IMPORT PACK");
+        NSButton* phraseExportOne = descendantButton(
+            phrasePage, @"EXPORT ONE");
+        NSButton* phraseExportAll = descendantButton(
+            phrasePage, @"EXPORT ALL");
+        NSButton* phraseCopyToLane = descendantButton(
+            phrasePage, @"COPY TO LANE");
+        const NSRect exportAllFrame = phraseExportAll
+            ? [phraseExportAll.superview convertRect:phraseExportAll.frame
+                toView:phrasePage] : NSZeroRect;
+        const NSRect copyToLaneFrame = phraseCopyToLane
+            ? [phraseCopyToLane.superview convertRect:phraseCopyToLane.frame
+                toView:phrasePage] : NSZeroRect;
+        check(phraseImportPack && phraseExportOne && phraseExportAll
+                && NSWidth(phraseImportPack.frame) >= 109.0
+                && NSWidth(phraseExportOne.frame) >= 109.0
+                && NSWidth(phraseExportAll.frame) >= 109.0
+                && std::abs(NSMidY(exportAllFrame)
+                    - NSMidY(copyToLaneFrame)) >= 20.0,
+            "Phrase pack actions should occupy a separate row with enough width for their complete titles");
         check(phraseLibrary.numberOfItems == 64u
                 && phraseLength.numberOfItems == 63u
                 && phrasePreviewChannel.numberOfItems == 16u

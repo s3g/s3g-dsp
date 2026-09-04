@@ -2,6 +2,8 @@
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_grid_selection.h"
 
+#include "s3g_gui_layout.h"
+
 #include "s3g/tracker/phrase_library.h"
 #include "s3g/tracker/fx_catalog.h"
 
@@ -394,6 +396,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @interface S3GTrackerPhraseRootView : S3GTrackerFocusReleaseView
     <S3GTrackerPhraseKeyHandling>
 @property(nonatomic, weak) S3GTrackerPhraseGridView* phraseGrid;
+@property(nonatomic, weak) S3GTrackerPhraseView* layoutOwner;
 @end
 
 @interface S3GTrackerPhraseView () <NSTextFieldDelegate>
@@ -405,7 +408,27 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, strong) S3GTrackerPopupButton* previewChannelPopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* modePopup;
 @property(nonatomic, strong) S3GTrackerPhraseGridView* grid;
+@property(nonatomic, strong) NSScrollView* gridScroll;
+@property(nonatomic, strong) S3GTrackerToolboxView* editorPanel;
+@property(nonatomic, strong) S3GTrackerToolboxView* libraryPanel;
+@property(nonatomic, strong) S3GTrackerToolboxView* auditionPanel;
+@property(nonatomic, strong) S3GTrackerToolboxView* placementPanel;
+@property(nonatomic, strong) NSTextField* phraseLabel;
+@property(nonatomic, strong) NSTextField* nameLabel;
+@property(nonatomic, strong) NSTextField* lengthLabel;
+@property(nonatomic, strong) NSTextField* previewChannelLabel;
+@property(nonatomic, strong) NSTextField* placementModeLabel;
+@property(nonatomic, strong) NSTextField* placementTargetLabel;
+@property(nonatomic, strong) NSTextField* placementTargetValue;
 @property(nonatomic, strong) NSTextField* statusLabel;
+@property(nonatomic, strong) NSButton* saveButton;
+@property(nonatomic, strong) NSButton* duplicateButton;
+@property(nonatomic, strong) NSButton* deleteButton;
+@property(nonatomic, strong) NSButton* importPackButton;
+@property(nonatomic, strong) NSButton* exportPackButton;
+@property(nonatomic, strong) NSButton* exportAllButton;
+@property(nonatomic, strong) NSButton* previewButton;
+@property(nonatomic, strong) NSButton* placeButton;
 @property(nonatomic, strong) NSTimer* previewTimer;
 @property(nonatomic) NSInteger previewPlayheadRow;
 @property(nonatomic) NSInteger previewLastRow;
@@ -413,9 +436,18 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 - (PhraseDefinition*)selectedPhrase;
 - (void)phraseEdited;
 - (void)stopPhrasePreview;
+- (void)layoutPhraseInterface;
 @end
 
 @implementation S3GTrackerPhraseRootView
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)layout
+{
+    [super layout];
+    [self.layoutOwner layoutPhraseInterface];
+}
 
 - (BOOL)s3gHandlePhraseKeyEquivalent:(NSEvent*)event
 {
@@ -454,7 +486,10 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 {
     PhraseDefinition* phrase = [self phrase];
     const std::size_t rows = phrase ? phrase->length : 16u;
-    self.frame = NSMakeRect(0.0, 0.0, 800.0, 30.0 + rows * 22.0);
+    const CGFloat visibleWidth = self.enclosingScrollView
+        ? NSWidth(self.enclosingScrollView.contentView.bounds) : 0.0;
+    self.frame = NSMakeRect(0.0, 0.0,
+        std::max<CGFloat>(800.0, visibleWidth), 30.0 + rows * 22.0);
     self.selectedRow = std::min(self.selectedRow, rows - 1u);
     if (_gridSelection.active) {
         _gridSelection.focusRow = std::min(_gridSelection.focusRow, rows - 1u);
@@ -1607,6 +1642,116 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     return button;
 }
 
+- (NSTextField*)suiteLabel:(NSString*)title panel:(NSView*)panel
+{
+    S3GTrackerSuiteLabel* label = [[S3GTrackerSuiteLabel alloc]
+        initWithFrame:NSZeroRect];
+    label.stringValue = title;
+    [panel addSubview:label];
+    return label;
+}
+
+- (void)layoutPhraseInterface
+{
+    if (!self.isViewLoaded || !self.editorPanel) return;
+    const auto family = s3g::gui_layout::trackerGeometryFamilyLayout({
+        static_cast<double>(NSWidth(self.view.bounds)),
+        static_cast<double>(NSHeight(self.view.bounds)),
+    }, 1u, 7u, false);
+    const auto cocoaRect = [](const s3g::gui_layout::Rect& rect) {
+        return NSMakeRect(static_cast<CGFloat>(rect.x),
+            static_cast<CGFloat>(rect.y),
+            static_cast<CGFloat>(rect.width),
+            static_cast<CGFloat>(rect.height));
+    };
+    self.editorPanel.frame = cocoaRect(family.fieldPanel);
+    self.libraryPanel.frame = cocoaRect(family.laneCycle.frame);
+    self.auditionPanel.frame = cocoaRect(family.editShape.frame);
+    self.placementPanel.frame = cocoaRect(family.trackerBridge.frame);
+
+    const CGFloat header = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.headerHeight);
+    self.gridScroll.frame = NSMakeRect(1.0, header,
+        std::max<CGFloat>(1.0, NSWidth(self.editorPanel.bounds) - 2.0),
+        std::max<CGFloat>(1.0,
+            NSHeight(self.editorPanel.bounds) - header - 1.0));
+    NSRect gridFrame = self.grid.frame;
+    gridFrame.size.width = std::max<CGFloat>(800.0,
+        NSWidth(self.gridScroll.contentView.bounds));
+    self.grid.frame = gridFrame;
+
+    const CGFloat labelX = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.labelInset);
+    const CGFloat controlX = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.controlInset);
+    const CGFloat firstRow = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.firstRowOffset);
+    const CGFloat rowPitch = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.rowPitch);
+    const CGFloat right = static_cast<CGFloat>(
+        s3g::gui_layout::kStandardMetrics.panelRightInset);
+    const auto layoutLabel = ^(NSTextField* label, NSUInteger row) {
+        const CGFloat y = firstRow + static_cast<CGFloat>(row) * rowPitch;
+        label.frame = NSMakeRect(labelX, y - 1.0,
+            std::max<CGFloat>(20.0, controlX - labelX - 6.0), 15.0);
+    };
+    const auto controlFrame = ^NSRect(NSView* panel, NSUInteger row) {
+        const CGFloat y = firstRow + static_cast<CGFloat>(row) * rowPitch;
+        return NSMakeRect(controlX, y - 1.0,
+            std::max<CGFloat>(20.0,
+                NSWidth(panel.bounds) - controlX - right), 15.0);
+    };
+    const auto textFrame = ^NSRect(NSView* panel, NSUInteger row) {
+        NSRect frame = controlFrame(panel, row);
+        frame.origin.y -= 7.0;
+        frame.size.height = static_cast<CGFloat>(
+            s3g::gui_layout::kStandardMetrics.hitHeight);
+        return frame;
+    };
+    const auto layoutButtons = ^(NSArray<NSButton*>* buttons,
+                                  NSView* panel, NSUInteger row) {
+        NSRect available = controlFrame(panel, row);
+        const CGFloat gap = 4.0;
+        const CGFloat width = (NSWidth(available)
+                - gap * static_cast<CGFloat>(buttons.count - 1u))
+            / static_cast<CGFloat>(std::max<NSUInteger>(1u, buttons.count));
+        for (NSUInteger index = 0u; index < buttons.count; ++index)
+            buttons[index].frame = NSMakeRect(
+                NSMinX(available) + static_cast<CGFloat>(index)
+                    * (width + gap), NSMinY(available), width,
+                NSHeight(available));
+    };
+
+    layoutLabel(self.phraseLabel, 0u);
+    layoutLabel(self.nameLabel, 1u);
+    layoutLabel(self.lengthLabel, 2u);
+    self.libraryPopup.frame = controlFrame(self.libraryPanel, 0u);
+    self.nameField.frame = textFrame(self.libraryPanel, 1u);
+    self.lengthPopup.frame = controlFrame(self.libraryPanel, 2u);
+    layoutButtons(@[ self.saveButton, self.duplicateButton,
+        self.deleteButton ], self.libraryPanel, 3u);
+    self.importPackButton.frame = controlFrame(self.libraryPanel, 4u);
+    self.exportPackButton.frame = controlFrame(self.libraryPanel, 5u);
+    self.exportAllButton.frame = controlFrame(self.libraryPanel, 6u);
+
+    layoutLabel(self.previewChannelLabel, 0u);
+    self.previewChannelPopup.frame = controlFrame(self.auditionPanel, 0u);
+    self.previewButton.frame = NSMakeRect(
+        NSWidth(self.auditionPanel.bounds) - 90.0, 3.0, 78.0, 15.0);
+
+    layoutLabel(self.placementModeLabel, 0u);
+    layoutLabel(self.placementTargetLabel, 1u);
+    self.modePopup.frame = controlFrame(self.placementPanel, 0u);
+    self.placementTargetValue.frame = controlFrame(
+        self.placementPanel, 1u);
+    self.statusLabel.frame = NSMakeRect(labelX,
+        firstRow + rowPitch * 2.0 - 1.0,
+        std::max<CGFloat>(20.0,
+            NSWidth(self.placementPanel.bounds) - labelX - right), 30.0);
+    self.placeButton.frame = NSMakeRect(
+        NSWidth(self.placementPanel.bounds) - 154.0, 3.0, 142.0, 15.0);
+}
+
 - (void)loadView
 {
     S3GTrackerPhraseRootView* root = [[S3GTrackerPhraseRootView alloc]
@@ -1614,29 +1759,37 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     root.wantsLayer = YES;
     root.layer.backgroundColor = S3GTrackerThemeColor(
         S3GTrackerThemeRole::Canvas).CGColor;
+    root.layoutOwner = self;
     self.view = root;
 
-    S3GTrackerToolboxView* library = [[S3GTrackerToolboxView alloc]
+    self.editorPanel = [[S3GTrackerToolboxView alloc]
         initWithFrame:NSZeroRect];
-    library.toolboxTitle = @"PHRASE LIBRARY";
-    library.toolboxIndex = 0;
-    library.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:library];
-    S3GTrackerToolboxView* placement = [[S3GTrackerToolboxView alloc]
+    self.editorPanel.toolboxTitle =
+        @"PHRASE TRACKER  /  PROJECT MIDI PHRASE";
+    [root addSubview:self.editorPanel];
+    self.libraryPanel = [[S3GTrackerToolboxView alloc]
         initWithFrame:NSZeroRect];
-    placement.toolboxTitle = @"PLACEMENT";
-    placement.toolboxIndex = 0;
-    placement.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:placement];
+    self.libraryPanel.toolboxTitle = @"PHRASE LIBRARY";
+    [root addSubview:self.libraryPanel];
+    self.auditionPanel = [[S3GTrackerToolboxView alloc]
+        initWithFrame:NSZeroRect];
+    self.auditionPanel.toolboxTitle = @"AUDITION";
+    [root addSubview:self.auditionPanel];
+    self.placementPanel = [[S3GTrackerToolboxView alloc]
+        initWithFrame:NSZeroRect];
+    self.placementPanel.toolboxTitle = @"TRACKER BRIDGE";
+    [root addSubview:self.placementPanel];
 
     self.libraryPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.libraryPopup.s3gUsesCanvasMenu = YES;
     self.libraryPopup.target = self;
     self.libraryPopup.action = @selector(slotChanged:);
+    [self.libraryPanel addSubview:self.libraryPopup];
     self.nameField = [[NSTextField alloc] initWithFrame:NSZeroRect];
     S3GTrackerStyleSuiteTextField(self.nameField, NSTextAlignmentLeft);
     self.nameField.delegate = self;
+    [self.libraryPanel addSubview:self.nameField];
     self.lengthPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.lengthPopup.s3gUsesCanvasMenu = YES;
@@ -1647,11 +1800,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     }
     self.lengthPopup.target = self;
     self.lengthPopup.action = @selector(lengthChanged:);
-    NSTextField* previewChannelLabel = [NSTextField labelWithString:
-        @"PREVIEW CH"];
-    previewChannelLabel.font = S3GTrackerFont(8.5, NSFontWeightMedium);
-    previewChannelLabel.textColor = S3GTrackerThemeColor(
-        S3GTrackerThemeRole::TextSecondary);
+    [self.libraryPanel addSubview:self.lengthPopup];
     self.previewChannelPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.previewChannelPopup.s3gUsesCanvasMenu = YES;
@@ -1663,91 +1812,67 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.previewChannelPopup.target = self;
     self.previewChannelPopup.action = @selector(previewChannelChanged:);
     self.previewChannelPopup.toolTip = @"MIDI channel used only by Phrase Preview";
-    NSButton* save = [self button:@"SAVE" action:@selector(savePressed:)];
-    NSButton* duplicate = [self button:@"DUP"
+    [self.auditionPanel addSubview:self.previewChannelPopup];
+    self.saveButton = [self button:@"SAVE" action:@selector(savePressed:)];
+    self.duplicateButton = [self button:@"DUP"
         action:@selector(duplicatePressed:)];
-    NSButton* clear = [self button:@"DELETE" action:@selector(deletePressed:)];
-    NSButton* preview = [self button:@"PREVIEW" action:@selector(previewPressed:)];
+    self.deleteButton = [self button:@"DELETE"
+        action:@selector(deletePressed:)];
+    self.previewButton = [self button:@"PREVIEW ▶"
+        action:@selector(previewPressed:)];
+    for (NSButton* button in @[ self.saveButton, self.duplicateButton,
+             self.deleteButton ])
+        [self.libraryPanel addSubview:button];
+    [self.auditionPanel addSubview:self.previewButton];
 
-    NSStackView* libraryRow = [NSStackView stackViewWithViews:@[
-        self.libraryPopup, self.nameField, self.lengthPopup,
-        previewChannelLabel, self.previewChannelPopup, save, duplicate, clear,
-        preview]];
-    libraryRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    libraryRow.alignment = NSLayoutAttributeCenterY;
-    libraryRow.spacing = 7.0;
-    libraryRow.translatesAutoresizingMaskIntoConstraints = NO;
-    [library addSubview:libraryRow];
+    self.phraseLabel = [self suiteLabel:@"PHRASE" panel:self.libraryPanel];
+    self.nameLabel = [self suiteLabel:@"NAME" panel:self.libraryPanel];
+    self.lengthLabel = [self suiteLabel:@"LENGTH" panel:self.libraryPanel];
+    self.previewChannelLabel = [self suiteLabel:@"MIDI CH"
+        panel:self.auditionPanel];
 
     self.modePopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.modePopup.s3gUsesCanvasMenu = YES;
     [self.modePopup addItemsWithTitles:@[@"REPLACE", @"MERGE EMPTY"]];
-    NSButton* place = [self button:@"COPY TO LANE"
+    [self.placementPanel addSubview:self.modePopup];
+    self.placeButton = [self button:@"COPY TO LANE"
         action:@selector(placePressed:)];
-    NSButton* importPack = [self button:@"IMPORT PACK"
+    [self.placementPanel addSubview:self.placeButton];
+    self.importPackButton = [self button:@"IMPORT PACK"
         action:@selector(importPackPressed:)];
-    NSButton* exportPack = [self button:@"EXPORT ONE"
+    self.exportPackButton = [self button:@"EXPORT ONE"
         action:@selector(exportPackPressed:)];
-    NSButton* exportAll = [self button:@"EXPORT ALL"
+    self.exportAllButton = [self button:@"EXPORT ALL"
         action:@selector(exportAllPacksPressed:)];
-    self.statusLabel = [NSTextField labelWithString:@""];
-    self.statusLabel.font = S3GTrackerFont(9.0);
+    for (NSButton* button in @[ self.importPackButton,
+             self.exportPackButton, self.exportAllButton ])
+        [self.libraryPanel addSubview:button];
+    self.placementModeLabel = [self suiteLabel:@"MODE"
+        panel:self.placementPanel];
+    self.placementTargetLabel = [self suiteLabel:@"TARGET"
+        panel:self.placementPanel];
+    self.placementTargetValue = [self suiteLabel:@"—"
+        panel:self.placementPanel];
+    self.statusLabel = [self suiteLabel:@"" panel:self.placementPanel];
+    self.statusLabel.font = S3GTrackerFont(8.0);
     self.statusLabel.textColor = S3GTrackerThemeColor(
         S3GTrackerThemeRole::TextMuted);
-    NSStackView* placeRow = [NSStackView stackViewWithViews:@[
-        self.modePopup, place, importPack, exportPack, exportAll,
-        self.statusLabel]];
-    placeRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    placeRow.alignment = NSLayoutAttributeCenterY;
-    placeRow.spacing = 7.0;
-    placeRow.translatesAutoresizingMaskIntoConstraints = NO;
-    [placement addSubview:placeRow];
 
     self.grid = [[S3GTrackerPhraseGridView alloc] initWithFrame:NSZeroRect];
     self.grid.owner = self;
     root.phraseGrid = self.grid;
-    NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    scroll.documentView = self.grid;
-    scroll.hasVerticalScroller = YES;
-    scroll.hasHorizontalScroller = YES;
-    scroll.drawsBackground = YES;
-    scroll.backgroundColor = S3GTrackerThemeColor(S3GTrackerThemeRole::Workspace);
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    [root addSubview:scroll];
+    self.gridScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    self.gridScroll.documentView = self.grid;
+    self.gridScroll.hasVerticalScroller = YES;
+    self.gridScroll.hasHorizontalScroller = YES;
+    self.gridScroll.borderType = NSNoBorder;
+    self.gridScroll.drawsBackground = YES;
+    self.gridScroll.backgroundColor = S3GTrackerThemeColor(
+        S3GTrackerThemeRole::Workspace);
+    [self.editorPanel addSubview:self.gridScroll];
 
-    [NSLayoutConstraint activateConstraints:@[
-        [library.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:12.0],
-        [library.topAnchor constraintEqualToAnchor:root.topAnchor constant:8.0],
-        [library.widthAnchor constraintEqualToConstant:800.0],
-        [library.heightAnchor constraintEqualToConstant:55.0],
-        [placement.leadingAnchor constraintEqualToAnchor:library.trailingAnchor constant:8.0],
-        [placement.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-12.0],
-        [placement.topAnchor constraintEqualToAnchor:library.topAnchor],
-        [placement.heightAnchor constraintEqualToAnchor:library.heightAnchor],
-        [libraryRow.leadingAnchor constraintEqualToAnchor:library.leadingAnchor constant:8.0],
-        [libraryRow.trailingAnchor constraintLessThanOrEqualToAnchor:library.trailingAnchor constant:-8.0],
-        [libraryRow.topAnchor constraintEqualToAnchor:library.topAnchor constant:26.0],
-        [libraryRow.heightAnchor constraintEqualToConstant:22.0],
-        [placeRow.leadingAnchor constraintEqualToAnchor:placement.leadingAnchor constant:8.0],
-        [placeRow.trailingAnchor constraintLessThanOrEqualToAnchor:placement.trailingAnchor constant:-8.0],
-        [placeRow.topAnchor constraintEqualToAnchor:placement.topAnchor constant:26.0],
-        [placeRow.heightAnchor constraintEqualToConstant:22.0],
-        [self.libraryPopup.widthAnchor constraintEqualToConstant:175.0],
-        [self.nameField.widthAnchor constraintEqualToConstant:175.0],
-        [self.lengthPopup.widthAnchor constraintEqualToConstant:78.0],
-        [previewChannelLabel.widthAnchor constraintEqualToConstant:70.0],
-        [self.previewChannelPopup.widthAnchor constraintEqualToConstant:54.0],
-        [self.modePopup.widthAnchor constraintEqualToConstant:105.0],
-        [scroll.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:12.0],
-        [scroll.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-12.0],
-        [scroll.topAnchor constraintEqualToAnchor:library.bottomAnchor constant:8.0],
-        [scroll.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-12.0],
-    ]];
-    for (NSView* view in libraryRow.arrangedSubviews)
-        [view.heightAnchor constraintEqualToConstant:22.0].active = YES;
-    for (NSView* view in placeRow.arrangedSubviews)
-        [view.heightAnchor constraintEqualToConstant:22.0].active = YES;
+    [self layoutPhraseInterface];
     [self reloadModel];
 }
 
@@ -1829,6 +1954,16 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         @"%lu ROWS", static_cast<unsigned long>(phrase->length)]];
     [self.previewChannelPopup selectItemAtIndex:static_cast<NSInteger>(
         std::clamp<int>(phrase->previewMidiChannel, 1, 16) - 1)];
+    if (self.trackerState->session.pattern.tracks.empty())
+        self.placementTargetValue.stringValue = @"NO LANES";
+    else
+        self.placementTargetValue.stringValue = [NSString stringWithFormat:
+            @"T%02lu  ·  ROW %03lu",
+            static_cast<unsigned long>(std::min<std::size_t>(
+                self.trackerState->session.selectedTrack,
+                self.trackerState->session.pattern.tracks.size() - 1u) + 1u),
+            static_cast<unsigned long>(
+                self.trackerState->session.selectedRow + 1u)];
     [self.grid reloadModel];
 }
 
