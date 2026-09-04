@@ -17,6 +17,12 @@ namespace s3g::tracker {
 // for.
 struct TrackerSession {
     Pattern pattern;
+    BurstLibrary burstLibrary;
+    // Coordinator-provided whole-project reference counts let live-code
+    // deletion remain safe even though TrackerSession edits one active
+    // Pattern at a time. Standalone command users fall back to the active
+    // Pattern scan.
+    std::array<std::size_t, kBurstDefinitionCount> projectBurstUsageCounts {};
     TransportSettings transport;
     TimingWarpLibrary warpLibrary;
     double gateMilliseconds = 90.0;

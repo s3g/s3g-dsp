@@ -184,6 +184,21 @@ void S3GTrackerStyleTextEditor(NSTextField* field)
         S3GTrackerThemeRole::Live);
 }
 
+NSRect S3GTrackerExpandedCellEditorRect(NSRect cellRect,
+    NSRect visibleRect, NSString* text, NSFont* font)
+{
+    if (NSWidth(visibleRect) <= 0.0 || !font) return cellRect;
+    const CGFloat textWidth = std::ceil([(text ? text : @"")
+        sizeWithAttributes:@{ NSFontAttributeName: font }].width);
+    const CGFloat width = std::min(NSWidth(visibleRect),
+        std::max(NSWidth(cellRect), textWidth + 22.0));
+    NSRect result = cellRect;
+    result.size.width = width;
+    result.origin.x = std::clamp(NSMidX(cellRect) - width * 0.5,
+        NSMinX(visibleRect), NSMaxX(visibleRect) - width);
+    return result;
+}
+
 void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName)
 {
     if (!window || autosaveName.length == 0u) return;

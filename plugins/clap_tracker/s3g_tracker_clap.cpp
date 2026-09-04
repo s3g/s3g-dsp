@@ -8,6 +8,7 @@
 #include "s3g_tracker_workspace_layout.h"
 
 #include "s3g/tracker/atomic_project_store.h"
+#include "s3g/tracker/asset_pack.h"
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/midi_step_recorder.h"
@@ -58,6 +59,7 @@ using s3g::tracker::PatternBankEntry;
 using s3g::tracker::PatternVariationLaunch;
 using s3g::tracker::ProjectDocument;
 using s3g::tracker::ProjectHistory;
+using s3g::tracker::TrackerAssetPack;
 using s3g::tracker::ScheduledEvent;
 using s3g::tracker::ScheduledEventKind;
 using s3g::tracker::SongLaunchQuantization;
@@ -178,6 +180,22 @@ bool loadActivePatternIntoSession(TrackerViewState& state)
         state.session.selectedRow,
         std::max<std::size_t>(state.session.pattern.visibleRows, 1u) - 1u);
     return true;
+}
+
+void refreshProjectBurstUsageCounts(TrackerViewState& state)
+{
+    state.session.projectBurstUsageCounts.fill(0u);
+    const auto countNotes = [&](const std::vector<s3g::tracker::NoteCell>& notes) {
+        for (const auto& cell : notes) {
+            if (cell.state == s3g::tracker::NoteCellState::Burst
+                && cell.note < state.session.projectBurstUsageCounts.size())
+                ++state.session.projectBurstUsageCounts[cell.note];
+        }
+    };
+    for (const auto& entry : state.patternBank.entries)
+        for (const auto& track : entry.pattern.tracks) countNotes(track.notes);
+    for (const auto& phrase : state.phraseLibrary.phrases)
+        countNotes(phrase.notes);
 }
 
 std::string nextPatternId(const s3g::tracker::PatternBank& bank)
@@ -329,6 +347,7 @@ ProjectDocument makeInitialDocument()
 
     ProjectDocument document;
     document.patternBank = state.patternBank;
+    document.burstLibrary = state.session.burstLibrary;
     document.transport = state.session.transport;
     document.warpLibrary = state.session.warpLibrary;
     document.session.gateMilliseconds = state.session.gateMilliseconds;
@@ -631,6 +650,7 @@ struct Runtime {
             songPatternIndices = plan.songPatternIndices;
         }
         projectTransport.sampleRate = sampleRate;
+        scheduler.setBurstLibrary(document.burstLibrary);
         valid = scheduler.preparePatternSet(std::move(patterns),
             plan.initialPatternIndex);
         if (!valid) return;
@@ -2187,6 +2207,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     S3GTrackerClapPageTracker = 0,
     S3GTrackerClapPageSong,
     S3GTrackerClapPageGeometry,
+    S3GTrackerClapPageBursts,
     S3GTrackerClapPagePhrases,
     S3GTrackerClapPageReshape,
     S3GTrackerClapPageWarps,
@@ -2233,7 +2254,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.detachedWindows = [[NSMutableDictionary alloc] init];
 
     NSArray<NSString*>* titles = @[
-        @"TRACKER", @"SONG", @"GEOMETRY", @"PHRASES", @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
+        @"TRACKER", @"SONG", @"GEOMETRY", @"BURSTS", @"PHRASES",
+        @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
     ];
     NSMutableArray<S3GTrackerActionButton*>* buttons =
         [[NSMutableArray alloc] initWithCapacity:titles.count];
@@ -2381,8 +2403,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [super layout];
     constexpr CGFloat navigationHeight = 40.0;
     CGFloat x = 12.0;
-    const std::array<CGFloat, 8u> widths {{
-        80.0, 58.0, 82.0, 76.0, 78.0, 62.0, 72.0, 54.0,
+    const std::array<CGFloat, 9u> widths {{
+        76.0, 54.0, 78.0, 66.0, 70.0, 72.0, 58.0, 66.0, 50.0,
     }};
     for (NSUInteger index = 0u; index < self.pageButtons.count; ++index) {
         const CGFloat width = widths[std::min<std::size_t>(
@@ -2451,6 +2473,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (BOOL)pageCanDetach:(S3GTrackerClapPage)page
 {
     return page == S3GTrackerClapPageGeometry
+        || page == S3GTrackerClapPageBursts
         || page == S3GTrackerClapPagePhrases
         || page == S3GTrackerClapPageReshape
         || page == S3GTrackerClapPageWarps
@@ -2485,8 +2508,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
         backing:NSBackingStoreBuffered defer:NO];
     NSArray<NSString*>* names = @[
-        @"Tracker", @"Song", @"Rhythm Geometry", @"MIDI Phrases",
-        @"Pattern Reshape", @"Timing Warps", @"Console", @"Help",
+        @"Tracker", @"Song", @"Rhythm Geometry", @"Bursts",
+        @"MIDI Phrases", @"Pattern Reshape", @"Timing Warps", @"Console",
+        @"Help",
     ];
     window.title = [@"s3g Tracker — " stringByAppendingString:
         names[static_cast<NSUInteger>(index)]];
@@ -2630,6 +2654,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)commitSongProjectEdit:(BOOL)dirty;
 - (void)presentSaveSongProject;
 - (void)presentLoadSongProject;
+- (void)presentImportAssetPack;
+- (void)presentExportAssetPack:(const TrackerAssetPack&)pack;
 - (BOOL)installPatternVariation:
     (const s3g::tracker::PatternVariationRequest&)variation;
 - (void)startTimer;
@@ -2753,11 +2779,45 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _callbacks->showGeometryPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageGeometry];
     };
+    _callbacks->showBurstPage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPageBursts];
+    };
     _callbacks->showReshapePage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageReshape];
     };
     _callbacks->showPhrasePage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPagePhrases];
+    };
+    _callbacks->importAssetPack = [weakSelf] {
+        [weakSelf presentImportAssetPack];
+    };
+    _callbacks->exportBurstAssetPack = [weakSelf](std::size_t slot) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state
+            || slot >= owner->_state->session.burstLibrary.bursts.size())
+            return;
+        const auto& burst = owner->_state->session.burstLibrary.bursts[slot];
+        [owner presentExportAssetPack:s3g::tracker::makeBurstAssetPack(
+            burst.name.empty() ? "BURST PACK" : burst.name,
+            owner->_state->session.burstLibrary, slot)];
+    };
+    _callbacks->exportPhraseAssetPack = [weakSelf](std::size_t slot) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state
+            || slot >= owner->_state->phraseLibrary.phrases.size()) return;
+        const auto& phrase = owner->_state->phraseLibrary.phrases[slot];
+        [owner presentExportAssetPack:s3g::tracker::makePhraseAssetPack(
+            phrase.name.empty() ? "PHRASE PACK" : phrase.name,
+            owner->_state->phraseLibrary, slot,
+            owner->_state->session.burstLibrary)];
+    };
+    _callbacks->exportPhraseLibraryAssetPack = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state) return;
+        [owner presentExportAssetPack:
+            s3g::tracker::makePhraseLibraryAssetPack(
+                "PHRASE LIBRARY PACK", owner->_state->phraseLibrary,
+                owner->_state->session.burstLibrary)];
     };
     _callbacks->showTrackerPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageTracker];
@@ -2933,6 +2993,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         self.workspace.view,
         self.songWindow.window.contentView,
         [self.workspace geometryPageView],
+        [self.workspace burstPageView],
         [self.workspace phrasePageView],
         [self.workspace reshapePageView],
         [self.workspace warpPageView],
@@ -3270,12 +3331,126 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [panel beginWithCompletionHandler:completion];
 }
 
+- (void)presentExportAssetPack:(const TrackerAssetPack&)pack
+{
+    std::string encoded;
+    const auto encodedResult = s3g::tracker::encodeTrackerAssetPack(
+        pack, encoded);
+    if (!encodedResult.ok()) {
+        const std::string message = "Could not encode asset pack: "
+            + encodedResult.message;
+        _state->status = message;
+        [self.workspace appendConsoleMessage:message error:YES];
+        [self.workspace reloadModel];
+        return;
+    }
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    panel.title = @"Export Tracker Phrase + Burst Pack";
+    panel.prompt = @"Export";
+    panel.canCreateDirectories = YES;
+    NSString* base = pack.name.empty() ? @"Tracker Assets"
+        : [NSString stringWithUTF8String:pack.name.c_str()];
+    panel.nameFieldStringValue = [base stringByAppendingPathExtension:@"s3gpack"];
+    if (UTType* type = [UTType typeWithFilenameExtension:@"s3gpack"])
+        panel.allowedContentTypes = @[ type ];
+    NSData* data = [NSData dataWithBytes:encoded.data() length:encoded.size()];
+    __weak S3GTrackerClapCoordinator* weakSelf = self;
+    void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || response != NSModalResponseOK || !panel.URL) return;
+        NSError* error = nil;
+        if (![data writeToURL:panel.URL options:NSDataWritingAtomic
+                error:&error]) {
+            const std::string message = "Could not export asset pack: "
+                + std::string(error.localizedDescription.UTF8String
+                    ? error.localizedDescription.UTF8String : "write failed");
+            owner->_state->status = message;
+            [owner.workspace appendConsoleMessage:message error:YES];
+        } else {
+            owner->_state->status = "Exported Tracker asset pack";
+            [owner.workspace appendConsoleMessage:
+                std::string("Exported asset pack to ")
+                    + panel.URL.fileSystemRepresentation error:NO];
+        }
+        [owner.workspace reloadModel];
+    };
+    if (self.pageView.window)
+        [panel beginSheetModalForWindow:self.pageView.window
+            completionHandler:completion];
+    else
+        [panel beginWithCompletionHandler:completion];
+}
+
+- (void)presentImportAssetPack
+{
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    panel.title = @"Import Tracker Phrase + Burst Pack";
+    panel.prompt = @"Import";
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    if (UTType* type = [UTType typeWithFilenameExtension:@"s3gpack"])
+        panel.allowedContentTypes = @[ type ];
+    __weak S3GTrackerClapCoordinator* weakSelf = self;
+    void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || response != NSModalResponseOK || !panel.URL) return;
+        NSError* error = nil;
+        NSData* data = [NSData dataWithContentsOfURL:panel.URL
+            options:NSDataReadingMappedIfSafe error:&error];
+        if (!data) {
+            const std::string message = "Could not read asset pack: "
+                + std::string(error.localizedDescription.UTF8String
+                    ? error.localizedDescription.UTF8String : "read failed");
+            owner->_state->status = message;
+            [owner.workspace appendConsoleMessage:message error:YES];
+            [owner.workspace reloadModel];
+            return;
+        }
+        TrackerAssetPack pack;
+        const std::string bytes(static_cast<const char*>(data.bytes),
+            data.length);
+        auto result = s3g::tracker::decodeTrackerAssetPack(bytes, pack);
+        ProjectDocument document = [owner currentDocument];
+        s3g::tracker::AssetPackImportReport report;
+        if (result.ok()) result = s3g::tracker::importTrackerAssetPack(
+            pack, document, &report);
+        if (!result.ok()) {
+            const std::string message = "Could not import asset pack"
+                + (result.location.empty() ? std::string {}
+                    : " at " + result.location)
+                + ": " + result.message;
+            owner->_state->status = message;
+            [owner.workspace appendConsoleMessage:message error:YES];
+            [owner.workspace reloadModel];
+            return;
+        }
+        [owner applyDocument:document];
+        [owner commitProject:YES];
+        std::ostringstream summary;
+        summary << "Imported asset pack: " << report.burstsAdded
+                << " Bursts + " << report.phrasesAdded << " Phrases";
+        if (report.burstsReused > 0u || report.phrasesReused > 0u)
+            summary << " (reused " << report.burstsReused << " Bursts, "
+                    << report.phrasesReused << " Phrases)";
+        owner->_state->status = summary.str();
+        [owner.workspace appendConsoleMessage:summary.str() error:NO];
+        [owner.workspace reloadModel];
+    };
+    if (self.pageView.window)
+        [panel beginSheetModalForWindow:self.pageView.window
+            completionHandler:completion];
+    else
+        [panel beginWithCompletionHandler:completion];
+}
+
 - (ProjectDocument)currentDocument
 {
     ProjectDocument document;
     if (!_state) return document;
     (void)syncSessionToActivePattern(*_state);
     document.patternBank = _state->patternBank;
+    document.burstLibrary = _state->session.burstLibrary;
     document.phraseLibrary = _state->phraseLibrary;
     document.transport = _state->session.transport;
     document.warpLibrary = _state->session.warpLibrary;
@@ -3298,6 +3473,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     ProjectDocument midiDocument = document;
     normalizeMidiOnlyDocument(midiDocument);
     _state->patternBank = midiDocument.patternBank;
+    _state->session.burstLibrary = midiDocument.burstLibrary;
     _state->phraseLibrary = midiDocument.phraseLibrary;
     (void)loadActivePatternIntoSession(*_state);
     _state->session.transport = midiDocument.transport;
@@ -3669,6 +3845,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)executeCommand:(const std::string&)command
 {
     const auto words = commandWords(command);
+    if (!words.empty() && words.front() == "burst") {
+        (void)syncSessionToActivePattern(*_state);
+        refreshProjectBurstUsageCounts(*_state);
+    }
     if (!words.empty()) {
         const auto& verb = words.front();
         if ((verb == "phase" || verb == "ph") && words.size() == 3u

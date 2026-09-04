@@ -198,6 +198,7 @@ NSString* phraseGridCellText(const PhraseDefinition& phrase,
 }
 
 bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
+    const s3g::tracker::BurstLibrary& burstLibrary,
     std::size_t row, std::size_t field)
 {
     if (row >= phrase.length || field >= 7u) return false;
@@ -225,8 +226,9 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         }
         if (token.length == 3u && [token hasPrefix:@"B"]) {
             const NSInteger slot = [[token substringFromIndex:1u] integerValue];
-            if (slot < 1 || slot > 32
-                || phrase.bursts[static_cast<std::size_t>(slot - 1)].empty())
+            if (slot < 1 || slot > 64
+                || burstLibrary.bursts[
+                    static_cast<std::size_t>(slot - 1)].empty())
                 return false;
             writePhraseGridCell(phrase, field, row,
                 s3g::tracker::NoteCell::withBurst(
@@ -368,6 +370,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic) std::size_t selectedRow;
 @property(nonatomic) std::size_t selectedField;
 @property(nonatomic, strong) NSTextField* editor;
+@property(nonatomic) NSRect editorCellRect;
 @property(nonatomic) BOOL selectingGridCells;
 @property(nonatomic, copy) NSString* copiedClipboardText;
 @property(nonatomic) NSInteger copiedPasteboardChangeCount;
@@ -1034,6 +1037,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         kPhraseGridColumns[self.selectedField + 2u]
             - kPhraseGridColumns[self.selectedField + 1u], 22.0), 1.0, 1.0);
     self.editor = [[NSTextField alloc] initWithFrame:editorRect];
+    self.editorCellRect = editorRect;
     // Use the primary Tracker's proven inline NSTextField path verbatim. The
     // TextEditor helper styles an already-active field editor; it is not a
     // substitute for configuring the NSTextField itself.
@@ -1060,6 +1064,9 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
             ? phraseFxText(phrase->fxPairs[pair].actions[self.selectedRow])
             : phraseFxValueText(phrase->fxPairs[pair].values[self.selectedRow]);
     }
+    self.editor.frame = S3GTrackerExpandedCellEditorRect(
+        self.editorCellRect, self.visibleRect,
+        self.editor.stringValue, self.editor.font);
     [self addSubview:self.editor];
     [self.window makeFirstResponder:self.editor];
     S3GTrackerStyleTextEditor(self.editor);
@@ -1067,6 +1074,14 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     if ([fieldEditor respondsToSelector:@selector(setSelectedRange:)])
         [(NSTextView*)fieldEditor setSelectedRange:NSMakeRange(
             self.editor.stringValue.length, 0u)];
+}
+
+- (void)controlTextDidChange:(NSNotification*)notification
+{
+    if (notification.object != self.editor) return;
+    self.editor.frame = S3GTrackerExpandedCellEditorRect(
+        self.editorCellRect, self.visibleRect,
+        self.editor.stringValue, self.editor.font);
 }
 
 - (void)commitEditor:(id)sender
@@ -1087,8 +1102,9 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
             phrase->notes[self.selectedRow] = s3g::tracker::NoteCell::kill();
         else if (token.length == 3u && [token hasPrefix:@"B"]) {
             const NSInteger slot = [[token substringFromIndex:1u] integerValue];
-            if (slot < 1 || slot > 32
-                || phrase->bursts[static_cast<std::size_t>(slot - 1)].empty()) {
+            if (slot < 1 || slot > 64
+                || self.owner.trackerState->session.burstLibrary.bursts[
+                    static_cast<std::size_t>(slot - 1)].empty()) {
                 NSBeep();
                 return;
             }
@@ -1397,6 +1413,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                     writePhraseGridCell(candidate, field, row,
                         _copiedGridCells[0u]);
                 } else if (!applyPhraseCellText(rows[0u][0u], candidate,
+                               self.owner.trackerState->session.burstLibrary,
                                row, field)) {
                     NSBeep(); return;
                 }
@@ -1426,6 +1443,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                             static_cast<std::size_t>(rowOffset) * widest
                                 + static_cast<std::size_t>(fieldOffset)]);
                 else if (!applyPhraseCellText(cells[fieldOffset], candidate,
+                               self.owner.trackerState->session.burstLibrary,
                                destinationRow, destinationField)) {
                     NSBeep(); return;
                 }
@@ -1646,12 +1664,15 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.previewChannelPopup.action = @selector(previewChannelChanged:);
     self.previewChannelPopup.toolTip = @"MIDI channel used only by Phrase Preview";
     NSButton* save = [self button:@"SAVE" action:@selector(savePressed:)];
+    NSButton* duplicate = [self button:@"DUP"
+        action:@selector(duplicatePressed:)];
     NSButton* clear = [self button:@"DELETE" action:@selector(deletePressed:)];
     NSButton* preview = [self button:@"PREVIEW" action:@selector(previewPressed:)];
 
     NSStackView* libraryRow = [NSStackView stackViewWithViews:@[
         self.libraryPopup, self.nameField, self.lengthPopup,
-        previewChannelLabel, self.previewChannelPopup, save, clear, preview]];
+        previewChannelLabel, self.previewChannelPopup, save, duplicate, clear,
+        preview]];
     libraryRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     libraryRow.alignment = NSLayoutAttributeCenterY;
     libraryRow.spacing = 7.0;
@@ -1664,13 +1685,19 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     [self.modePopup addItemsWithTitles:@[@"REPLACE", @"MERGE EMPTY"]];
     NSButton* place = [self button:@"COPY TO LANE"
         action:@selector(placePressed:)];
-    self.statusLabel = [NSTextField labelWithString:
-        @"RIGHT-CLICK TRACKER SELECTION TO CAPTURE · TYPE OR RETURN TO EDIT"];
+    NSButton* importPack = [self button:@"IMPORT PACK"
+        action:@selector(importPackPressed:)];
+    NSButton* exportPack = [self button:@"EXPORT ONE"
+        action:@selector(exportPackPressed:)];
+    NSButton* exportAll = [self button:@"EXPORT ALL"
+        action:@selector(exportAllPacksPressed:)];
+    self.statusLabel = [NSTextField labelWithString:@""];
     self.statusLabel.font = S3GTrackerFont(9.0);
     self.statusLabel.textColor = S3GTrackerThemeColor(
         S3GTrackerThemeRole::TextMuted);
     NSStackView* placeRow = [NSStackView stackViewWithViews:@[
-        self.modePopup, place, self.statusLabel]];
+        self.modePopup, place, importPack, exportPack, exportAll,
+        self.statusLabel]];
     placeRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     placeRow.alignment = NSLayoutAttributeCenterY;
     placeRow.spacing = 7.0;
@@ -1692,7 +1719,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     [NSLayoutConstraint activateConstraints:@[
         [library.leadingAnchor constraintEqualToAnchor:root.leadingAnchor constant:12.0],
         [library.topAnchor constraintEqualToAnchor:root.topAnchor constant:8.0],
-        [library.widthAnchor constraintEqualToConstant:790.0],
+        [library.widthAnchor constraintEqualToConstant:800.0],
         [library.heightAnchor constraintEqualToConstant:55.0],
         [placement.leadingAnchor constraintEqualToAnchor:library.trailingAnchor constant:8.0],
         [placement.trailingAnchor constraintEqualToAnchor:root.trailingAnchor constant:-12.0],
@@ -1747,6 +1774,40 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         pair.valueColumn.length = phrase.length;
     }
     return &phrase;
+}
+
+- (void)importPackPressed:(id)sender
+{
+    (void)sender;
+    if (self.trackerCallbacks && self.trackerCallbacks->importAssetPack)
+        self.trackerCallbacks->importAssetPack();
+}
+
+- (void)exportPackPressed:(id)sender
+{
+    (void)sender;
+    const PhraseDefinition* phrase = [self selectedPhrase];
+    if (phrase && (!phrase->empty() || !phrase->name.empty())
+        && self.trackerCallbacks
+        && self.trackerCallbacks->exportPhraseAssetPack)
+        self.trackerCallbacks->exportPhraseAssetPack(
+            self.trackerState->selectedPhrase);
+    else
+        NSBeep();
+}
+
+- (void)exportAllPacksPressed:(id)sender
+{
+    (void)sender;
+    bool hasPhrases = false;
+    if (self.trackerState)
+        for (const auto& phrase : self.trackerState->phraseLibrary.phrases)
+            hasPhrases |= !phrase.empty() || !phrase.name.empty();
+    if (hasPhrases && self.trackerCallbacks
+        && self.trackerCallbacks->exportPhraseLibraryAssetPack)
+        self.trackerCallbacks->exportPhraseLibraryAssetPack();
+    else
+        NSBeep();
 }
 
 - (void)reloadModel
@@ -1833,6 +1894,34 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     [self reloadModel];
 }
 
+- (void)duplicatePressed:(id)sender
+{
+    (void)sender;
+    [self stopPhrasePreview];
+    if (!self.trackerState) return;
+    auto& phrases = self.trackerState->phraseLibrary.phrases;
+    const auto sourceSlot = std::min<std::size_t>(
+        self.trackerState->selectedPhrase, phrases.size() - 1u);
+    const auto& source = phrases[sourceSlot];
+    if (source.empty() && source.name.empty()) { NSBeep(); return; }
+    const auto available = std::find_if(phrases.begin(), phrases.end(),
+        [](const PhraseDefinition& phrase) {
+            return phrase.empty() && phrase.name.empty();
+        });
+    if (available == phrases.end()) { NSBeep(); return; }
+    const auto destination = static_cast<std::size_t>(
+        available - phrases.begin());
+    phrases[destination] = source;
+    if (phrases[destination].name.empty())
+        phrases[destination].name = "PHRASE COPY";
+    else if (phrases[destination].name.size() + 5u
+        <= s3g::tracker::kMaximumPhraseNameBytes)
+        phrases[destination].name += " COPY";
+    self.trackerState->selectedPhrase = destination;
+    [self phraseEdited];
+    [self reloadModel];
+}
+
 - (void)deletePressed:(id)sender
 {
     (void)sender;
@@ -1906,8 +1995,10 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     for (std::size_t row = 0u; row < phrase->length; ++row)
         if (phrase->notes[row].state == NoteCellState::Note
             || (phrase->notes[row].state == NoteCellState::Burst
-                && phrase->notes[row].note < phrase->bursts.size()
-                && !phrase->bursts[phrase->notes[row].note].empty())) {
+                && phrase->notes[row].note
+                    < self.trackerState->session.burstLibrary.bursts.size()
+                && !self.trackerState->session.burstLibrary.bursts[
+                    phrase->notes[row].note].empty())) {
             firstAudibleRow = row;
             break;
         }
@@ -1922,8 +2013,10 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                 && phrase->notes[row].state != NoteCellState::Burst)) continue;
         const auto& note = phrase->notes[row];
         if (note.state == NoteCellState::Burst) {
-            if (note.note >= phrase->bursts.size()) continue;
-            const auto& burst = phrase->bursts[note.note];
+            if (note.note >= self.trackerState->session.burstLibrary.bursts.size())
+                continue;
+            const auto& burst = self.trackerState->session.burstLibrary.bursts[
+                note.note];
             for (std::size_t eventIndex = 0u;
                  eventIndex < burst.eventCount; ++eventIndex) {
                 const auto& event = burst.events[eventIndex];

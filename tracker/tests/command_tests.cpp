@@ -1830,12 +1830,12 @@ void testBurstCommands()
     auto session = makeSession();
     auto result = CommandEngine::execute(session,
         "burst new B01 BREAK RUSH");
-    check(result.ok && session.pattern.bursts[0u].eventCount == 4u
-            && session.pattern.bursts[0u].name == "BREAK RUSH",
+    check(result.ok && session.burstLibrary.bursts[0u].eventCount == 4u
+            && session.burstLibrary.bursts[0u].name == "BREAK RUSH",
         "burst new should create a named four-substep recipe");
     result = CommandEngine::execute(session,
         "burst B01 notes 48 52 D-3 55");
-    check(result.ok && session.pattern.bursts[0u].events[2u].note == 50u,
+    check(result.ok && session.burstLibrary.bursts[0u].events[2u].note == 50u,
         "burst notes should accept decimal MIDI and readable note names");
     check(CommandEngine::execute(session,
             "burst B01 velocity 127 104 82 116").ok
@@ -1846,10 +1846,10 @@ void testBurstCommands()
         "burst velocity, gate, and custom timing should author each substep");
     result = CommandEngine::execute(session, "burst B01 gate fit");
     check(result.ok
-            && session.pattern.bursts[0u].events[0u].gatePercent == 20u
-            && session.pattern.bursts[0u].events[1u].gatePercent == 35u
-            && session.pattern.bursts[0u].events[2u].gatePercent == 25u
-            && session.pattern.bursts[0u].events[3u].gatePercent == 20u,
+            && session.burstLibrary.bursts[0u].events[0u].gatePercent == 20u
+            && session.burstLibrary.bursts[0u].events[1u].gatePercent == 35u
+            && session.burstLibrary.bursts[0u].events[2u].gatePercent == 25u
+            && session.burstLibrary.bursts[0u].events[3u].gatePercent == 20u,
         "burst gate fit should end each event at the next onset and the last at the row boundary");
     result = CommandEngine::execute(session, "note 1 2 B01");
     check(result.ok && session.pattern.tracks[0u].notes[1u].state
@@ -1858,15 +1858,15 @@ void testBurstCommands()
         "note should place a defined Burst slot into a NOTE cell");
     const auto before = session;
     result = CommandEngine::execute(session, "burst delete B01");
-    check(!result.ok && session.pattern.bursts[0u].eventCount
-                == before.pattern.bursts[0u].eventCount,
+    check(!result.ok && session.burstLibrary.bursts[0u].eventCount
+                == before.burstLibrary.bursts[0u].eventCount,
         "deleting a referenced Burst should fail transactionally");
     result = CommandEngine::execute(session,
         "burst 1 3 notes 36 38 42");
     check(result.ok && session.pattern.tracks[0u].notes[2u].state
                 == NoteCellState::Burst
             && session.pattern.tracks[0u].notes[2u].note == 1u
-            && session.pattern.bursts[1u].eventCount == 3u,
+            && session.burstLibrary.bursts[1u].eventCount == 3u,
         "quick Burst authoring should allocate the first empty slot and place it");
 }
 

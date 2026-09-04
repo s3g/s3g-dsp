@@ -40,6 +40,14 @@ public:
     void setPattern(Pattern pattern);
     void replacePattern(Pattern pattern);
     const Pattern& pattern() const { return sequencer_.pattern(); }
+    void setBurstLibrary(BurstLibrary library)
+    {
+        sequencer_.setBurstLibrary(std::move(library));
+    }
+    const BurstLibrary& burstLibrary() const noexcept
+    {
+        return sequencer_.burstLibrary();
+    }
     bool preparePatternSet(std::vector<Pattern> patterns,
         std::size_t initialPatternIndex = 0u);
     bool activatePreparedPatternAtTickBoundary(

@@ -13,10 +13,10 @@
 namespace s3g::tracker {
 
 // The native file is a MIDI-composition document, not a snapshot of the
-// retired internal instrument rack. Version 1 is intentionally a breaking
+// retired internal instrument rack. Version 2 is intentionally a breaking
 // boundary: the decoder accepts this exact format/version pair and performs no
 // migration from the former hybrid tracker/instrument schemas.
-constexpr uint32_t kProjectFormatVersion = 1u;
+constexpr uint32_t kProjectFormatVersion = 2u;
 constexpr const char* kProjectFormatIdentifier
     = "s3g-tracker-midi-composition";
 constexpr const char* kProjectFileExtension = ".s3gt";
@@ -47,6 +47,7 @@ struct ProjectSessionState {
 
 struct ProjectDocument {
     PatternBank patternBank = makeDefaultPatternBank();
+    BurstLibrary burstLibrary;
     PhraseLibrary phraseLibrary;
     TransportSettings transport;
     TimingWarpLibrary warpLibrary;

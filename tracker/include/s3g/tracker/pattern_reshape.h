@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace s3g::tracker {
@@ -84,6 +85,7 @@ struct PatternReshapeAnalysis {
 
 struct PatternReshapeResult {
     Pattern pattern;
+    BurstLibrary burstLibrary;
     PatternReshapeAnalysis before;
     PatternReshapeAnalysis after;
     std::size_t timingChanged = 0u;
@@ -113,6 +115,12 @@ PatternReshapeAnalysis analyzePatternReshape(
     const Pattern& pattern, std::size_t cycleRows = 0u,
     uint32_t laneMask = 0xffffffffu);
 PatternReshapeResult reshapePattern(
-    const Pattern& pattern, PatternReshapeSettings settings);
+    const Pattern& pattern, const BurstLibrary& burstLibrary,
+    PatternReshapeSettings settings);
+inline PatternReshapeResult reshapePattern(
+    const Pattern& pattern, PatternReshapeSettings settings)
+{
+    return reshapePattern(pattern, BurstLibrary {}, std::move(settings));
+}
 
 } // namespace s3g::tracker

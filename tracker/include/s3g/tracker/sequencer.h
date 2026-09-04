@@ -22,7 +22,7 @@ namespace s3g::tracker {
 // closed with explicit telemetry rather than silently diverging audio and MIDI
 // output.
 constexpr std::size_t kMaximumTrackCount = 32u;
-constexpr std::size_t kBurstDefinitionCount = 32u;
+constexpr std::size_t kBurstDefinitionCount = 64u;
 constexpr std::size_t kMaximumBurstEvents = 8u;
 constexpr std::size_t kMaximumBurstNameBytes = 64u;
 constexpr uint8_t kNoBurstDefinition = 0xffu;
@@ -132,6 +132,14 @@ struct BurstDefinition {
     uint8_t eventCount = 0u;
 
     bool empty() const noexcept { return eventCount == 0u; }
+};
+
+// Bursts are project assets. Patterns and Phrases retain only a compact slot
+// reference in NoteCell; the definition itself is authored and saved once.
+// Keeping the collection fixed-capacity makes it safe to copy into an
+// immutable playback runtime without sharing mutable UI state.
+struct BurstLibrary {
+    std::array<BurstDefinition, kBurstDefinitionCount> bursts {};
 };
 
 std::string burstSlotToken(std::size_t index);
@@ -620,7 +628,6 @@ struct Pattern {
     std::string name;
     std::size_t visibleRows = 16u;
     std::vector<Track> tracks;
-    std::array<BurstDefinition, kBurstDefinitionCount> bursts {};
 };
 
 enum class ScheduledEventKind : uint8_t {
@@ -743,6 +750,8 @@ public:
     // phase, musical time, and transport state are retained where possible.
     void replacePattern(Pattern pattern);
     const Pattern& pattern() const noexcept { return pattern_; }
+    void setBurstLibrary(BurstLibrary library);
+    const BurstLibrary& burstLibrary() const noexcept { return burstLibrary_; }
 
     // Builds a frozen, normalized set of runtime patterns and pre-sizes every
     // lane buffer needed by any member. This is a stopped control-thread
@@ -966,6 +975,7 @@ private:
     };
 
     static void normalizePattern(Pattern& pattern);
+    static void normalizeBurstLibrary(BurstLibrary& library);
     void captureRemovedTrackReleases(std::size_t retainedTracks,
         const Pattern& previousPattern) noexcept;
     void resetTrackPlaybackState(std::size_t trackIndex,
@@ -993,6 +1003,7 @@ private:
     uint64_t allocateNoteId() noexcept;
 
     Pattern pattern_;
+    BurstLibrary burstLibrary_;
     std::vector<Pattern> preparedPatterns_;
     std::vector<TrackPlaybackState> playback_;
     std::array<ScheduledEvent, kMaximumTrackCount * kMaximumNoteVoices>

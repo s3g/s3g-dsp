@@ -817,7 +817,8 @@ PatternReshapeSettings defaultPanelSettings()
 {
     if (!self.trackerState) return;
     _settings.laneDefaultNotes = self.trackerState->session.laneDefaultNotes;
-    _result = reshapePattern(self.trackerState->session.pattern, _settings);
+    _result = reshapePattern(self.trackerState->session.pattern,
+        self.trackerState->session.burstLibrary, _settings);
     self.profileView.displaysReshaped = self.showingReshaped;
     [self.profileView setBeforeAnalysis:_result.before
         afterAnalysis:_result.after];
@@ -1164,6 +1165,7 @@ PatternReshapeSettings defaultPanelSettings()
     if (!self.trackerState || !_result.changed()) return;
     self.previewEnabled = NO;
     self.trackerState->session.pattern = _result.pattern;
+    self.trackerState->session.burstLibrary = _result.burstLibrary;
     self.trackerState->status = "Pattern reshape applied";
     if (self.trackerCallbacks && self.trackerCallbacks->patternChanged)
         self.trackerCallbacks->patternChanged();

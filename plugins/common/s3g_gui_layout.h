@@ -1308,7 +1308,9 @@ constexpr double trackerGeometryInspectorWidth(Canvas canvas)
 
 constexpr TrackerGeometryFamilyLayout trackerGeometryFamilyLayout(
     Canvas canvas,
-    uint32_t editShapeRowCount = 4u)
+    uint32_t editShapeRowCount = 4u,
+    uint32_t laneCycleRowCount = 7u,
+    bool includeViewPanel = true)
 {
     const double inspectorWidth = trackerGeometryInspectorWidth(canvas);
     const Column inspector {
@@ -1324,8 +1326,10 @@ constexpr TrackerGeometryFamilyLayout trackerGeometryFamilyLayout(
     };
     const Panel view = fittedPanel(PluginClass::AnalyzerMonitor,
         PanelRole::Diagnostics, inspector, inspector.top, 1u);
-    const Panel lane = fittedStackPanel(
-        PanelRole::Lanes, view, 7u);
+    const Panel lane = includeViewPanel
+        ? fittedStackPanel(PanelRole::Lanes, view, laneCycleRowCount)
+        : fittedPanel(PluginClass::AnalyzerMonitor, PanelRole::Lanes,
+            inspector, inspector.top, laneCycleRowCount);
     const Panel edit = fittedStackPanel(
         PanelRole::Utility, lane, editShapeRowCount);
     const double bridgeY = edit.frame.y + edit.frame.height

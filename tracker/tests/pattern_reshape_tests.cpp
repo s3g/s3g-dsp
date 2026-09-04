@@ -172,10 +172,12 @@ int main()
         "FILL DEFAULTS should materialize the independent velocity cycles");
 
     Pattern mutationSource = source;
-    mutationSource.bursts[0u].name = "TEST RUFF";
-    mutationSource.bursts[0u].eventCount = 2u;
-    mutationSource.bursts[0u].events[0u] = { 0u, 36u, 110u, 45u };
-    mutationSource.bursts[0u].events[1u] = { 32768u, 36u, 92u, 45u };
+    BurstLibrary mutationBursts;
+    mutationBursts.bursts[0u].name = "TEST RUFF";
+    mutationBursts.bursts[0u].eventCount = 2u;
+    mutationBursts.bursts[0u].events[0u] = { 0u, 36u, 110u, 45u };
+    mutationBursts.bursts[0u].events[1u]
+        = { 32768u, 36u, 92u, 45u };
     PatternReshapeSettings mutation;
     mutation.pocket = 0.0f;
     mutation.mutationAmount = 1.0f;
@@ -186,8 +188,10 @@ int main()
     mutation.cycleDrift = 1.0f;
     mutation.mutationSeed = 1729u;
     mutation.laneDefaultNotes = { 36u, 38u };
-    const auto mutatedA = reshapePattern(mutationSource, mutation);
-    const auto mutatedB = reshapePattern(mutationSource, mutation);
+    const auto mutatedA = reshapePattern(
+        mutationSource, mutationBursts, mutation);
+    const auto mutatedB = reshapePattern(
+        mutationSource, mutationBursts, mutation);
     bool deterministic = mutatedA.notesAdded == mutatedB.notesAdded
         && mutatedA.notesMoved == mutatedB.notesMoved
         && mutatedA.burstsCreated == mutatedB.burstsCreated

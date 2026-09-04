@@ -52,6 +52,11 @@ void S3GTrackerStyleTextField(NSTextField* field,
 void S3GTrackerStyleSuiteTextField(NSTextField* field,
     NSTextAlignment alignment = NSTextAlignmentRight);
 void S3GTrackerStyleTextEditor(NSTextField* field);
+// Inline tracker editors normally occupy one cell. Polyphonic NOTE, VOL,
+// GATE, and MT text may be wider, so expand the temporary editor around its
+// source cell while keeping it wholly inside the currently visible grid.
+NSRect S3GTrackerExpandedCellEditorRect(NSRect cellRect,
+    NSRect visibleRect, NSString* text, NSFont* font);
 void S3GTrackerRestoreWindowFrame(NSWindow* window, NSString* autosaveName);
 
 // One visual contract for compact action buttons, including controls drawn

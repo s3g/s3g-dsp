@@ -44,7 +44,7 @@ ProjectDocument makeDocument()
     ProjectDocument document;
     activePattern(document).name = "Native Pattern α";
     activePattern(document).visibleRows = 12u;
-    auto& burst = activePattern(document).bursts[0u];
+    auto& burst = document.burstLibrary.bursts[0u];
     burst.name = "Break Rush";
     burst.eventCount = 4u;
     burst.events[0u] = { 0u, 48u, 127u, 70u };
@@ -190,10 +190,12 @@ ProjectDocument makeDocument()
     phrase.notes[0u] = NoteCell::withNote(42u);
     phrase.notes[3u] = NoteCell::withNote(46u);
     phrase.notes[5u] = NoteCell::withBurst(4u);
-    phrase.bursts[4u].name = "Phrase flam";
-    phrase.bursts[4u].eventCount = 2u;
-    phrase.bursts[4u].events[0u] = { 0u, 38u, 118u, 40u };
-    phrase.bursts[4u].events[1u] = { 49152u, 38u, 90u, 25u };
+    document.burstLibrary.bursts[4u].name = "Phrase flam";
+    document.burstLibrary.bursts[4u].eventCount = 2u;
+    document.burstLibrary.bursts[4u].events[0u]
+        = { 0u, 38u, 118u, 40u };
+    document.burstLibrary.bursts[4u].events[1u]
+        = { 49152u, 38u, 90u, 25u };
     phrase.velocities[3u] = ValueCell::withValue(0.72f);
     phrase.fxPairs[0u].actions[3u] = FxActionCell::sequencer(
         SequencerAction::MicroTime);
@@ -232,7 +234,7 @@ void testCompleteDeterministicRoundTrip()
     check(firstEncoding.find(
                 "\"format\": \"s3g-tracker-midi-composition\"")
                 != std::string::npos
-            && firstEncoding.find("\"version\": 1") != std::string::npos
+            && firstEncoding.find("\"version\": 2") != std::string::npos
             && firstEncoding.find("\"patterns\"") != std::string::npos
             && firstEncoding.find("\"arrangement\"") != std::string::npos
             && firstEncoding.find("\"playback\"") != std::string::npos
@@ -250,7 +252,7 @@ void testCompleteDeterministicRoundTrip()
             && firstEncoding.find("instruments") == std::string::npos
             && firstEncoding.find("sampleRate") == std::string::npos
             && firstEncoding.find("mainOutput") == std::string::npos,
-        "version 1 should contain only MIDI composition, playback, arrangement, and workspace data");
+        "version 2 should contain only MIDI composition, playback, arrangement, and workspace data");
 
     ProjectDocument decoded;
     const auto decodedResult = decodeProjectDocument(firstEncoding, decoded);
@@ -273,9 +275,9 @@ void testCompleteDeterministicRoundTrip()
             && decoded.phraseLibrary.phrases[3u].notes[3u].note == 46u
             && decoded.phraseLibrary.phrases[3u].notes[5u].state
                 == NoteCellState::Burst
-            && decoded.phraseLibrary.phrases[3u].bursts[4u].name
+            && decoded.burstLibrary.bursts[4u].name
                 == "Phrase flam"
-            && decoded.phraseLibrary.phrases[3u].bursts[4u].events[1u]
+            && decoded.burstLibrary.bursts[4u].events[1u]
                 .position == 49152u
             && decoded.phraseLibrary.phrases[3u].fxPairs[0u].values[3u]
                 .normalized == 0.6f
@@ -300,8 +302,8 @@ void testCompleteDeterministicRoundTrip()
             && activePattern(decoded).tracks[0u].gates[7u]
                     .gateVoice(1u).mode == GateVoiceMode::Tie
             && activePattern(decoded).tracks[0u].gateColumn.phase == 4u
-            && activePattern(decoded).bursts[0u].name == "Break Rush"
-            && activePattern(decoded).bursts[0u].events[2u].note == 50u
+            && decoded.burstLibrary.bursts[0u].name == "Break Rush"
+            && decoded.burstLibrary.bursts[0u].events[2u].note == 50u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actions[11u]
                 .sequencerAction == SequencerAction::Euclid
@@ -372,6 +374,52 @@ void testEmptyOptionalSongIsAValidProject()
         "a project should not require song mode to be authored");
 }
 
+void testProjectWideBurstIdentity()
+{
+    ProjectDocument document;
+    auto& shared = document.burstLibrary.bursts[3u];
+    shared.name = "ONE SHARED RUFF";
+    shared.eventCount = 2u;
+    shared.events[0u] = { 0u, 38u, 118u, 35u };
+    shared.events[1u] = { 32768u, 38u, 91u, 30u };
+
+    Pattern first;
+    first.visibleRows = 4u;
+    first.tracks.emplace_back();
+    first.tracks[0u].initialInstrumentNodeId = kMidiOutInstrumentNode;
+    first.tracks[0u].notes.assign(4u, NoteCell::rest());
+    first.tracks[0u].velocities.assign(4u, ValueCell::defaultValue());
+    first.tracks[0u].noteColumn.length = 4u;
+    first.tracks[0u].velocityColumn.length = 4u;
+    first.tracks[0u].notes[0u] = NoteCell::withBurst(3u);
+    document.patternBank.entries[0u].pattern = first;
+
+    Pattern second = first;
+    second.tracks[0u].notes[0u] = NoteCell::rest();
+    second.tracks[0u].notes[2u] = NoteCell::withBurst(3u);
+    document.patternBank.entries.push_back({ "A02", second, {}, {} });
+
+    auto& phrase = document.phraseLibrary.phrases[0u];
+    phrase = makeBlankPhrase(4u);
+    phrase.name = "SHARED RUFF PHRASE";
+    phrase.notes[1u] = NoteCell::withBurst(3u);
+
+    std::string encoded;
+    const auto encodedResult = encodeProjectDocument(document, encoded);
+    if (!encodedResult.ok())
+        std::cerr << "shared Burst encode error: " << encodedResult.location
+                  << ": " << encodedResult.message << '\n';
+    check(encodedResult.ok(),
+        "one project Burst should satisfy references from multiple patterns and a Phrase");
+    ProjectDocument decoded;
+    check(decodeProjectDocument(encoded, decoded).ok()
+            && decoded.burstLibrary.bursts[3u].name == "ONE SHARED RUFF"
+            && decoded.patternBank.entries[0u].pattern.tracks[0u].notes[0u].note == 3u
+            && decoded.patternBank.entries[1u].pattern.tracks[0u].notes[2u].note == 3u
+            && decoded.phraseLibrary.phrases[0u].notes[1u].note == 3u,
+        "project roundtrip should preserve a single shared Burst slot identity everywhere");
+}
+
 void testDefaultAppDemoIsSaveable()
 {
     TrackerSession session;
@@ -409,9 +457,9 @@ void testRapBurstSeqDemoLoadsAsMidiComposition()
 
     bool hasBurst = false;
     bool hasSequencerAction = false;
+    for (const auto& burst : demo.burstLibrary.bursts)
+        hasBurst |= !burst.empty();
     for (const auto& entry : demo.patternBank.entries) {
-        for (const auto& burst : entry.pattern.bursts)
-            hasBurst |= !burst.empty();
         for (const auto& track : entry.pattern.tracks) {
             for (const auto& pair : track.fxPairs) {
                 for (const auto& action : pair.actions) {
@@ -464,9 +512,9 @@ void testStrictTransactionalRejection()
     activePattern(destination).name = "sentinel";
 
     std::string wrongVersion = encoded;
-    const auto version = wrongVersion.find("\"version\": 1");
-    wrongVersion.replace(version, std::string("\"version\": 1").size(),
-        "\"version\": 2");
+    const auto version = wrongVersion.find("\"version\": 2");
+    wrongVersion.replace(version, std::string("\"version\": 2").size(),
+        "\"version\": 99");
     const auto unsupported = decodeProjectDocument(wrongVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion
             && activePattern(destination).name == "sentinel",
@@ -651,6 +699,7 @@ int main()
 {
     testCompleteDeterministicRoundTrip();
     testEmptyOptionalSongIsAValidProject();
+    testProjectWideBurstIdentity();
     testDefaultAppDemoIsSaveable();
     testRapBurstSeqDemoLoadsAsMidiComposition();
     testUnknownFieldsAreSafelyIgnored();

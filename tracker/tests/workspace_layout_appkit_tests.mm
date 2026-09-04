@@ -114,6 +114,7 @@
     lastRow:(std::size_t)lastRow;
 - (void)applyCurrentPitchMap;
 - (NSArray<NSString*>*)itemsForGeometryMenu:(NSInteger)menu;
+- (NSRect)dropdownRectForGeometryMenu:(NSInteger)menu;
 - (NSRect)pitchGraphRect;
 - (NSRect)burstMatrixRect;
 - (NSRect)burstMatrixRowRect:(std::size_t)row;
@@ -236,6 +237,7 @@ int main()
         int patternPreviewRequests = 0;
         int patternPreviewClearRequests = 0;
         int patternVariantRequests = 0;
+        int phraseLibraryExportRequests = 0;
         s3g::tracker::Pattern previewedPattern;
         s3g::tracker::Pattern createdVariant;
         s3g::tracker::BurstDefinition previewedBurst;
@@ -278,6 +280,9 @@ int main()
             ++viewPreferenceRequests;
         };
         callbacks.showTrackerPage = [&] { ++trackerRevealRequests; };
+        callbacks.exportPhraseLibraryAssetPack = [&] {
+            ++phraseLibraryExportRequests;
+        };
         callbacks.previewBurst = [&](const s3g::tracker::BurstDefinition& burst,
             uint8_t channel, double bpm, uint32_t ticksPerBeat) {
             ++burstPreviewRequests;
@@ -393,6 +398,7 @@ int main()
         NSTextField* consoleLiveCode = [controller
             valueForKey:@"consolePageInput"];
         NSView* geometryPage = [controller geometryPageView];
+        NSView* burstPage = [controller burstPageView];
         NSView* phrasePage = [controller phrasePageView];
         NSView* reshapePage = [controller reshapePageView];
         NSView* warpPage = [controller warpPageView];
@@ -405,6 +411,8 @@ int main()
             valueForKey:@"previewChannelPopup"];
         NSView* phraseGrid = [phraseController valueForKey:@"grid"];
         NSPopUpButton* geometryViewMode = [geometryPage
+            valueForKey:@"viewModePopup"];
+        NSPopUpButton* burstViewMode = [burstPage
             valueForKey:@"viewModePopup"];
         NSPopUpButton* geometryLanePopup = [geometryPage
             valueForKey:@"lanePopup"];
@@ -510,6 +518,26 @@ int main()
         check(std::abs(state.phraseLibrary.phrases[0u].velocities[0u]
                     .normalized - 1.0f) < 0.0001f,
             "Phrase VOL entry should interpret both 0 and 1 as normalized endpoints");
+        std::array<float, s3g::tracker::kMaximumNoteVoices>
+            phrasePolyphonicVolumes {{
+                0.100f, 0.200f, 0.300f, 0.400f,
+                0.500f, 0.600f, 0.700f, 0.800f,
+            }};
+        state.phraseLibrary.phrases[0u].velocities[0u]
+            = s3g::tracker::ValueCell::withValues(
+                phrasePolyphonicVolumes, phrasePolyphonicVolumes.size());
+        [phraseGrid setValue:@0u forKey:@"selectedRow"];
+        [phraseGrid setValue:@1u forKey:@"selectedField"];
+        [phraseGrid performSelector:@selector(beginEditing) withObject:nil];
+        phraseCellEditor = [phraseGrid valueForKey:@"editor"];
+        check([phraseCellEditor.stringValue
+                    isEqualToString:
+                        @"0.100+0.200+0.300+0.400+0.500+0.600+0.700+0.800"]
+                && NSWidth(phraseCellEditor.frame) > 300.0
+                && NSContainsRect(phraseGrid.visibleRect,
+                    phraseCellEditor.frame),
+            "double-click editing should expand a polyphonic Phrase VOL cell to reveal every voice inside the visible grid");
+        [phraseGrid performSelector:@selector(commitEditor:) withObject:nil];
 
         auto& editedPhrase = state.phraseLibrary.phrases[0u];
         editedPhrase.notes[0u] = s3g::tracker::NoteCell::withNote(60u);
@@ -518,6 +546,23 @@ int main()
             = s3g::tracker::ValueCell::withValue(0.75f);
         editedPhrase.velocities[1u]
             = s3g::tracker::ValueCell::withValue(0.25f);
+        [phraseController performSelector:@selector(exportAllPacksPressed:)
+            withObject:nil];
+        check(phraseLibraryExportRequests == 1,
+            "Phrase EXPORT ALL should dispatch the complete project Phrase Library");
+        const int phraseChangesBeforeDuplicate = patternChangeRequests;
+        [phraseController performSelector:@selector(duplicatePressed:)
+            withObject:nil];
+        check(state.selectedPhrase == 1u
+                && state.phraseLibrary.phrases[1u].name == "PHRASE COPY"
+                && state.phraseLibrary.phrases[1u].notes[0u].note == 60u
+                && state.phraseLibrary.phrases[1u].notes[1u].note == 64u
+                && state.phraseLibrary.phrases[1u].previewMidiChannel == 10u
+                && patternChangeRequests == phraseChangesBeforeDuplicate + 1,
+            "Phrase DUP should copy the complete selected Phrase into the first empty slot and select it");
+        state.phraseLibrary.phrases[1u] = {};
+        state.selectedPhrase = 0u;
+        [phraseController reloadModel];
         const NSPoint phraseSelectionStart = [phraseGrid convertPoint:
             NSMakePoint(80.0, 35.0) toView:nil];
         const NSPoint phraseSelectionEnd = [phraseGrid convertPoint:
@@ -659,7 +704,7 @@ int main()
             = s3g::tracker::NoteCell::withBurst(3u);
         state.phraseLibrary.phrases[0u].notes[2u]
             = s3g::tracker::NoteCell::withNote(64u);
-        auto& phraseBurst = state.phraseLibrary.phrases[0u].bursts[3u];
+        auto& phraseBurst = state.session.burstLibrary.bursts[3u];
         phraseBurst.name = "Phrase burst";
         phraseBurst.eventCount = 2u;
         phraseBurst.events[0u] = { 0u, 36u, 110u, 35u };
@@ -675,7 +720,7 @@ int main()
                 && previewedPitch[2u].position == 32768u
                 && [[phraseController valueForKey:@"previewPlayheadRow"]
                     integerValue] == 0,
-            "Phrase Preview should audition embedded Burst timing and start its visible playhead");
+            "Phrase Preview should audition project Burst timing and start its visible playhead");
         NSTimer* phrasePreviewTimer = [phraseController
             valueForKey:@"previewTimer"];
         [phrasePreviewTimer fire];
@@ -687,10 +732,10 @@ int main()
         previewedPitch.clear();
         const auto previousCaptureNote = state.session.pattern.tracks[0u]
             .notes[10u];
-        const auto previousCaptureBurst = state.session.pattern.bursts[7u];
-        state.session.pattern.bursts[7u].name = "Captured phrase roll";
-        state.session.pattern.bursts[7u].eventCount = 1u;
-        state.session.pattern.bursts[7u].events[0u]
+        const auto previousCaptureBurst = state.session.burstLibrary.bursts[7u];
+        state.session.burstLibrary.bursts[7u].name = "Captured phrase roll";
+        state.session.burstLibrary.bursts[7u].eventCount = 1u;
+        state.session.burstLibrary.bursts[7u].events[0u]
             = { 16384u, 40u, 105u, 45u };
         state.session.pattern.tracks[0u].notes[10u]
             = s3g::tracker::NoteCell::withBurst(7u);
@@ -701,11 +746,11 @@ int main()
         check(capturedPhraseBurst
                 && state.phraseLibrary.phrases[1u].notes[0u].state
                     == s3g::tracker::NoteCellState::Burst
-                && state.phraseLibrary.phrases[1u].bursts[7u].name
+                && state.session.burstLibrary.bursts[7u].name
                     == "Captured phrase roll",
-            "Tracker-selection Phrase capture should carry referenced Burst definitions");
+            "Tracker-selection Phrase capture should retain its project Burst reference");
         state.session.pattern.tracks[0u].notes[10u] = previousCaptureNote;
-        state.session.pattern.bursts[7u] = previousCaptureBurst;
+        state.session.burstLibrary.bursts[7u] = previousCaptureBurst;
         state.selectedPhrase = 0u;
         [phraseController reloadModel];
         phraseTestWindow.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -747,6 +792,8 @@ int main()
         check(envelopePlaybackOverlay.wantsLayer
                 && geometryPlaybackOverlay.wantsLayer,
             "animated envelope and geometry marks should use isolated overlays");
+        NSArray<NSString*>* geometryMenuItems = [geometryPage
+            itemsForGeometryMenu:3];
         check(geometryViewMode.numberOfItems == 8u
                 && [[geometryViewMode itemAtIndex:0].title
                     isEqualToString:@"RING FIELD"]
@@ -762,20 +809,41 @@ int main()
                     isEqualToString:@"COMPOSITE RING"]
                 && [[geometryViewMode itemAtIndex:6].title
                     isEqualToString:@"BURST EDITOR"]
+                && [geometryViewMode itemAtIndex:6].hidden
                 && [[geometryViewMode itemAtIndex:7].title
                     isEqualToString:@"PITCH MAP"]
+                && geometryMenuItems.count == 7u
+                && ![geometryMenuItems containsObject:@"BURST EDITOR"]
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == 0,
-            "Geometry should default to Ring Field and expose diagnostics, Burst, and Pitch Map workspaces");
-        auto& matrixBurst = state.session.pattern.bursts[0u];
+            "Geometry should default to Ring Field and exclude the dedicated Burst workspace from its menu");
+        burstPage.frame = NSMakeRect(0.0, 0.0, 1320.0, 780.0);
+        [burstPage layoutSubtreeIfNeeded];
+        check(!burstViewMode.enabled
+                && [[burstPage valueForKey:@"burstLibraryOnly"] boolValue]
+                && [[burstPage valueForKey:@"geometryViewMode"]
+                    integerValue] == 6
+                && [burstPage itemsForGeometryMenu:3].count == 0u
+                && near(NSMinY([burstPage laneCyclePanelRect]),
+                    s3g::gui_layout::kTrackerPageContentTop),
+            "the dedicated Bursts page should omit View, fix its mode, and move Burst Library to the shared top inset");
+        const NSRect burstLibraryDropdown = [burstPage
+            dropdownRectForGeometryMenu:5];
+        check([burstPage itemsForGeometryMenu:5].count == 64u
+                && NSWidth(burstLibraryDropdown) >= 500.0
+                && NSMinY(burstLibraryDropdown) >= 8.0
+                && NSMaxY(burstLibraryDropdown)
+                    <= NSHeight(burstPage.bounds) - 8.0,
+            "the 64-slot Burst Library menu should use a bounded two-column layout");
+        auto& matrixBurst = state.session.burstLibrary.bursts[0u];
         matrixBurst.name = "MATRIX TEST";
         matrixBurst.eventCount = 2u;
         matrixBurst.events[0u] = { 0u, 48u, 64u, 70u };
         matrixBurst.events[1u] = { 32768u, 52u, 80u, 75u };
-        [geometryPage selectBurstSlot:0u];
-        NSTextField* burstNameField = [geometryPage
+        [burstPage selectBurstSlot:0u];
+        NSTextField* burstNameField = [burstPage
             valueForKey:@"burstNameField"];
-        NSButton* burstSaveButton = [geometryPage
+        NSButton* burstSaveButton = [burstPage
             valueForKey:@"burstSaveButton"];
         burstNameField.stringValue = @"AMEN PUSH";
         [burstSaveButton performClick:nil];
@@ -783,9 +851,9 @@ int main()
                 && [burstSaveButton.title isEqualToString:@"SAVE"]
                 && matrixBurst.name == "AMEN PUSH",
             "Burst Library should use a persistent NAME field and explicit SAVE action like Warps");
-        const NSRect previewBurstButton = [geometryPage
+        const NSRect previewBurstButton = [burstPage
             burstPreviewHeaderButtonRect];
-        const BOOL previewed = [geometryPage handleToolboxClickAtPoint:
+        const BOOL previewed = [burstPage handleToolboxClickAtPoint:
             NSMakePoint(NSMidX(previewBurstButton), NSMidY(previewBurstButton))];
         check(previewed && burstPreviewRequests == 1
                 && previewedBurst.name == "AMEN PUSH"
@@ -795,33 +863,33 @@ int main()
                     == state.session.transport.ticksPerBeat,
             "stopped Burst Preview should dispatch the selected phrase on the lane channel at the project clock");
         state.playing = true;
-        (void)[geometryPage handleToolboxClickAtPoint:
+        (void)[burstPage handleToolboxClickAtPoint:
             NSMakePoint(NSMidX(previewBurstButton), NSMidY(previewBurstButton))];
         check(burstPreviewRequests == 1,
             "Burst Preview should remain unavailable while transport is running");
         state.playing = false;
-        const NSRect burstMatrix = [geometryPage burstMatrixRect];
-        const NSRect burstVelocityCell = [geometryPage
+        const NSRect burstMatrix = [burstPage burstMatrixRect];
+        const NSRect burstVelocityCell = [burstPage
             burstMatrixCellRect:1u field:2];
-        const BOOL beganVelocityEdit = [geometryPage
+        const BOOL beganVelocityEdit = [burstPage
             beginBurstCanvasGestureAtPoint:NSMakePoint(
                 NSMidX(burstVelocityCell), NSMidY(burstVelocityCell))];
-        [geometryPage updateBurstMatrixGestureAtPoint:NSMakePoint(
+        [burstPage updateBurstMatrixGestureAtPoint:NSMakePoint(
             NSMaxX(burstVelocityCell) - 6.0, NSMidY(burstVelocityCell))];
-        [geometryPage finishGeometryGesture];
-        const NSRect addRow = [geometryPage burstMatrixRowRect:4u];
-        const BOOL beganAdd = [geometryPage beginBurstCanvasGestureAtPoint:
+        [burstPage finishGeometryGesture];
+        const NSRect addRow = [burstPage burstMatrixRowRect:4u];
+        const BOOL beganAdd = [burstPage beginBurstCanvasGestureAtPoint:
             NSMakePoint(NSMidX(addRow), NSMidY(addRow))];
-        [geometryPage finishGeometryGesture];
+        [burstPage finishGeometryGesture];
         check(NSWidth(burstMatrix) >= 360.0,
             "Burst workspace should expose a readable eight-row event matrix");
         check(beganVelocityEdit && matrixBurst.events[1u].velocity > 110u,
             "Burst matrix should directly edit an event value by dragging its cell");
         check(beganAdd && matrixBurst.eventCount == 5u,
             "Burst matrix should grow immediately when an unused event row is selected");
-        const NSRect fitGatesButton = [geometryPage
+        const NSRect fitGatesButton = [burstPage
             fitBurstGatesHeaderButtonRect];
-        const BOOL fitGates = [geometryPage handleToolboxClickAtPoint:
+        const BOOL fitGates = [burstPage handleToolboxClickAtPoint:
             NSMakePoint(NSMidX(fitGatesButton), NSMidY(fitGatesButton))];
         check(fitGates
                 && std::all_of(matrixBurst.events.begin(),
@@ -830,10 +898,10 @@ int main()
                         return event.gatePercent == 20u;
                     }),
             "Burst Substeps should fit gates between even onsets and the primary row boundary");
-        const NSRect placeBurstButton = [geometryPage revealHeaderButtonRect];
-        const BOOL placedBurst = [geometryPage handleToolboxClickAtPoint:
+        const NSRect placeBurstButton = [burstPage revealHeaderButtonRect];
+        const BOOL placedBurst = [burstPage handleToolboxClickAtPoint:
             NSMakePoint(NSMidX(placeBurstButton), NSMidY(placeBurstButton))];
-        const BOOL placementFeedback = [[geometryPage
+        const BOOL placementFeedback = [[burstPage
             valueForKey:@"burstPlaceFeedbackActive"] boolValue];
         check(placedBurst && placementFeedback
                 && state.session.pattern.tracks[0u].notes[0u].state
@@ -841,8 +909,6 @@ int main()
             "placing a Burst should immediately latch visible success feedback");
         state.session.pattern.tracks[0u].notes[0u]
             = s3g::tracker::NoteCell::withNote(60u);
-        [geometryPage setValue:@(0) forKey:@"geometryViewMode"];
-        [geometryViewMode selectItemAtIndex:0u];
         patternChangeRequests = 0;
         check(geometryTools.count == 4u
                 && [geometryTools[0u].title isEqualToString:@"SELECT"]
@@ -1585,10 +1651,11 @@ int main()
             @"Burst editor", @"Pitch map"
         ];
         BOOL geometryModesDispatch = YES;
-        for (NSInteger mode = 1; mode < 8; ++mode) {
+        for (NSInteger menuIndex = 1; menuIndex < 7; ++menuIndex) {
+            const NSInteger mode = menuIndex == 6 ? 7 : menuIndex;
             geometryPlaybackOverlay.needsDisplay = NO;
             [geometryPage openGeometryMenu:3];
-            [geometryPage applyGeometryMenuSelection:mode];
+            [geometryPage applyGeometryMenuSelection:menuIndex];
             geometryModesDispatch = geometryModesDispatch
                 && [[geometryPage valueForKey:@"geometryViewMode"]
                     integerValue] == mode
@@ -1606,7 +1673,7 @@ int main()
                     && [geometryPage allStepsUnderlayNodeCount] == 0u;
         }
         check(geometryModesDispatch,
-            "every Geometry view should dispatch, with All Steps alone exposing the complete row-node lattice");
+            "every Geometry view should dispatch without crossing into the dedicated Bursts page");
         state.session.selectedTrack = 0u;
         auto& pitchTrack = state.session.pattern.tracks[0u];
         pitchTrack.noteColumn.length = std::max<std::size_t>(

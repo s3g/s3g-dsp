@@ -1,5 +1,6 @@
 add_library(s3g_tracker_core STATIC
   src/audio/s3g_tracker_stereo_slice_sampler_node.cpp
+  src/core/asset_pack.cpp
   src/core/command.cpp
   src/core/fx_catalog.cpp
   src/core/geometry_edit.cpp
@@ -19,6 +20,11 @@ add_library(s3g_tracker_core STATIC
   src/core/timing_playback_scheduler.cpp
   src/core/timing_warp.cpp
 )
+
+add_executable(s3g_tracker_starter_pack_generator
+  tools/generate_starter_pack.cpp)
+target_link_libraries(s3g_tracker_starter_pack_generator
+  PRIVATE s3g_tracker_core)
 set_target_properties(s3g_tracker_core PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 
@@ -58,6 +64,9 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_project_codec_tests tests/project_codec_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_bank_tests tests/pattern_bank_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_phrase_library_tests tests/phrase_library_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_asset_pack_tests tests/asset_pack_tests.cpp)
+  target_compile_definitions(s3g_tracker_asset_pack_tests PRIVATE
+    S3G_TRACKER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   s3g_add_tracker_test(s3g_tracker_pitch_map_tests tests/pitch_map_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_reshape_tests tests/pattern_reshape_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)

@@ -26,11 +26,6 @@ struct PhraseDefinition {
     std::vector<ValueCell> velocities;
     std::vector<GateCell> gates;
     std::array<FxPair, kFxPairCount> fxPairs;
-    // Burst cells carry their referenced definitions with the Phrase. Slots
-    // retain their source indices until placement, where conflicts are safely
-    // remapped into an identical or empty destination Pattern slot.
-    std::array<BurstDefinition, kBurstDefinitionCount> bursts {};
-
     bool empty() const noexcept;
 };
 

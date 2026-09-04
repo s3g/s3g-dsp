@@ -39,21 +39,6 @@ bool fxValueIsEmpty(const FxValueCell& cell) noexcept
     return cell.state == FxValueCellState::Previous;
 }
 
-bool burstEqual(const BurstDefinition& left,
-    const BurstDefinition& right) noexcept
-{
-    if (left.name != right.name || left.eventCount != right.eventCount)
-        return false;
-    for (std::size_t index = 0u; index < left.eventCount; ++index) {
-        const auto& a = left.events[index];
-        const auto& b = right.events[index];
-        if (a.position != b.position || a.note != b.note
-            || a.velocity != b.velocity
-            || a.gatePercent != b.gatePercent) return false;
-    }
-    return true;
-}
-
 template <typename Cell, typename EmptyPredicate>
 void placeCells(std::vector<Cell>& destination,
     const std::vector<Cell>& source, std::size_t row,
@@ -148,13 +133,6 @@ bool capturePhrase(const Pattern& source, std::size_t track,
     PhraseDefinition candidate = destination;
     if (!capturePhrase(source.tracks[track], firstRow, lastRow, candidate))
         return false;
-    for (const auto& cell : candidate.notes) {
-        if (cell.state != NoteCellState::Burst) continue;
-        const auto slot = static_cast<std::size_t>(cell.note);
-        if (slot >= source.bursts.size() || source.bursts[slot].empty())
-            return false;
-        candidate.bursts[slot] = source.bursts[slot];
-    }
     destination = std::move(candidate);
     return true;
 }
@@ -199,58 +177,7 @@ bool placePhrase(Pattern& destination, std::size_t track,
 {
     if (track >= destination.tracks.size()) return false;
     Pattern candidate = destination;
-    PhraseDefinition remapped = phrase;
-    std::array<std::size_t, kBurstDefinitionCount> slotMap {};
-    for (std::size_t slot = 0u; slot < slotMap.size(); ++slot)
-        slotMap[slot] = slot;
-    std::array<bool, kBurstDefinitionCount> resolved {};
-    for (std::size_t row = 0u; row < remapped.length; ++row) {
-        if (row >= remapped.notes.size()) break;
-        auto& cell = remapped.notes[row];
-        if (cell.state != NoteCellState::Burst) continue;
-        const auto sourceSlot = static_cast<std::size_t>(cell.note);
-        if (sourceSlot >= remapped.bursts.size()) return false;
-        const auto destinationRowIndex = destinationRow + row;
-        if (mode == PhrasePlacementMode::MergeIntoEmpty
-            && destinationRowIndex < candidate.tracks[track].notes.size()
-            && !noteIsEmpty(candidate.tracks[track].notes[
-                destinationRowIndex])) continue;
-        if (!resolved[sourceSlot]) {
-            const auto& burst = remapped.bursts[sourceSlot];
-            if (burst.empty()) {
-                if (candidate.bursts[sourceSlot].empty()) return false;
-                slotMap[sourceSlot] = sourceSlot;
-            } else if (candidate.bursts[sourceSlot].empty()
-                || burstEqual(candidate.bursts[sourceSlot], burst)) {
-                candidate.bursts[sourceSlot] = burst;
-                slotMap[sourceSlot] = sourceSlot;
-            } else {
-                std::size_t destinationSlot = kBurstDefinitionCount;
-                for (std::size_t slot = 0u;
-                     slot < candidate.bursts.size(); ++slot) {
-                    if (burstEqual(candidate.bursts[slot], burst)) {
-                        destinationSlot = slot;
-                        break;
-                    }
-                }
-                if (destinationSlot == kBurstDefinitionCount) {
-                    for (std::size_t slot = 0u;
-                         slot < candidate.bursts.size(); ++slot) {
-                        if (candidate.bursts[slot].empty()) {
-                            destinationSlot = slot;
-                            candidate.bursts[slot] = burst;
-                            break;
-                        }
-                    }
-                }
-                if (destinationSlot == kBurstDefinitionCount) return false;
-                slotMap[sourceSlot] = destinationSlot;
-            }
-            resolved[sourceSlot] = true;
-        }
-        cell.note = static_cast<uint8_t>(slotMap[sourceSlot]);
-    }
-    if (!placePhrase(candidate.tracks[track], remapped, destinationRow, mode))
+    if (!placePhrase(candidate.tracks[track], phrase, destinationRow, mode))
         return false;
     destination = std::move(candidate);
     return true;

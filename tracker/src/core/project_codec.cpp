@@ -1,4 +1,5 @@
 #include "s3g/tracker/project_codec.h"
+#include "s3g/tracker/asset_pack.h"
 
 #include <algorithm>
 #include <array>
@@ -875,7 +876,7 @@ JsonValue encodeNoteCells(const std::vector<NoteCell>& cells,
             if (cells[index].note >= kBurstDefinitionCount)
                 setError(result, ProjectErrorCode::OutOfRange,
                     std::string(path) + "[" + std::to_string(index)
-                        + "].burst", "burst slot must be B01..B32");
+                        + "].burst", "burst slot must be B01..B64");
             cell.object["burst"] = number(
                 static_cast<uint32_t>(cells[index].note));
             cell.object["state"] = JsonValue::stringValue("burst");
@@ -1044,13 +1045,13 @@ bool decodeGateCells(const JsonValue& input, std::vector<GateCell>& destination,
     return true;
 }
 
-JsonValue encodeBursts(const Pattern& pattern, std::string_view path,
+JsonValue encodeBursts(const BurstLibrary& library, std::string_view path,
     ProjectResult& result)
 {
     JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(pattern.bursts.size());
-    for (std::size_t slot = 0u; slot < pattern.bursts.size(); ++slot) {
-        const auto& burst = pattern.bursts[slot];
+    output.array.reserve(library.bursts.size());
+    for (std::size_t slot = 0u; slot < library.bursts.size(); ++slot) {
+        const auto& burst = library.bursts[slot];
         if (burst.empty() && burst.name.empty()) continue;
         const std::string slotPath = std::string(path) + "["
             + std::to_string(slot) + "]";
@@ -1089,13 +1090,13 @@ JsonValue encodeBursts(const Pattern& pattern, std::string_view path,
     return output;
 }
 
-bool decodeBursts(const JsonValue& input, Pattern& pattern,
+bool decodeBursts(const JsonValue& input, BurstLibrary& library,
     std::string_view path, ProjectResult& result)
 {
     if (input.type != JsonType::Array
         || input.array.size() > kBurstDefinitionCount)
         return setError(result, ProjectErrorCode::InconsistentData,
-            std::string(path), "burst library exceeds 32 occupied slots");
+            std::string(path), "burst library exceeds 64 occupied slots");
     std::array<bool, kBurstDefinitionCount> occupied {};
     for (std::size_t index = 0u; index < input.array.size(); ++index) {
         const std::string slotPath = std::string(path) + "["
@@ -1118,7 +1119,7 @@ bool decodeBursts(const JsonValue& input, Pattern& pattern,
         if (events->array.size() > kMaximumBurstEvents)
             return setError(result, ProjectErrorCode::SizeLimitExceeded,
                 slotPath + ".events", "burst exceeds eight events");
-        auto& burst = pattern.bursts[slot];
+        auto& burst = library.bursts[slot];
         if (!checkedString(*name, burst.name, kMaximumBurstNameBytes,
                 slotPath + ".name", result)) return false;
         burst.eventCount = static_cast<uint8_t>(events->array.size());
@@ -1674,24 +1675,11 @@ JsonValue encodePattern(const Pattern& pattern, std::string_view path,
             std::string(path) + ".tracks",
             "pattern exceeds the 32-track limit");
     JsonValue output = JsonValue::objectValue();
-    output.object["bursts"] = encodeBursts(pattern,
-        std::string(path) + ".bursts", result);
     output.object["name"] = encodeCheckedString(pattern.name,
         kMaximumNameBytes, std::string(path) + ".name", result);
     JsonValue tracks = JsonValue::arrayValue();
     tracks.array.reserve(pattern.tracks.size());
     for (std::size_t index = 0u; index < pattern.tracks.size(); ++index) {
-        for (std::size_t row = 0u;
-             row < pattern.tracks[index].notes.size(); ++row) {
-            const auto& cell = pattern.tracks[index].notes[row];
-            if (cell.state == NoteCellState::Burst
-                && (cell.note >= pattern.bursts.size()
-                    || pattern.bursts[cell.note].empty()))
-                setError(result, ProjectErrorCode::InconsistentData,
-                    std::string(path) + ".tracks[" + std::to_string(index)
-                        + "].notes[" + std::to_string(row) + "].burst",
-                    "note cell references an empty burst slot");
-        }
         tracks.array.push_back(encodeTrack(pattern.tracks[index],
             std::string(path) + ".tracks[" + std::to_string(index) + "]",
             result));
@@ -1736,25 +1724,6 @@ bool decodePattern(const JsonValue& input, Pattern& destination,
             return false;
         candidate.tracks.push_back(std::move(track));
     }
-    const auto* bursts = requiredField(input, "bursts", JsonType::Array,
-        path, result);
-    if (!bursts || !decodeBursts(*bursts, candidate,
-            std::string(path) + ".bursts", result)) return false;
-    for (std::size_t trackIndex = 0u;
-         trackIndex < candidate.tracks.size(); ++trackIndex) {
-        for (std::size_t row = 0u;
-             row < candidate.tracks[trackIndex].notes.size(); ++row) {
-            const auto& cell = candidate.tracks[trackIndex].notes[row];
-            if (cell.state != NoteCellState::Burst) continue;
-            if (cell.note >= candidate.bursts.size()
-                || candidate.bursts[cell.note].empty())
-                return setError(result, ProjectErrorCode::InconsistentData,
-                    std::string(path) + ".tracks["
-                        + std::to_string(trackIndex) + "].notes["
-                        + std::to_string(row) + "].burst",
-                    "note cell references an empty burst slot");
-        }
-    }
     destination = std::move(candidate);
     return true;
 }
@@ -1763,8 +1732,12 @@ JsonValue encodePhraseLibrary(const PhraseLibrary& library,
     ProjectResult& result)
 {
     JsonValue output = JsonValue::arrayValue();
-    output.array.reserve(library.phrases.size());
-    for (std::size_t index = 0u; index < library.phrases.size(); ++index) {
+    std::size_t count = 0u;
+    for (std::size_t index = 0u; index < library.phrases.size(); ++index)
+        if (!library.phrases[index].empty()
+            || !library.phrases[index].name.empty()) count = index + 1u;
+    output.array.reserve(count);
+    for (std::size_t index = 0u; index < count; ++index) {
         const auto& phrase = library.phrases[index];
         const std::string path = "$.phrases[" + std::to_string(index) + "]";
         if (phrase.length < kMinimumPhraseRows
@@ -1789,10 +1762,6 @@ JsonValue encodePhraseLibrary(const PhraseLibrary& library,
             pairs.array.push_back(encodeFxPair(phrase.fxPairs[pair],
                 path + ".fxPairs[" + std::to_string(pair) + "]", result));
         item.object["fxPairs"] = std::move(pairs);
-        Pattern burstCarrier;
-        burstCarrier.bursts = phrase.bursts;
-        item.object["bursts"] = encodeBursts(burstCarrier,
-            path + ".bursts", result);
         output.array.push_back(std::move(item));
     }
     return output;
@@ -1830,7 +1799,6 @@ bool decodePhraseLibrary(const JsonValue& input, PhraseLibrary& destination,
                 path + ".fxPairs", "exactly two FX pairs are required");
         auto& phrase = candidate.phrases[index];
         const auto previewChannel = item.object.find("previewMidiChannel");
-        const auto bursts = item.object.find("bursts");
         if (!checkedString(*name, phrase.name, kMaximumPhraseNameBytes,
                 path + ".name", result)
             || !checkedSize(*length, phrase.length, kMaximumPhraseRows,
@@ -1858,12 +1826,6 @@ bool decodePhraseLibrary(const JsonValue& input, PhraseLibrary& destination,
                 return false;
             }
             phrase.previewMidiChannel = static_cast<uint8_t>(channel);
-        }
-        if (bursts != item.object.end()) {
-            Pattern burstCarrier;
-            if (!decodeBursts(bursts->second, burstCarrier,
-                    path + ".bursts", result)) return false;
-            phrase.bursts = std::move(burstCarrier.bursts);
         }
         for (std::size_t pair = 0u; pair < kFxPairCount; ++pair) {
             if (!decodeFxPair(fxPairs->array[pair], phrase.fxPairs[pair],
@@ -2040,6 +2002,211 @@ bool decodePatternBank(const JsonValue& input, PatternBank& destination,
 }
 
 } // namespace
+} // namespace s3g::tracker
+
+namespace s3g::tracker {
+namespace {
+
+std::string packBurstId(std::size_t slot)
+{
+    std::ostringstream stream;
+    stream << "burst-b" << std::setfill('0') << std::setw(2) << slot + 1u;
+    return stream.str();
+}
+
+std::string packPhraseId(std::size_t slot)
+{
+    std::ostringstream stream;
+    stream << "phrase-p" << std::setfill('0') << std::setw(2) << slot + 1u;
+    return stream.str();
+}
+
+JsonValue encodeAssetPackDocument(const TrackerAssetPack& pack,
+    ProjectResult& result)
+{
+    JsonValue root = JsonValue::objectValue();
+    root.object["format"] = JsonValue::stringValue(kTrackerAssetPackFormat);
+    root.object["version"] = number(kTrackerAssetPackVersion);
+    root.object["name"] = encodeCheckedString(pack.name, kMaximumNameBytes,
+        "$.name", result);
+    JsonValue bursts = encodeBursts(pack.burstLibrary, "$.bursts", result);
+    for (auto& item : bursts.array) {
+        const auto slot = item.object.find("slot");
+        if (slot == item.object.end()) continue;
+        item.object["id"] = JsonValue::stringValue(packBurstId(
+            static_cast<std::size_t>(slot->second.number)));
+    }
+    root.object["bursts"] = std::move(bursts);
+    JsonValue phrases = encodePhraseLibrary(pack.phraseLibrary, result);
+    for (std::size_t index = 0u; index < phrases.array.size(); ++index) {
+        auto& item = phrases.array[index];
+        item.object["id"] = JsonValue::stringValue(packPhraseId(index));
+        JsonValue dependencies = JsonValue::arrayValue();
+        std::array<bool, kBurstDefinitionCount> seen {};
+        for (const auto& cell : pack.phraseLibrary.phrases[index].notes) {
+            if (cell.state != NoteCellState::Burst
+                || cell.note >= seen.size() || seen[cell.note]) continue;
+            seen[cell.note] = true;
+            if (pack.burstLibrary.bursts[cell.note].empty()) {
+                setError(result, ProjectErrorCode::InconsistentData,
+                    "$.phrases[" + std::to_string(index) + "]",
+                    "Phrase references a Burst missing from the pack");
+                continue;
+            }
+            dependencies.array.push_back(JsonValue::stringValue(
+                packBurstId(cell.note)));
+        }
+        item.object["burstDependencies"] = std::move(dependencies);
+    }
+    root.object["phrases"] = std::move(phrases);
+    return root;
+}
+
+bool decodeAssetPackDocument(const JsonValue& root,
+    TrackerAssetPack& destination, ProjectResult& result)
+{
+    if (root.type != JsonType::Object)
+        return setError(result, ProjectErrorCode::TypeMismatch, "$",
+            "asset pack root must be an object");
+    const auto* format = requiredField(root, "format", JsonType::String,
+        "$", result);
+    const auto* version = requiredField(root, "version", JsonType::Number,
+        "$", result);
+    const auto* name = requiredField(root, "name", JsonType::String,
+        "$", result);
+    const auto* bursts = requiredField(root, "bursts", JsonType::Array,
+        "$", result);
+    const auto* phrases = requiredField(root, "phrases", JsonType::Array,
+        "$", result);
+    if (!format || !version || !name || !bursts || !phrases) return false;
+    if (format->string != kTrackerAssetPackFormat)
+        return setError(result, ProjectErrorCode::InvalidArgument,
+            "$.format", "file is not an s3g Tracker asset pack");
+    uint32_t schema = 0u;
+    if (!checkedUint32(*version, schema,
+            std::numeric_limits<uint32_t>::max(), "$.version", result))
+        return false;
+    if (schema != kTrackerAssetPackVersion)
+        return setError(result, ProjectErrorCode::UnsupportedSchemaVersion,
+            "$.version", "asset pack version is not supported");
+
+    TrackerAssetPack candidate;
+    if (!checkedString(*name, candidate.name, kMaximumNameBytes,
+            "$.name", result)
+        || !decodeBursts(*bursts, candidate.burstLibrary,
+            "$.bursts", result)
+        || !decodePhraseLibrary(*phrases, candidate.phraseLibrary, result))
+        return false;
+
+    std::map<std::string, std::size_t> burstIds;
+    for (std::size_t index = 0u; index < bursts->array.size(); ++index) {
+        const auto& item = bursts->array[index];
+        const auto* id = requiredField(item, "id", JsonType::String,
+            "$.bursts[" + std::to_string(index) + "]", result);
+        const auto* slot = requiredField(item, "slot", JsonType::Number,
+            "$.bursts[" + std::to_string(index) + "]", result);
+        if (!id || !slot || id->string.empty()) return false;
+        const auto inserted = burstIds.emplace(id->string,
+            static_cast<std::size_t>(slot->number));
+        if (!inserted.second)
+            return setError(result, ProjectErrorCode::InconsistentData,
+                "$.bursts[" + std::to_string(index) + "].id",
+                "Burst asset ID is duplicated");
+    }
+    std::map<std::string, bool> phraseIds;
+    for (std::size_t index = 0u; index < phrases->array.size(); ++index) {
+        const auto& item = phrases->array[index];
+        const std::string path = "$.phrases[" + std::to_string(index) + "]";
+        const auto* id = requiredField(item, "id", JsonType::String,
+            path, result);
+        const auto* dependencies = requiredField(item, "burstDependencies",
+            JsonType::Array, path, result);
+        if (!id || !dependencies || id->string.empty()) return false;
+        if (!phraseIds.emplace(id->string, true).second)
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path + ".id", "Phrase asset ID is duplicated");
+        std::array<bool, kBurstDefinitionCount> declared {};
+        for (std::size_t dependency = 0u;
+             dependency < dependencies->array.size(); ++dependency) {
+            const auto& value = dependencies->array[dependency];
+            if (value.type != JsonType::String)
+                return setError(result, ProjectErrorCode::TypeMismatch,
+                    path + ".burstDependencies["
+                        + std::to_string(dependency) + "]",
+                    "Burst dependency must be an asset ID");
+            const auto found = burstIds.find(value.string);
+            if (found == burstIds.end() || found->second >= declared.size())
+                return setError(result, ProjectErrorCode::InconsistentData,
+                    path + ".burstDependencies["
+                        + std::to_string(dependency) + "]",
+                    "Burst dependency ID is missing from the pack");
+            declared[found->second] = true;
+        }
+        for (const auto& cell : candidate.phraseLibrary.phrases[index].notes) {
+            if (cell.state != NoteCellState::Burst) continue;
+            if (cell.note >= declared.size() || !declared[cell.note]
+                || candidate.burstLibrary.bursts[cell.note].empty())
+                return setError(result, ProjectErrorCode::InconsistentData,
+                    path + ".burstDependencies",
+                    "Phrase Burst reference is not declared by asset ID");
+        }
+    }
+    destination = std::move(candidate);
+    return true;
+}
+
+} // namespace
+
+ProjectResult encodeTrackerAssetPack(const TrackerAssetPack& pack,
+    std::string& destination)
+{
+    try {
+        ProjectResult result;
+        JsonValue root = encodeAssetPackDocument(pack, result);
+        if (!result) return result;
+        std::string candidate;
+        candidate.reserve(8192u);
+        appendJson(root, candidate, 0u);
+        candidate.push_back('\n');
+        if (candidate.size() > kMaximumProjectDocumentBytes)
+            return failure(ProjectErrorCode::SizeLimitExceeded, "$",
+                "encoded asset pack exceeds the 64 MiB file limit");
+        destination = std::move(candidate);
+        return {};
+    } catch (const std::bad_alloc&) {
+        return failure(ProjectErrorCode::SizeLimitExceeded, "$",
+            "not enough memory to encode the asset pack");
+    } catch (const std::exception& error) {
+        return failure(ProjectErrorCode::InvalidArgument, "$", error.what());
+    }
+}
+
+ProjectResult decodeTrackerAssetPack(std::string_view source,
+    TrackerAssetPack& destination)
+{
+    if (source.empty())
+        return failure(ProjectErrorCode::InvalidJson, "byte 0",
+            "asset pack is empty");
+    if (source.size() > kMaximumProjectDocumentBytes)
+        return failure(ProjectErrorCode::SizeLimitExceeded, "$",
+            "asset pack exceeds the 64 MiB file limit");
+    try {
+        JsonValue root;
+        JsonParser parser(source);
+        ProjectResult result = parser.parse(root);
+        if (!result) return result;
+        TrackerAssetPack candidate;
+        if (!decodeAssetPackDocument(root, candidate, result)) return result;
+        destination = std::move(candidate);
+        return {};
+    } catch (const std::bad_alloc&) {
+        return failure(ProjectErrorCode::SizeLimitExceeded, "$",
+            "not enough memory to decode the asset pack");
+    } catch (const std::exception& error) {
+        return failure(ProjectErrorCode::InvalidJson, "$", error.what());
+    }
+}
+
 } // namespace s3g::tracker
 
 namespace s3g::tracker {
@@ -2246,6 +2413,42 @@ bool validateSongReferences(const ProjectDocument& document,
         "song row references a pattern that is not present in the bank");
 }
 
+bool validateBurstReferences(const ProjectDocument& document,
+    ProjectResult& result)
+{
+    const auto validateNotes = [&](const std::vector<NoteCell>& notes,
+                                   const std::string& path) {
+        for (std::size_t row = 0u; row < notes.size(); ++row) {
+            const auto& cell = notes[row];
+            if (cell.state != NoteCellState::Burst) continue;
+            if (cell.note < document.burstLibrary.bursts.size()
+                && !document.burstLibrary.bursts[cell.note].empty())
+                continue;
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path + "[" + std::to_string(row) + "].burst",
+                "note cell references an empty project Burst slot");
+        }
+        return true;
+    };
+    for (std::size_t pattern = 0u;
+         pattern < document.patternBank.entries.size(); ++pattern) {
+        const auto& tracks = document.patternBank.entries[pattern].pattern.tracks;
+        for (std::size_t track = 0u; track < tracks.size(); ++track) {
+            if (!validateNotes(tracks[track].notes,
+                    "$.patterns.patterns[" + std::to_string(pattern)
+                        + "].pattern.tracks[" + std::to_string(track)
+                        + "].notes")) return false;
+        }
+    }
+    for (std::size_t phrase = 0u;
+         phrase < document.phraseLibrary.phrases.size(); ++phrase) {
+        if (!validateNotes(document.phraseLibrary.phrases[phrase].notes,
+                "$.phrases[" + std::to_string(phrase) + "].notes"))
+            return false;
+    }
+    return true;
+}
+
 // Implemented beside the timing-warp codec below; declared here because the
 // document root is assembled before that specialized section.
 JsonValue encodeTimingWarpLibrary(const TimingWarpLibrary& library,
@@ -2260,6 +2463,8 @@ JsonValue encodeDocument(const ProjectDocument& document,
     root.object["format"] = JsonValue::stringValue(kProjectFormatIdentifier);
     root.object["patterns"] = encodePatternBank(
         document.patternBank, result);
+    root.object["bursts"] = encodeBursts(
+        document.burstLibrary, "$.bursts", result);
     root.object["phrases"] = encodePhraseLibrary(
         document.phraseLibrary, result);
     root.object["version"] = number(kProjectFormatVersion);
@@ -2269,6 +2474,7 @@ JsonValue encodeDocument(const ProjectDocument& document,
     root.object["warps"] = encodeTimingWarpLibrary(
         document.warpLibrary, result);
     validateSongReferences(document, result);
+    validateBurstReferences(document, result);
     return root;
 }
 
@@ -2284,6 +2490,8 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         JsonType::Number, "$", result);
     const auto* patternBank = requiredField(root, "patterns",
         JsonType::Object, "$", result);
+    const auto* burstLibrary = requiredField(root, "bursts",
+        JsonType::Array, "$", result);
     const auto* transport = requiredField(root, "playback", JsonType::Object,
         "$", result);
     const auto* session = requiredField(root, "workspace", JsonType::Object,
@@ -2292,7 +2500,8 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         "$", result);
     const auto* warpLibrary = requiredField(root, "warps",
         JsonType::Array, "$", result);
-    if (!format || !schema || !patternBank || !transport || !session
+    if (!format || !schema || !patternBank || !burstLibrary
+        || !transport || !session
         || !song || !warpLibrary) return false;
     if (format->string != kProjectFormatIdentifier)
         return setError(result, ProjectErrorCode::InvalidArgument, "$.format",
@@ -2308,6 +2517,8 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
     ProjectDocument candidate;
     const auto phrases = root.object.find("phrases");
     if (!decodePatternBank(*patternBank, candidate.patternBank, result)
+        || !decodeBursts(*burstLibrary, candidate.burstLibrary,
+            "$.bursts", result)
         || !decodeTransport(*transport, candidate.transport, result)
         || !decodeSession(*session, candidate.session, result)
         || !decodeSong(*song, candidate.song, result)
@@ -2316,7 +2527,8 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         || (phrases != root.object.end()
             && !decodePhraseLibrary(phrases->second,
                 candidate.phraseLibrary, result))
-        || !validateSongReferences(candidate, result)) return false;
+        || !validateSongReferences(candidate, result)
+        || !validateBurstReferences(candidate, result)) return false;
     destination = std::move(candidate);
     return true;
 }

@@ -306,8 +306,8 @@ void mutateRhythm(PatternReshapeResult& result,
     };
     std::vector<uint8_t> burstSlots;
     for (std::size_t slot = 0u;
-         slot < result.pattern.bursts.size(); ++slot) {
-        if (!result.pattern.bursts[slot].empty())
+         slot < result.burstLibrary.bursts.size(); ++slot) {
+        if (!result.burstLibrary.bursts[slot].empty())
             burstSlots.push_back(static_cast<uint8_t>(slot));
     }
 
@@ -604,7 +604,8 @@ PatternReshapeAnalysis analyzePatternReshape(
 }
 
 PatternReshapeResult reshapePattern(
-    const Pattern& pattern, PatternReshapeSettings settings)
+    const Pattern& pattern, const BurstLibrary& burstLibrary,
+    PatternReshapeSettings settings)
 {
     settings.cycleRows = inferPatternReshapeCycle(
         pattern, settings.cycleRows);
@@ -633,6 +634,7 @@ PatternReshapeResult reshapePattern(
 
     PatternReshapeResult result;
     result.pattern = pattern;
+    result.burstLibrary = burstLibrary;
     result.before = analyzePatternReshape(
         pattern, settings.cycleRows, settings.laneMask);
     mutateRhythm(result, settings);

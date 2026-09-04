@@ -65,25 +65,13 @@ int main()
     Pattern burstSource;
     burstSource.tracks.push_back(track);
     burstSource.tracks[0u].notes[3u] = NoteCell::withBurst(2u);
-    burstSource.bursts[2u].name = "Captured roll";
-    burstSource.bursts[2u].eventCount = 2u;
-    burstSource.bursts[2u].events[0u] = { 0u, 36u, 120u, 35u };
-    burstSource.bursts[2u].events[1u] = { 32768u, 38u, 92u, 45u };
     PhraseDefinition burstPhrase = makeBlankPhrase(4u);
     assert(capturePhrase(burstSource, 0u, 3u, 6u, burstPhrase));
     assert(burstPhrase.notes[0u].state == NoteCellState::Burst);
-    assert(burstPhrase.bursts[2u].name == "Captured roll");
 
     Pattern burstDestination;
     burstDestination.tracks.emplace_back();
-    burstDestination.bursts[2u].name = "Occupied";
-    burstDestination.bursts[2u].eventCount = 1u;
-    burstDestination.bursts[2u].events[0u] = { 0u, 50u, 100u, 70u };
     assert(placePhrase(burstDestination, 0u, burstPhrase, 8u));
-    const auto remappedSlot = burstDestination.tracks[0u].notes[8u].note;
-    assert(remappedSlot != 2u);
-    assert(burstDestination.bursts[remappedSlot].name == "Captured roll");
-    assert(burstDestination.bursts[remappedSlot].events[1u].position
-        == 32768u);
+    assert(burstDestination.tracks[0u].notes[8u].note == 2u);
     return 0;
 }

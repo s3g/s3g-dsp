@@ -591,7 +591,7 @@ int main(int argc, char** argv)
             && factoryJson.find(
                 "\"format\": \"s3g-tracker-midi-composition\"")
                 != std::string::npos
-            && factoryJson.find("\"version\": 1") != std::string::npos
+            && factoryJson.find("\"version\": 2") != std::string::npos
             && factoryJson.find("instrumentRack") == std::string::npos
             && factoryJson.find("sampleRate") == std::string::npos
             && factoryJson.find("\"showMidiNoteValues\": true")
@@ -742,10 +742,12 @@ int main(int argc, char** argv)
                         isEqualToString:@"COMPOSITE RING"]
                     && [[geometryMode itemAtIndex:6].title
                         isEqualToString:@"BURST EDITOR"]
+                    && [geometryMode itemAtIndex:6].hidden
                     && [[geometryMode itemAtIndex:7].title
                         isEqualToString:@"PITCH MAP"];
                 if (geometryModesAvailable) {
                     for (NSInteger mode = 1; mode < 8; ++mode) {
+                        if (mode == 6) continue;
                         [geometryMode selectItemAtIndex:mode];
                         [geometryMode sendAction:geometryMode.action
                             to:geometryMode.target];
@@ -760,14 +762,11 @@ int main(int argc, char** argv)
                         @"burst new B01 STOPPED PREVIEW")
                     && submitCommand(parent,
                         @"burst B01 notes 36 38 41 46")
-                    && geometryModesAvailable;
+                    && geometryModesAvailable
+                    && clickButton(parent, nil, @"BURSTS page", nil);
+                [parent layoutSubtreeIfNeeded];
                 NSView* geometryView = findAccessibleView(parent,
-                    @"Rhythm geometry");
-                if (burstPrepared) {
-                    [geometryMode selectItemAtIndex:6u];
-                    [geometryMode sendAction:geometryMode.action
-                        to:geometryMode.target];
-                }
+                    @"Burst editor");
                 bool previewAudioOk = false;
                 if (burstPrepared && geometryView
                     && plugin->activate(plugin, 48000.0, 64u, 8192u)

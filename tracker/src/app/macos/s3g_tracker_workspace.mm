@@ -394,6 +394,26 @@ std::size_t geometryBurstUsageCount(const Pattern& pattern,
     return count;
 }
 
+std::size_t projectBurstUsageCount(const TrackerViewState& state,
+    std::size_t slot) noexcept
+{
+    std::size_t count = 0u;
+    for (const auto& entry : state.patternBank.entries) {
+        const Pattern* pattern = &entry.pattern;
+        if (entry.id == state.patternBank.activePatternId)
+            pattern = &state.session.pattern;
+        count += geometryBurstUsageCount(*pattern, slot);
+    }
+    for (const auto& phrase : state.phraseLibrary.phrases) {
+        count += static_cast<std::size_t>(std::count_if(
+            phrase.notes.begin(), phrase.notes.end(), [&](const NoteCell& cell) {
+                return cell.state == NoteCellState::Burst
+                    && cell.note == slot;
+            }));
+    }
+    return count;
+}
+
 float resolvedVelocity(const Track& track, std::size_t row)
 {
     float value = 0.787f;
@@ -1184,6 +1204,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerGridView* gridView;
 @property(nonatomic, strong) S3GTrackerRowGutterView* rowGutterView;
 @property(nonatomic, strong) S3GTrackerGeometryView* geometryView;
+@property(nonatomic, strong) S3GTrackerGeometryView* burstView;
 @property(nonatomic, strong) S3GTrackerGeometryWindowController*
     geometryWindowController;
 @property(nonatomic, strong) S3GTrackerReshapeWindowController*
@@ -1348,6 +1369,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic, strong) NSTextField* cellEditor;
+@property(nonatomic) NSRect cellEditorCellRect;
 @property(nonatomic) std::size_t editingTrack;
 @property(nonatomic) std::size_t editingRow;
 @property(nonatomic) std::size_t editingPage;
@@ -2618,11 +2640,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (!model || trackIndex >= model->session.pattern.tracks.size())
         return nil;
     auto& pattern = model->session.pattern;
-    const auto firstEmpty = std::find_if(pattern.bursts.begin(),
-        pattern.bursts.end(), [](const BurstDefinition& burst) {
+    const auto& bursts = model->session.burstLibrary.bursts;
+    const auto firstEmpty = std::find_if(bursts.begin(),
+        bursts.end(), [](const BurstDefinition& burst) {
             return burst.empty();
         });
-    const BOOL hasEmpty = firstEmpty != pattern.bursts.end();
+    const BOOL hasEmpty = firstEmpty != bursts.end();
     const auto& track = pattern.tracks[trackIndex];
     const NoteCell current = row < track.notes.size()
         ? track.notes[row] : NoteCell::rest();
@@ -2665,8 +2688,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSMenuItem* useRoot = [[NSMenuItem alloc] initWithTitle:@"USE BURST"
         action:nil keyEquivalent:@""];
     NSMenu* useMenu = [[NSMenu alloc] initWithTitle:@"USE BURST"];
-    for (std::size_t slot = 0u; slot < pattern.bursts.size(); ++slot) {
-        const auto& burst = pattern.bursts[slot];
+    for (std::size_t slot = 0u; slot < bursts.size(); ++slot) {
+        const auto& burst = bursts[slot];
         if (burst.empty()) continue;
         NSString* title = [NSString stringWithFormat:@"%@  ·  %@  ·  %u STEPS",
             nsString(burstSlotToken(slot)), nsString(burst.name),
@@ -2688,10 +2711,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [menu addItem:useRoot];
 
     if (current.state == NoteCellState::Burst
-        && current.note < pattern.bursts.size()
-        && !pattern.bursts[current.note].empty()) {
+        && current.note < bursts.size()
+        && !bursts[current.note].empty()) {
         [menu addItem:NSMenuItem.separatorItem];
-        add([NSString stringWithFormat:@"EDIT %@ IN GEOMETRY",
+        add([NSString stringWithFormat:@"EDIT %@ IN BURSTS",
                 nsString(burstSlotToken(current.note))], @"edit", YES,
             current.note, nil);
         add(@"DUPLICATE AND EDIT", @"duplicate", hasEmpty,
@@ -2818,6 +2841,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (!model || model->songPlaybackActive
         || ![payload isKindOfClass:NSDictionary.class]) return;
     auto& pattern = model->session.pattern;
+    auto& bursts = model->session.burstLibrary.bursts;
     const auto trackIndex = [payload[@"track"] unsignedIntegerValue];
     const auto row = [payload[@"row"] unsignedIntegerValue];
     NSString* kind = payload[@"kind"];
@@ -2825,21 +2849,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         || ![kind isKindOfClass:NSString.class]) return;
     auto& track = pattern.tracks[trackIndex];
     const auto findEmpty = [&]() -> std::size_t {
-        const auto found = std::find_if(pattern.bursts.begin(),
-            pattern.bursts.end(), [](const BurstDefinition& burst) {
+        const auto found = std::find_if(bursts.begin(),
+            bursts.end(), [](const BurstDefinition& burst) {
                 return burst.empty();
             });
-        return found == pattern.bursts.end() ? pattern.bursts.size()
+        return found == bursts.end() ? bursts.size()
                                              : static_cast<std::size_t>(
-                                                   found - pattern.bursts.begin());
+                                                   found - bursts.begin());
     };
     std::size_t slot = [payload[@"slot"] integerValue] < 0
-        ? pattern.bursts.size()
+        ? bursts.size()
         : [payload[@"slot"] unsignedIntegerValue];
     if ([kind isEqualToString:@"create"]
         || [kind isEqualToString:@"capture"]) {
         slot = findEmpty();
-        if (slot >= pattern.bursts.size()) return;
+        if (slot >= bursts.size()) return;
         BurstDefinition burst;
         burst.name = [kind isEqualToString:@"capture"]
             ? "ROW CAPTURE" : "EVEN "
@@ -2880,31 +2904,31 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             for (std::size_t clear = first; clear <= last; ++clear)
                 track.notes[clear] = NoteCell::rest();
         }
-        pattern.bursts[slot] = burst;
+        bursts[slot] = burst;
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
         track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
-    } else if ([kind isEqualToString:@"use"] && slot < pattern.bursts.size()
-        && !pattern.bursts[slot].empty()) {
+    } else if ([kind isEqualToString:@"use"] && slot < bursts.size()
+        && !bursts[slot].empty()) {
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
         track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
     } else if ([kind isEqualToString:@"duplicate"]
-        && slot < pattern.bursts.size()) {
+        && slot < bursts.size()) {
         const auto destination = findEmpty();
-        if (destination >= pattern.bursts.size()) return;
-        pattern.bursts[destination] = pattern.bursts[slot];
-        pattern.bursts[destination].name += " COPY";
+        if (destination >= bursts.size()) return;
+        bursts[destination] = bursts[slot];
+        bursts[destination].name += " COPY";
         [self.owner modulePatternChanged];
         [self.owner editBurstSlot:destination];
         return;
     } else if ([kind isEqualToString:@"edit"]
-        && slot < pattern.bursts.size()) {
+        && slot < bursts.size()) {
         [self.owner editBurstSlot:slot];
         return;
     } else if ([kind isEqualToString:@"expand"]
-        && slot < pattern.bursts.size()) {
-        const auto burst = pattern.bursts[slot];
+        && slot < bursts.size()) {
+        const auto burst = bursts[slot];
         const auto required = std::min<std::size_t>(kGridMaximumRows,
             row + burst.eventCount);
         track.notes.resize(std::max(track.notes.size(), required),
@@ -2923,10 +2947,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         track.velocityColumn.length = std::max(
             track.velocityColumn.length, required);
     } else if ([kind isEqualToString:@"convert"]
-        && slot < pattern.bursts.size()
-        && !pattern.bursts[slot].empty()) {
+        && slot < bursts.size()
+        && !bursts[slot].empty()) {
         track.notes[row] = NoteCell::withNote(
-            pattern.bursts[slot].events[0u].note);
+            bursts[slot].events[0u].note);
     } else return;
     track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
     pattern.visibleRows = std::max(pattern.visibleRows, row + 1u);
@@ -3374,12 +3398,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             + static_cast<CGFloat>(row) * kGridRowHeight,
         fieldWidth, kGridRowHeight, model->sequenceColumnsExpanded, field);
     rect = NSInsetRect(rect, 1.0, 1.0);
-    if ((field <= 1u || gridFieldIsGate(field)) && NSWidth(rect) < 280.0) {
-        const CGFloat width = std::min<CGFloat>(280.0, NSWidth(self.bounds));
-        rect.origin.x = std::clamp(NSMinX(rect), 0.0,
-            std::max<CGFloat>(0.0, NSWidth(self.bounds) - width));
-        rect.size.width = width;
-    }
     self.editingTrack = lane;
     self.editingRow = row;
     self.editingPage = page;
@@ -3388,10 +3406,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.editingColumnReadStart = NO;
     self.editingTrackName = NO;
     self.cellEditor = [[NSTextField alloc] initWithFrame:rect];
+    self.cellEditorCellRect = rect;
     S3GTrackerStyleTextField(self.cellEditor, NSTextAlignmentCenter);
     self.cellEditor.font = trackerFont(11.0, NSFontWeightSemibold);
     self.cellEditor.stringValue = initialText
         ? initialText : [self editingValue];
+    self.cellEditor.frame = S3GTrackerExpandedCellEditorRect(
+        self.cellEditorCellRect, self.visibleRect,
+        self.cellEditor.stringValue, self.cellEditor.font);
     self.cellEditor.delegate = self;
     self.cellEditor.target = self;
     self.cellEditor.action = @selector(commitCellEditing:);
@@ -3403,6 +3425,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [(NSTextView*)editor setSelectedRange:NSMakeRange(
             self.cellEditor.stringValue.length, 0u)];
     }
+}
+
+- (void)controlTextDidChange:(NSNotification*)notification
+{
+    if (notification.object != self.cellEditor || self.editingColumnLength
+        || self.editingColumnReadStart || self.editingTrackName) return;
+    self.cellEditor.frame = S3GTrackerExpandedCellEditorRect(
+        self.cellEditorCellRect, self.visibleRect,
+        self.cellEditor.stringValue, self.cellEditor.font);
 }
 
 - (void)beginTrackNameEditingForTrack:(std::size_t)track rect:(NSRect)rect
@@ -3567,8 +3598,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             || [lower isEqualToString:@"~"])
             track.notes[row] = NoteCell::hold();
         else if (noteUtf8 && s3g::tracker::parseBurstSlot(noteUtf8,
-                burstSlot) && burstSlot < model->session.pattern.bursts.size()
-            && !model->session.pattern.bursts[burstSlot].empty())
+                burstSlot) && burstSlot < model->session.burstLibrary.bursts.size()
+            && !model->session.burstLibrary.bursts[burstSlot].empty())
             track.notes[row] = NoteCell::withBurst(
                 static_cast<uint8_t>(burstSlot));
         else {
@@ -7252,6 +7283,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic) CGFloat geometryZoom;
 @property(nonatomic) S3GTrackerGeometryViewMode geometryViewMode;
+@property(nonatomic) BOOL burstLibraryOnly;
 @property(nonatomic) S3GTrackerGeometryTool geometryTool;
 @property(nonatomic) BOOL linkVelocityLength;
 @property(nonatomic, strong) S3GTrackerPopupButton* lanePopup;
@@ -7485,7 +7517,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         static_cast<double>(NSWidth(self.bounds)),
         static_cast<double>(NSHeight(self.bounds)),
     }, self.geometryViewMode == S3GTrackerGeometryViewModePitchMap
-        ? 7u : 4u);
+        ? 7u : 4u,
+        self.geometryViewMode == S3GTrackerGeometryViewModeBurst ? 8u : 7u,
+        !self.burstLibraryOnly);
 }
 
 - (NSRect)canvasRect
@@ -8255,7 +8289,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.burstNameField.hidden = !visible;
     self.burstSaveButton.hidden = !visible;
     if (!visible || !self.trackerState) return;
-    const auto& burst = self.trackerState->session.pattern.bursts[
+    const auto& burst = self.trackerState->session.burstLibrary.bursts[
         _selectedBurstSlot];
     const BOOL editable = [self canEditDisplayedPattern] && !burst.empty();
     self.burstNameField.enabled = editable;
@@ -8270,6 +8304,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (NSArray<NSString*>*)itemsForGeometryMenu:(S3GTrackerGeometryMenu)menu
 {
+    if (menu == S3GTrackerGeometryMenuView) {
+        if (self.burstLibraryOnly) return @[];
+        return @[ @"RING FIELD", @"ACTIVE PULSES", @"ALL STEPS UNDERLAY",
+            @"PHASE SPOKES", @"LANE FOCUS", @"COMPOSITE RING",
+            @"PITCH MAP" ];
+    }
     if (menu == S3GTrackerGeometryMenuPitchScope)
         return @[ @"SELECTED ROWS", @"FULL NOTE CYCLE" ];
     if (menu == S3GTrackerGeometryMenuPitchRoot)
@@ -8296,7 +8336,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
         const auto* model = self.trackerState;
         for (std::size_t slot = 0u; slot < kBurstDefinitionCount; ++slot) {
-            const auto& burst = model->session.pattern.bursts[slot];
+            const auto& burst = model->session.burstLibrary.bursts[slot];
             [titles addObject:[NSString stringWithFormat:@"%@  ·  %@",
                 nsString(burstSlotToken(slot)), burst.empty()
                     ? @"EMPTY" : nsString(burst.name)]];
@@ -8305,7 +8345,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     if (menu == S3GTrackerGeometryMenuBurstEvent) {
         NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
-        const auto& burst = self.trackerState->session.pattern.bursts[
+        const auto& burst = self.trackerState->session.burstLibrary.bursts[
             _selectedBurstSlot];
         for (std::size_t event = 0u; event < burst.eventCount; ++event)
             [titles addObject:[NSString stringWithFormat:
@@ -8350,7 +8390,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return self.directionPopup.indexOfSelectedItem;
     if (menu == S3GTrackerGeometryMenuMorphTarget)
         return self.morphTargetPopup.indexOfSelectedItem;
-    return self.viewModePopup.indexOfSelectedItem;
+    if (menu == S3GTrackerGeometryMenuView) {
+        const NSInteger selected = self.viewModePopup.indexOfSelectedItem;
+        return selected == S3GTrackerGeometryViewModePitchMap
+            ? selected - 1 : selected;
+    }
+    return 0;
 }
 
 - (NSRect)sourceRectForGeometryMenu:(S3GTrackerGeometryMenu)menu
@@ -8383,18 +8428,20 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const NSRect source = [self sourceRectForGeometryMenu:menu];
     const NSUInteger itemCount = [self itemsForGeometryMenu:menu].count;
     const uint32_t columns = menu == S3GTrackerGeometryMenuPitchScale
-        ? 4u : 1u;
+        ? 4u : menu == S3GTrackerGeometryMenuBurstSlot ? 2u : 1u;
     const CGFloat height = itemHeight * static_cast<CGFloat>(
         (itemCount + columns - 1u) / columns);
-    const CGFloat width = menu == S3GTrackerGeometryMenuPitchScale
-        ? std::min<CGFloat>(760.0, NSWidth(self.bounds) - 16.0)
+    const CGFloat width = columns > 1u
+        ? std::min<CGFloat>(menu == S3GTrackerGeometryMenuPitchScale
+                ? 760.0 : 600.0,
+            NSWidth(self.bounds) - 16.0)
         : NSWidth(source);
     CGFloat y = NSMaxY(source) + 2.0;
     if (y + height > NSHeight(self.bounds) - 8.0)
         y = NSMinY(source) - height - 2.0;
     y = std::clamp<CGFloat>(y, 8.0,
         std::max<CGFloat>(8.0, NSHeight(self.bounds) - height - 8.0));
-    CGFloat x = menu == S3GTrackerGeometryMenuPitchScale
+    CGFloat x = columns > 1u
         ? std::max<CGFloat>(8.0, NSMaxX(source) - width)
         : NSMinX(source);
     return NSMakeRect(x, y, width, height);
@@ -8402,6 +8449,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)openGeometryMenu:(S3GTrackerGeometryMenu)menu
 {
+    if (menu == S3GTrackerGeometryMenuView && self.burstLibraryOnly) return;
     [self syncToolboxControls];
     _openGeometryMenu = _openGeometryMenu == menu
         ? S3GTrackerGeometryMenuNone : menu;
@@ -8425,7 +8473,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             == S3GTrackerGeometryMenuMorphTarget) {
         [self.morphTargetPopup selectItemAtIndex:index];
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuView) {
-        [self.viewModePopup selectItemAtIndex:index];
+        const NSInteger mode = index >= S3GTrackerGeometryViewModeBurst
+            ? index + 1 : index;
+        [self.viewModePopup selectItemAtIndex:mode];
         [self viewModeChanged:self.viewModePopup];
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstSlot) {
         _selectedBurstSlot = static_cast<std::size_t>(index);
@@ -8658,7 +8708,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)initializeBurstAtSlot:(std::size_t)slot
 {
     if (!self.trackerState || slot >= kBurstDefinitionCount) return;
-    auto& burst = self.trackerState->session.pattern.bursts[slot];
+    auto& burst = self.trackerState->session.burstLibrary.bursts[slot];
     burst = {};
     burst.name = "BURST " + burstSlotToken(slot);
     burst.eventCount = 4u;
@@ -8676,7 +8726,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (std::size_t)firstEmptyBurstSlot
 {
-    const auto& bursts = self.trackerState->session.pattern.bursts;
+    const auto& bursts = self.trackerState->session.burstLibrary.bursts;
     const auto found = std::find_if(bursts.begin(), bursts.end(),
         [](const BurstDefinition& burst) { return burst.empty(); });
     return found == bursts.end() ? bursts.size()
@@ -8687,7 +8737,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     (void)sender;
     if (!self.trackerState || ![self canEditDisplayedPattern]) return;
-    auto& burst = self.trackerState->session.pattern.bursts[_selectedBurstSlot];
+    auto& burst = self.trackerState->session.burstLibrary.bursts[_selectedBurstSlot];
     if (burst.empty()) return;
     NSString* value = [self.burstNameField.stringValue
         stringByTrimmingCharactersInSet:
@@ -8771,14 +8821,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return YES;
     }
     if (NSPointInRect(point, [self burstEventMenuBoxRect])) {
-        const auto& burst = self.trackerState->session.pattern.bursts[
+        const auto& burst = self.trackerState->session.burstLibrary.bursts[
             _selectedBurstSlot];
         if (!burst.empty())
             [self openGeometryMenu:S3GTrackerGeometryMenuBurstEvent];
         return YES;
     }
     auto& pattern = self.trackerState->session.pattern;
-    auto& burst = pattern.bursts[_selectedBurstSlot];
+    auto& burst = self.trackerState->session.burstLibrary.bursts[
+        _selectedBurstSlot];
     BOOL changed = NO;
     if (NSPointInRect(point, [self burstPreviewHeaderButtonRect])) {
         if (burst.empty() || self.trackerState->playing) return YES;
@@ -8849,7 +8900,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             continue;
         if (index == 0u) {
             const auto slot = [self firstEmptyBurstSlot];
-            if (slot < pattern.bursts.size()) {
+            if (slot < self.trackerState->session.burstLibrary.bursts.size()) {
                 _selectedBurstSlot = slot;
                 _selectedBurstEvent = 0u;
                 [self initializeBurstAtSlot:slot];
@@ -8857,21 +8908,36 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             }
         } else if (index == 1u && !burst.empty()) {
             const auto slot = [self firstEmptyBurstSlot];
-            if (slot < pattern.bursts.size()) {
-                pattern.bursts[slot] = burst;
-                pattern.bursts[slot].name += " COPY";
+            if (slot < self.trackerState->session.burstLibrary.bursts.size()) {
+                self.trackerState->session.burstLibrary.bursts[slot] = burst;
+                self.trackerState->session.burstLibrary.bursts[slot].name += " COPY";
                 _selectedBurstSlot = slot;
                 _selectedBurstEvent = 0u;
                 changed = YES;
             }
         } else if (index == 2u && !burst.empty()
-            && geometryBurstUsageCount(pattern, _selectedBurstSlot) == 0u) {
+            && projectBurstUsageCount(*self.trackerState,
+                _selectedBurstSlot) == 0u) {
             burst = {};
             _selectedBurstEvent = 0u;
             changed = YES;
         }
         if (changed) [self.owner modulePatternChanged];
         [self setNeedsDisplay:YES];
+        return YES;
+    }
+    for (NSUInteger index = 0u; index < 2u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:7u index:index count:2u]))
+            continue;
+        if (index == 0u && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->importAssetPack)
+            self.owner.trackerCallbacks->importAssetPack();
+        else if (index == 1u && !burst.empty()
+            && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->exportBurstAssetPack)
+            self.owner.trackerCallbacks->exportBurstAssetPack(
+                _selectedBurstSlot);
         return YES;
     }
     if (burst.empty()) return NO;
@@ -8929,10 +8995,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (_openGeometryMenu != S3GTrackerGeometryMenuNone) {
         const auto menu = _openGeometryMenu;
         const NSArray<NSString*>* items = [self itemsForGeometryMenu:menu];
-        const NSInteger hit = menu == S3GTrackerGeometryMenuPitchScale
+        const uint32_t columns = menu == S3GTrackerGeometryMenuPitchScale
+            ? 4u : menu == S3GTrackerGeometryMenuBurstSlot ? 2u : 1u;
+        const NSInteger hit = columns > 1u
             ? s3g::clap_gui::multiColumnDropdownHitIndex(point,
                 [self dropdownRectForGeometryMenu:menu], 21.0,
-                static_cast<uint32_t>(items.count), 4u)
+                static_cast<uint32_t>(items.count), columns)
             : s3g::clap_gui::dropdownHitIndex(point,
                 [self dropdownRectForGeometryMenu:menu], 21.0,
                 static_cast<uint32_t>(items.count));
@@ -8948,7 +9016,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [self syncBurstNameControls];
         [self setNeedsDisplay:YES];
     }
-    if (NSPointInRect(point, [self viewMenuBoxRect])) {
+    if (!self.burstLibraryOnly
+        && NSPointInRect(point, [self viewMenuBoxRect])) {
         [self openGeometryMenu:S3GTrackerGeometryMenuView];
         return YES;
     }
@@ -9125,11 +9194,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         fromView:nil];
     const auto count = static_cast<uint32_t>(
         [self itemsForGeometryMenu:_openGeometryMenu].count);
-    const NSInteger hover = _openGeometryMenu
+    const uint32_t columns = _openGeometryMenu
             == S3GTrackerGeometryMenuPitchScale
+        ? 4u : _openGeometryMenu == S3GTrackerGeometryMenuBurstSlot
+            ? 2u : 1u;
+    const NSInteger hover = columns > 1u
         ? s3g::clap_gui::multiColumnDropdownHitIndex(point,
             [self dropdownRectForGeometryMenu:_openGeometryMenu], 21.0,
-            count, 4u)
+            count, columns)
         : s3g::clap_gui::dropdownHitIndex(point,
             [self dropdownRectForGeometryMenu:_openGeometryMenu], 21.0,
             count);
@@ -9148,10 +9220,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     for (uint32_t index = 0u; index < count; ++index)
         items[index] = titles[index];
     const auto style = s3g::clap_gui::softTextStyle();
-    if (_openGeometryMenu == S3GTrackerGeometryMenuPitchScale) {
+    const uint32_t columns = _openGeometryMenu
+            == S3GTrackerGeometryMenuPitchScale
+        ? 4u : _openGeometryMenu == S3GTrackerGeometryMenuBurstSlot
+            ? 2u : 1u;
+    if (columns > 1u) {
         s3g::clap_gui::drawMultiColumnDropdownMenu(
             [self dropdownRectForGeometryMenu:_openGeometryMenu], 21.0,
-            items.data(), count, 4u,
+            items.data(), count, columns,
             static_cast<int>([self selectedIndexForGeometryMenu:
                 _openGeometryMenu]),
             static_cast<int>(_geometryMenuHoverIndex),
@@ -9199,8 +9275,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)viewModeChanged:(S3GTrackerPopupButton*)sender
 {
-    self.geometryViewMode = static_cast<S3GTrackerGeometryViewMode>(
-        std::clamp<NSInteger>(sender.indexOfSelectedItem, 0, 7));
+    NSInteger requested = std::clamp<NSInteger>(
+        sender.indexOfSelectedItem, 0, 7);
+    if (self.burstLibraryOnly)
+        requested = S3GTrackerGeometryViewModeBurst;
+    else if (requested == S3GTrackerGeometryViewModeBurst)
+        requested = S3GTrackerGeometryViewModeRingField;
+    [self.viewModePopup selectItemAtIndex:requested];
+    self.geometryViewMode = static_cast<S3GTrackerGeometryViewMode>(requested);
     static NSArray<NSString*>* descriptions = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -9400,8 +9482,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self addCursorRect:[self zoomResetRect]
         cursor:NSCursor.pointingHandCursor];
     [self addCursorRect:[self zoomInRect] cursor:NSCursor.pointingHandCursor];
-    [self addCursorRect:[self viewMenuBoxRect]
-        cursor:NSCursor.pointingHandCursor];
+    if (!self.burstLibraryOnly)
+        [self addCursorRect:[self viewMenuBoxRect]
+            cursor:NSCursor.pointingHandCursor];
     if (self.geometryViewMode == S3GTrackerGeometryViewModePitchMap) {
         for (const NSRect rect : { [self laneMenuBoxRect],
                  [self pitchScopeMenuBoxRect], [self pitchRootMenuBoxRect],
@@ -9856,7 +9939,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return YES;
     }
     if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
-        const auto& burst = self.trackerState->session.pattern.bursts[
+        const auto& burst = self.trackerState->session.burstLibrary.bursts[
             _selectedBurstSlot];
         if (burst.empty()) return NO;
         const std::array<S3GTrackerGeometryGestureKind, 3u> kinds {{
@@ -9947,7 +10030,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     if (_geometryGestureKind == S3GTrackerGeometryGestureBurstNote
         || _geometryGestureKind == S3GTrackerGeometryGestureBurstVelocity
         || _geometryGestureKind == S3GTrackerGeometryGestureBurstGate) {
-        auto& burst = pattern.bursts[_selectedBurstSlot];
+        auto& burst = self.trackerState->session.burstLibrary.bursts[
+            _selectedBurstSlot];
         if (burst.empty()) return;
         auto& event = burst.events[std::min<std::size_t>(
             _selectedBurstEvent, burst.eventCount - 1u)];
@@ -10260,7 +10344,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSInteger)burstBreakpointEventAtPoint:(NSPoint)point
 {
     if (!self.trackerState) return -1;
-    const auto& burst = self.trackerState->session.pattern.bursts[
+    const auto& burst = self.trackerState->session.burstLibrary.bursts[
         _selectedBurstSlot];
     const NSRect graph = [self burstBreakpointRect];
     if (burst.empty() || !NSPointInRect(point, NSInsetRect(graph, -8.0, -8.0)))
@@ -10288,7 +10372,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     if (!self.trackerState || _selectedBurstEvent >= kMaximumBurstEvents)
         return;
-    auto& burst = self.trackerState->session.pattern.bursts[
+    auto& burst = self.trackerState->session.burstLibrary.bursts[
         _selectedBurstSlot];
     if (burst.empty() || _selectedBurstEvent >= burst.eventCount) return;
     auto& authored = burst.events[_selectedBurstEvent];
@@ -10352,7 +10436,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (BOOL)beginBurstCanvasGestureAtPoint:(NSPoint)point
 {
     if (!self.trackerState) return NO;
-    auto& burst = self.trackerState->session.pattern.bursts[
+    auto& burst = self.trackerState->session.burstLibrary.bursts[
         _selectedBurstSlot];
     const NSInteger matrixRow = [self burstMatrixRowAtPoint:point];
     if (matrixRow >= 0) {
@@ -10412,7 +10496,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (NSInteger)burstEventAtPoint:(NSPoint)point
 {
-    const auto& burst = self.trackerState->session.pattern.bursts[
+    const auto& burst = self.trackerState->session.burstLibrary.bursts[
         _selectedBurstSlot];
     if (burst.empty() || !NSPointInRect(point, [self burstOverviewRect]))
         return -1;
@@ -10442,7 +10526,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)updateBurstPositionAtPoint:(NSPoint)point
 {
-    auto& burst = self.trackerState->session.pattern.bursts[
+    auto& burst = self.trackerState->session.burstLibrary.bursts[
         _selectedBurstSlot];
     if (burst.empty() || _selectedBurstEvent >= burst.eventCount) return;
     const NSRect plot = [self burstRadialPlotRect];
@@ -10786,7 +10870,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return;
     }
     if (self.geometryViewMode == S3GTrackerGeometryViewModeBurst) {
-        auto& burst = model->session.pattern.bursts[_selectedBurstSlot];
+        auto& burst = model->session.burstLibrary.bursts[_selectedBurstSlot];
         if (!burst.empty()) {
             if (event.keyCode == 48) {
                 const bool reverse = (event.modifierFlags
@@ -11092,7 +11176,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const auto geometry = [self geometryLayout];
     const NSRect canvas = [self canvasRect];
     auto& pattern = model->session.pattern;
-    auto& burst = pattern.bursts[_selectedBurstSlot];
+    auto& burst = model->session.burstLibrary.bursts[_selectedBurstSlot];
     _selectedBurstEvent = burst.empty() ? 0u
         : std::min<std::size_t>(_selectedBurstEvent, burst.eventCount - 1u);
 
@@ -11448,13 +11532,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 : [NSString stringWithFormat:@"%u  +", burst.eventCount],
             YES, NO, NO, NO, NO, NO, NO, YES);
     drawBurstInfo(@"USAGE", [NSString stringWithFormat:@"%lu NOTE CELLS",
-            static_cast<unsigned long>(geometryBurstUsageCount(pattern,
-                _selectedBurstSlot))], geometry.laneCycle, 3u,
+            static_cast<unsigned long>(projectBurstUsageCount(
+                *self.trackerState, _selectedBurstSlot))],
+        geometry.laneCycle, 3u,
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted));
     const NSArray<NSArray<NSString*>*>* actionRows = @[
         @[ @"NEW", @"DUP", @"DELETE" ],
         @[ @"EVEN", @"ACCEL", @"DECEL" ],
         @[ @"REVERSE", @"ROT <", @"ROT >" ],
+        @[ @"IMPORT PACK", @"EXPORT PACK" ],
     ];
     for (NSUInteger rowIndex = 0u; rowIndex < actionRows.count; ++rowIndex) {
         const auto row = static_cast<uint32_t>(4u + rowIndex);
@@ -11512,11 +11598,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         layout::rowY(geometry.editShape, 3u), subX, subWidth, 72.0,
         labels, values, style);
 
-    NSString* selectedViewTitle = self.viewModePopup.titleOfSelectedItem;
-    drawTrackerProcessorMenu(@"MODE",
-        selectedViewTitle ? selectedViewTitle : @"BURST EDITOR",
-        layout::rowY(geometry.view, 0u), geometry.view.frame.x,
-        geometry.view.frame.width, labels, values, style);
+    if (!self.burstLibraryOnly) {
+        NSString* selectedViewTitle = self.viewModePopup.titleOfSelectedItem;
+        drawTrackerProcessorMenu(@"MODE",
+            selectedViewTitle ? selectedViewTitle : @"BURST EDITOR",
+            layout::rowY(geometry.view, 0u), geometry.view.frame.x,
+            geometry.view.frame.width, labels, values, style);
+    }
     const NSRect placeButton = [self revealHeaderButtonRect];
     s3g::clap_gui::drawToolboxHeaderActionButton(placeButton,
         [self bridgePanelRect], @"PLACE IN TRACKER", values, style);
@@ -12028,10 +12116,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 == S3GTrackerGeometryViewModeBurst ? @"SUBSTEPS"
             : self.geometryViewMode == S3GTrackerGeometryViewModePitchMap
                 ? @"CONTOUR" : @"EDIT / SHAPE" },
-        { &geometry.view, @"VIEW" },
+        { &geometry.view, self.burstLibraryOnly ? nil : @"VIEW" },
         { &geometry.trackerBridge, @"TRACKER BRIDGE" },
     };
     for (const auto& panel : panels) {
+        if (!panel.title) continue;
         s3g::clap_gui::drawPanelFrame(*panel.panel, style);
         s3g::clap_gui::drawPanelHeader(panel.title, true,
             *panel.panel, labels, style);
@@ -12602,8 +12691,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     auto* model = self.trackerState;
     const auto* pattern = geometryPattern(model);
     if (!model || !model->playing || !pattern
-        || _selectedBurstSlot >= pattern->bursts.size()) return;
-    const auto& burst = pattern->bursts[_selectedBurstSlot];
+        || _selectedBurstSlot >= model->session.burstLibrary.bursts.size())
+        return;
+    const auto& burst = model->session.burstLibrary.bursts[
+        _selectedBurstSlot];
     if (burst.empty()) return;
     bool sounding = false;
     const auto laneCount = std::min<std::size_t>(pattern->tracks.size(),
@@ -13634,6 +13725,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.geometryWindowController = [[S3GTrackerGeometryWindowController alloc]
         initWithState:self.trackerState owner:self];
     self.geometryView = self.geometryWindowController.geometryView;
+    self.burstView = [[S3GTrackerGeometryView alloc]
+        initWithState:self.trackerState owner:self];
+    self.burstView.burstLibraryOnly = YES;
+    self.burstView.geometryViewMode = S3GTrackerGeometryViewModeBurst;
+    [self.burstView.viewModePopup selectItemAtIndex:
+        S3GTrackerGeometryViewModeBurst];
+    self.burstView.accessibilityLabel = @"Burst editor";
+    self.burstView.viewModePopup.accessibilityLabel = @"Burst library view";
+    self.burstView.viewModePopup.enabled = NO;
+    self.geometryView.viewModePopup.itemArray[
+        S3GTrackerGeometryViewModeBurst].hidden = YES;
+    for (NSUInteger index = 0u;
+         index < self.burstView.viewModePopup.itemArray.count; ++index)
+        self.burstView.viewModePopup.itemArray[index].hidden
+            = index != S3GTrackerGeometryViewModeBurst;
     self.reshapeWindowController = [[S3GTrackerReshapeWindowController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.warpWindowController = [[S3GTrackerWarpWindowController alloc]
@@ -14095,6 +14201,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self applyWorkspaceMode];
     [self.geometryView setNeedsDisplay:YES];
     [self.geometryView.playbackOverlay setNeedsDisplay:YES];
+    [self.burstView setNeedsDisplay:YES];
+    [self.burstView.playbackOverlay setNeedsDisplay:YES];
     [self.reshapeWindowController reloadModel];
     [self.warpWindowController reloadModel];
     [self.phraseView reloadModel];
@@ -14124,6 +14232,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     if (viewCanPresentPlayback(self.geometryView))
         [self.geometryView refreshPlaybackDisplay];
+    if (viewCanPresentPlayback(self.burstView))
+        [self.burstView refreshPlaybackDisplay];
     [self.reshapeWindowController refreshPlaybackDisplay];
     // The Warps content view is reparented into the CLAP page stack, so its
     // original controller window is not a reliable visibility signal. This
@@ -14191,8 +14301,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)editBurstSlot:(std::size_t)slot
 {
     (void)self.view;
-    [self.geometryView selectBurstSlot:slot];
-    [self showGeometryWindow:nil];
+    [self.burstView selectBurstSlot:slot];
+    if (self.trackerCallbacks && self.trackerCallbacks->showBurstPage)
+        self.trackerCallbacks->showBurstPage();
 }
 
 - (void)applyPitchMapContour:(PitchContour)contour
@@ -14235,6 +14346,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     (void)self.view;
     return self.geometryView;
+}
+
+- (NSView*)burstPageView
+{
+    (void)self.view;
+    return self.burstView;
 }
 
 - (NSView*)reshapePageView

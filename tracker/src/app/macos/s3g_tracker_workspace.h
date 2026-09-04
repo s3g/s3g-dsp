@@ -134,8 +134,13 @@ struct WorkspaceCallbacks {
     // CLAP hosts provide page callbacks so the same workspace actions stay
     // inside the plug-in editor.
     std::function<void()> showGeometryPage;
+    std::function<void()> showBurstPage;
     std::function<void()> showReshapePage;
     std::function<void()> showPhrasePage;
+    std::function<void()> importAssetPack;
+    std::function<void(std::size_t)> exportBurstAssetPack;
+    std::function<void(std::size_t)> exportPhraseAssetPack;
+    std::function<void()> exportPhraseLibraryAssetPack;
     std::function<void()> showTrackerPage;
     std::function<void()> showWarpPage;
     std::function<void()> showInstrumentWindow;
@@ -206,6 +211,7 @@ struct WorkspaceCallbacks {
 - (void)showMixerPage:(id)sender;
 - (void)showTrackerPage:(id)sender;
 - (NSView*)geometryPageView;
+- (NSView*)burstPageView;
 - (NSView*)reshapePageView;
 - (NSView*)phrasePageView;
 - (NSView*)warpPageView;

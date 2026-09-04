@@ -345,6 +345,12 @@ void Sequencer::setPattern(Pattern pattern)
     reset();
 }
 
+void Sequencer::setBurstLibrary(BurstLibrary library)
+{
+    burstLibrary_ = std::move(library);
+    normalizeBurstLibrary(burstLibrary_);
+}
+
 bool Sequencer::preparePatternSet(std::vector<Pattern> patterns,
     std::size_t initialPatternIndex)
 {
@@ -1140,20 +1146,6 @@ FxPlaybackMemorySnapshot Sequencer::fxMemorySnapshot(std::size_t track,
 void Sequencer::normalizePattern(Pattern& pattern)
 {
     pattern.visibleRows = std::max<std::size_t>(pattern.visibleRows, 1u);
-    for (auto& burst : pattern.bursts) {
-        if (burst.name.size() > kMaximumBurstNameBytes)
-            burst.name.resize(kMaximumBurstNameBytes);
-        burst.eventCount = static_cast<uint8_t>(std::min<std::size_t>(
-            burst.eventCount, kMaximumBurstEvents));
-        for (std::size_t event = 0u; event < burst.eventCount; ++event) {
-            burst.events[event].note = static_cast<uint8_t>(std::min<int>(
-                burst.events[event].note, 127));
-            burst.events[event].velocity = static_cast<uint8_t>(
-                std::clamp<int>(burst.events[event].velocity, 1, 127));
-            burst.events[event].gatePercent = static_cast<uint8_t>(
-                std::clamp<int>(burst.events[event].gatePercent, 1, 100));
-        }
-    }
     for (auto& track : pattern.tracks) {
         track.velocityScale = normalizedVelocityScale(track.velocityScale);
         track.midiChannel = static_cast<uint8_t>(std::clamp<int>(
@@ -1192,8 +1184,7 @@ void Sequencer::normalizePattern(Pattern& pattern)
                 continue;
             }
             if (cell.state == NoteCellState::Burst
-                && cell.note < kBurstDefinitionCount
-                && !pattern.bursts[cell.note].empty()) continue;
+                && cell.note < kBurstDefinitionCount) continue;
             if (cell.state != NoteCellState::Rest
                 && cell.state != NoteCellState::RetriggerPrevious
                 && cell.state != NoteCellState::Kill
@@ -1266,6 +1257,24 @@ void Sequencer::normalizePattern(Pattern& pattern)
                         cell.valueVoice(voice));
                 cell = FxValueCell::withValues(values, count);
             }
+        }
+    }
+}
+
+void Sequencer::normalizeBurstLibrary(BurstLibrary& library)
+{
+    for (auto& burst : library.bursts) {
+        if (burst.name.size() > kMaximumBurstNameBytes)
+            burst.name.resize(kMaximumBurstNameBytes);
+        burst.eventCount = static_cast<uint8_t>(std::min<std::size_t>(
+            burst.eventCount, kMaximumBurstEvents));
+        for (std::size_t event = 0u; event < burst.eventCount; ++event) {
+            burst.events[event].note = static_cast<uint8_t>(std::min<int>(
+                burst.events[event].note, 127));
+            burst.events[event].velocity = static_cast<uint8_t>(
+                std::clamp<int>(burst.events[event].velocity, 1, 127));
+            burst.events[event].gatePercent = static_cast<uint8_t>(
+                std::clamp<int>(burst.events[event].gatePercent, 1, 100));
         }
     }
 }
@@ -1405,9 +1414,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.velocity = candidate.velocities[0u];
                 candidate.trigger = true;
             } else if (cell.state == NoteCellState::Burst
-                && cell.note < pattern_.bursts.size()
-                && !pattern_.bursts[cell.note].empty()) {
-                candidate.note = pattern_.bursts[cell.note].events[0u].note;
+                && cell.note < burstLibrary_.bursts.size()
+                && !burstLibrary_.bursts[cell.note].empty()) {
+                candidate.note = burstLibrary_.bursts[cell.note].events[0u].note;
                 candidate.notes[0u] = candidate.note;
                 candidate.velocities[0u] = candidate.velocity;
                 candidate.burstDefinition = cell.note;
@@ -1681,9 +1690,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.retrigger = false;
                 candidate.burstDefinition = kNoBurstDefinition;
             } else if (source.state == NoteCellState::Burst
-                && source.note < pattern_.bursts.size()
-                && !pattern_.bursts[source.note].empty()) {
-                candidate.note = pattern_.bursts[source.note].events[0u].note;
+                && source.note < burstLibrary_.bursts.size()
+                && !burstLibrary_.bursts[source.note].empty()) {
+                candidate.note = burstLibrary_.bursts[source.note].events[0u].note;
                 candidate.notes[0u] = candidate.note;
                 candidate.velocities[0u] = candidate.velocity;
                 candidate.burstDefinition = source.note;

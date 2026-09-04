@@ -1,0 +1,2154 @@
+{
+  "bursts": [
+    {
+      "events": [
+        {
+          "gate": 30,
+          "note": 42,
+          "position": 0,
+          "velocity": 112
+        },
+        {
+          "gate": 26,
+          "note": 42,
+          "position": 21845,
+          "velocity": 88
+        },
+        {
+          "gate": 28,
+          "note": 42,
+          "position": 43690,
+          "velocity": 101
+        }
+      ],
+      "id": "burst-b01",
+      "name": "CLOSED HAT TRIPLET",
+      "slot": 0
+    },
+    {
+      "events": [
+        {
+          "gate": 24,
+          "note": 38,
+          "position": 0,
+          "velocity": 72
+        },
+        {
+          "gate": 20,
+          "note": 37,
+          "position": 12288,
+          "velocity": 86
+        },
+        {
+          "gate": 44,
+          "note": 38,
+          "position": 32768,
+          "velocity": 122
+        }
+      ],
+      "id": "burst-b02",
+      "name": "SNARE RUFF",
+      "slot": 1
+    },
+    {
+      "events": [
+        {
+          "gate": 34,
+          "note": 36,
+          "position": 0,
+          "velocity": 118
+        },
+        {
+          "gate": 28,
+          "note": 36,
+          "position": 24576,
+          "velocity": 82
+        },
+        {
+          "gate": 38,
+          "note": 36,
+          "position": 49152,
+          "velocity": 108
+        }
+      ],
+      "id": "burst-b03",
+      "name": "KICK DRAG",
+      "slot": 2
+    },
+    {
+      "events": [
+        {
+          "gate": 22,
+          "note": 42,
+          "position": 0,
+          "velocity": 112
+        },
+        {
+          "gate": 20,
+          "note": 42,
+          "position": 13107,
+          "velocity": 76
+        },
+        {
+          "gate": 18,
+          "note": 46,
+          "position": 26214,
+          "velocity": 92
+        },
+        {
+          "gate": 20,
+          "note": 42,
+          "position": 39321,
+          "velocity": 70
+        },
+        {
+          "gate": 24,
+          "note": 42,
+          "position": 52428,
+          "velocity": 98
+        }
+      ],
+      "id": "burst-b04",
+      "name": "HAT FIVE CUT",
+      "slot": 3
+    }
+  ],
+  "format": "s3g-tracker-asset-pack",
+  "name": "S3G DRUM FOUNDATIONS 01",
+  "phrases": [
+    {
+      "burstDependencies": [
+        "burst-b01"
+      ],
+      "fxPairs": [
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        },
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        }
+      ],
+      "gates": [
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        }
+      ],
+      "id": "phrase-p01",
+      "length": 16,
+      "name": "BOOM BAP CORE / 16",
+      "notes": [
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 42,
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            38,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            38,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 46,
+          "state": "note"
+        },
+        {
+          "burst": 0,
+          "state": "burst"
+        }
+      ],
+      "previewMidiChannel": 1,
+      "velocities": [
+        {
+          "state": "value",
+          "values": [
+            0.98000001907348633,
+            0.81999999284744263
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.62000000476837158
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.93999999761581421,
+            0.8399999737739563
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.77999997138977051,
+            0.63999998569488525
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.87999999523162842,
+            0.8399999737739563
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.89999997615814209,
+            0.62000000476837158
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            1,
+            0.87999999523162842
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.75999999046325684
+        },
+        {
+          "state": "default"
+        }
+      ]
+    },
+    {
+      "burstDependencies": [
+        "burst-b02",
+        "burst-b04"
+      ],
+      "fxPairs": [
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        },
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        }
+      ],
+      "gates": [
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        }
+      ],
+      "id": "phrase-p02",
+      "length": 16,
+      "name": "BREAKBEAT PUSH / 16",
+      "notes": [
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 42,
+          "state": "note"
+        },
+        {
+          "note": 36,
+          "state": "note"
+        },
+        {
+          "notes": [
+            38,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "burst": 1,
+          "state": "burst"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 42,
+          "state": "note"
+        },
+        {
+          "note": 36,
+          "state": "note"
+        },
+        {
+          "notes": [
+            38,
+            46
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "burst": 3,
+          "state": "burst"
+        }
+      ],
+      "previewMidiChannel": 1,
+      "velocities": [
+        {
+          "state": "value",
+          "values": [
+            1,
+            0.86000001430511475
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.62999999523162842
+        },
+        {
+          "state": "value",
+          "value": 0.75999999046325684
+        },
+        {
+          "state": "value",
+          "values": [
+            0.95999997854232788,
+            0.81999999284744263
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.8399999737739563,
+            0.64999997615814209
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.92000001668930054,
+            0.8399999737739563
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.62000000476837158
+        },
+        {
+          "state": "value",
+          "value": 0.74000000953674316
+        },
+        {
+          "state": "value",
+          "values": [
+            1,
+            0.77999997138977051
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.86000001430511475,
+            0.6600000262260437
+          ]
+        },
+        {
+          "state": "default"
+        }
+      ]
+    },
+    {
+      "burstDependencies": [
+        "burst-b04"
+      ],
+      "fxPairs": [
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        },
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 16,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        }
+      ],
+      "gates": [
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        }
+      ],
+      "id": "phrase-p03",
+      "length": 16,
+      "name": "HALF-TIME HAT TURN / 16",
+      "notes": [
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 42,
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 46,
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            38,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            37,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            41,
+            46
+          ],
+          "state": "note"
+        },
+        {
+          "burst": 3,
+          "state": "burst"
+        }
+      ],
+      "previewMidiChannel": 1,
+      "velocities": [
+        {
+          "state": "value",
+          "values": [
+            0.98000001907348633,
+            0.81999999284744263
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.60000002384185791
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.72000002861022949,
+            0.77999997138977051
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.68000000715255737
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            1,
+            0.87999999523162842
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.81999999284744263,
+            0.62000000476837158
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.68000000715255737,
+            0.80000001192092896
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.75999999046325684,
+            0.72000002861022949
+          ]
+        },
+        {
+          "state": "default"
+        }
+      ]
+    },
+    {
+      "burstDependencies": [
+        "burst-b01"
+      ],
+      "fxPairs": [
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 15,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 15,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        },
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 15,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 15,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        }
+      ],
+      "gates": [
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        }
+      ],
+      "id": "phrase-p04",
+      "length": 15,
+      "name": "ODD KIT CYCLE / 15",
+      "notes": [
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 42,
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            38,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "note": 36,
+          "state": "note"
+        },
+        {
+          "note": 42,
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            36,
+            46
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            38,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            41,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "burst": 0,
+          "state": "burst"
+        }
+      ],
+      "previewMidiChannel": 1,
+      "velocities": [
+        {
+          "state": "value",
+          "values": [
+            0.98000001907348633,
+            0.8399999737739563
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.62000000476837158
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.93999999761581421,
+            0.81999999284744263
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "value": 0.75999999046325684
+        },
+        {
+          "state": "value",
+          "value": 0.6600000262260437
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.87999999523162842,
+            0.74000000953674316
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            1,
+            0.8399999737739563
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.77999997138977051,
+            0.62000000476837158
+          ]
+        },
+        {
+          "state": "default"
+        }
+      ]
+    },
+    {
+      "burstDependencies": [
+        "burst-b03"
+      ],
+      "fxPairs": [
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 8,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 8,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        },
+        {
+          "actionColumn": {
+            "direction": "forward",
+            "length": 8,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "actions": [
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            },
+            {
+              "state": "empty"
+            }
+          ],
+          "valueColumn": {
+            "direction": "forward",
+            "length": 8,
+            "muted": false,
+            "phase": 0,
+            "stride": 1
+          },
+          "valueInterpolation": "step",
+          "values": [
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            },
+            {
+              "state": "previous"
+            }
+          ]
+        }
+      ],
+      "gates": [
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        },
+        {
+          "values": []
+        }
+      ],
+      "id": "phrase-p05",
+      "length": 8,
+      "name": "FLOOR TOM TURN / 8",
+      "notes": [
+        {
+          "notes": [
+            36,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            41,
+            42
+          ],
+          "state": "note"
+        },
+        {
+          "state": "rest"
+        },
+        {
+          "notes": [
+            38,
+            46
+          ],
+          "state": "note"
+        },
+        {
+          "note": 41,
+          "state": "note"
+        },
+        {
+          "notes": [
+            37,
+            41
+          ],
+          "state": "note"
+        },
+        {
+          "burst": 2,
+          "state": "burst"
+        }
+      ],
+      "previewMidiChannel": 1,
+      "velocities": [
+        {
+          "state": "value",
+          "values": [
+            0.92000001668930054,
+            0.77999997138977051
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.72000002861022949,
+            0.62000000476837158
+          ]
+        },
+        {
+          "state": "default"
+        },
+        {
+          "state": "value",
+          "values": [
+            0.93999999761581421,
+            0.74000000953674316
+          ]
+        },
+        {
+          "state": "value",
+          "value": 0.81999999284744263
+        },
+        {
+          "state": "value",
+          "values": [
+            0.68000000715255737,
+            0.95999997854232788
+          ]
+        },
+        {
+          "state": "default"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

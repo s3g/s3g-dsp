@@ -1189,7 +1189,8 @@ void testBurstExpansionUsesSubRowTimingAndIgnoresDensityMultipliers()
 {
     Pattern pattern;
     pattern.visibleRows = 2u;
-    auto& burst = pattern.bursts[0u];
+    s3g::tracker::BurstLibrary burstLibrary;
+    auto& burst = burstLibrary.bursts[0u];
     burst.name = "Break Rush";
     burst.eventCount = 4u;
     burst.events[0u] = { 0u, 48u, 127u, 50u };
@@ -1214,6 +1215,7 @@ void testBurstExpansionUsesSubRowTimingAndIgnoresDensityMultipliers()
     pattern.tracks.push_back(std::move(track));
 
     TimingPlaybackScheduler scheduler;
+    scheduler.setBurstLibrary(burstLibrary);
     scheduler.setPattern(std::move(pattern));
     scheduler.setTransport(transport());
     scheduler.start();

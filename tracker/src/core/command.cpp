@@ -2490,8 +2490,12 @@ CommandResult executeTokens(TrackerSession& session,
             }
         }
         settings.laneDefaultNotes = session.laneDefaultNotes;
-        const auto reshaped = reshapePattern(session.pattern, settings);
-        if (reshaped.changed()) session.pattern = reshaped.pattern;
+        const auto reshaped = reshapePattern(
+            session.pattern, session.burstLibrary, settings);
+        if (reshaped.changed()) {
+            session.pattern = reshaped.pattern;
+            session.burstLibrary = reshaped.burstLibrary;
+        }
         std::ostringstream stream;
         stream << "Pattern reshape changed " << reshaped.timingChanged
                << " MT and " << reshaped.velocityChanged
@@ -2960,13 +2964,13 @@ CommandResult executeTokens(TrackerSession& session,
 
     if (verb == "burst") {
         if (tokens.size() < 2u)
-            return failure("Usage: burst <new|duplicate|delete|B01..B32|target> ...");
+            return failure("Usage: burst <new|duplicate|delete|B01..B64|target> ...");
         const auto operation = asciiLower(tokens[1]);
         if (operation == "new") {
             std::size_t slot = 0u;
             if (tokens.size() < 3u || !parseBurstSlot(tokens[2], slot))
-                return failure("Usage: burst new <B01..B32> [name]");
-            auto& burst = session.pattern.bursts[slot];
+                return failure("Usage: burst new <B01..B64> [name]");
+            auto& burst = session.burstLibrary.bursts[slot];
             if (!burst.empty())
                 return failure(burstSlotToken(slot) + " is already in use.");
             burst = {};
@@ -2988,14 +2992,14 @@ CommandResult executeTokens(TrackerSession& session,
             std::size_t destination = 0u;
             if (tokens.size() != 4u || !parseBurstSlot(tokens[2], source)
                 || !parseBurstSlot(tokens[3], destination))
-                return failure("Usage: burst duplicate <B01..B32> <B01..B32>");
-            if (session.pattern.bursts[source].empty())
+                return failure("Usage: burst duplicate <B01..B64> <B01..B64>");
+            if (session.burstLibrary.bursts[source].empty())
                 return failure(burstSlotToken(source) + " is empty.");
-            if (!session.pattern.bursts[destination].empty())
+            if (!session.burstLibrary.bursts[destination].empty())
                 return failure(burstSlotToken(destination) + " is already in use.");
-            session.pattern.bursts[destination]
-                = session.pattern.bursts[source];
-            session.pattern.bursts[destination].name += " COPY";
+            session.burstLibrary.bursts[destination]
+                = session.burstLibrary.bursts[source];
+            session.burstLibrary.bursts[destination].name += " COPY";
             return success("Duplicated " + burstSlotToken(source) + " to "
                     + burstSlotToken(destination) + '.',
                 CommandEffect::PatternChanged);
@@ -3003,19 +3007,21 @@ CommandResult executeTokens(TrackerSession& session,
         if (operation == "delete" || operation == "clear") {
             std::size_t slot = 0u;
             if (tokens.size() != 3u || !parseBurstSlot(tokens[2], slot))
-                return failure("Usage: burst delete <B01..B32>");
-            const auto uses = burstUsageCount(session.pattern, slot);
+                return failure("Usage: burst delete <B01..B64>");
+            const auto uses = std::max(
+                burstUsageCount(session.pattern, slot),
+                session.projectBurstUsageCounts[slot]);
             if (uses != 0u)
                 return failure(burstSlotToken(slot) + " is referenced by "
                     + std::to_string(uses) + " NOTE cell(s); replace them first.");
-            session.pattern.bursts[slot] = {};
+            session.burstLibrary.bursts[slot] = {};
             return success("Deleted " + burstSlotToken(slot) + '.',
                 CommandEffect::PatternChanged);
         }
 
         std::size_t slot = 0u;
         if (parseBurstSlot(tokens[1], slot)) {
-            auto& burst = session.pattern.bursts[slot];
+            auto& burst = session.burstLibrary.bursts[slot];
             if (tokens.size() < 3u)
                 return failure("Usage: burst " + burstSlotToken(slot)
                     + " <notes|velocity|gate|timing|name|reverse|rotate|usage> ...");
@@ -3123,7 +3129,9 @@ CommandResult executeTokens(TrackerSession& session,
                 return success(burstSlotToken(slot) + " · " + burst.name
                     + " · " + std::to_string(burst.eventCount)
                     + " substeps · "
-                    + std::to_string(burstUsageCount(session.pattern, slot))
+                    + std::to_string(std::max(
+                        burstUsageCount(session.pattern, slot),
+                        session.projectBurstUsageCounts[slot]))
                     + " NOTE cell use(s).");
             } else {
                 return failure("Burst edit must be notes, velocity, gate, timing, name, reverse, rotate, or usage.");
@@ -3143,18 +3151,18 @@ CommandResult executeTokens(TrackerSession& session,
             return failure(error.empty()
                 ? "Usage: burst <target> <row> notes <1..8 MIDI notes>"
                 : std::move(error));
-        const auto empty = std::find_if(session.pattern.bursts.begin(),
-            session.pattern.bursts.end(), [](const BurstDefinition& burst) {
+        const auto empty = std::find_if(session.burstLibrary.bursts.begin(),
+            session.burstLibrary.bursts.end(), [](const BurstDefinition& burst) {
                 return burst.empty();
             });
-        if (empty == session.pattern.bursts.end())
-            return failure("All 32 Burst slots are in use.");
-        slot = static_cast<std::size_t>(empty - session.pattern.bursts.begin());
+        if (empty == session.burstLibrary.bursts.end())
+            return failure("All 64 Burst slots are in use.");
+        slot = static_cast<std::size_t>(empty - session.burstLibrary.bursts.begin());
         BurstDefinition burst;
         burst.name = "QUICK " + burstSlotToken(slot);
         if (!parseBurstNotes(tokens, 4u, burst, error))
             return failure(std::move(error));
-        session.pattern.bursts[slot] = burst;
+        session.burstLibrary.bursts[slot] = burst;
         auto& track = session.pattern.tracks[lane];
         ensureNoteStorage(session, track, row + 1u);
         track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
@@ -3943,7 +3951,7 @@ CommandResult executeTokens(TrackerSession& session,
             else if (value == "hold" || value == "hld")
                 cell = NoteCell::hold();
             else if (parseBurstSlot(tokens[3], burstSlot)) {
-                if (session.pattern.bursts[burstSlot].empty())
+                if (session.burstLibrary.bursts[burstSlot].empty())
                     return failure(burstSlotToken(burstSlot)
                         + " is empty; define it before placing a reference.");
                 cell = NoteCell::withBurst(
@@ -3952,7 +3960,7 @@ CommandResult executeTokens(TrackerSession& session,
             else if (parseMidiNote(tokens[3], midiNote))
                 cell = NoteCell::withNote(midiNote);
             else
-                return failure("Note must be MIDI 0..127, a note name, B01..B32, rest, rpt, hold, or kill.");
+                return failure("Note must be MIDI 0..127, a note name, B01..B64, rest, rpt, hold, or kill.");
             auto& track = session.pattern.tracks[lane];
             ensureNoteStorage(session, track, row + 1u);
             track.notes[row] = cell;
@@ -4772,8 +4780,8 @@ const std::vector<CommandHelpSection>& CommandEngine::helpSections()
             { "repeat <target> <row>", "Write a retrigger-previous NOTE cell.", "repeat", "repeat @kick 3" },
             { "hold <target> <row>", "Continue the active note without reattacking it.", "hold", "hold @kick 4" },
             { "kill <target> <row>", "Write a NOTE kill cell.", "kill", "kill @kick 4" },
-            { "note <target> <row> <0..127|rest|rpt|hold|kill|B01..B32>", "Edit one NOTE cell directly, including a reusable Burst reference.", "note", "note @kick 5 B01" },
-            { "burst new <B01..B32> [name]", "Create a four-substep reusable pattern-local Burst.", "burst", "burst new B02 BREAK RUSH" },
+            { "note <target> <row> <0..127|rest|rpt|hold|kill|B01..B64>", "Edit one NOTE cell directly, including a reusable Burst reference.", "note", "note @kick 5 B01" },
+            { "burst new <B01..B64> [name]", "Create a four-substep reusable project-wide Burst.", "burst", "burst new B02 BREAK RUSH" },
             { "burst Bxx notes <1..8 notes>", "Set the independently pitched MIDI events emitted inside one tracker row.", "", "burst B01 notes 48 52 50 55" },
             { "burst Bxx velocity|gate <fit|one|per-step values>", "Set one value for the phrase or one per substep. Gate fit ends each note at the next onset and the last at the row boundary; numeric gate is 1..100 percent of a complete Tracker row from each onset.", "", "burst B01 gate fit" },
             { "burst Bxx timing <even|accelerate|decelerate|positions...>", "Shape sub-row positions; custom positions are percentages in ascending order.", "", "burst B01 timing accelerate" },
