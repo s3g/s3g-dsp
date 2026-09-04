@@ -75,6 +75,7 @@ PatternReshapeSettings defaultPanelSettings()
 @property(nonatomic, strong) S3GTrackerToolboxView* commitPanel;
 @property(nonatomic, strong) S3GTrackerPatternProfileView* profileView;
 @property(nonatomic, strong) S3GTrackerPopupButton* patternPopup;
+@property(nonatomic, strong) S3GTrackerPopupButton* laneScopePopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* cyclePopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* timingWritePopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* timingOutlierPopup;
@@ -510,6 +511,11 @@ PatternReshapeSettings defaultPanelSettings()
     self.patternPopup = [self popup:@selector(patternSelected:)
         panel:self.targetPanel];
     self.patternPopup.accessibilityLabel = @"Reshape target pattern";
+    self.laneScopePopup = [self popup:@selector(laneScopeSelected:)
+        panel:self.targetPanel];
+    self.laneScopePopup.accessibilityLabel = @"Reshape included lanes";
+    self.laneScopePopup.toolTip =
+        @"Choose one lane, then toggle more lanes to reshape a group. ALL LANES restores the complete pattern.";
     self.cyclePopup = [self popup:@selector(cycleSelected:)
         panel:self.targetPanel];
     self.cyclePopup.accessibilityLabel = @"Reshape analysis cycle";
@@ -522,6 +528,7 @@ PatternReshapeSettings defaultPanelSettings()
     [self.targetPanel addSubview:self.analysisLabel];
     self.targetLabels = @[
         [self rowLabel:@"PATTERN" panel:self.targetPanel],
+        [self rowLabel:@"LANES" panel:self.targetPanel],
         [self rowLabel:@"CYCLE" panel:self.targetPanel],
     ];
 
@@ -731,9 +738,10 @@ PatternReshapeSettings defaultPanelSettings()
     };
     placeLabels(self.targetLabels);
     self.patternPopup.frame = controlRect(0u);
-    self.cyclePopup.frame = controlRect(1u);
+    self.laneScopePopup.frame = controlRect(1u);
+    self.cyclePopup.frame = controlRect(2u);
     self.analysisLabel.frame = NSMakeRect(labelX,
-        row0 + row * 2.0 - 2.0,
+        row0 + row * 3.0 - 2.0,
         std::max<CGFloat>(80.0, sideWidth - labelX - right), 64.0);
     placeLabels(self.timingLabels);
     self.pocketField.frame = sliderRect(0u);
@@ -877,6 +885,57 @@ PatternReshapeSettings defaultPanelSettings()
         if (entry.id == self.trackerState->patternBank.activePatternId)
             [self.patternPopup selectItem:self.patternPopup.lastItem];
     }
+    const auto laneCount = std::min<std::size_t>(
+        self.trackerState->session.pattern.tracks.size(), 32u);
+    const uint32_t validLaneMask = laneCount >= 32u
+        ? 0xffffffffu
+        : (laneCount == 0u ? 0u
+            : (uint32_t { 1u } << static_cast<uint32_t>(laneCount)) - 1u);
+    if (_settings.laneMask != 0xffffffffu) {
+        _settings.laneMask &= validLaneMask;
+        if (_settings.laneMask == 0u && validLaneMask != 0u) {
+            const auto selected = std::min<std::size_t>(
+                self.trackerState->session.selectedTrack, laneCount - 1u);
+            _settings.laneMask = uint32_t { 1u }
+                << static_cast<uint32_t>(selected);
+        }
+    }
+    [self.laneScopePopup removeAllItems];
+    [self.laneScopePopup addItemWithTitle:@"ALL LANES"];
+    self.laneScopePopup.lastItem.representedObject = @(-1);
+    const bool allLanes = _settings.laneMask == 0xffffffffu
+        || (_settings.laneMask & validLaneMask) == validLaneMask;
+    if (allLanes) _settings.laneMask = 0xffffffffu;
+    std::size_t includedLanes = 0u;
+    std::size_t onlyLane = 0u;
+    for (std::size_t lane = 0u; lane < laneCount; ++lane) {
+        const bool included = allLanes
+            || (_settings.laneMask
+                & (uint32_t { 1u } << static_cast<uint32_t>(lane))) != 0u;
+        if (included) {
+            ++includedLanes;
+            onlyLane = lane;
+        }
+        const auto& track = self.trackerState->session.pattern.tracks[lane];
+        NSString* name = track.name.empty()
+            ? [NSString stringWithFormat:@"LANE %02lu",
+                static_cast<unsigned long>(lane + 1u)]
+            : reshapeString(track.name);
+        [self.laneScopePopup addItemWithTitle:[NSString stringWithFormat:
+            @"%@ L%02lu  %@", included ? @"●" : @"○",
+            static_cast<unsigned long>(lane + 1u), name]];
+        self.laneScopePopup.lastItem.representedObject = @(lane);
+    }
+    if (allLanes) {
+        self.laneScopePopup.s3gDisplayTitle = @"ALL LANES";
+    } else if (includedLanes == 1u) {
+        self.laneScopePopup.s3gDisplayTitle = [NSString stringWithFormat:
+            @"L%02lu ONLY", static_cast<unsigned long>(onlyLane + 1u)];
+    } else {
+        self.laneScopePopup.s3gDisplayTitle = [NSString stringWithFormat:
+            @"%lu LANES", static_cast<unsigned long>(includedLanes)];
+    }
+    [self.laneScopePopup selectItemAtIndex:0u];
     const std::size_t cycle = _settings.cycleRows;
     [self.cyclePopup selectItemWithTitle:cycle == 0u ? @"AUTO"
         : [NSString stringWithFormat:@"%lu", static_cast<unsigned long>(cycle)]];
@@ -958,6 +1017,38 @@ PatternReshapeSettings defaultPanelSettings()
     _settings.cycleRows = [sender.selectedItem.title isEqualToString:@"AUTO"]
         ? 0u : static_cast<std::size_t>(sender.selectedItem.title.integerValue);
     [self refreshResult];
+}
+
+- (void)laneScopeSelected:(S3GTrackerPopupButton*)sender
+{
+    if (!self.trackerState) return;
+    const NSInteger selected = sender.selectedItem.representedObject
+        ? [sender.selectedItem.representedObject integerValue] : -1;
+    if (selected < 0) {
+        _settings.laneMask = 0xffffffffu;
+        [self reloadModel];
+        return;
+    }
+    const auto lane = static_cast<std::size_t>(selected);
+    if (lane >= self.trackerState->session.pattern.tracks.size()
+        || lane >= 32u) return;
+    const uint32_t bit = uint32_t { 1u } << static_cast<uint32_t>(lane);
+    const auto laneCount = std::min<std::size_t>(
+        self.trackerState->session.pattern.tracks.size(), 32u);
+    const uint32_t validLaneMask = laneCount >= 32u
+        ? 0xffffffffu
+        : (uint32_t { 1u } << static_cast<uint32_t>(laneCount)) - 1u;
+    const bool allLanes = _settings.laneMask == 0xffffffffu
+        || (_settings.laneMask & validLaneMask) == validLaneMask;
+    if (allLanes) {
+        _settings.laneMask = bit;
+    } else if ((_settings.laneMask & bit) != 0u) {
+        const uint32_t reduced = _settings.laneMask & ~bit;
+        if (reduced != 0u) _settings.laneMask = reduced;
+    } else {
+        _settings.laneMask |= bit;
+    }
+    [self reloadModel];
 }
 
 - (void)timingChanged:(id)sender

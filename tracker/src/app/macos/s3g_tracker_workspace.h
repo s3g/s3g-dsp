@@ -7,6 +7,7 @@
 #include "s3g/tracker/instrument_rack.h"
 #include "s3g/tracker/midi_step_recorder.h"
 #include "s3g/tracker/pattern_bank.h"
+#include "s3g/tracker/phrase_library.h"
 #include "s3g/tracker/pitch_map.h"
 #include "s3g_tracker_audio_device.h"
 
@@ -27,6 +28,9 @@ struct TrackerViewState {
     // workspace. Pattern changes are synchronized to this ordered bank by the
     // app coordinator before selection, persistence, and playback publication.
     PatternBank patternBank = makeDefaultPatternBank();
+    PhraseLibrary phraseLibrary;
+    std::size_t selectedPhrase = 0u;
+    std::size_t lastPlacedPhrase = 0u;
     InstrumentRackState instrumentRack = makeDefaultInstrumentRack();
     uint32_t selectedRackInstrument = 0u;
     std::array<std::size_t, kVisibleLaneCount> notePlayheads {};
@@ -131,6 +135,7 @@ struct WorkspaceCallbacks {
     // inside the plug-in editor.
     std::function<void()> showGeometryPage;
     std::function<void()> showReshapePage;
+    std::function<void()> showPhrasePage;
     std::function<void()> showTrackerPage;
     std::function<void()> showWarpPage;
     std::function<void()> showInstrumentWindow;
@@ -202,6 +207,7 @@ struct WorkspaceCallbacks {
 - (void)showTrackerPage:(id)sender;
 - (NSView*)geometryPageView;
 - (NSView*)reshapePageView;
+- (NSView*)phrasePageView;
 - (NSView*)warpPageView;
 - (NSView*)consolePageView;
 - (void)focusConsole;

@@ -77,8 +77,15 @@ ProjectDocument makeDocument()
     chordVelocities[1u] = 0.63f;
     chordVelocities[2u] = 0.78f;
     track.velocities[7u] = ValueCell::withValues(chordVelocities, 3u);
+    track.gates.resize(12u, GateCell::defaultValue());
+    std::array<GateVoice, kMaximumNoteVoices> chordGates {};
+    chordGates[0u] = { GateVoiceMode::Rows, 0.5f };
+    chordGates[1u] = { GateVoiceMode::Tie, 1.0f };
+    chordGates[2u] = { GateVoiceMode::Rows, 1.25f };
+    track.gates[7u] = GateCell::withVoices(chordGates, 3u);
     track.noteColumn = { 12u, 3u, 2u, Direction::Palindrome, false };
     track.velocityColumn = { 9u, 2u, 3u, Direction::Random, false };
+    track.gateColumn = { 7u, 1u, 4u, Direction::Reverse, false };
 
     constexpr std::array<SequencerAction, kSequencerActionCount> actions {{
         SequencerAction::Ratchet,
@@ -116,7 +123,11 @@ ProjectDocument makeDocument()
         SequencerAction::MicroTime);
     secondFx.actions[1u] = FxActionCell::previous();
     secondFx.actions[2u] = FxActionCell::midiControlChange(74u);
-    secondFx.values[0u] = FxValueCell::withValue(0.42f);
+    std::array<float, kMaximumNoteVoices> chordMicroTimes {};
+    chordMicroTimes[0u] = 0.32f;
+    chordMicroTimes[1u] = 0.50f;
+    chordMicroTimes[2u] = 0.71f;
+    secondFx.values[0u] = FxValueCell::withValues(chordMicroTimes, 3u);
     secondFx.values[2u] = FxValueCell::withValue(64.0f / 127.0f);
     secondFx.valueInterpolation = ValueInterpolation::Linear;
     secondFx.actionColumn = { 4u, 2u, 1u, Direction::Random, false };
@@ -171,6 +182,23 @@ ProjectDocument makeDocument()
     document.session.trackerRowJump = 3u;
     document.session.commandRngState = std::numeric_limits<uint64_t>::max();
     document.session.playbackSeed = 0xfedcba98u;
+
+    auto& phrase = document.phraseLibrary.phrases[3u];
+    phrase = makeBlankPhrase(7u);
+    phrase.name = "Odd Hat Turn";
+    phrase.previewMidiChannel = 10u;
+    phrase.notes[0u] = NoteCell::withNote(42u);
+    phrase.notes[3u] = NoteCell::withNote(46u);
+    phrase.notes[5u] = NoteCell::withBurst(4u);
+    phrase.bursts[4u].name = "Phrase flam";
+    phrase.bursts[4u].eventCount = 2u;
+    phrase.bursts[4u].events[0u] = { 0u, 38u, 118u, 40u };
+    phrase.bursts[4u].events[1u] = { 49152u, 38u, 90u, 25u };
+    phrase.velocities[3u] = ValueCell::withValue(0.72f);
+    phrase.fxPairs[0u].actions[3u] = FxActionCell::sequencer(
+        SequencerAction::MicroTime);
+    phrase.fxPairs[0u].values[3u] = FxValueCell::withValue(0.6f);
+    phrase.gates[3u] = GateCell::withRows(0.75f);
 
     document.song.name = "LIVE SET";
     document.song.loop = true;
@@ -239,6 +267,21 @@ void testCompleteDeterministicRoundTrip()
             && decoded.session.trackerRowJump == 3u
             && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9,
         "random seeds, Song mode, NOTE view, and row jump should survive without precision loss");
+    check(decoded.phraseLibrary.phrases[3u].name == "Odd Hat Turn"
+            && decoded.phraseLibrary.phrases[3u].length == 7u
+            && decoded.phraseLibrary.phrases[3u].previewMidiChannel == 10u
+            && decoded.phraseLibrary.phrases[3u].notes[3u].note == 46u
+            && decoded.phraseLibrary.phrases[3u].notes[5u].state
+                == NoteCellState::Burst
+            && decoded.phraseLibrary.phrases[3u].bursts[4u].name
+                == "Phrase flam"
+            && decoded.phraseLibrary.phrases[3u].bursts[4u].events[1u]
+                .position == 49152u
+            && decoded.phraseLibrary.phrases[3u].fxPairs[0u].values[3u]
+                .normalized == 0.6f
+            && decoded.phraseLibrary.phrases[3u].gates[3u]
+                .gateVoice(0u).rows == 0.75f,
+        "project phrase library should preserve preview channel, odd lengths, gates, and typed cells");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
             && activePattern(decoded).tracks[0u].notes[3u].state
                 == NoteCellState::Hold
@@ -252,6 +295,11 @@ void testCompleteDeterministicRoundTrip()
                     .valueVoiceCount() == 3u
             && std::abs(activePattern(decoded).tracks[0u].velocities[7u]
                     .valueVoice(2u) - 0.78f) < 0.00001f
+            && activePattern(decoded).tracks[0u].gates[7u]
+                    .gateVoiceCount() == 3u
+            && activePattern(decoded).tracks[0u].gates[7u]
+                    .gateVoice(1u).mode == GateVoiceMode::Tie
+            && activePattern(decoded).tracks[0u].gateColumn.phase == 4u
             && activePattern(decoded).bursts[0u].name == "Break Rush"
             && activePattern(decoded).bursts[0u].events[2u].note == 50u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u
@@ -262,6 +310,10 @@ void testCompleteDeterministicRoundTrip()
                 == FxActionCellState::MidiControlChange
             && activePattern(decoded).tracks[0u].fxPairs[1u]
                     .actions[2u].midiController == 74u
+            && activePattern(decoded).tracks[0u].fxPairs[1u]
+                    .values[0u].valueVoiceCount() == 3u
+            && std::abs(activePattern(decoded).tracks[0u].fxPairs[1u]
+                    .values[0u].valueVoice(2u) - 0.71f) < 0.00001f
             && activePattern(decoded).tracks[0u].fxPairs[1u]
                     .valueInterpolation == ValueInterpolation::Linear,
         "polymetric phase, MIDI CC modes, and every current sequencing action should round trip");

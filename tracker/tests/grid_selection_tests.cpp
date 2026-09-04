@@ -45,6 +45,27 @@ int main()
         "selection containment should include page and every dimension");
     check(!selection.isSingleCell(),
         "multi-dimensional drag must not report one cell");
+    check(selection.firstColumn(2u) == 2u
+            && selection.lastColumn(2u) == 7u
+            && selection.columnCount(2u) == 6u
+            && selection.containsLinear(1u, 2u, 1u, 10u, 2u)
+            && !selection.containsLinear(1u, 0u, 1u, 10u, 2u),
+        "linear selection should follow the visible left-to-right column span across lanes");
+
+    GridSelection boundary;
+    boundary.active = true;
+    boundary.anchorTrack = 0u;
+    boundary.anchorField = 1u;
+    boundary.anchorRow = 2u;
+    boundary.focusTrack = 1u;
+    boundary.focusField = 0u;
+    boundary.focusRow = 3u;
+    check(boundary.columnCount(2u) == 2u
+            && boundary.containsLinear(0u, 0u, 1u, 2u, 2u)
+            && boundary.containsLinear(0u, 1u, 0u, 3u, 2u)
+            && !boundary.containsLinear(0u, 0u, 0u, 2u, 2u)
+            && !boundary.containsLinear(0u, 1u, 1u, 3u, 2u),
+        "a cross-lane boundary selection should not inflate into a Cartesian block");
 
     std::size_t track = 0u;
     std::size_t field = 0u;

@@ -5,6 +5,7 @@ add_library(s3g_tracker_clap MODULE
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_reshape_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_warp_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_workspace.mm
+  ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_phrase_view.mm
   ${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_song_window.mm
   ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Regular.ttf
   ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Medium.ttf

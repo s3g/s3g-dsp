@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 
 #import "s3g_tracker_controls.h"
+#import "s3g_tracker_phrase_view.h"
 #import "s3g_tracker_workspace.h"
 
 #include "s3g_tracker_workspace_layout.h"
@@ -29,6 +30,17 @@
 - (NSMenu*)noteMenuForTrack:(std::size_t)track row:(std::size_t)row;
 - (NSMenu*)velocityMenuForTrack:(std::size_t)track row:(std::size_t)row;
 - (void)sequenceConditionSelected:(NSMenuItem*)sender;
+- (NSMenu*)phraseSequenceActionMenuForField:(std::size_t)field
+    row:(std::size_t)row;
+- (void)phraseSequenceActionSelected:(NSMenuItem*)sender;
+- (NSMenu*)phraseSequenceConditionMenuForField:(std::size_t)field
+    row:(std::size_t)row;
+- (void)phraseSequenceConditionSelected:(NSMenuItem*)sender;
+- (BOOL)handleGridKeyEvent:(NSEvent*)event;
+- (s3g::tracker::app::GridSelectionRange)effectivePhraseSelection;
+- (void)phraseCopy:(id)sender;
+- (void)phraseCut:(id)sender;
+- (void)phrasePaste:(id)sender;
 - (NSString*)displayedPatternId;
 - (NSUInteger)displayedLaneCount;
 - (NSUInteger)displayedMutedLaneCount;
@@ -43,6 +55,13 @@
     row:(std::size_t)row page:(std::size_t)page field:(std::size_t)field;
 - (NSString*)cellTextForTrack:(std::size_t)trackIndex
     row:(std::size_t)row page:(std::size_t)page field:(std::size_t)field;
+- (NSString*)clipboardTextForTrack:(std::size_t)trackIndex
+    row:(std::size_t)row page:(std::size_t)page field:(std::size_t)field;
+- (void)trackerCopy:(id)sender;
+- (void)trackerCut:(id)sender;
+- (void)trackerPaste:(id)sender;
+- (void)splitSelectedNoteColumnByPitch:(NSMenuItem*)sender;
+- (void)mergeSelectedNoteLanes:(NSMenuItem*)sender;
 - (BOOL)extendGridSelectionInColumnToTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row;
 - (s3g::tracker::app::GridSelectionRange)effectiveGridSelection;
@@ -374,8 +393,17 @@ int main()
         NSTextField* consoleLiveCode = [controller
             valueForKey:@"consolePageInput"];
         NSView* geometryPage = [controller geometryPageView];
+        NSView* phrasePage = [controller phrasePageView];
         NSView* reshapePage = [controller reshapePageView];
         NSView* warpPage = [controller warpPageView];
+        id phraseController = [controller valueForKey:@"phraseView"];
+        S3GTrackerPopupButton* phraseLength = [phraseController
+            valueForKey:@"lengthPopup"];
+        S3GTrackerPopupButton* phraseLibrary = [phraseController
+            valueForKey:@"libraryPopup"];
+        S3GTrackerPopupButton* phrasePreviewChannel = [phraseController
+            valueForKey:@"previewChannelPopup"];
+        NSView* phraseGrid = [phraseController valueForKey:@"grid"];
         NSPopUpButton* geometryViewMode = [geometryPage
             valueForKey:@"viewModePopup"];
         NSPopUpButton* geometryLanePopup = [geometryPage
@@ -406,10 +434,283 @@ int main()
             "compact tracker should use the full embedded page width");
         check(near(NSHeight(envelope.frame), 111.6),
             "compact AppKit layout should shrink the envelope");
-        check(consoleOutput && geometryPage && reshapePage && warpPage
+        check(consoleOutput && geometryPage && phrasePage && reshapePage && warpPage
                 && consoleOutput != geometryPage
-                && geometryPage != reshapePage && reshapePage != warpPage,
-            "console, geometry, reshape, and warp modules should expose distinct pages");
+                && geometryPage != phrasePage && phrasePage != reshapePage
+                && reshapePage != warpPage,
+            "console, geometry, phrase, reshape, and warp modules should expose distinct pages");
+        NSWindow* phraseTestWindow = [[NSWindow alloc]
+            initWithContentRect:NSMakeRect(0.0, 0.0, 900.0, 660.0)
+            styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered
+            defer:NO];
+        phrasePage.frame = phraseTestWindow.contentView.bounds;
+        phraseTestWindow.contentView = phrasePage;
+        [phraseTestWindow makeKeyAndOrderFront:nil];
+        [phrasePage layoutSubtreeIfNeeded];
+        check(phraseLibrary.numberOfItems == 64u
+                && phraseLength.numberOfItems == 63u
+                && phrasePreviewChannel.numberOfItems == 16u
+                && [[phrasePreviewChannel itemAtIndex:0u].title
+                    isEqualToString:@"01"]
+                && [[phraseLength itemAtIndex:0u].title
+                    isEqualToString:@"2 ROWS"]
+                && [[phraseLength itemAtIndex:61u].title
+                    isEqualToString:@"63 ROWS"]
+                && [[phraseLength itemAtIndex:62u].title
+                    isEqualToString:@"64 ROWS"],
+            "Phrase Library should expose 64 project slots and every even or odd length from 2 through 64");
+        [phrasePreviewChannel selectItemAtIndex:9u];
+        [phrasePreviewChannel sendAction:phrasePreviewChannel.action
+            to:phrasePreviewChannel.target];
+        check(state.phraseLibrary.phrases[0u].previewMidiChannel == 10u,
+            "Phrase preview MIDI channel should be editable and stored with the phrase");
+        [phraseGrid keyDown:keyEvent(phraseTestWindow, @"6", 22u, 0u)];
+        NSTextField* phraseCellEditor = [phraseGrid valueForKey:@"editor"];
+        check(phraseCellEditor != nil,
+            "typing in a Phrase cell should open its standard keyboard editor");
+        phraseCellEditor.stringValue = @"60";
+        [phraseGrid performSelector:@selector(commitEditor:) withObject:nil];
+        check(state.phraseLibrary.phrases[0u].notes[0u].state
+                    == s3g::tracker::NoteCellState::Note
+                && state.phraseLibrary.phrases[0u].notes[0u].note == 60u,
+            "Phrase inline editing should write ordinary tracker cells");
+        const NSPoint phraseDoubleClick = [phraseGrid convertPoint:
+            NSMakePoint(80.0, 35.0) toView:nil];
+        const NSPoint phraseRoundTrip = [phraseGrid convertPoint:
+            phraseDoubleClick fromView:nil];
+        check(near(phraseRoundTrip.x, 80.0)
+                && near(phraseRoundTrip.y, 35.0),
+            "Phrase double-click test point should round-trip through window coordinates");
+        NSEvent* phraseDoubleDown = mouseDownEvent(phraseTestWindow,
+            phraseDoubleClick, 2);
+        [phraseGrid mouseDown:phraseDoubleDown];
+        phraseCellEditor = [phraseGrid valueForKey:@"editor"];
+        check(phraseDoubleDown.clickCount == 2 && phraseCellEditor != nil,
+            "double-click should open the Phrase inline field");
+        check(phraseCellEditor == nil || (phraseCellEditor.editable
+                && phraseCellEditor.selectable),
+            "Phrase double-click field should use Tracker's editable/selectable configuration");
+        NSTextView* phraseFieldEditor = (NSTextView*)phraseCellEditor.currentEditor;
+        check(phraseFieldEditor == nil
+                || (phraseFieldEditor.selectedRange.location
+                        == phraseCellEditor.stringValue.length
+                    && phraseFieldEditor.selectedRange.length == 0u),
+            "Phrase double-click should place an unselected caret after the existing value");
+        [phraseGrid performSelector:@selector(commitEditor:) withObject:nil];
+        state.phraseLibrary.phrases[0u].velocities[0u]
+            = s3g::tracker::ValueCell::withValue(0.5f);
+        [phraseGrid setValue:@0u forKey:@"selectedRow"];
+        [phraseGrid setValue:@1u forKey:@"selectedField"];
+        [phraseGrid performSelector:@selector(beginEditing) withObject:nil];
+        phraseCellEditor = [phraseGrid valueForKey:@"editor"];
+        check([phraseCellEditor.stringValue isEqualToString:@"0.500"],
+            "Phrase VOL should display its stored normalized floating-point value");
+        phraseCellEditor.stringValue = @"1";
+        [phraseGrid performSelector:@selector(commitEditor:) withObject:nil];
+        check(std::abs(state.phraseLibrary.phrases[0u].velocities[0u]
+                    .normalized - 1.0f) < 0.0001f,
+            "Phrase VOL entry should interpret both 0 and 1 as normalized endpoints");
+
+        auto& editedPhrase = state.phraseLibrary.phrases[0u];
+        editedPhrase.notes[0u] = s3g::tracker::NoteCell::withNote(60u);
+        editedPhrase.notes[1u] = s3g::tracker::NoteCell::withNote(64u);
+        editedPhrase.velocities[0u]
+            = s3g::tracker::ValueCell::withValue(0.75f);
+        editedPhrase.velocities[1u]
+            = s3g::tracker::ValueCell::withValue(0.25f);
+        const NSPoint phraseSelectionStart = [phraseGrid convertPoint:
+            NSMakePoint(80.0, 35.0) toView:nil];
+        const NSPoint phraseSelectionEnd = [phraseGrid convertPoint:
+            NSMakePoint(250.0, 57.0) toView:nil];
+        [phraseGrid mouseDown:mouseDownEvent(phraseTestWindow,
+            phraseSelectionStart, 1)];
+        [phraseGrid mouseDragged:mouseEvent(phraseTestWindow,
+            NSEventTypeLeftMouseDragged, phraseSelectionEnd, 0u)];
+        [phraseGrid mouseUp:mouseEvent(phraseTestWindow,
+            NSEventTypeLeftMouseUp, phraseSelectionEnd, 0u)];
+        auto phraseSelection = [phraseGrid effectivePhraseSelection];
+        check(phraseSelection.firstField == 0u
+                && phraseSelection.lastField == 1u
+                && phraseSelection.firstRow == 0u
+                && phraseSelection.lastRow == 1u,
+            "Phrase drag selection should span the same rectangular cell ranges as Tracker");
+        check([phraseGrid handleGridKeyEvent:keyEvent(phraseTestWindow,
+                @"x", 7u, NSEventModifierFlagControl)],
+            "Control-X should be owned by the Phrase mini tracker");
+        check(editedPhrase.notes[0u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && editedPhrase.notes[1u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && editedPhrase.velocities[0u].state
+                    == s3g::tracker::ValueCellState::Default
+                && editedPhrase.velocities[1u].state
+                    == s3g::tracker::ValueCellState::Default,
+            "Phrase Cut should clear every cell in the selected rectangle");
+        const NSPoint phrasePastePoint = [phraseGrid convertPoint:
+            NSMakePoint(80.0, 123.0) toView:nil];
+        [phraseGrid mouseDown:mouseDownEvent(phraseTestWindow,
+            phrasePastePoint, 1)];
+        [phraseGrid mouseUp:mouseEvent(phraseTestWindow,
+            NSEventTypeLeftMouseUp, phrasePastePoint, 0u)];
+        check([phraseGrid handleGridKeyEvent:keyEvent(phraseTestWindow,
+                @"v", 9u, NSEventModifierFlagControl)],
+            "Control-V should be owned by the Phrase mini tracker");
+        check(editedPhrase.notes[4u].state
+                    == s3g::tracker::NoteCellState::Note
+                && editedPhrase.notes[4u].note == 60u
+                && editedPhrase.notes[5u].note == 64u
+                && std::abs(editedPhrase.velocities[4u].normalized - 0.75f)
+                    < 0.0001f
+                && std::abs(editedPhrase.velocities[5u].normalized - 0.25f)
+                    < 0.0001f,
+            "Phrase Paste should preserve a copied multi-row, multi-column shape and exact cell values");
+        const NSPoint phraseShiftEnd = [phraseGrid convertPoint:
+            NSMakePoint(250.0, 167.0) toView:nil];
+        const NSPoint phraseShiftStart = [phraseGrid convertPoint:
+            NSMakePoint(250.0, 123.0) toView:nil];
+        [phraseGrid mouseDown:mouseDownEvent(phraseTestWindow,
+            phraseShiftStart, 1)];
+        [phraseGrid mouseUp:mouseEvent(phraseTestWindow,
+            NSEventTypeLeftMouseUp, phraseShiftStart, 0u)];
+        [phraseGrid mouseDown:mouseEvent(phraseTestWindow,
+            NSEventTypeLeftMouseDown, phraseShiftEnd,
+            NSEventModifierFlagShift)];
+        phraseSelection = [phraseGrid effectivePhraseSelection];
+        check(phraseSelection.firstField == 1u
+                && phraseSelection.lastField == 1u
+                && phraseSelection.firstRow == 4u
+                && phraseSelection.lastRow == 6u,
+            "Shift-click should extend a Phrase selection within one column");
+        check([phraseGrid handleGridKeyEvent:keyEvent(phraseTestWindow,
+                @"", 124u, NSEventModifierFlagControl
+                    | NSEventModifierFlagShift)],
+            "Control-Shift-arrow should extend Phrase selections from the keyboard");
+        phraseSelection = [phraseGrid effectivePhraseSelection];
+        check(phraseSelection.lastField == 2u,
+            "Phrase keyboard selection should extend across adjacent columns");
+        editedPhrase.notes[4u] = s3g::tracker::NoteCell::rest();
+        editedPhrase.notes[5u] = s3g::tracker::NoteCell::rest();
+        editedPhrase.velocities[4u]
+            = s3g::tracker::ValueCell::defaultValue();
+        editedPhrase.velocities[5u]
+            = s3g::tracker::ValueCell::defaultValue();
+        NSMenu* phraseSequenceMenu = [phraseGrid
+            phraseSequenceActionMenuForField:2u row:0u];
+        NSMenuItem* phraseConditionAction = nil;
+        for (NSMenuItem* item in phraseSequenceMenu.itemArray) {
+            NSDictionary* represented = item.representedObject;
+            if ([represented[@"kind"] isEqualToString:@"action"]) {
+                const auto index = [represented[@"action"] unsignedIntegerValue];
+                const auto* action = s3g::tracker::sequencerAction(index);
+                if (action && action->action
+                        == s3g::tracker::SequencerAction::Condition) {
+                    phraseConditionAction = item;
+                    break;
+                }
+            }
+        }
+        NSMenuItem* phraseMidiControl = [phraseSequenceMenu
+            itemWithTitle:@"MIDI CONTROL CHANGE"];
+        check(phraseSequenceMenu != nil && phraseConditionAction != nil
+                && phraseMidiControl.submenu.numberOfItems == 4u
+                && phraseMidiControl.submenu.itemArray[0u]
+                    .submenu.numberOfItems == 32u,
+            "Phrase SEQ cells should expose the Tracker action and MIDI CC context menu");
+        [phraseGrid phraseSequenceActionSelected:phraseConditionAction];
+        const auto& phraseSeqPair = state.phraseLibrary.phrases[0u]
+            .fxPairs[0u];
+        check(phraseSeqPair.actions[0u].state
+                    == s3g::tracker::FxActionCellState::Sequencer
+                && phraseSeqPair.actions[0u].sequencerAction
+                    == s3g::tracker::SequencerAction::Condition
+                && s3g::tracker::sequencerConditionFromNormalized(
+                    phraseSeqPair.values[0u].normalized)
+                    == s3g::tracker::SequencerCondition::FirstOf2,
+            "choosing CD in a Phrase SEQ menu should write the action and its default condition");
+        NSMenu* phraseConditionMenu = [phraseGrid
+            phraseSequenceConditionMenuForField:3u row:0u];
+        NSMenuItem* phraseRowOdd = nil;
+        for (NSMenuItem* item in phraseConditionMenu.itemArray) {
+            NSDictionary* represented = item.representedObject;
+            const auto index = [represented[@"condition"] unsignedIntegerValue];
+            const auto* condition = s3g::tracker::sequencerCondition(index);
+            if (condition && condition->condition
+                    == s3g::tracker::SequencerCondition::RowOdd) {
+                phraseRowOdd = item;
+                break;
+            }
+        }
+        [phraseGrid phraseSequenceConditionSelected:phraseRowOdd];
+        check(phraseConditionMenu != nil && phraseRowOdd != nil
+                && s3g::tracker::sequencerConditionFromNormalized(
+                    state.phraseLibrary.phrases[0u].fxPairs[0u]
+                        .values[0u].normalized)
+                    == s3g::tracker::SequencerCondition::RowOdd,
+            "right-clicking a Phrase CD value should expose and store named conditions");
+        [phraseGrid setValue:@0u forKey:@"selectedRow"];
+        [phraseGrid setValue:@0u forKey:@"selectedField"];
+        [phraseGrid keyDown:keyEvent(window, @"\x7f", 51u, 0u)];
+        check(state.phraseLibrary.phrases[0u].notes[0u].state
+                == s3g::tracker::NoteCellState::Rest,
+            "Delete should clear the selected Phrase cell");
+        state.phraseLibrary.phrases[0u].notes[0u]
+            = s3g::tracker::NoteCell::withNote(60u);
+        state.phraseLibrary.phrases[0u].notes[1u]
+            = s3g::tracker::NoteCell::withBurst(3u);
+        state.phraseLibrary.phrases[0u].notes[2u]
+            = s3g::tracker::NoteCell::withNote(64u);
+        auto& phraseBurst = state.phraseLibrary.phrases[0u].bursts[3u];
+        phraseBurst.name = "Phrase burst";
+        phraseBurst.eventCount = 2u;
+        phraseBurst.events[0u] = { 0u, 36u, 110u, 35u };
+        phraseBurst.events[1u] = { 32768u, 38u, 90u, 30u };
+        [phraseController performSelector:@selector(previewPressed:)
+            withObject:nil];
+        check(pitchPreviewRequests == 1
+                && previewedChannel == 10u
+                && previewedPitch.size() == 4u
+                && previewedPitch[1u].row == 1u
+                && previewedPitch[1u].position == 0u
+                && previewedPitch[2u].row == 1u
+                && previewedPitch[2u].position == 32768u
+                && [[phraseController valueForKey:@"previewPlayheadRow"]
+                    integerValue] == 0,
+            "Phrase Preview should audition embedded Burst timing and start its visible playhead");
+        NSTimer* phrasePreviewTimer = [phraseController
+            valueForKey:@"previewTimer"];
+        [phrasePreviewTimer fire];
+        check([[phraseController valueForKey:@"previewPlayheadRow"]
+                integerValue] == 1,
+            "Phrase Preview playhead should advance one Tracker row per project tick");
+        [phraseController performSelector:@selector(stopPhrasePreview)];
+        pitchPreviewRequests = 0;
+        previewedPitch.clear();
+        const auto previousCaptureNote = state.session.pattern.tracks[0u]
+            .notes[10u];
+        const auto previousCaptureBurst = state.session.pattern.bursts[7u];
+        state.session.pattern.bursts[7u].name = "Captured phrase roll";
+        state.session.pattern.bursts[7u].eventCount = 1u;
+        state.session.pattern.bursts[7u].events[0u]
+            = { 16384u, 40u, 105u, 45u };
+        state.session.pattern.tracks[0u].notes[10u]
+            = s3g::tracker::NoteCell::withBurst(7u);
+        state.selectedPhrase = 1u;
+        [phraseController reloadModel];
+        const BOOL capturedPhraseBurst = [phraseController captureTrack:0u
+            firstRow:10u lastRow:11u];
+        check(capturedPhraseBurst
+                && state.phraseLibrary.phrases[1u].notes[0u].state
+                    == s3g::tracker::NoteCellState::Burst
+                && state.phraseLibrary.phrases[1u].bursts[7u].name
+                    == "Captured phrase roll",
+            "Tracker-selection Phrase capture should carry referenced Burst definitions");
+        state.session.pattern.tracks[0u].notes[10u] = previousCaptureNote;
+        state.session.pattern.bursts[7u] = previousCaptureBurst;
+        state.selectedPhrase = 0u;
+        [phraseController reloadModel];
+        phraseTestWindow.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
+        [phraseTestWindow orderOut:nil];
+        [window makeKeyAndOrderFront:nil];
         [consoleOutput layoutSubtreeIfNeeded];
         check([consoleToolbox isKindOfClass:
                     NSClassFromString(@"S3GTrackerToolboxView")]
@@ -923,6 +1224,8 @@ int main()
             valueForKey:@"dynamicsPanel"];
         S3GTrackerPopupButton* reshapePatternMenu = [reshapeController
             valueForKey:@"patternPopup"];
+        S3GTrackerPopupButton* reshapeLaneScope = [reshapeController
+            valueForKey:@"laneScopePopup"];
         S3GTrackerPopupButton* reshapeCycleMenu = [reshapeController
             valueForKey:@"cyclePopup"];
         S3GTrackerPopupButton* reshapeTimingWrite = [reshapeController
@@ -937,6 +1240,8 @@ int main()
             valueForKey:@"timingLabels"];
         NSArray<NSTextField*>* reshapeDynamicsLabels = [reshapeController
             valueForKey:@"dynamicsLabels"];
+        NSArray<NSTextField*>* reshapeTargetLabels = [reshapeController
+            valueForKey:@"targetLabels"];
         NSArray<NSTextField*>* reshapeMutationLeftLabels = [reshapeController
             valueForKey:@"mutationLeftLabels"];
         NSArray<NSTextField*>* reshapeMutationRightLabels = [reshapeController
@@ -976,6 +1281,7 @@ int main()
                 && [reshapeTarget.toolboxTitle
                     isEqualToString:@"TARGET / ANALYZE"]
                 && reshapePatternMenu.s3gUsesCanvasMenu
+                && reshapeLaneScope.s3gUsesCanvasMenu
                 && reshapeCycleMenu.s3gUsesCanvasMenu
                 && reshapeTimingWrite.s3gUsesCanvasMenu
                 && reshapeTimingOutliers.s3gUsesCanvasMenu
@@ -986,12 +1292,15 @@ int main()
                 && reshapeMutation.toolboxIndex == 0
                 && near(NSHeight(reshapeMutation.frame),
                     s3g::gui_layout::toolboxHeightForRows(4u))
+                && near(NSHeight(reshapeTarget.frame),
+                    s3g::gui_layout::toolboxHeightForRows(6u))
                 && near(NSHeight(reshapeTiming.frame),
                     s3g::gui_layout::toolboxHeightForRows(5u))
                 && near(NSHeight(reshapeDynamics.frame),
                     s3g::gui_layout::toolboxHeightForRows(5u))
                 && reshapeTimingLabels.count == 5u
                 && reshapeDynamicsLabels.count == 5u
+                && reshapeTargetLabels.count == 3u
                 && reshapeMutationLeftLabels.count == 4u
                 && reshapeMutationRightLabels.count == 4u
                 && [reshapeTimingLabels[3u]
@@ -1056,6 +1365,18 @@ int main()
                 && near(NSMinX(reshapeTarget.frame)
                     - NSMaxX(reshapeProfile.frame), 12.0),
             "Reshape Variations should use shared toolbox rows, menus, sliders, columns, and page gutters");
+        [reshapeLaneScope selectItemAtIndex:2u];
+        [reshapeLaneScope sendAction:reshapeLaneScope.action
+            to:reshapeLaneScope.target];
+        check([reshapeLaneScope.s3gDisplayTitle isEqualToString:@"L02 ONLY"]
+                && [reshapeLaneScope.itemArray[2u].title
+                    hasPrefix:@"● L02"],
+            "Reshape lane scope should isolate one lane and visibly mark included lanes");
+        [reshapeLaneScope selectItemAtIndex:0u];
+        [reshapeLaneScope sendAction:reshapeLaneScope.action
+            to:reshapeLaneScope.target];
+        check([reshapeLaneScope.s3gDisplayTitle isEqualToString:@"ALL LANES"],
+            "Reshape lane scope should restore the complete pattern from the same menu");
         reshapeProfileView.needsDisplay = NO;
         reshapeTighten.doubleValue = 100.0;
         [reshapeTighten sendAction:reshapeTighten.action
@@ -1412,6 +1733,52 @@ int main()
                 && [geometryPage selectedIndexForGeometryMenu:10] == 6,
             "a manually moved point should remain effective when the frozen contour is applied");
         state.session.selectedRow = 0u;
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>
+            pitchChord {};
+        pitchChord[0u] = 60u;
+        pitchChord[1u] = 63u;
+        pitchChord[2u] = 66u;
+        pitchTrack.notes[0u] = s3g::tracker::NoteCell::withNotes(
+            pitchChord, 3u);
+        std::array<float, s3g::tracker::kMaximumNoteVoices>
+            pitchChordVelocity {};
+        pitchChordVelocity[0u] = 0.9f;
+        pitchChordVelocity[1u] = 0.7f;
+        pitchChordVelocity[2u] = 0.5f;
+        pitchTrack.velocities.resize(std::max<std::size_t>(
+            pitchTrack.velocities.size(), 4u),
+            s3g::tracker::ValueCell::defaultValue());
+        pitchTrack.velocities[0u] = s3g::tracker::ValueCell::withValues(
+            pitchChordVelocity, 3u);
+        [geometryPage openPitchMapFirstRow:0u lastRow:3u];
+        [geometryPage openGeometryMenu:8];
+        [geometryPage applyGeometryMenuSelection:0u];
+        [geometryPage openGeometryMenu:9];
+        [geometryPage applyGeometryMenuSelection:1u];
+        [geometryPage openGeometryMenu:10];
+        [geometryPage applyGeometryMenuSelection:0u];
+        check([[geometryPage pitchSelectedPointFlagText]
+                    isEqualToString:@"C-4 · MIDI 060  +  D-4 · MIDI 062  +  F-4 · MIDI 065"],
+            "Pitch Map should expose every scale-retargeted voice in the selected chord flag");
+        [geometryPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(pitchPreviewButton), NSMidY(pitchPreviewButton))];
+        check(previewedPitch.size() == 6u
+                && previewedPitch[0u].row == 0u
+                && previewedPitch[1u].row == 0u
+                && previewedPitch[2u].row == 0u
+                && previewedPitch[0u].note == 60u
+                && previewedPitch[1u].note == 62u
+                && previewedPitch[2u].note == 65u
+                && previewedPitch[0u].velocity == 114u
+                && previewedPitch[1u].velocity == 89u
+                && previewedPitch[2u].velocity == 64u,
+            "Pitch Map preview should audition simultaneous chord voices with their authored velocities");
+        [geometryPage applyCurrentPitchMap];
+        check(pitchTrack.notes[0u].noteVoiceCount() == 3u
+                && pitchTrack.notes[0u].noteVoice(0u) == 60u
+                && pitchTrack.notes[0u].noteVoice(1u) == 62u
+                && pitchTrack.notes[0u].noteVoice(2u) == 65u,
+            "Pitch Map Apply should commit the complete scale-adjusted chord cell");
         [geometryPage selectLane:0u];
         [geometryPage openGeometryMenu:3];
         [geometryPage applyGeometryMenuSelection:0u];
@@ -1436,7 +1803,7 @@ int main()
         state.playing = false;
         [controller refreshPlaybackDisplay];
         check(!state.sequenceColumnsExpanded
-                && [sequenceColumnsButton.title isEqualToString:@"EXPAND SEQ"],
+                && [sequenceColumnsButton.title isEqualToString:@"EXPAND DETAIL"],
             "tracker should open in compact NOTE/VOL lane mode");
         check(state.showMidiNoteValues
                 && [noteDisplayButton.title isEqualToString:@"NOTE: MIDI"]
@@ -1643,11 +2010,11 @@ int main()
         [root layoutSubtreeIfNeeded];
         check(state.sequenceColumnsExpanded
                 && [sequenceColumnsButton.title
-                    isEqualToString:@"COLLAPSE SEQ"]
+                    isEqualToString:@"COLLAPSE DETAIL"]
                 && near(NSMinX(sequenceColumnsButton.frame), initialSequenceX)
                 && near(NSMinX(trackAddButton.frame), initialAddTrackX)
                 && near(NSMinX(trackRemoveButton.frame), initialRemoveTrackX),
-            "Expand Seq should reveal both sequencing pairs without moving its direct toolbox controls");
+            "Expand Detail should reveal sequencing and gate columns without moving its direct toolbox controls");
         state.hostBpm = 128.25;
         state.tempoScale = 0.5;
         [controller reloadModel];
@@ -1869,10 +2236,11 @@ int main()
                 && shiftRange.firstRow == 7u && shiftRange.lastRow == 10u,
             "Shift-click selection should extend vertically inside the current Tracker column and reject cross-column ranges");
         NSMenu* noteMenu = [grid.documentView noteMenuForTrack:0u row:8u];
-        check(noteMenu.numberOfItems == 2u
+        check(noteMenu.numberOfItems == 4u
                 && [noteMenu.itemArray[0u].title isEqualToString:@"PITCH"]
                 && noteMenu.itemArray[0u].submenu.numberOfItems == 9u
-                && [noteMenu.itemArray[1u].title isEqualToString:@"BURST"],
+                && [noteMenu.itemArray[1u].title isEqualToString:@"BURST"]
+                && [noteMenu.itemArray[3u].title hasPrefix:@"SELECTION"],
             "a NOTE-column selection should own Pitch and Burst context actions");
         NSMenuItem* transposeUp
             = noteMenu.itemArray[0u].submenu.itemArray[0u];
@@ -1891,7 +2259,8 @@ int main()
             field:1u row:10u];
         NSMenu* velocityMenu = [grid.documentView
             velocityMenuForTrack:0u row:8u];
-        check(velocityMenu.numberOfItems == 8u,
+        check(velocityMenu.numberOfItems == 10u
+                && [velocityMenu.itemArray[9u].title hasPrefix:@"SELECTION"],
             "a VOL-column selection should expose velocity transforms directly");
         NSMenuItem* scaleVelocity = velocityMenu.itemArray[0u];
         [NSApp sendAction:scaleVelocity.action to:scaleVelocity.target
@@ -2128,10 +2497,13 @@ int main()
                 break;
             }
         }
-        NSMenuItem* midiControlItem = sequenceMenu.itemArray.lastObject;
+        NSMenuItem* midiControlItem = nil;
+        for (NSMenuItem* item in sequenceMenu.itemArray)
+            if ([item.title isEqualToString:@"MIDI CONTROL CHANGE"])
+                midiControlItem = item;
         check(sequenceMenu.numberOfItems
                     == static_cast<NSInteger>(
-                        s3g::tracker::sequencerActionCount() + 7u)
+                        s3g::tracker::sequencerActionCount() + 9u)
                 && sequenceMenu.font != nil && flamItem != nil
                 && [flamItem.title containsString:@"FL"]
                 && [flamItem.title containsString:@"FLAM"]
@@ -2191,7 +2563,7 @@ int main()
             .fxPairs[0u];
         check(conditionMenu.numberOfItems
                 == static_cast<NSInteger>(
-                        s3g::tracker::kSequencerConditionCount + 6u)
+                        s3g::tracker::kSequencerConditionCount + 8u)
                 && lastItem != nil
                 && s3g::tracker::sequencerConditionFromNormalized(
                     conditionPair.values[5u].normalized)
@@ -2300,14 +2672,391 @@ int main()
                     toTrack:stackTrack row:5u page:0u field:0u]
                 && [grid.documentView applyCellText:@"0.866+0.646+0.756"
                     toTrack:stackTrack row:5u page:0u field:1u]
+                && [grid.documentView applyCellText:@"MT"
+                    toTrack:stackTrack row:5u page:0u field:2u]
+                && [grid.documentView applyCellText:@"0.200+0.500+0.800"
+                    toTrack:stackTrack row:5u page:0u field:3u]
                 && stackTrack.notes[5u].noteVoiceCount() == 3u
                 && stackTrack.notes[5u].noteVoice(1u) == 64u
                 && stackTrack.velocities[5u].valueVoiceCount() == 3u
                 && std::abs(stackTrack.velocities[5u].valueVoice(1u)
                     - 0.646f) < 0.00001f
+                && stackTrack.fxPairs[0u].values[5u].valueVoiceCount() == 3u
+                && near(stackTrack.fxPairs[0u].values[5u]
+                    .valueVoice(2u), 0.8)
                 && [[grid.documentView cellTextForTrack:0u row:5u
-                    page:0u field:0u] hasSuffix:@"+2"],
-            "NOTE/VOL inline expressions should create paired stacks with a compact grid label");
+                    page:0u field:3u] isEqualToString:@"0.200+2"]
+                && [[grid.documentView clipboardTextForTrack:0u row:5u
+                    page:0u field:3u]
+                    isEqualToString:@"0.200+0.500+0.800"],
+            "NOTE/VOL/MT inline expressions should create aligned stacks with compact grid and lossless clipboard text");
+
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>
+            copiedChord {};
+        const bool clipboardExpandedBefore = state.sequenceColumnsExpanded;
+        state.sequenceColumnsExpanded = false;
+        copiedChord[0u] = 52u;
+        copiedChord[1u] = 62u;
+        copiedChord[2u] = 64u;
+        std::array<float, s3g::tracker::kMaximumNoteVoices>
+            copiedVelocities {};
+        copiedVelocities[0u] = 0.9f;
+        copiedVelocities[1u] = 0.7f;
+        copiedVelocities[2u] = 0.5f;
+        auto& clipboardLaneA = state.session.pattern.tracks[6u];
+        auto& clipboardLaneB = state.session.pattern.tracks[7u];
+        clipboardLaneA.notes.resize(64u,
+            s3g::tracker::NoteCell::rest());
+        clipboardLaneA.velocities.resize(64u,
+            s3g::tracker::ValueCell::defaultValue());
+        clipboardLaneB.notes.resize(64u,
+            s3g::tracker::NoteCell::rest());
+        clipboardLaneB.velocities.resize(64u,
+            s3g::tracker::ValueCell::defaultValue());
+        clipboardLaneA.notes[40u] = s3g::tracker::NoteCell::withNotes(
+            copiedChord, 3u);
+        clipboardLaneA.velocities[40u]
+            = s3g::tracker::ValueCell::withValues(copiedVelocities, 3u);
+        clipboardLaneA.notes[41u]
+            = s3g::tracker::NoteCell::withNote(53u);
+        clipboardLaneA.velocities[41u]
+            = s3g::tracker::ValueCell::withValue(0.6f);
+        clipboardLaneB.notes[40u]
+            = s3g::tracker::NoteCell::withNote(70u);
+        clipboardLaneB.velocities[40u]
+            = s3g::tracker::ValueCell::withValue(0.8f);
+        clipboardLaneB.notes[41u]
+            = s3g::tracker::NoteCell::withNote(72u);
+        clipboardLaneB.velocities[41u]
+            = s3g::tracker::ValueCell::withValue(0.4f);
+        [grid.documentView beginGridSelectionAtTrack:6u
+            field:0u row:40u page:0u];
+        [grid.documentView extendGridSelectionToTrack:7u
+            field:1u row:41u];
+        const int changesBeforeRectangularCut = patternChangeRequests;
+        [grid.documentView trackerCut:nil];
+        NSString* rectangularClipboard = [grid.documentView
+            valueForKey:@"copiedClipboardText"];
+        check([rectangularClipboard hasPrefix:
+                    @"52+62+64\t0.900+0.700+0.500\t70\t0.800\n"]
+                && state.session.pattern.tracks[6u].notes[40u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && state.session.pattern.tracks[6u].velocities[41u].state
+                    == s3g::tracker::ValueCellState::Default
+                && state.session.pattern.tracks[7u].notes[41u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && patternChangeRequests
+                    == changesBeforeRectangularCut + 1,
+            "Cut should export lossless chord/velocity text and clear a multi-row, multi-lane column rectangle");
+        state.session.selectedTrack = 8u;
+        state.session.selectedRow = 50u;
+        state.session.selectedField = 0u;
+        [grid.documentView beginGridSelectionAtTrack:8u
+            field:0u row:50u page:0u];
+        [grid.documentView trackerPaste:nil];
+        const auto& pastedLaneA = state.session.pattern.tracks[8u];
+        const auto& pastedLaneB = state.session.pattern.tracks[9u];
+        check(pastedLaneA.notes[50u].noteVoiceCount() == 3u
+                && pastedLaneA.notes[50u].noteVoice(0u) == 52u
+                && pastedLaneA.notes[50u].noteVoice(1u) == 62u
+                && pastedLaneA.notes[50u].noteVoice(2u) == 64u
+                && pastedLaneA.velocities[50u].valueVoiceCount() == 3u
+                && std::abs(pastedLaneA.velocities[50u].valueVoice(1u)
+                    - 0.7f) < 0.00001f
+                && pastedLaneA.notes[51u].note == 53u
+                && pastedLaneB.notes[50u].note == 70u
+                && pastedLaneB.notes[51u].note == 72u,
+            "Paste should anchor the copied shape at the selected leftmost cell and restore all rows, columns, lanes, and chord voices");
+        state.session.selectedTrack = 8u;
+        state.session.selectedRow = 55u;
+        state.session.selectedField = 1u;
+        [grid.documentView beginGridSelectionAtTrack:8u
+            field:1u row:55u page:0u];
+        const int changesBeforeIncompatiblePaste = patternChangeRequests;
+        [grid.documentView trackerPaste:nil];
+        check(patternChangeRequests == changesBeforeIncompatiblePaste
+                && (pastedLaneA.velocities.size() <= 55u
+                    || pastedLaneA.velocities[55u].state
+                        == s3g::tracker::ValueCellState::Default),
+            "Paste should reject a NOTE/VOL shape when its left edge is aimed at an incompatible column type");
+
+        const auto patternBeforeSelectionTools = state.session.pattern;
+        auto& seriesTrack = state.session.pattern.tracks[4u];
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>
+            seriesStart {};
+        seriesStart[0u] = 60u;
+        seriesStart[1u] = 64u;
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>
+            seriesEnd {};
+        seriesEnd[0u] = 66u;
+        seriesEnd[1u] = 70u;
+        seriesTrack.notes[20u] = s3g::tracker::NoteCell::withNotes(
+            seriesStart, 2u);
+        seriesTrack.notes[21u] = s3g::tracker::NoteCell::rest();
+        seriesTrack.notes[22u] = s3g::tracker::NoteCell::rest();
+        seriesTrack.notes[23u] = s3g::tracker::NoteCell::withNotes(
+            seriesEnd, 2u);
+        [grid.documentView beginGridSelectionAtTrack:4u
+            field:0u row:20u page:0u];
+        [grid.documentView extendGridSelectionToTrack:4u
+            field:0u row:23u];
+        NSMenu* seriesMenu = [grid.documentView
+            noteMenuForTrack:4u row:21u];
+        NSMenuItem* seriesSelection = seriesMenu.itemArray.lastObject;
+        NSMenuItem* fillRepeat = seriesSelection.submenu.itemArray[0u];
+        NSMenuItem* linearSeries = fillRepeat.submenu.itemArray[2u];
+        [NSApp sendAction:linearSeries.action to:linearSeries.target
+            from:linearSeries];
+        check(state.session.pattern.tracks[4u].notes[21u].noteVoiceCount()
+                    == 2u
+                && state.session.pattern.tracks[4u].notes[21u].noteVoice(0u)
+                    == 62u
+                && state.session.pattern.tracks[4u].notes[22u].noteVoice(1u)
+                    == 68u,
+            "Fill Series should interpolate complete chord voicings between selected endpoints");
+        auto& materializeTrack = state.session.pattern.tracks[4u];
+        materializeTrack.velocities[20u]
+            = s3g::tracker::ValueCell::withValue(0.5f);
+        materializeTrack.velocities[21u]
+            = s3g::tracker::ValueCell::previous();
+        materializeTrack.velocities[22u]
+            = s3g::tracker::ValueCell::defaultValue();
+        [grid.documentView beginGridSelectionAtTrack:4u
+            field:1u row:20u page:0u];
+        [grid.documentView extendGridSelectionToTrack:4u
+            field:1u row:22u];
+        NSMenu* materializeMenu = [grid.documentView
+            velocityMenuForTrack:4u row:21u];
+        NSMenuItem* materializeSelection = materializeMenu.itemArray.lastObject;
+        NSMenuItem* materializeTransform =
+            materializeSelection.submenu.itemArray[3u];
+        NSMenuItem* materializeValues = [materializeTransform.submenu
+            itemWithTitle:@"MATERIALIZE PRV / DEF"];
+        [NSApp sendAction:materializeValues.action
+            to:materializeValues.target from:materializeValues];
+        check(state.session.pattern.tracks[4u].velocities[21u].state
+                    == s3g::tracker::ValueCellState::Value
+                && near(state.session.pattern.tracks[4u]
+                    .velocities[21u].normalized, 0.5)
+                && near(state.session.pattern.tracks[4u]
+                    .velocities[22u].normalized, 0.787, 0.0001),
+            "Materialize should replace VOL Previous and Default cells with their resolved explicit values");
+        state.session.pattern = patternBeforeSelectionTools;
+
+        const auto patternBeforeDrumSplit = state.session.pattern;
+        const auto defaultsBeforeDrumSplit = state.session.laneDefaultNotes;
+        const auto laneCountBeforeDrumSplit = state.session.pattern.tracks.size();
+        auto& mixedDrums = state.session.pattern.tracks[6u];
+        mixedDrums.name = "LIVE DRUMS";
+        mixedDrums.notes[30u] = s3g::tracker::NoteCell::withNote(36u);
+        mixedDrums.notes[31u] = s3g::tracker::NoteCell::withNote(38u);
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>
+            layeredDrums {};
+        layeredDrums[0u] = 36u;
+        layeredDrums[1u] = 42u;
+        mixedDrums.notes[32u] = s3g::tracker::NoteCell::withNotes(
+            layeredDrums, 2u);
+        std::array<float, s3g::tracker::kMaximumNoteVoices>
+            layeredDrumVelocity {};
+        layeredDrumVelocity[0u] = 0.8f;
+        layeredDrumVelocity[1u] = 0.4f;
+        mixedDrums.velocities[32u] = s3g::tracker::ValueCell::withValues(
+            layeredDrumVelocity, 2u);
+        auto& drumTiming = mixedDrums.fxPairs[0u];
+        drumTiming.actionColumn.length = 48u;
+        drumTiming.actionColumn.stride = 3u;
+        drumTiming.actionColumn.phase = 2u;
+        drumTiming.valueColumn.length = 40u;
+        drumTiming.valueColumn.direction =
+            s3g::tracker::Direction::Palindrome;
+        drumTiming.actions[30u]
+            = s3g::tracker::FxActionCell::sequencer(
+                s3g::tracker::SequencerAction::MicroTime);
+        drumTiming.values[30u]
+            = s3g::tracker::FxValueCell::withValue(0.25f);
+        drumTiming.actions[31u]
+            = s3g::tracker::FxActionCell::previous();
+        drumTiming.values[31u]
+            = s3g::tracker::FxValueCell::previous();
+        drumTiming.actions[32u]
+            = s3g::tracker::FxActionCell::sequencer(
+                s3g::tracker::SequencerAction::Flam);
+        drumTiming.values[32u]
+            = s3g::tracker::FxValueCell::withValue(0.75f);
+        auto& drumAutomation = mixedDrums.fxPairs[1u];
+        drumAutomation.actions[31u]
+            = s3g::tracker::FxActionCell::midiControlChange(74u);
+        drumAutomation.values[31u]
+            = s3g::tracker::FxValueCell::withValue(0.6f);
+        drumAutomation.actions[32u]
+            = s3g::tracker::FxActionCell::sequencer(
+                s3g::tracker::SequencerAction::MicroTime);
+        std::array<float, s3g::tracker::kMaximumNoteVoices>
+            layeredDrumMicroTime {};
+        layeredDrumMicroTime[0u] = 0.2f;
+        layeredDrumMicroTime[1u] = 0.8f;
+        drumAutomation.values[32u]
+            = s3g::tracker::FxValueCell::withValues(
+                layeredDrumMicroTime, 2u);
+        [grid.documentView beginGridSelectionAtTrack:6u
+            field:0u row:30u page:0u];
+        [grid.documentView extendGridSelectionToTrack:6u
+            field:0u row:32u];
+        NSMenu* drumSplitMenu = [grid.documentView
+            noteMenuForTrack:6u row:31u];
+        NSMenuItem* selectionRoot = drumSplitMenu.itemArray.lastObject;
+        NSMenuItem* transformRoot = selectionRoot.submenu.itemArray[3u];
+        NSMenuItem* separateNotes = [transformRoot.submenu
+            itemWithTitle:@"SEPARATE NOTES INTO LANES"];
+        [NSApp sendAction:separateNotes.action to:separateNotes.target
+            from:separateNotes];
+        const auto& separatedSource = state.session.pattern.tracks[6u];
+        const auto& separatedSnare = state.session.pattern.tracks[
+            laneCountBeforeDrumSplit];
+        const auto& separatedHat = state.session.pattern.tracks[
+            laneCountBeforeDrumSplit + 1u];
+        check(selectionRoot.submenu.numberOfItems == 5u
+                && [selectionRoot.submenu.itemArray[0u].title
+                    isEqualToString:@"FILL / REPEAT"]
+                && [selectionRoot.submenu.itemArray[1u].title
+                    isEqualToString:@"CELLS"]
+                && [selectionRoot.submenu.itemArray[2u].title
+                    isEqualToString:@"PASTE SPECIAL"]
+                && [transformRoot.title isEqualToString:@"TRANSFORM"]
+                && [selectionRoot.submenu.itemArray[4u].title
+                    isEqualToString:@"PHRASE"]
+                && separateNotes.enabled
+                && state.session.pattern.tracks.size()
+                    == laneCountBeforeDrumSplit + 2u
+                && separatedSource.notes[30u].note == 36u
+                && separatedSource.notes[31u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && separatedSource.notes[32u].note == 36u
+                && separatedSnare.notes[31u].note == 38u
+                && separatedHat.notes[32u].note == 42u
+                && std::abs(separatedHat.velocities[32u].normalized - 0.4f)
+                    < 0.00001f
+                && separatedSnare.midiChannel == separatedSource.midiChannel
+                && separatedHat.initialInstrumentNodeId
+                    == separatedSource.initialInstrumentNodeId
+                && separatedSnare.fxPairs[0u].actions[31u].state
+                    == s3g::tracker::FxActionCellState::Sequencer
+                && separatedSnare.fxPairs[0u].actions[31u].sequencerAction
+                    == s3g::tracker::SequencerAction::MicroTime
+                && separatedSnare.fxPairs[0u].values[31u].state
+                    == s3g::tracker::FxValueCellState::Value
+                && near(separatedSnare.fxPairs[0u].values[31u].normalized,
+                    0.25)
+                && separatedHat.fxPairs[0u].actions[32u].state
+                    == s3g::tracker::FxActionCellState::Sequencer
+                && separatedHat.fxPairs[0u].actions[32u].sequencerAction
+                    == s3g::tracker::SequencerAction::Flam
+                && near(separatedHat.fxPairs[0u].values[32u].normalized,
+                    0.75)
+                && separatedHat.fxPairs[1u].actions[32u].sequencerAction
+                    == s3g::tracker::SequencerAction::MicroTime
+                && near(separatedHat.fxPairs[1u].values[32u].normalized,
+                    0.8)
+                && separatedSnare.fxPairs[1u].actions[31u].state
+                    == s3g::tracker::FxActionCellState::Empty
+                && separatedSnare.fxPairs[0u].actionColumn.length == 48u
+                && separatedSnare.fxPairs[0u].actionColumn.stride == 3u
+                && separatedSnare.fxPairs[0u].actionColumn.phase == 2u
+                && separatedSnare.fxPairs[0u].valueColumn.length == 40u
+                && separatedSnare.fxPairs[0u].valueColumn.direction
+                    == s3g::tracker::Direction::Palindrome,
+            "Separate Notes Into Lanes should split live-recorded drum pitches, velocity voices, and resolved note-local SEQ state while preserving routing and leaving MIDI automation behind");
+
+        auto& mergeTarget = state.session.pattern.tracks[
+            laneCountBeforeDrumSplit];
+        auto& mergeSource = state.session.pattern.tracks[
+            laneCountBeforeDrumSplit + 1u];
+        mergeTarget.notes[32u]
+            = s3g::tracker::NoteCell::withNote(38u);
+        mergeTarget.velocities[31u]
+            = s3g::tracker::ValueCell::withValue(0.65f);
+        mergeTarget.velocities[32u]
+            = s3g::tracker::ValueCell::previous();
+        mergeTarget.fxPairs[0u].actions[32u]
+            = s3g::tracker::FxActionCell::sequencer(
+                s3g::tracker::SequencerAction::MicroTime);
+        mergeTarget.fxPairs[0u].values[32u]
+            = s3g::tracker::FxValueCell::withValue(0.3f);
+        mergeSource.fxPairs[1u].actions[31u]
+            = s3g::tracker::FxActionCell::midiControlChange(74u);
+        mergeSource.fxPairs[1u].values[31u]
+            = s3g::tracker::FxValueCell::withValue(0.6f);
+        [grid.documentView beginGridSelectionAtTrack:
+            laneCountBeforeDrumSplit field:0u row:31u page:0u];
+        [grid.documentView extendGridSelectionToTrack:
+            laneCountBeforeDrumSplit + 1u field:0u row:32u];
+        NSMenu* drumMergeMenu = [grid.documentView noteMenuForTrack:
+            laneCountBeforeDrumSplit row:32u];
+        NSMenuItem* mergeSelectionRoot = drumMergeMenu.itemArray.lastObject;
+        NSMenuItem* mergeTransformRoot =
+            mergeSelectionRoot.submenu.itemArray[3u];
+        NSMenuItem* mergeNotes = [mergeTransformRoot.submenu
+            itemWithTitle:@"MERGE NOTES INTO ONE LANE"];
+        const int changesBeforeMerge = patternChangeRequests;
+        [NSApp sendAction:mergeNotes.action to:mergeNotes.target
+            from:mergeNotes];
+        const auto& merged = state.session.pattern.tracks[
+            laneCountBeforeDrumSplit];
+        const auto& emptied = state.session.pattern.tracks[
+            laneCountBeforeDrumSplit + 1u];
+        check([mergeNotes.title isEqualToString:
+                    @"MERGE NOTES INTO ONE LANE"]
+                && mergeNotes.enabled
+                && merged.notes[31u].note == 38u
+                && merged.notes[32u].noteVoiceCount() == 2u
+                && merged.notes[32u].noteVoice(0u) == 38u
+                && merged.notes[32u].noteVoice(1u) == 42u
+                && merged.velocities[32u].valueVoiceCount() == 2u
+                && near(merged.velocities[32u].valueVoice(0u), 0.65)
+                && near(merged.velocities[32u].valueVoice(1u), 0.4)
+                && emptied.notes[32u].state
+                    == s3g::tracker::NoteCellState::Rest
+                && emptied.velocities[32u].state
+                    == s3g::tracker::ValueCellState::Default
+                && merged.fxPairs[0u].actions[32u].sequencerAction
+                    == s3g::tracker::SequencerAction::MicroTime
+                && merged.fxPairs[0u].values[32u].valueVoiceCount() == 2u
+                && near(merged.fxPairs[0u].values[32u].valueVoice(0u), 0.3)
+                && near(merged.fxPairs[0u].values[32u].valueVoice(1u), 0.8)
+                && merged.fxPairs[1u].actions[32u].sequencerAction
+                    == s3g::tracker::SequencerAction::Flam
+                && near(merged.fxPairs[1u].values[32u].normalized, 0.75)
+                && emptied.fxPairs[1u].actions[31u].state
+                    == s3g::tracker::FxActionCellState::MidiControlChange
+                && patternChangeRequests == changesBeforeMerge + 1,
+            "Merge Notes Into One Lane should move selected notes into sorted polyphonic cells, align resolved velocity voices, carry compatible SEQ state, and leave MIDI automation in its source lane");
+
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices>
+            maximumChord {};
+        for (std::size_t voice = 0u; voice < maximumChord.size(); ++voice)
+            maximumChord[voice] = static_cast<uint8_t>(48u + voice);
+        state.session.pattern.tracks[laneCountBeforeDrumSplit].notes[33u]
+            = s3g::tracker::NoteCell::withNotes(
+                maximumChord, maximumChord.size());
+        state.session.pattern.tracks[laneCountBeforeDrumSplit + 1u]
+            .notes[33u] = s3g::tracker::NoteCell::withNote(72u);
+        [grid.documentView beginGridSelectionAtTrack:
+            laneCountBeforeDrumSplit field:0u row:33u page:0u];
+        [grid.documentView extendGridSelectionToTrack:
+            laneCountBeforeDrumSplit + 1u field:0u row:33u];
+        const int changesBeforeOverflowMerge = patternChangeRequests;
+        [grid.documentView mergeSelectedNoteLanes:nil];
+        check(state.session.pattern.tracks[laneCountBeforeDrumSplit]
+                    .notes[33u].noteVoiceCount()
+                    == s3g::tracker::kMaximumNoteVoices
+                && state.session.pattern.tracks[
+                    laneCountBeforeDrumSplit + 1u].notes[33u].note == 72u
+                && patternChangeRequests == changesBeforeOverflowMerge,
+            "Merge Notes Into One Lane should reject an entire edit when any merged row would exceed eight unique voices");
+        state.session.pattern = patternBeforeDrumSplit;
+        state.session.laneDefaultNotes = defaultsBeforeDrumSplit;
+        state.sequenceColumnsExpanded = clipboardExpandedBefore;
+
         auto& clearTrack = state.session.pattern.tracks[0u];
         clearTrack.notes[2u] = s3g::tracker::NoteCell::withNote(62u);
         clearTrack.notes[3u] = s3g::tracker::NoteCell::withNote(64u);

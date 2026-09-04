@@ -85,7 +85,7 @@
 
         <h2 id="grid">Tracker Grid</h2>
 
-        <p>Every track offers six editable columns. The default compact view keeps <code>NOTE</code> and <code>VOL</code> at their full widths; <code>EXPAND SEQ</code> reveals both sequencing pairs, and <code>COLLAPSE SEQ</code> hides them again.</p>
+        <p>Every track offers seven editable columns. The default compact view keeps <code>NOTE</code> and <code>VOL</code> at their full widths; <code>EXPAND DETAIL</code> reveals both sequencing pairs and <code>GATE</code>, while <code>COLLAPSE DETAIL</code> hides them again.</p>
 
         <table class="readout-table">
           <thead><tr><th>Column</th><th>Purpose</th><th>Entry</th></tr></thead>
@@ -96,6 +96,7 @@
             <tr><td><code>V1</code></td><td>Value for <code>SEQ1</code>; its header selects <code>STP</code> or <code>LIN</code>.</td><td><code>0.000</code>–<code>1.000</code>, MIDI <code>0</code>–<code>127</code> for CC, or <code>PRV</code></td></tr>
             <tr><td><code>SEQ2</code></td><td>Second sequencing behavior.</td><td>Action code, full name, <code>PRV</code>, or <code>---</code></td></tr>
             <tr><td><code>V2</code></td><td>Value for <code>SEQ2</code>; its header selects <code>STP</code> or <code>LIN</code>.</td><td><code>0.000</code>–<code>1.000</code>, MIDI <code>0</code>–<code>127</code> for CC, or <code>PRV</code></td></tr>
+            <tr><td><code>GATE</code></td><td>Pitch-aligned note duration; its cycle advances independently.</td><td><code>DEF</code>, <code>0.01</code>–<code>64</code> rows, <code>TIE</code>, or a stack such as <code>0.5+TIE+1.25</code></td></tr>
           </tbody>
         </table>
 
@@ -164,6 +165,10 @@
             <tr><td>Page Up / Page Down</td><td>Move by one visible page.</td></tr>
             <tr><td>F9–F12</td><td>Jump to 0%, 25%, 50%, or 75% of the pattern.</td></tr>
             <tr><td>Control-A / C / X / V</td><td>Select all, copy, cut, or paste tracker cells.</td></tr>
+            <tr><td>Control-Shift-Arrows</td><td>Extend a rectangular cell selection from the keyboard.</td></tr>
+            <tr><td>Control-P / Control-Shift-P</td><td>Copy the selected Phrase to the cursor, or capture the selected 2–64 row lane range as a Phrase.</td></tr>
+            <tr><td>Control-Option-Up / Down</td><td>Transpose one NOTE-column selection by a semitone; add Shift for an octave.</td></tr>
+            <tr><td>Control-Option-1…0</td><td>Set Tracker row jump to 1…10.</td></tr>
             <tr><td>Control-Z / Control-Shift-Z</td><td>Undo or redo a persistent Tracker edit. Command-Z remains available to REAPER.</td></tr>
             <tr><td>Control-= / − / 0</td><td>Zoom in, zoom out, or reset tracker zoom.</td></tr>
             <tr><td>Delete / Backspace</td><td>Clear the selected cell.</td></tr>
@@ -177,6 +182,8 @@
         </table>
 
         <p>Tracker editing deliberately uses Control-key combinations so REAPER retains its Command-key shortcuts.</p>
+
+        <p>The Phrase page is a compact Tracker grid, using the same NOTE, VOL, SEQ1/V1, SEQ2/V2, and GATE cell formats, colors, inline text-entry path, and SEQ context menus. VOL is displayed and entered as a normalized <code>0.000</code>–<code>1.000</code> value. Drag cells or Shift-click within one column to select a range; Control-Shift-Arrows extends the selection. Control-A/C/X/V selects all, copies, cuts, and pastes compatible cells while preserving a multi-row, multi-column shape. Right-click <code>SEQ1</code>/<code>SEQ2</code> to choose an action or MIDI CC; right-click a CD value to choose its named condition. Capture comes from the main Tracker: select 2–64 rows in one lane, right-click, and choose <code>PHRASE → CAPTURE SELECTION</code>. Referenced Burst definitions travel with the Phrase and are safely imported or remapped when it is copied into another pattern. <code>PREVIEW CH</code> selects the MIDI channel used by stopped-transport preview only, while the green playhead advances through the Phrase at the project BPM. Copying a Phrase keeps the destination lane's channel.</p>
 
         <h2 id="patterns-song">Patterns and Song</h2>
 

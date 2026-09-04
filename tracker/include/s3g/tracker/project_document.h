@@ -2,6 +2,7 @@
 
 #include "s3g/tracker/instrument_rack.h"
 #include "s3g/tracker/pattern_bank.h"
+#include "s3g/tracker/phrase_library.h"
 #include "s3g/tracker/sequencer.h"
 #include "s3g/tracker/song_playback_planner.h"
 
@@ -46,6 +47,7 @@ struct ProjectSessionState {
 
 struct ProjectDocument {
     PatternBank patternBank = makeDefaultPatternBank();
+    PhraseLibrary phraseLibrary;
     TransportSettings transport;
     TimingWarpLibrary warpLibrary;
     ProjectSessionState session;

@@ -81,7 +81,18 @@ std::vector<PitchMapAssignment> sourceAssignments(const Pattern& pattern,
     for (std::size_t row = firstRow; row <= lastRow; ++row) {
         const auto& cell = track.notes[row];
         if (cell.state != NoteCellState::Note) continue;
-        result.push_back({ row, cell.note, cell.note });
+        PitchMapAssignment assignment;
+        assignment.row = row;
+        assignment.originalNote = cell.note;
+        assignment.note = cell.note;
+        assignment.voiceCount = static_cast<uint8_t>(
+            cell.noteVoiceCount());
+        for (std::size_t voice = 0u; voice < assignment.voiceCount;
+             ++voice) {
+            assignment.originalNotes[voice] = cell.noteVoice(voice);
+            assignment.notes[voice] = cell.noteVoice(voice);
+        }
+        result.push_back(assignment);
     }
     return result;
 }
@@ -96,6 +107,41 @@ std::size_t wrappedIndex(int64_t value, std::size_t count) noexcept
 }
 
 } // namespace
+
+void retargetPitchMapVoicing(PitchMapAssignment& assignment,
+    const PitchMapSettings& settings) noexcept
+{
+    assignment.voiceCount = static_cast<uint8_t>(std::clamp<std::size_t>(
+        assignment.voiceCount, 1u, kMaximumNoteVoices));
+    assignment.note = static_cast<uint8_t>(std::min<int>(assignment.note,
+        127 - static_cast<int>(assignment.voiceCount - 1u)));
+    assignment.notes[0u] = assignment.note;
+    const int delta = static_cast<int>(assignment.note)
+        - static_cast<int>(assignment.originalNote);
+    const uint8_t effectiveRoot = static_cast<uint8_t>((
+        static_cast<int>(settings.rootPitchClass)
+        + static_cast<int>(settings.transposeSemitones) + 120) % 12);
+    for (std::size_t voice = 1u; voice < assignment.voiceCount; ++voice) {
+        const int desired = std::clamp(
+            static_cast<int>(assignment.originalNotes[voice]) + delta,
+            static_cast<int>(assignment.notes[voice - 1u]) + 1, 127);
+        int nearest = -1;
+        int nearestDistance = 128;
+        for (int candidate = static_cast<int>(assignment.notes[voice - 1u])
+                 + 1; candidate <= 127; ++candidate) {
+            if (!scaleContains(settings.scale, effectiveRoot,
+                    static_cast<uint8_t>(candidate))) continue;
+            const int distance = std::abs(candidate - desired);
+            if (distance >= nearestDistance) continue;
+            nearest = candidate;
+            nearestDistance = distance;
+        }
+        assignment.notes[voice] = static_cast<uint8_t>(nearest >= 0
+            ? nearest : std::min<int>(127,
+                  static_cast<int>(assignment.notes[voice - 1u]) + 1));
+    }
+    assignment.note = assignment.notes[0u];
+}
 
 const char* pitchContourName(PitchContour contour) noexcept
 {
@@ -134,10 +180,14 @@ PitchMapAnalysis analyzePitchMap(const Pattern& pattern, std::size_t lane,
         for (std::size_t row = firstRow; row <= end; ++row) {
             const auto& cell = track.notes[row];
             if (cell.state != NoteCellState::Note) continue;
-            ++result.noteCount;
-            ++pitchClasses[cell.note % 12u];
-            result.minimumNote = std::min(result.minimumNote, cell.note);
-            result.maximumNote = std::max(result.maximumNote, cell.note);
+            for (std::size_t voice = 0u; voice < cell.noteVoiceCount();
+                 ++voice) {
+                const auto note = cell.noteVoice(voice);
+                ++result.noteCount;
+                ++pitchClasses[note % 12u];
+                result.minimumNote = std::min(result.minimumNote, note);
+                result.maximumNote = std::max(result.maximumNote, note);
+            }
         }
     }
     if (result.noteCount == 0u) {
@@ -299,7 +349,12 @@ PitchMapResult previewPitchMap(const Pattern& pattern, std::size_t lane,
     for (auto& assignment : result.assignments) {
         assignment.note = static_cast<uint8_t>(std::clamp(
             static_cast<int>(assignment.note) + transpose, 0, 127));
-        if (assignment.note != assignment.originalNote) ++result.changed;
+        retargetPitchMapVoicing(assignment, settings);
+        bool assignmentChanged = false;
+        for (std::size_t voice = 0u; voice < assignment.voiceCount; ++voice)
+            assignmentChanged |= assignment.notes[voice]
+                != assignment.originalNotes[voice];
+        if (assignmentChanged) ++result.changed;
     }
     return result;
 }
@@ -315,22 +370,15 @@ std::size_t applyPitchMap(Pattern& pattern, std::size_t lane,
     std::size_t changed = 0u;
     for (const auto& assignment : preview.assignments) {
         if (assignment.row >= notes.size()
-            || notes[assignment.row].state != NoteCellState::Note
-            || notes[assignment.row].note == assignment.note) continue;
+            || notes[assignment.row].state != NoteCellState::Note) continue;
         auto& cell = notes[assignment.row];
-        const auto voices = cell.noteVoiceCount();
-        const int requested = static_cast<int>(assignment.note)
-            - static_cast<int>(cell.note);
-        const int delta = std::clamp(requested,
-            -static_cast<int>(cell.noteVoice(0u)),
-            127 - static_cast<int>(cell.noteVoice(voices - 1u)));
-        if (delta == 0) continue;
-        std::array<uint8_t, kMaximumNoteVoices> mapped {};
-        for (std::size_t voice = 0u; voice < voices; ++voice) {
-            mapped[voice] = static_cast<uint8_t>(
-                static_cast<int>(cell.noteVoice(voice)) + delta);
-        }
-        cell = NoteCell::withNotes(mapped, voices);
+        bool rowChanged = cell.noteVoiceCount() != assignment.voiceCount;
+        for (std::size_t voice = 0u;
+             voice < assignment.voiceCount && !rowChanged; ++voice)
+            rowChanged = cell.noteVoice(voice) != assignment.notes[voice];
+        if (!rowChanged) continue;
+        cell = NoteCell::withNotes(assignment.notes,
+            assignment.voiceCount);
         ++changed;
     }
     return changed;

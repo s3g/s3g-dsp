@@ -43,6 +43,9 @@ struct MidiLiveRecordState {
     uint8_t channel = 1u;
     std::array<uint8_t, kMaximumNoteVoices> notes {};
     std::array<uint8_t, kMaximumNoteVoices> velocities {};
+    // Normalized MT values are kept in the same pitch-sorted voice order as
+    // notes and velocities so a live chord can retain per-note onset timing.
+    std::array<float, kMaximumNoteVoices> microTimes {};
     std::array<uint8_t, kMaximumNoteVoices> channels {};
     std::array<bool, kMaximumNoteVoices> held {};
     uint8_t voiceCount = 0u;
@@ -104,9 +107,9 @@ struct MidiStepRecordResult {
 // modes wrap the captured host row independently inside the armed NOTE and
 // VOL column lengths without changing those lengths. The cursor follows the
 // written row but lane/field selection remains independent. Quantized recording removes
-// authored MT at the target row; unquantized live recording writes MT into an
-// existing MT pair or the first empty SEQ pair. The operation preflights the
-// pair so a full row is left completely unchanged.
+// authored MT at the target row; unquantized live recording writes a
+// pitch-aligned MT stack into an existing MT pair or the first empty SEQ pair.
+// The operation preflights the pair so a full row is left completely unchanged.
 MidiStepRecordResult recordMidiStep(TrackerSession& session,
     MidiStepRecordMode mode, const MidiStepCapture& capture,
     double sampleRate, MidiLiveRecordState* liveState = nullptr,

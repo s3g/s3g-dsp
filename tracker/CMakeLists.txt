@@ -6,6 +6,7 @@ add_library(s3g_tracker_core STATIC
   src/core/instrument_rack.cpp
   src/core/midi_step_recorder.cpp
   src/core/pattern_bank.cpp
+  src/core/phrase_library.cpp
   src/core/pitch_map.cpp
   src/core/pattern_reshape.cpp
   src/core/atomic_project_store.cpp
@@ -56,6 +57,7 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_stereo_slice_sampler_tests tests/stereo_slice_sampler_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_project_codec_tests tests/project_codec_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_bank_tests tests/pattern_bank_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_phrase_library_tests tests/phrase_library_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pitch_map_tests tests/pitch_map_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_reshape_tests tests/pattern_reshape_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)
@@ -100,6 +102,7 @@ if(BUILD_TESTING)
     add_executable(s3g_tracker_workspace_layout_appkit_tests
       tests/workspace_layout_appkit_tests.mm
       src/app/macos/s3g_tracker_workspace.mm
+      src/app/macos/s3g_tracker_phrase_view.mm
       src/app/macos/s3g_tracker_controls.mm
       src/app/macos/s3g_tracker_reshape_window.mm
       src/app/macos/s3g_tracker_warp_window.mm)

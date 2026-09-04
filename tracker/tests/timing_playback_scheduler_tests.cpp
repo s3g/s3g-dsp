@@ -391,6 +391,50 @@ void testStutterAndMicroTiming()
         "MT should apply lookahead plus its signed range in sample time");
 }
 
+void testPolyphonicMicroTiming()
+{
+    Track track;
+    std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
+    notes[0u] = 60u;
+    notes[1u] = 64u;
+    notes[2u] = 67u;
+    track.notes = { NoteCell::withNotes(notes, 3u) };
+    track.velocities = { ValueCell::withValue(0.8f) };
+    track.noteColumn.length = 1u;
+    track.velocityColumn.length = 1u;
+    auto& pair = track.fxPairs[0u];
+    pair.actions = { FxActionCell::sequencer(
+        SequencerAction::MicroTime) };
+    std::array<float, s3g::tracker::kMaximumNoteVoices> microTimes {};
+    microTimes[0u] = 0.0f;
+    microTimes[1u] = 0.5f;
+    microTimes[2u] = 1.0f;
+    pair.values = { FxValueCell::withValues(microTimes, 3u) };
+    pair.actionColumn.length = 1u;
+    pair.valueColumn.length = 1u;
+
+    TimingPlaybackScheduler scheduler;
+    scheduler.setPattern(oneTrack(std::move(track)));
+    auto settings = transport();
+    settings.timingLookaheadMilliseconds = 25.0;
+    settings.microTimingRangeMilliseconds = 25.0;
+    scheduler.setTransport(settings);
+    scheduler.start();
+    std::array<ScheduledEvent, 8u> events {};
+    const auto count = scheduler.process(401u, events.data(), events.size());
+    check(count == 3u
+            && events[0u].note == 60u
+            && events[0u].noteVoice == 0u
+            && events[0u].absoluteSampleTime == 0u
+            && events[1u].note == 64u
+            && events[1u].noteVoice == 1u
+            && events[1u].absoluteSampleTime == 200u
+            && events[2u].note == 67u
+            && events[2u].noteVoice == 2u
+            && events[2u].absoluteSampleTime == 400u,
+        "an MT value stack should schedule each chord voice at its aligned per-note offset");
+}
+
 void testMicroTimingMovesTheCanonicalRowBundle()
 {
     auto track = timingTrack(SequencerAction::MicroTime, 0.5f);
@@ -1208,6 +1252,7 @@ int main()
     testUntimedPassThroughParity();
     testRatchetSurvivesBlockBoundaries();
     testStutterAndMicroTiming();
+    testPolyphonicMicroTiming();
     testMicroTimingMovesTheCanonicalRowBundle();
     testAccentAndStaleParameterSuppression();
     testWarpCollisionAndCrossTickOrdering();

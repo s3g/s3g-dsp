@@ -16,7 +16,9 @@ struct SequencerActionValue {
 
 // Resolve both polymetric FX pairs at a tracker tick into one timing profile.
 // If both pairs name the same action, the later pair wins, matching the v8
-// tracker. Distinct actions combine (for example RR + ST or MT + AC).
+// tracker. Distinct actions combine (for example RR + ST or MT + AC). The
+// scheduler resolves an MT value stack once per note voice before this scalar
+// profile is built; every other action remains lane-wide.
 TimingEventExpansion resolveTimingActions(
     const std::array<SequencerActionValue, kFxPairCount>& actions,
     const TransportSettings& transport, uint64_t tickDurationSamples,

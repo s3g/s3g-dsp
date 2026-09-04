@@ -3,6 +3,7 @@
 #import "s3g_song_window.h"
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_help_window.h"
+#import "s3g_tracker_phrase_view.h"
 #import "s3g_tracker_workspace.h"
 #include "s3g_tracker_workspace_layout.h"
 
@@ -468,7 +469,8 @@ struct PitchPreviewMailbox {
             const uint64_t packed = static_cast<uint64_t>(event.row)
                 | (static_cast<uint64_t>(event.note) << 16u)
                 | (static_cast<uint64_t>(event.velocity) << 24u)
-                | (static_cast<uint64_t>(event.gatePercent) << 32u);
+                | (static_cast<uint64_t>(event.gatePercent) << 32u)
+                | (static_cast<uint64_t>(event.position) << 40u);
             events[index].store(packed, std::memory_order_relaxed);
         }
         const uint32_t channel = static_cast<uint32_t>(
@@ -1799,6 +1801,7 @@ void handlePitchPreview(Plugin& plugin, Runtime& runtime,
                 static_cast<uint8_t>((packed >> 16u) & 0x7fu),
                 static_cast<uint8_t>((packed >> 24u) & 0x7fu),
                 static_cast<uint8_t>((packed >> 32u) & 0x7fu),
+                static_cast<uint16_t>((packed >> 40u) & 0xffffu),
             };
         }
         next.startFrame = plugin.processFrame + blockOffset;
@@ -1822,7 +1825,9 @@ void handlePitchPreview(Plugin& plugin, Runtime& runtime,
         const auto index = playback.nextEvent;
         const auto& authored = playback.events[index];
         const uint64_t onset = playback.startFrame
-            + playback.rowFrames * static_cast<uint64_t>(authored.row);
+            + playback.rowFrames * static_cast<uint64_t>(authored.row)
+            + playback.rowFrames
+                * static_cast<uint64_t>(authored.position) / 65536u;
         if (onset >= segmentEnd) break;
         ScheduledEvent event;
         event.absoluteSampleTime = onset;
@@ -2182,6 +2187,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     S3GTrackerClapPageTracker = 0,
     S3GTrackerClapPageSong,
     S3GTrackerClapPageGeometry,
+    S3GTrackerClapPagePhrases,
     S3GTrackerClapPageReshape,
     S3GTrackerClapPageWarps,
     S3GTrackerClapPageConsole,
@@ -2227,7 +2233,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.detachedWindows = [[NSMutableDictionary alloc] init];
 
     NSArray<NSString*>* titles = @[
-        @"TRACKER", @"SONG", @"GEOMETRY", @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
+        @"TRACKER", @"SONG", @"GEOMETRY", @"PHRASES", @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
     ];
     NSMutableArray<S3GTrackerActionButton*>* buttons =
         [[NSMutableArray alloc] initWithCapacity:titles.count];
@@ -2345,12 +2351,28 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (BOOL)performKeyEquivalent:(NSEvent*)event
 {
     if ([self navigatePageForEvent:event]) return YES;
+    if (self.selectedPage == S3GTrackerClapPagePhrases) {
+        NSView* phrasePage = self.pageViews[
+            static_cast<NSUInteger>(S3GTrackerClapPagePhrases)];
+        if ([phrasePage conformsToProtocol:
+                @protocol(S3GTrackerPhraseKeyHandling)]
+            && [(id<S3GTrackerPhraseKeyHandling>)phrasePage
+                s3gHandlePhraseKeyEquivalent:event]) return YES;
+    }
     return [super performKeyEquivalent:event];
 }
 
 - (void)keyDown:(NSEvent*)event
 {
     if ([self navigatePageForEvent:event]) return;
+    if (self.selectedPage == S3GTrackerClapPagePhrases) {
+        NSView* phrasePage = self.pageViews[
+            static_cast<NSUInteger>(S3GTrackerClapPagePhrases)];
+        if ([phrasePage conformsToProtocol:
+                @protocol(S3GTrackerPhraseKeyHandling)]
+            && [(id<S3GTrackerPhraseKeyHandling>)phrasePage
+                s3gHandlePhraseKeyEquivalent:event]) return;
+    }
     [super keyDown:event];
 }
 
@@ -2359,8 +2381,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [super layout];
     constexpr CGFloat navigationHeight = 40.0;
     CGFloat x = 12.0;
-    const std::array<CGFloat, 7u> widths {{
-        88.0, 64.0, 90.0, 88.0, 68.0, 82.0, 60.0,
+    const std::array<CGFloat, 8u> widths {{
+        80.0, 58.0, 82.0, 76.0, 78.0, 62.0, 72.0, 54.0,
     }};
     for (NSUInteger index = 0u; index < self.pageButtons.count; ++index) {
         const CGFloat width = widths[std::min<std::size_t>(
@@ -2429,6 +2451,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (BOOL)pageCanDetach:(S3GTrackerClapPage)page
 {
     return page == S3GTrackerClapPageGeometry
+        || page == S3GTrackerClapPagePhrases
         || page == S3GTrackerClapPageReshape
         || page == S3GTrackerClapPageWarps
         || page == S3GTrackerClapPageConsole
@@ -2462,8 +2485,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
         backing:NSBackingStoreBuffered defer:NO];
     NSArray<NSString*>* names = @[
-        @"Tracker", @"Song", @"Rhythm Geometry", @"Pattern Reshape",
-        @"Timing Warps", @"Console", @"Help",
+        @"Tracker", @"Song", @"Rhythm Geometry", @"MIDI Phrases",
+        @"Pattern Reshape", @"Timing Warps", @"Console", @"Help",
     ];
     window.title = [@"s3g Tracker — " stringByAppendingString:
         names[static_cast<NSUInteger>(index)]];
@@ -2733,6 +2756,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _callbacks->showReshapePage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageReshape];
     };
+    _callbacks->showPhrasePage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPagePhrases];
+    };
     _callbacks->showTrackerPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageTracker];
         [weakSelf.workspace focusTracker];
@@ -2907,6 +2933,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         self.workspace.view,
         self.songWindow.window.contentView,
         [self.workspace geometryPageView],
+        [self.workspace phrasePageView],
         [self.workspace reshapePageView],
         [self.workspace warpPageView],
         [self.workspace consolePageView],
@@ -3249,6 +3276,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     if (!_state) return document;
     (void)syncSessionToActivePattern(*_state);
     document.patternBank = _state->patternBank;
+    document.phraseLibrary = _state->phraseLibrary;
     document.transport = _state->session.transport;
     document.warpLibrary = _state->session.warpLibrary;
     document.session.gateMilliseconds = _state->session.gateMilliseconds;
@@ -3270,6 +3298,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     ProjectDocument midiDocument = document;
     normalizeMidiOnlyDocument(midiDocument);
     _state->patternBank = midiDocument.patternBank;
+    _state->phraseLibrary = midiDocument.phraseLibrary;
     (void)loadActivePatternIntoSession(*_state);
     _state->session.transport = midiDocument.transport;
     _state->session.warpLibrary = midiDocument.warpLibrary;

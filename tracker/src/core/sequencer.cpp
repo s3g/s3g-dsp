@@ -408,6 +408,8 @@ void Sequencer::captureRemovedTrackReleases(
                 ? memory.activeVelocities[voice] : memory.activeVelocity;
             release.note = voice < memory.activeCount
                 ? memory.activeNotes[voice] : memory.activeNote;
+            release.noteVoice = static_cast<uint8_t>(std::min<std::size_t>(
+                voice, kMaximumNoteVoices - 1u));
             release.channel = memory.activeChannel;
             release.kind = ScheduledEventKind::NoteOff;
             release.destination = memory.activeDestination;
@@ -427,6 +429,7 @@ void Sequencer::resetTrackPlaybackState(std::size_t trackIndex,
     std::fill(state.skipCounters.begin(), state.skipCounters.end(), 0u);
     state.noteColumn.randomState = columnSeed(trackIndex, 0u);
     state.velocityColumn.randomState = columnSeed(trackIndex, 1u);
+    state.gateColumn.randomState = columnSeed(trackIndex, 8u);
     state.instrumentColumn.randomState = columnSeed(trackIndex, 6u);
     state.noteFxRandomState = columnSeed(trackIndex, 7u);
     state.memory.instrumentNodeId = track.initialInstrumentNodeId;
@@ -446,6 +449,7 @@ void Sequencer::resetTrackPlaybackState(std::size_t trackIndex,
     initialize(track.noteColumn, state.noteColumn);
     initialize(track.instrumentColumn, state.instrumentColumn);
     initialize(track.velocityColumn, state.velocityColumn);
+    initialize(track.gateColumn, state.gateColumn);
     for (std::size_t fx = 0u; fx < track.fxPairs.size(); ++fx) {
         initialize(track.fxPairs[fx].actionColumn,
             state.fxPairs[fx].actionColumn);
@@ -504,12 +508,16 @@ void Sequencer::transitionPlaybackState(const Pattern& previousPattern,
         state.skipCounters.resize(noteLength, 0u);
         const auto velocityLength = activeLength(nextTrack.velocityColumn,
             nextTrack.velocities.size());
+        const auto gateLength = activeLength(nextTrack.gateColumn,
+            nextTrack.gates.size());
         const auto instrumentLength = activeLength(nextTrack.instrumentColumn,
             nextTrack.instruments.size());
         retainPhase(previousTrack.noteColumn, nextTrack.noteColumn,
             noteLength, state.noteColumn);
         retainPhase(previousTrack.velocityColumn, nextTrack.velocityColumn,
             velocityLength, state.velocityColumn);
+        retainPhase(previousTrack.gateColumn, nextTrack.gateColumn,
+            gateLength, state.gateColumn);
         retainPhase(previousTrack.instrumentColumn, nextTrack.instrumentColumn,
             instrumentLength, state.instrumentColumn);
         for (std::size_t fx = 0u; fx < nextTrack.fxPairs.size(); ++fx) {
@@ -625,6 +633,9 @@ void Sequencer::replacePattern(Pattern pattern)
         const auto velocityLength = activeLength(
             pattern_.tracks[index].velocityColumn,
             pattern_.tracks[index].velocities.size());
+        const auto gateLength = activeLength(
+            pattern_.tracks[index].gateColumn,
+            pattern_.tracks[index].gates.size());
         const auto instrumentLength = activeLength(
             pattern_.tracks[index].instrumentColumn,
             pattern_.tracks[index].instruments.size());
@@ -634,6 +645,8 @@ void Sequencer::replacePattern(Pattern pattern)
             noteLength, playback_[index].noteColumn);
         retainPhase(previousTrack.velocityColumn, currentTrack.velocityColumn,
             velocityLength, playback_[index].velocityColumn);
+        retainPhase(previousTrack.gateColumn, currentTrack.gateColumn,
+            gateLength, playback_[index].gateColumn);
         retainPhase(previousTrack.instrumentColumn,
             currentTrack.instrumentColumn, instrumentLength,
             playback_[index].instrumentColumn);
@@ -656,6 +669,7 @@ void Sequencer::replacePattern(Pattern pattern)
          ++index) {
         playback_[index].noteColumn.randomState = columnSeed(index, 0u);
         playback_[index].velocityColumn.randomState = columnSeed(index, 1u);
+        playback_[index].gateColumn.randomState = columnSeed(index, 8u);
         playback_[index].instrumentColumn.randomState = columnSeed(index, 6u);
         playback_[index].noteFxRandomState = columnSeed(index, 7u);
         playback_[index].skipCounters.assign(activeLength(
@@ -684,6 +698,7 @@ void Sequencer::replacePattern(Pattern pattern)
         initialize(track.noteColumn, state.noteColumn);
         initialize(track.instrumentColumn, state.instrumentColumn);
         initialize(track.velocityColumn, state.velocityColumn);
+        initialize(track.gateColumn, state.gateColumn);
         for (std::size_t fx = 0u; fx < track.fxPairs.size(); ++fx) {
             initialize(track.fxPairs[fx].actionColumn,
                 state.fxPairs[fx].actionColumn);
@@ -848,6 +863,7 @@ void Sequencer::setRandomSeed(uint32_t seed)
     for (std::size_t index = 0u; index < pattern_.tracks.size(); ++index) {
         playback_[index].noteColumn.randomState = columnSeed(index, 0u);
         playback_[index].velocityColumn.randomState = columnSeed(index, 1u);
+        playback_[index].gateColumn.randomState = columnSeed(index, 8u);
         playback_[index].instrumentColumn.randomState = columnSeed(index, 6u);
         playback_[index].noteFxRandomState = columnSeed(index, 7u);
         std::fill(playback_[index].skipCounters.begin(),
@@ -946,6 +962,7 @@ void Sequencer::seekAllColumns(std::size_t row) noexcept
         seek(track.noteColumn, state.noteColumn);
         seek(track.instrumentColumn, state.instrumentColumn);
         seek(track.velocityColumn, state.velocityColumn);
+        seek(track.gateColumn, state.gateColumn);
         for (std::size_t pair = 0u; pair < track.fxPairs.size(); ++pair) {
             seek(track.fxPairs[pair].actionColumn,
                 state.fxPairs[pair].actionColumn);
@@ -974,6 +991,7 @@ void Sequencer::relaunchColumnsAtTickBoundary(std::size_t row) noexcept
         relaunch(track.noteColumn, state.noteColumn);
         relaunch(track.instrumentColumn, state.instrumentColumn);
         relaunch(track.velocityColumn, state.velocityColumn);
+        relaunch(track.gateColumn, state.gateColumn);
         for (std::size_t pair = 0u; pair < track.fxPairs.size(); ++pair) {
             relaunch(track.fxPairs[pair].actionColumn,
                 state.fxPairs[pair].actionColumn);
@@ -1007,6 +1025,7 @@ bool Sequencer::resyncTrackColumnsAtTickBoundary(std::size_t trackIndex,
     resync(track.noteColumn, state.noteColumn);
     resync(track.instrumentColumn, state.instrumentColumn);
     resync(track.velocityColumn, state.velocityColumn);
+    resync(track.gateColumn, state.gateColumn);
     for (std::size_t pair = 0u; pair < track.fxPairs.size(); ++pair) {
         resync(track.fxPairs[pair].actionColumn,
             state.fxPairs[pair].actionColumn);
@@ -1114,7 +1133,8 @@ FxPlaybackMemorySnapshot Sequencer::fxMemorySnapshot(std::size_t track,
     if (track >= pattern_.tracks.size()
         || pair >= playback_[track].fxPairs.size()) return {};
     const auto& state = playback_[track].fxPairs[pair];
-    return { state.action, state.value, state.hasAction, state.hasValue };
+    return { state.action, state.value, state.values, state.valueCount,
+        state.hasAction, state.hasValue };
 }
 
 void Sequencer::normalizePattern(Pattern& pattern)
@@ -1145,12 +1165,15 @@ void Sequencer::normalizePattern(Pattern& pattern)
             track.instrumentColumn.stride, 1u);
         track.velocityColumn.stride = std::max(
             track.velocityColumn.stride, 1u);
+        track.gateColumn.stride = std::max(track.gateColumn.stride, 1u);
         track.noteColumn.length = activeLength(track.noteColumn,
             track.notes.size());
         track.instrumentColumn.length = activeLength(track.instrumentColumn,
             track.instruments.size());
         track.velocityColumn.length = activeLength(track.velocityColumn,
             track.velocities.size());
+        track.gateColumn.length = activeLength(track.gateColumn,
+            track.gates.size());
         track.noteColumn.phase = track.noteColumn.length == 0u ? 0u
             : track.noteColumn.phase % track.noteColumn.length;
         for (auto& cell : track.notes) {
@@ -1182,6 +1205,17 @@ void Sequencer::normalizePattern(Pattern& pattern)
                 % track.instrumentColumn.length;
         track.velocityColumn.phase = track.velocityColumn.length == 0u ? 0u
             : track.velocityColumn.phase % track.velocityColumn.length;
+        track.gateColumn.phase = track.gateColumn.length == 0u ? 0u
+            : track.gateColumn.phase % track.gateColumn.length;
+        for (auto& cell : track.gates) {
+            if (cell.voiceCount == 0u) continue;
+            for (std::size_t voice = 0u; voice < cell.gateVoiceCount(); ++voice) {
+                auto& gate = cell.voices[voice];
+                if (gate.mode == GateVoiceMode::Rows)
+                    gate.rows = std::clamp(std::isfinite(gate.rows)
+                            ? gate.rows : 1.0f, 0.01f, 64.0f);
+            }
+        }
         for (auto& cell : track.velocities) {
             if (cell.state != ValueCellState::Value) continue;
             std::array<float, kMaximumNoteVoices> values {};
@@ -1222,6 +1256,15 @@ void Sequencer::normalizePattern(Pattern& pattern)
                     && cell.midiController > 127u) {
                     cell = FxActionCell::empty();
                 }
+            }
+            for (auto& cell : fx.values) {
+                if (cell.state != FxValueCellState::Value) continue;
+                std::array<float, kMaximumNoteVoices> values {};
+                const auto count = cell.valueVoiceCount();
+                for (std::size_t voice = 0u; voice < count; ++voice)
+                    values[voice] = normalizedParameter(
+                        cell.valueVoice(voice));
+                cell = FxValueCell::withValues(values, count);
             }
         }
     }
@@ -1270,11 +1313,14 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             track.notes.size());
         const auto velocityLength = activeLength(track.velocityColumn,
             track.velocities.size());
+        const auto gateLength = activeLength(track.gateColumn,
+            track.gates.size());
         const auto instrumentLength = activeLength(track.instrumentColumn,
             track.instruments.size());
         state.noteColumn.lastPosition = state.noteColumn.position;
         state.instrumentColumn.lastPosition = state.instrumentColumn.position;
         state.velocityColumn.lastPosition = state.velocityColumn.position;
+        state.gateColumn.lastPosition = state.gateColumn.position;
 
         struct CandidateNote {
             uint8_t note = 0u;
@@ -1331,6 +1377,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             return memory.velocities[std::min(voice, count - 1u)];
         };
         candidate.velocities[0u] = candidateVelocity(0u);
+        GateCell gateCell = GateCell::defaultValue();
+        if (!track.gateColumn.muted && gateLength > 0u)
+            gateCell = track.gates[state.gateColumn.position % gateLength];
         candidate.nodeId = memory.instrumentNodeId;
         candidate.destination = destinationForInstrument(
             candidate.nodeId, track.destination);
@@ -1400,7 +1449,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                                    EventDestination destination,
                                    uint64_t durationSamples = 0u,
                                    uint8_t burstDefinition
-                                       = kNoBurstDefinition) {
+                                       = kNoBurstDefinition,
+                                   uint8_t noteVoice = 0u) {
             ScheduledEvent event;
             event.absoluteSampleTime = absoluteSampleTime;
             event.noteId = noteId;
@@ -1414,6 +1464,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 : velocity;
             event.note = note;
             event.burstDefinition = burstDefinition;
+            event.noteVoice = noteVoice;
             event.channel = channel;
             event.kind = kind;
             event.destination = destination;
@@ -1444,6 +1495,13 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                     fxState.valueColumn.position % valueLength];
                 if (valueCell.state == FxValueCellState::Value) {
                     fxState.value = normalizedParameter(valueCell.normalized);
+                    fxState.valueCount = static_cast<uint8_t>(
+                        valueCell.valueVoiceCount());
+                    for (std::size_t voice = 0u;
+                         voice < fxState.valueCount; ++voice) {
+                        fxState.values[voice] = normalizedParameter(
+                            valueCell.valueVoice(voice));
+                    }
                     fxState.hasValue = true;
                 }
             }
@@ -1736,7 +1794,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                     voice < memory.activeCount
                         ? memory.activeVelocities[voice]
                         : memory.activeVelocity,
-                    releaseDestination);
+                    releaseDestination, 0u, kNoBurstDefinition,
+                    static_cast<uint8_t>(std::min<std::size_t>(
+                        voice, kMaximumNoteVoices - 1u)));
             }
             memory.activeNodeId = kInvalidInstrumentNode;
             memory.activeDestination = EventDestination::None;
@@ -1812,6 +1872,9 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                     ? candidate.notes[voice]
                     : voice < memory.activeCount
                     ? memory.activeNotes[voice] : memory.activeNote;
+                event.noteVoice = static_cast<uint8_t>(
+                    std::min<std::size_t>(
+                        voice, kMaximumNoteVoices - 1u));
                 event.channel = accepted
                     ? candidate.channel : memory.activeChannel;
                 event.kind = ScheduledEventKind::Parameter;
@@ -1891,18 +1954,28 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             memory.sustainHeld = sustainOnset;
             for (std::size_t voice = 0u;
                  voice < candidate.voiceCount; ++voice) {
+                const auto gate = gateCell.gateVoice(voice);
+                uint64_t duration = 0u;
+                if (sustainOnset || gate.mode == GateVoiceMode::Tie)
+                    duration = kSustainUntilExplicitNoteOff;
+                else if (gate.mode == GateVoiceMode::Rows)
+                    duration = static_cast<uint64_t>(std::max<long double>(
+                        1.0L, std::round(nextTickInterval()
+                            * static_cast<long double>(gate.rows))));
                 writeNote(ScheduledEventKind::NoteOn, onsetNoteIds[voice],
                     candidate.nodeId, candidate.notes[voice],
                     candidate.channel, candidate.velocities[voice],
                     candidate.destination,
-                    sustainOnset ? kSustainUntilExplicitNoteOff : 0u,
-                    candidate.burstDefinition);
+                    duration,
+                    candidate.burstDefinition,
+                    static_cast<uint8_t>(voice));
             }
         }
 
         advance(track.noteColumn, state.noteColumn);
         advance(track.instrumentColumn, state.instrumentColumn);
         advance(track.velocityColumn, state.velocityColumn);
+        advance(track.gateColumn, state.gateColumn);
     }
 }
 

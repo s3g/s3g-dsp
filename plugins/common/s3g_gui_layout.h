@@ -1387,7 +1387,7 @@ constexpr TrackerReshapeFamilyLayout trackerReshapeFamilyLayout(
         PanelRole::Modulation, mutationColumn, mutationY,
         mutationHeight, 4u);
     const Panel target = fittedPanel(PluginClass::AnalyzerMonitor,
-        PanelRole::Capture, inspector, inspector.top, 5u);
+        PanelRole::Capture, inspector, inspector.top, 6u);
     const Panel timing = fittedStackPanel(PanelRole::EventTiming,
         target, 5u);
     const Panel dynamics = fittedStackPanel(PanelRole::Relationships,

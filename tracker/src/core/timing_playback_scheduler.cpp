@@ -199,7 +199,7 @@ void TimingPlaybackScheduler::rebuildTimingState(
 {
     timingSchedulerActive_ = false;
     microTimingCompensationActive_ = false;
-    timing_.fill({});
+    for (auto& track : timing_) track.fill({});
     for (const auto& track : sequencer_.pattern().tracks) {
         const auto length = std::min(track.noteColumn.length,
             track.notes.size());
@@ -257,37 +257,42 @@ void TimingPlaybackScheduler::resolveCurrentTick(
     const auto trackCount = sequencer_.pattern().tracks.size();
     for (std::size_t trackIndex = 0u; trackIndex < trackCount; ++trackIndex) {
         const auto& track = sequencer_.pattern().tracks[trackIndex];
-        std::array<SequencerActionValue, kFxPairCount> actions {};
-        for (std::size_t pairIndex = 0u; pairIndex < kFxPairCount;
-             ++pairIndex) {
-            const auto& pair = track.fxPairs[pairIndex];
-            bool execute = false;
-            const auto actionLength = std::min(pair.actionColumn.length,
-                pair.actions.size());
-            if (!pair.actionColumn.muted && actionLength > 0u) {
-                const auto position = sequencer_.lastFxActionPosition(
-                    trackIndex, pairIndex) % actionLength;
-                const auto& cell = pair.actions[position];
-                if (cell.state == FxActionCellState::Parameter
-                    || cell.state == FxActionCellState::Sequencer
-                    || cell.state
-                        == FxActionCellState::MidiControlChange) {
-                    execute = true;
-                } else if (cell.state == FxActionCellState::Previous) {
-                    execute = true;
+        for (std::size_t voice = 0u; voice < kMaximumNoteVoices; ++voice) {
+            std::array<SequencerActionValue, kFxPairCount> actions {};
+            for (std::size_t pairIndex = 0u; pairIndex < kFxPairCount;
+                 ++pairIndex) {
+                const auto& pair = track.fxPairs[pairIndex];
+                bool execute = false;
+                const auto actionLength = std::min(pair.actionColumn.length,
+                    pair.actions.size());
+                if (!pair.actionColumn.muted && actionLength > 0u) {
+                    const auto position = sequencer_.lastFxActionPosition(
+                        trackIndex, pairIndex) % actionLength;
+                    const auto& cell = pair.actions[position];
+                    if (cell.state == FxActionCellState::Parameter
+                        || cell.state == FxActionCellState::Sequencer
+                        || cell.state
+                            == FxActionCellState::MidiControlChange) {
+                        execute = true;
+                    } else if (cell.state == FxActionCellState::Previous) {
+                        execute = true;
+                    }
                 }
+                const auto memory = sequencer_.fxMemorySnapshot(
+                    trackIndex, pairIndex);
+                if (!execute || !memory.hasAction || !memory.hasValue
+                    || memory.action.state != FxActionCellState::Sequencer)
+                    continue;
+                const auto value = memory.action.sequencerAction
+                        == SequencerAction::MicroTime
+                    ? memory.valueForVoice(voice) : memory.value;
+                actions[pairIndex] = { memory.action.sequencerAction,
+                    value, true };
             }
-            const auto memory = sequencer_.fxMemorySnapshot(
-                trackIndex, pairIndex);
-            if (!execute || !memory.hasAction || !memory.hasValue
-                || memory.action.state != FxActionCellState::Sequencer)
-                continue;
-            actions[pairIndex] = { memory.action.sequencerAction,
-                memory.value, true };
+            timing_[trackIndex][voice] = resolveTimingActions(actions,
+                sequencer_.transport(), tickDurationSamples,
+                microTimingCompensationActive_);
         }
-        timing_[trackIndex] = resolveTimingActions(actions,
-            sequencer_.transport(), tickDurationSamples,
-            microTimingCompensationActive_);
     }
 }
 
@@ -373,9 +378,11 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
                 || event.track >= activeTimingTracks) {
                 ScheduledEvent shifted = event;
                 if (event.track < activeTimingTracks) {
+                    const auto voice = std::min<std::size_t>(
+                        event.noteVoice, kMaximumNoteVoices - 1u);
                     shifted.absoluteSampleTime = detail::saturatingSampleAdd(
                         event.absoluteSampleTime,
-                        timing_[event.track].baseDelaySamples);
+                        timing_[event.track][voice].baseDelaySamples);
                 }
                 if (shifted.kind == ScheduledEventKind::NoteOff
                     && timeline_.cancelPendingPrimaryOnset(
@@ -462,15 +469,15 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
                         * static_cast<uint64_t>(authored.position) / 65536u;
                     expanded.absoluteSampleTime = detail::saturatingSampleAdd(
                         event.absoluteSampleTime,
-                        timing_[event.track].baseDelaySamples
+                        timing_[event.track][0u].baseDelaySamples
                             + substepOffset);
                     expanded.frameOffset = detail::saturatingFrameOffsetAdd(
                         event.frameOffset,
-                        timing_[event.track].baseDelaySamples
+                        timing_[event.track][0u].baseDelaySamples
                             + substepOffset);
                     expanded.normalizedVelocity = detail::scaledTimingVelocity(
                         event.normalizedVelocity,
-                        timing_[event.track].velocityScale
+                        timing_[event.track][0u].velocityScale
                             * static_cast<float>(authored.velocity) / 127.0f);
                     expanded.durationSamples = std::max<uint64_t>(1u,
                         burstTickDuration
@@ -482,7 +489,9 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
             }
             std::array<ScheduledEvent, 17u> expandedEvents {};
             std::size_t expandedCount = 0u;
-            expandTimingEvent(event, timing_[event.track],
+            const auto voice = std::min<std::size_t>(
+                event.noteVoice, kMaximumNoteVoices - 1u);
+            expandTimingEvent(event, timing_[event.track][voice],
                 [this] { return allocateSecondaryNoteId(); },
                 [&](const ScheduledEvent& expanded) {
                     if (expanded.noteId != 0u

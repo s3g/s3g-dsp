@@ -17,6 +17,9 @@ using s3g::tracker::Direction;
 using s3g::tracker::EventDestination;
 using s3g::tracker::FxActionCell;
 using s3g::tracker::FxValueCell;
+using s3g::tracker::GateCell;
+using s3g::tracker::GateVoice;
+using s3g::tracker::GateVoiceMode;
 using s3g::tracker::InstrumentCell;
 using s3g::tracker::InstrumentCellState;
 using s3g::tracker::kInvalidInstrumentNode;
@@ -534,6 +537,39 @@ void testPolyphonicLaneVoicesAndVelocities()
             && events[4u].noteId == events[1u].noteId
             && events[5u].noteId == events[2u].noteId,
         "one lane cell should emit and explicitly release every paired chord voice");
+}
+
+void testPitchAlignedGateDurations()
+{
+    std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
+    notes[0u] = 60u;
+    notes[1u] = 64u;
+    notes[2u] = 67u;
+    std::array<GateVoice, s3g::tracker::kMaximumNoteVoices> gates {};
+    gates[0u] = { GateVoiceMode::Rows, 0.5f };
+    gates[1u] = { GateVoiceMode::Tie, 1.0f };
+    gates[2u] = { GateVoiceMode::Rows, 1.25f };
+    Track track;
+    track.notes = { NoteCell::withNotes(notes, 3u) };
+    track.velocities = { ValueCell::withValue(1.0f) };
+    track.gates = { GateCell::withVoices(gates, 3u) };
+    track.noteColumn.length = 1u;
+    track.velocityColumn.length = 1u;
+    track.gateColumn.length = 1u;
+    Pattern pattern;
+    pattern.tracks.push_back(std::move(track));
+    Sequencer sequencer;
+    sequencer.setPattern(std::move(pattern));
+    sequencer.setTransport({ 48000.0, 120.0, 4u, 0.5 });
+    sequencer.start();
+    std::array<ScheduledEvent, 8u> events {};
+    const auto count = sequencer.processSingleTick(
+        1u, events.data(), events.size());
+    check(count == 3u
+            && events[0u].durationSamples == 3000u
+            && events[1u].durationSamples == kSustainUntilExplicitNoteOff
+            && events[2u].durationSamples == 7500u,
+        "per-voice GATE values should convert row durations at the current tempo and preserve TIE");
 }
 
 void testInstrumentFxScopeAndReleaseRouting()
@@ -2647,6 +2683,7 @@ int main()
     testConditionalSequencingGate();
     testTrackVelocityScale();
     testPolyphonicLaneVoicesAndVelocities();
+    testPitchAlignedGateDurations();
     testInstrumentColumnPolymeterAndMemory();
     testPerTrackColumnResync();
     testInstrumentFxScopeAndReleaseRouting();

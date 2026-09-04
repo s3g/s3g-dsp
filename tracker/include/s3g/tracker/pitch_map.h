@@ -45,6 +45,8 @@ struct PitchPreviewEvent {
     uint8_t note = 60u;
     uint8_t velocity = 100u;
     uint8_t gatePercent = 70u;
+    // Fractional position within row, matching BurstEvent::position.
+    uint16_t position = 0u;
 };
 
 struct PitchMapAnalysis {
@@ -62,6 +64,9 @@ struct PitchMapAssignment {
     std::size_t row = 0u;
     uint8_t originalNote = 0u;
     uint8_t note = 0u;
+    uint8_t voiceCount = 1u;
+    std::array<uint8_t, kMaximumNoteVoices> originalNotes {};
+    std::array<uint8_t, kMaximumNoteVoices> notes {};
 };
 
 struct PitchMapResult {
@@ -70,6 +75,12 @@ struct PitchMapResult {
 };
 
 const char* pitchContourName(PitchContour contour) noexcept;
+
+// Rebuild every chord voice around assignment.note and snap upper voices to
+// the selected (and transposed) scale. The root remains the contour/manual
+// anchor while voice order and polyphony are preserved.
+void retargetPitchMapVoicing(PitchMapAssignment& assignment,
+    const PitchMapSettings& settings) noexcept;
 
 // Analyze explicit NOTE cells only. Pass kPitchMapAllLanes to use every lane
 // in the row range. Symbols, Burst references, and rests are not pitch

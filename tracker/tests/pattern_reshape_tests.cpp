@@ -75,6 +75,18 @@ int main()
             .values[0u].normalized - 0.5f) < 0.0001f,
         "full tightening should move signed microtime to the row grid");
 
+    PatternReshapeSettings laneScoped = timing;
+    laneScoped.laneMask = 1u << 1u;
+    const auto scoped = reshapePattern(source, laneScoped);
+    check(scoped.before.noteEvents == 2u
+            && scoped.before.timingValues == 2u
+            && scoped.timingChanged == 2u
+            && scoped.pattern.tracks[0u].fxPairs[0u].values[0u].normalized
+                == source.tracks[0u].fxPairs[0u].values[0u].normalized
+            && std::abs(scoped.pattern.tracks[1u].fxPairs[0u]
+                    .values[0u].normalized - 0.5f) < 0.0001f,
+        "lane scope should analyze and reshape only the selected lane group");
+
     Pattern sparseTiming = source;
     sparseTiming.tracks[1u].fxPairs[0u].actions.assign(
         8u, FxActionCell::empty());

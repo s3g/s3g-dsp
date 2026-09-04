@@ -220,6 +220,35 @@ int main()
             && micro.selectedRow == 4u,
         "LIVE MT should convert timing and highlight the written note");
 
+    auto polyMicro = sessionWithTrack();
+    MidiLiveRecordState polyMicroState;
+    MidiStepCapture polyVoice = late;
+    polyVoice.note = 67u;
+    polyVoice.velocity = 90u;
+    check(recordMidiStep(polyMicro,
+              MidiStepRecordMode::LiveUnquantized, polyVoice, 48000.0,
+              &polyMicroState).recorded(),
+        "LIVE MT should begin a timed polyphonic onset group");
+    polyVoice.note = 60u;
+    polyVoice.velocity = 110u;
+    polyVoice.offsetSamples = -600; // -12.5 ms = MT 0.25.
+    check(recordMidiStep(polyMicro,
+              MidiStepRecordMode::LiveUnquantized, polyVoice, 48000.0,
+              &polyMicroState).recorded(),
+        "LIVE MT should add a separately timed voice to the same row");
+    const auto& polyTrack = polyMicro.pattern.tracks[0u];
+    const auto& polyMt = polyTrack.fxPairs[0u].values[4u];
+    check(polyTrack.notes[4u].noteVoiceCount() == 2u
+            && polyTrack.notes[4u].noteVoice(0u) == 60u
+            && polyTrack.notes[4u].noteVoice(1u) == 67u
+            && polyTrack.velocities[4u].valueVoiceCount() == 2u
+            && std::abs(polyTrack.velocities[4u].valueVoice(0u)
+                    - 110.0f / 127.0f) < 1.0e-6f
+            && polyMt.valueVoiceCount() == 2u
+            && std::abs(polyMt.valueVoice(0u) - 0.25f) < 1.0e-6f
+            && std::abs(polyMt.valueVoice(1u) - 0.75f) < 1.0e-6f,
+        "LIVE MT should sort pitch, velocity, and microtime as one aligned voice tuple");
+
     auto early = sessionWithTrack();
     MidiStepCapture earlyInput = input;
     earlyInput.rowKnown = true;

@@ -226,7 +226,8 @@ private:
 
     Sequencer sequencer_;
     ScheduledEventTimeline timeline_;
-    std::array<TimingEventExpansion, kMaximumTrackCount> timing_ {};
+    std::array<std::array<TimingEventExpansion, kMaximumNoteVoices>,
+        kMaximumTrackCount> timing_ {};
     std::vector<PatternTimingSummary> preparedTimingSummaries_;
     std::size_t activePreparedTimingIndex_ = 0u;
     std::array<ScheduledEvent,

@@ -8,6 +8,13 @@
 namespace s3g::tracker {
 namespace {
 
+bool reshapeLaneIncluded(uint32_t laneMask, std::size_t lane) noexcept
+{
+    return lane < 32u
+        && (laneMask & (uint32_t { 1u } << static_cast<uint32_t>(lane)))
+            != 0u;
+}
+
 bool noteProducesOnset(const NoteCell& cell) noexcept
 {
     return cell.state == NoteCellState::Note
@@ -105,9 +112,10 @@ bool hasWritableTimingPair(const Track& source, std::size_t row) noexcept
 
 template <typename Callback>
 void visitDirectTiming(const Pattern& pattern, Callback&& callback,
-    std::size_t* unsupported = nullptr)
+    uint32_t laneMask, std::size_t* unsupported = nullptr)
 {
     for (std::size_t lane = 0u; lane < pattern.tracks.size(); ++lane) {
+        if (!reshapeLaneIncluded(laneMask, lane)) continue;
         const auto& track = pattern.tracks[lane];
         for (std::size_t pairIndex = 0u;
              pairIndex < track.fxPairs.size(); ++pairIndex) {
@@ -305,6 +313,7 @@ void mutateRhythm(PatternReshapeResult& result,
 
     for (std::size_t lane = 0u;
          lane < result.pattern.tracks.size(); ++lane) {
+        if (!reshapeLaneIncluded(settings.laneMask, lane)) continue;
         auto& track = result.pattern.tracks[lane];
         if (track.noteColumn.length == 0u) continue;
 
@@ -493,7 +502,7 @@ std::size_t inferPatternReshapeCycle(
 }
 
 PatternReshapeAnalysis analyzePatternReshape(
-    const Pattern& pattern, std::size_t cycleRows)
+    const Pattern& pattern, std::size_t cycleRows, uint32_t laneMask)
 {
     PatternReshapeAnalysis result;
     result.rows = patternReshapeRows(pattern);
@@ -514,6 +523,7 @@ PatternReshapeAnalysis analyzePatternReshape(
     std::vector<std::vector<float>> phaseVelocity(result.cycleRows);
 
     for (std::size_t lane = 0u; lane < pattern.tracks.size(); ++lane) {
+        if (!reshapeLaneIncluded(laneMask, lane)) continue;
         const auto& track = pattern.tracks[lane];
         const auto noteCount = std::min(track.noteColumn.length,
             track.notes.size());
@@ -552,7 +562,7 @@ PatternReshapeAnalysis analyzePatternReshape(
             phaseTiming[row % result.cycleRows].push_back(centered);
             ++result.timingValues;
             ++result.lanes[lane].timingValues;
-        }, &result.unsupportedTimingValues);
+        }, laneMask, &result.unsupportedTimingValues);
 
     result.timingMedian = median(timingValues);
     result.timingMad = mad(timingValues, result.timingMedian);
@@ -623,46 +633,56 @@ PatternReshapeResult reshapePattern(
 
     PatternReshapeResult result;
     result.pattern = pattern;
-    result.before = analyzePatternReshape(pattern, settings.cycleRows);
+    result.before = analyzePatternReshape(
+        pattern, settings.cycleRows, settings.laneMask);
     mutateRhythm(result, settings);
     const auto working = analyzePatternReshape(
-        result.pattern, settings.cycleRows);
+        result.pattern, settings.cycleRows, settings.laneMask);
     result.timingSkipped = working.unsupportedTimingValues;
 
     visitDirectTiming(result.pattern,
         [&](std::size_t lane, std::size_t pairIndex, std::size_t row,
-            float value) {
+            float) {
             const auto phase = row % working.cycleRows;
-            const float source = (value - 0.5f) * 2.0f;
             const auto& laneStats = working.lanes[lane];
-            float residual = source - laneStats.timingMedian;
-            const float spread = laneStats.timingMad > 0.0f
-                ? laneStats.timingMad : working.timingMad;
-            residual = limitedResidual(residual, spread,
-                settings.timingOutlierThreshold);
-            const float limitedSource = std::clamp(
-                laneStats.timingMedian + residual, -1.0f, 1.0f);
             const float contour = std::clamp(
                 inferredPhaseTiming(working, phase)
                     * (1.0f + settings.timingDepth), -1.0f, 1.0f);
-            const float pocketed = limitedSource
-                + settings.pocket * (contour - limitedSource);
-            const float shaped = std::clamp(
-                pocketed * (1.0f - settings.tighten), -1.0f, 1.0f);
-            float& destination = result.pattern.tracks[lane]
-                .fxPairs[pairIndex].values[row].normalized;
-            const float next = std::clamp(0.5f + shaped * 0.5f,
-                0.0f, 1.0f);
-            if (std::abs(destination - next) > 0.00001f) {
-                destination = next;
+            auto& destination = result.pattern.tracks[lane]
+                .fxPairs[pairIndex].values[row];
+            const auto voiceCount = destination.valueVoiceCount();
+            std::array<float, kMaximumNoteVoices> values {};
+            bool changed = false;
+            for (std::size_t voice = 0u; voice < voiceCount; ++voice) {
+                const float source = (destination.valueVoice(voice)
+                    - 0.5f) * 2.0f;
+                float residual = source - laneStats.timingMedian;
+                const float spread = laneStats.timingMad > 0.0f
+                    ? laneStats.timingMad : working.timingMad;
+                residual = limitedResidual(residual, spread,
+                    settings.timingOutlierThreshold);
+                const float limitedSource = std::clamp(
+                    laneStats.timingMedian + residual, -1.0f, 1.0f);
+                const float pocketed = limitedSource
+                    + settings.pocket * (contour - limitedSource);
+                const float shaped = std::clamp(
+                    pocketed * (1.0f - settings.tighten), -1.0f, 1.0f);
+                values[voice] = std::clamp(
+                    0.5f + shaped * 0.5f, 0.0f, 1.0f);
+                changed = changed || std::abs(destination.valueVoice(voice)
+                    - values[voice]) > 0.00001f;
+            }
+            if (changed) {
+                destination = FxValueCell::withValues(values, voiceCount);
                 ++result.timingChanged;
             }
-        });
+        }, settings.laneMask);
 
     if (settings.microTimingWrite == PatternReshapeWriteMode::FillMissing
         && settings.pocket > 0.0f) {
         for (std::size_t lane = 0u;
              lane < result.pattern.tracks.size(); ++lane) {
+            if (!reshapeLaneIncluded(settings.laneMask, lane)) continue;
             auto& track = result.pattern.tracks[lane];
             const auto noteCount = std::min(track.noteColumn.length,
                 track.notes.size());
@@ -695,6 +715,7 @@ PatternReshapeResult reshapePattern(
 
     for (std::size_t lane = 0u;
          lane < result.pattern.tracks.size(); ++lane) {
+        if (!reshapeLaneIncluded(settings.laneMask, lane)) continue;
         auto& track = result.pattern.tracks[lane];
         const auto count = std::min(track.velocityColumn.length,
             track.velocities.size());
@@ -738,7 +759,7 @@ PatternReshapeResult reshapePattern(
         }
     }
     result.after = analyzePatternReshape(result.pattern,
-        settings.cycleRows);
+        settings.cycleRows, settings.laneMask);
     return result;
 }
 

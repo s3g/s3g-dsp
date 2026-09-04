@@ -970,6 +970,80 @@ bool decodeNoteCells(const JsonValue& input, std::vector<NoteCell>& destination,
     return true;
 }
 
+JsonValue encodeGateCells(const std::vector<GateCell>& cells,
+    std::string_view path, ProjectResult& result)
+{
+    JsonValue output = JsonValue::arrayValue();
+    if (cells.size() > kMaximumPatternRows)
+        setError(result, ProjectErrorCode::SizeLimitExceeded,
+            std::string(path), "gate column exceeds 65536 cells");
+    for (std::size_t row = 0u; row < cells.size(); ++row) {
+        JsonValue cell = JsonValue::objectValue();
+        JsonValue voices = JsonValue::arrayValue();
+        if (cells[row].voiceCount != 0u) {
+            for (std::size_t voice = 0u;
+                 voice < cells[row].gateVoiceCount(); ++voice) {
+                const auto gate = cells[row].gateVoice(voice);
+                if (gate.mode == GateVoiceMode::Default)
+                    voices.array.push_back(JsonValue::stringValue("default"));
+                else if (gate.mode == GateVoiceMode::Tie)
+                    voices.array.push_back(JsonValue::stringValue("tie"));
+                else {
+                    finiteRange(gate.rows, 0.01, 64.0,
+                        std::string(path) + "[" + std::to_string(row)
+                            + "].values[" + std::to_string(voice) + "]",
+                        result);
+                    voices.array.push_back(JsonValue::numberValue(gate.rows));
+                }
+            }
+        }
+        cell.object["values"] = std::move(voices);
+        output.array.push_back(std::move(cell));
+    }
+    return output;
+}
+
+bool decodeGateCells(const JsonValue& input, std::vector<GateCell>& destination,
+    std::string_view path, ProjectResult& result)
+{
+    if (input.type != JsonType::Array || input.array.size() > kMaximumPatternRows)
+        return setError(result, ProjectErrorCode::SizeLimitExceeded,
+            std::string(path), "invalid gate-cell array");
+    std::vector<GateCell> candidate;
+    candidate.reserve(input.array.size());
+    for (std::size_t row = 0u; row < input.array.size(); ++row) {
+        const std::string cellPath = std::string(path) + "["
+            + std::to_string(row) + "]";
+        const auto* values = requiredField(input.array[row], "values",
+            JsonType::Array, cellPath, result);
+        if (!values || values->array.size() > kMaximumNoteVoices) return false;
+        if (values->array.empty()) {
+            candidate.push_back(GateCell::defaultValue());
+            continue;
+        }
+        std::array<GateVoice, kMaximumNoteVoices> voices {};
+        for (std::size_t voice = 0u; voice < values->array.size(); ++voice) {
+            const auto& value = values->array[voice];
+            if (value.type == JsonType::String && value.string == "default")
+                voices[voice] = { GateVoiceMode::Default, 1.0f };
+            else if (value.type == JsonType::String && value.string == "tie")
+                voices[voice] = { GateVoiceMode::Tie, 1.0f };
+            else if (value.type == JsonType::Number
+                && std::isfinite(value.number) && value.number >= 0.01
+                && value.number <= 64.0)
+                voices[voice] = { GateVoiceMode::Rows,
+                    static_cast<float>(value.number) };
+            else return setError(result, ProjectErrorCode::OutOfRange,
+                cellPath + ".values[" + std::to_string(voice) + "]",
+                "gate voice must be default, tie, or 0.01..64 rows");
+        }
+        candidate.push_back(GateCell::withVoices(voices,
+            values->array.size()));
+    }
+    destination = std::move(candidate);
+    return true;
+}
+
 JsonValue encodeBursts(const Pattern& pattern, std::string_view path,
     ProjectResult& result)
 {
@@ -1311,11 +1385,26 @@ JsonValue encodeFxValues(const std::vector<FxValueCell>& cells,
         if (cells[index].state == FxValueCellState::Previous) {
             cell.object["state"] = JsonValue::stringValue("previous");
         } else if (cells[index].state == FxValueCellState::Value) {
-            finiteRange(cells[index].normalized, 0.0, 1.0,
-                std::string(path) + "[" + std::to_string(index) + "].value",
-                result);
             cell.object["state"] = JsonValue::stringValue("value");
-            cell.object["value"] = JsonValue::numberValue(cells[index].normalized);
+            if (cells[index].valueVoiceCount() == 1u) {
+                finiteRange(cells[index].normalized, 0.0, 1.0,
+                    std::string(path) + "[" + std::to_string(index)
+                        + "].value", result);
+                cell.object["value"] = JsonValue::numberValue(
+                    cells[index].normalized);
+            } else {
+                JsonValue values = JsonValue::arrayValue();
+                for (std::size_t voice = 0u;
+                     voice < cells[index].valueVoiceCount(); ++voice) {
+                    const auto value = cells[index].valueVoice(voice);
+                    finiteRange(value, 0.0, 1.0,
+                        std::string(path) + "[" + std::to_string(index)
+                            + "].values[" + std::to_string(voice) + "]",
+                        result);
+                    values.array.push_back(JsonValue::numberValue(value));
+                }
+                cell.object["values"] = std::move(values);
+            }
         } else {
             setError(result, ProjectErrorCode::OutOfRange,
                 std::string(path) + "[" + std::to_string(index) + "].state",
@@ -1347,13 +1436,36 @@ bool decodeFxValues(const JsonValue& input,
         if (state->string == "previous")
             candidate.push_back(FxValueCell::previous());
         else if (state->string == "value") {
-            const auto* value = requiredField(input.array[index], "value",
-                JsonType::Number, cellPath, result);
-            double normalized = 0.0;
-            if (!value || !checkedNumber(*value, normalized, 0.0, 1.0,
-                    cellPath + ".value", result)) return false;
-            candidate.push_back(FxValueCell::withValue(
-                static_cast<float>(normalized)));
+            const auto values = input.array[index].object.find("values");
+            if (values == input.array[index].object.end()) {
+                const auto* value = requiredField(input.array[index], "value",
+                    JsonType::Number, cellPath, result);
+                double normalized = 0.0;
+                if (!value || !checkedNumber(*value, normalized, 0.0, 1.0,
+                        cellPath + ".value", result)) return false;
+                candidate.push_back(FxValueCell::withValue(
+                    static_cast<float>(normalized)));
+            } else {
+                if (values->second.type != JsonType::Array
+                    || values->second.array.empty()
+                    || values->second.array.size() > kMaximumNoteVoices)
+                    return setError(result, ProjectErrorCode::OutOfRange,
+                        cellPath + ".values",
+                        "FX value stack must contain 1..8 values");
+                std::array<float, kMaximumNoteVoices> voices {};
+                for (std::size_t voice = 0u;
+                     voice < values->second.array.size(); ++voice) {
+                    double normalized = 0.0;
+                    if (!checkedNumber(values->second.array[voice],
+                            normalized, 0.0, 1.0,
+                            cellPath + ".values["
+                                + std::to_string(voice) + "]", result))
+                        return false;
+                    voices[voice] = static_cast<float>(normalized);
+                }
+                candidate.push_back(FxValueCell::withValues(voices,
+                    values->second.array.size()));
+            }
         } else {
             return setError(result, ProjectErrorCode::OutOfRange,
                 cellPath + ".state", "unknown FX value cell state");
@@ -1454,6 +1566,10 @@ JsonValue encodeTrack(const Track& track, std::string_view path,
         track.velocities.size(), std::string(path) + ".velocityColumn", result);
     output.object["velocities"] = encodeValueCells(track.velocities,
         std::string(path) + ".velocities", result);
+    output.object["gateColumn"] = encodeColumn(track.gateColumn,
+        track.gates.size(), std::string(path) + ".gateColumn", result);
+    output.object["gates"] = encodeGateCells(track.gates,
+        std::string(path) + ".gates", result);
     output.object["velocityScale"] = JsonValue::numberValue(track.velocityScale);
     return output;
 }
@@ -1520,6 +1636,23 @@ bool decodeTrack(const JsonValue& input, Track& destination,
         || !decodeColumn(*velocityColumn, candidate.velocityColumn,
             candidate.velocities.size(),
             std::string(path) + ".velocityColumn", result)) return false;
+    const auto gates = input.object.find("gates");
+    const auto gateColumn = input.object.find("gateColumn");
+    if ((gates == input.object.end()) != (gateColumn == input.object.end()))
+        return setError(result, ProjectErrorCode::InconsistentData,
+            std::string(path) + ".gates",
+            "gates and gateColumn must appear together");
+    if (gates != input.object.end()) {
+        if (!decodeGateCells(gates->second, candidate.gates,
+                std::string(path) + ".gates", result)
+            || !decodeColumn(gateColumn->second, candidate.gateColumn,
+                candidate.gates.size(), std::string(path) + ".gateColumn",
+                result)) return false;
+    } else {
+        candidate.gates.resize(candidate.notes.size(), GateCell::defaultValue());
+        candidate.gateColumn = candidate.noteColumn;
+        candidate.gateColumn.muted = false;
+    }
     for (std::size_t pair = 0u; pair < kFxPairCount; ++pair) {
         if (!decodeFxPair(fxPairs->array[pair], candidate.fxPairs[pair],
                 std::string(path) + ".fxPairs[" + std::to_string(pair) + "]",
@@ -1620,6 +1753,122 @@ bool decodePattern(const JsonValue& input, Pattern& destination,
                         + std::to_string(trackIndex) + "].notes["
                         + std::to_string(row) + "].burst",
                     "note cell references an empty burst slot");
+        }
+    }
+    destination = std::move(candidate);
+    return true;
+}
+
+JsonValue encodePhraseLibrary(const PhraseLibrary& library,
+    ProjectResult& result)
+{
+    JsonValue output = JsonValue::arrayValue();
+    output.array.reserve(library.phrases.size());
+    for (std::size_t index = 0u; index < library.phrases.size(); ++index) {
+        const auto& phrase = library.phrases[index];
+        const std::string path = "$.phrases[" + std::to_string(index) + "]";
+        if (phrase.length < kMinimumPhraseRows
+            || phrase.length > kMaximumPhraseRows)
+            setError(result, ProjectErrorCode::OutOfRange, path + ".length",
+                "phrase length must be 2..64 rows");
+        JsonValue item = JsonValue::objectValue();
+        item.object["name"] = encodeCheckedString(phrase.name,
+            kMaximumPhraseNameBytes, path + ".name", result);
+        item.object["length"] = number(phrase.length);
+        item.object["previewMidiChannel"] = number(
+            static_cast<uint32_t>(std::clamp<int>(
+                phrase.previewMidiChannel, 1, 16)));
+        item.object["notes"] = encodeNoteCells(phrase.notes,
+            path + ".notes", result);
+        item.object["velocities"] = encodeValueCells(phrase.velocities,
+            path + ".velocities", result);
+        item.object["gates"] = encodeGateCells(phrase.gates,
+            path + ".gates", result);
+        JsonValue pairs = JsonValue::arrayValue();
+        for (std::size_t pair = 0u; pair < phrase.fxPairs.size(); ++pair)
+            pairs.array.push_back(encodeFxPair(phrase.fxPairs[pair],
+                path + ".fxPairs[" + std::to_string(pair) + "]", result));
+        item.object["fxPairs"] = std::move(pairs);
+        Pattern burstCarrier;
+        burstCarrier.bursts = phrase.bursts;
+        item.object["bursts"] = encodeBursts(burstCarrier,
+            path + ".bursts", result);
+        output.array.push_back(std::move(item));
+    }
+    return output;
+}
+
+bool decodePhraseLibrary(const JsonValue& input, PhraseLibrary& destination,
+    ProjectResult& result)
+{
+    if (input.type != JsonType::Array)
+        return setError(result, ProjectErrorCode::TypeMismatch, "$.phrases",
+            "phrase library must be an array");
+    if (input.array.size() > kPhraseLibrarySlots)
+        return setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.phrases", "phrase library exceeds 64 slots");
+    PhraseLibrary candidate;
+    for (std::size_t index = 0u; index < input.array.size(); ++index) {
+        const auto& item = input.array[index];
+        const std::string path = "$.phrases[" + std::to_string(index) + "]";
+        const auto* name = requiredField(item, "name", JsonType::String,
+            path, result);
+        const auto* length = requiredField(item, "length", JsonType::Number,
+            path, result);
+        const auto* notes = requiredField(item, "notes", JsonType::Array,
+            path, result);
+        const auto* velocities = requiredField(item, "velocities",
+            JsonType::Array, path, result);
+        const auto* fxPairs = requiredField(item, "fxPairs", JsonType::Array,
+            path, result);
+        const auto* gates = requiredField(item, "gates", JsonType::Array,
+            path, result);
+        if (!name || !length || !notes || !velocities || !gates || !fxPairs)
+            return false;
+        if (fxPairs->array.size() != kFxPairCount)
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path + ".fxPairs", "exactly two FX pairs are required");
+        auto& phrase = candidate.phrases[index];
+        const auto previewChannel = item.object.find("previewMidiChannel");
+        const auto bursts = item.object.find("bursts");
+        if (!checkedString(*name, phrase.name, kMaximumPhraseNameBytes,
+                path + ".name", result)
+            || !checkedSize(*length, phrase.length, kMaximumPhraseRows,
+                path + ".length", result)
+            || phrase.length < kMinimumPhraseRows
+            || !decodeNoteCells(*notes, phrase.notes, path + ".notes", result)
+            || !decodeValueCells(*velocities, phrase.velocities,
+                path + ".velocities", result)
+            || !decodeGateCells(*gates, phrase.gates,
+                path + ".gates", result)) {
+            if (result.ok())
+                setError(result, ProjectErrorCode::OutOfRange,
+                    path + ".length", "phrase length must be 2..64 rows");
+            return false;
+        }
+        if (previewChannel != item.object.end()) {
+            uint32_t channel = 1u;
+            if (!checkedUint32(previewChannel->second, channel, 16u,
+                    path + ".previewMidiChannel", result)
+                || channel < 1u) {
+                if (result.ok()) setError(result,
+                    ProjectErrorCode::OutOfRange,
+                    path + ".previewMidiChannel",
+                    "preview MIDI channel must be 1..16");
+                return false;
+            }
+            phrase.previewMidiChannel = static_cast<uint8_t>(channel);
+        }
+        if (bursts != item.object.end()) {
+            Pattern burstCarrier;
+            if (!decodeBursts(bursts->second, burstCarrier,
+                    path + ".bursts", result)) return false;
+            phrase.bursts = std::move(burstCarrier.bursts);
+        }
+        for (std::size_t pair = 0u; pair < kFxPairCount; ++pair) {
+            if (!decodeFxPair(fxPairs->array[pair], phrase.fxPairs[pair],
+                    path + ".fxPairs[" + std::to_string(pair) + "]", result))
+                return false;
         }
     }
     destination = std::move(candidate);
@@ -2011,6 +2260,8 @@ JsonValue encodeDocument(const ProjectDocument& document,
     root.object["format"] = JsonValue::stringValue(kProjectFormatIdentifier);
     root.object["patterns"] = encodePatternBank(
         document.patternBank, result);
+    root.object["phrases"] = encodePhraseLibrary(
+        document.phraseLibrary, result);
     root.object["version"] = number(kProjectFormatVersion);
     root.object["workspace"] = encodeSession(document.session, result);
     root.object["arrangement"] = encodeSong(document.song, result);
@@ -2055,12 +2306,16 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
             "$.version", "MIDI composition version is not supported");
 
     ProjectDocument candidate;
+    const auto phrases = root.object.find("phrases");
     if (!decodePatternBank(*patternBank, candidate.patternBank, result)
         || !decodeTransport(*transport, candidate.transport, result)
         || !decodeSession(*session, candidate.session, result)
         || !decodeSong(*song, candidate.song, result)
         || !decodeTimingWarpLibrary(*warpLibrary, candidate.warpLibrary,
             result)
+        || (phrases != root.object.end()
+            && !decodePhraseLibrary(phrases->second,
+                candidate.phraseLibrary, result))
         || !validateSongReferences(candidate, result)) return false;
     destination = std::move(candidate);
     return true;

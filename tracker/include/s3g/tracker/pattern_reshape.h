@@ -14,6 +14,10 @@ enum class PatternReshapeWriteMode {
 };
 
 struct PatternReshapeSettings {
+    // Bit N includes tracker lane N in analysis, preview, and apply. Tracker
+    // currently supports at most 32 lanes, so one mask also represents an
+    // arbitrary user-selected lane group without realtime allocation.
+    uint32_t laneMask = 0xffffffffu;
     // Zero asks the analyzer to select a useful cycle from 4/8/16/32/64.
     std::size_t cycleRows = 0u;
     // Timing controls are normalized for UI and command use.
@@ -106,7 +110,8 @@ std::size_t patternReshapeRows(const Pattern& pattern) noexcept;
 std::size_t inferPatternReshapeCycle(
     const Pattern& pattern, std::size_t requestedCycle = 0u) noexcept;
 PatternReshapeAnalysis analyzePatternReshape(
-    const Pattern& pattern, std::size_t cycleRows = 0u);
+    const Pattern& pattern, std::size_t cycleRows = 0u,
+    uint32_t laneMask = 0xffffffffu);
 PatternReshapeResult reshapePattern(
     const Pattern& pattern, PatternReshapeSettings settings);
 

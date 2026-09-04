@@ -141,6 +141,49 @@ int main()
             && handShaped.assignments[3u].note == 67u,
         "manual contour should leave every pitch unchanged until a point or explicit transform moves it");
 
+    Pattern chordPattern;
+    chordPattern.visibleRows = 1u;
+    chordPattern.tracks.resize(1u);
+    auto& chordTrack = chordPattern.tracks[0u];
+    chordTrack.noteColumn.length = 1u;
+    chordTrack.notes.assign(1u, NoteCell::rest());
+    std::array<uint8_t, kMaximumNoteVoices> chordNotes {};
+    chordNotes[0u] = 60u;
+    chordNotes[1u] = 63u;
+    chordNotes[2u] = 66u;
+    chordTrack.notes[0u] = NoteCell::withNotes(chordNotes, 3u);
+    chordTrack.velocities.assign(1u, ValueCell::defaultValue());
+    std::array<float, kMaximumNoteVoices> chordVelocities {};
+    chordVelocities[0u] = 0.9f;
+    chordVelocities[1u] = 0.7f;
+    chordVelocities[2u] = 0.5f;
+    chordTrack.velocities[0u] = ValueCell::withValues(chordVelocities, 3u);
+    chordTrack.velocityColumn.length = 1u;
+    const auto chordAnalysis = analyzePitchMap(chordPattern, 0u, 0u, 0u);
+    const auto chordPreview = previewPitchMap(
+        chordPattern, 0u, 0u, 0u, fit);
+    check(chordAnalysis.noteCount == 3u
+            && chordAnalysis.minimumNote == 60u
+            && chordAnalysis.maximumNote == 66u,
+        "analysis should treat every voice in a polyphonic NOTE cell as pitch evidence");
+    check(chordPreview.assignments.size() == 1u
+            && chordPreview.assignments[0u].voiceCount == 3u
+            && chordPreview.assignments[0u].notes[0u] == 60u
+            && chordPreview.assignments[0u].notes[1u] == 62u
+            && chordPreview.assignments[0u].notes[2u] == 65u,
+        "scale changes should retarget every chord voice while preserving its ordered voicing");
+    const auto chordChanged = applyPitchMap(
+        chordPattern, 0u, 0u, 0u, fit);
+    check(chordChanged == 1u
+            && chordTrack.notes[0u].noteVoiceCount() == 3u
+            && chordTrack.notes[0u].noteVoice(0u) == 60u
+            && chordTrack.notes[0u].noteVoice(1u) == 62u
+            && chordTrack.notes[0u].noteVoice(2u) == 65u
+            && chordTrack.velocities[0u].valueVoiceCount() == 3u
+            && std::abs(chordTrack.velocities[0u].valueVoice(1u) - 0.7f)
+                < 0.0001f,
+        "apply should write the complete mapped chord without disturbing per-voice velocity");
+
     if (failures == 0) {
         std::cout << "pitch map tests passed\n";
         return 0;

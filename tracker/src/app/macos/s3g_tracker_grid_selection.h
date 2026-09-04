@@ -67,6 +67,38 @@ struct GridSelection {
         return value.trackCount() == 1u && value.fieldCount() == 1u
             && value.rowCount() == 1u;
     }
+
+    constexpr std::size_t firstColumn(
+        std::size_t fieldsPerTrack) const noexcept
+    {
+        return std::min(anchorTrack * fieldsPerTrack + anchorField,
+            focusTrack * fieldsPerTrack + focusField);
+    }
+
+    constexpr std::size_t lastColumn(
+        std::size_t fieldsPerTrack) const noexcept
+    {
+        return std::max(anchorTrack * fieldsPerTrack + anchorField,
+            focusTrack * fieldsPerTrack + focusField);
+    }
+
+    constexpr std::size_t columnCount(
+        std::size_t fieldsPerTrack) const noexcept
+    {
+        return lastColumn(fieldsPerTrack) - firstColumn(fieldsPerTrack) + 1u;
+    }
+
+    constexpr bool containsLinear(std::size_t candidatePage,
+        std::size_t track, std::size_t field, std::size_t row,
+        std::size_t fieldsPerTrack) const noexcept
+    {
+        const auto column = track * fieldsPerTrack + field;
+        const auto rows = range();
+        return page == candidatePage
+            && column >= firstColumn(fieldsPerTrack)
+            && column <= lastColumn(fieldsPerTrack)
+            && row >= rows.firstRow && row <= rows.lastRow;
+    }
 };
 
 constexpr std::size_t gridClipboardColumn(std::size_t track,

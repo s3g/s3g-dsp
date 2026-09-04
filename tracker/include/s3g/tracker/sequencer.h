@@ -205,6 +205,61 @@ struct ValueCell {
     }
 };
 
+enum class GateVoiceMode : uint8_t {
+    Default,
+    Rows,
+    Tie,
+};
+
+struct GateVoice {
+    GateVoiceMode mode = GateVoiceMode::Default;
+    float rows = 1.0f;
+};
+
+// Pitch-aligned note duration. DEF delegates to the project millisecond gate;
+// ROWS is a musical duration in Tracker rows; TIE sustains until a later
+// explicit release. Shorter stacks repeat their final voice, matching VOL/MT.
+struct GateCell {
+    uint8_t voiceCount = 0u;
+    std::array<GateVoice, kMaximumNoteVoices> voices {};
+
+    static GateCell defaultValue() { return {}; }
+    static GateCell withRows(float rows)
+    {
+        GateCell cell;
+        cell.voiceCount = 1u;
+        cell.voices[0u] = { GateVoiceMode::Rows, rows };
+        return cell;
+    }
+    static GateCell tie()
+    {
+        GateCell cell;
+        cell.voiceCount = 1u;
+        cell.voices[0u] = { GateVoiceMode::Tie, 1.0f };
+        return cell;
+    }
+    static GateCell withVoices(
+        const std::array<GateVoice, kMaximumNoteVoices>& values,
+        std::size_t count)
+    {
+        GateCell cell;
+        cell.voiceCount = static_cast<uint8_t>(std::clamp<std::size_t>(
+            count, 1u, kMaximumNoteVoices));
+        cell.voices = values;
+        return cell;
+    }
+    std::size_t gateVoiceCount() const noexcept
+    {
+        return std::clamp<std::size_t>(voiceCount == 0u ? 1u : voiceCount,
+            1u, kMaximumNoteVoices);
+    }
+    GateVoice gateVoice(std::size_t voice) const noexcept
+    {
+        if (voiceCount == 0u) return {};
+        return voices[std::min<std::size_t>(voice, gateVoiceCount() - 1u)];
+    }
+};
+
 // Instrument is an independently advancing memory column. Empty leaves the
 // remembered rack node untouched without making an explicit recall gesture;
 // Previous also retains it, but records that intent in the authored pattern.
@@ -418,6 +473,8 @@ enum class FxValueCellState : uint8_t {
 struct FxValueCell {
     FxValueCellState state = FxValueCellState::Previous;
     float normalized = 0.0f;
+    uint8_t voiceCount = 0u;
+    std::array<float, kMaximumNoteVoices - 1u> additionalValues {};
 
     static FxValueCell previous() { return {}; }
 
@@ -426,7 +483,36 @@ struct FxValueCell {
         FxValueCell cell;
         cell.state = FxValueCellState::Value;
         cell.normalized = newValue;
+        cell.voiceCount = 1u;
         return cell;
+    }
+
+    static FxValueCell withValues(
+        const std::array<float, kMaximumNoteVoices>& voices,
+        std::size_t count)
+    {
+        FxValueCell cell;
+        cell.state = FxValueCellState::Value;
+        count = std::clamp<std::size_t>(count, 1u, kMaximumNoteVoices);
+        cell.normalized = voices[0u];
+        cell.voiceCount = static_cast<uint8_t>(count);
+        for (std::size_t voice = 1u; voice < count; ++voice)
+            cell.additionalValues[voice - 1u] = voices[voice];
+        return cell;
+    }
+
+    std::size_t valueVoiceCount() const noexcept
+    {
+        if (state != FxValueCellState::Value) return 0u;
+        return std::clamp<std::size_t>(voiceCount == 0u ? 1u : voiceCount,
+            1u, kMaximumNoteVoices);
+    }
+
+    float valueVoice(std::size_t voice) const noexcept
+    {
+        return voice == 0u ? normalized
+            : additionalValues[std::min<std::size_t>(
+                voice - 1u, additionalValues.size() - 1u)];
     }
 };
 
@@ -466,7 +552,8 @@ struct ColumnDefinition {
 // A typed action/value pair inspired by the two FX pairs in the v8 tracker.
 // Action and value are independently polymetric. Empty retains action memory
 // without executing it; Previous executes the remembered action. Value memory
-// can change on a row whose action is empty and be consumed later.
+// can change on a row whose action is empty and be consumed later. MT may use
+// a value stack aligned to NOTE voices; all other actions broadcast voice 1.
 struct FxPair {
     std::vector<FxActionCell> actions;
     std::vector<FxValueCell> values;
@@ -484,8 +571,17 @@ struct FxPair {
 struct FxPlaybackMemorySnapshot {
     FxActionCell action;
     float value = 0.0f;
+    std::array<float, kMaximumNoteVoices> values {};
+    uint8_t valueCount = 1u;
     bool hasAction = false;
     bool hasValue = false;
+
+    float valueForVoice(std::size_t voice) const noexcept
+    {
+        const auto count = std::clamp<std::size_t>(valueCount,
+            1u, kMaximumNoteVoices);
+        return values[std::min(voice, count - 1u)];
+    }
 };
 
 constexpr std::size_t kFxPairCount = 2u;
@@ -512,10 +608,12 @@ struct Track {
     std::vector<NoteCell> notes;
     std::vector<InstrumentCell> instruments;
     std::vector<ValueCell> velocities;
+    std::vector<GateCell> gates;
     std::array<FxPair, kFxPairCount> fxPairs;
     ColumnDefinition noteColumn;
     ColumnDefinition instrumentColumn;
     ColumnDefinition velocityColumn;
+    ColumnDefinition gateColumn;
 };
 
 struct Pattern {
@@ -565,6 +663,10 @@ struct ScheduledEvent {
     // canonical first event of a Burst recipe for TimingPlaybackScheduler to
     // expand after whole-burst SEQ gates and timing have resolved.
     uint8_t burstDefinition = kNoBurstDefinition;
+    // Zero-based position in the source NOTE cell. TimingPlaybackScheduler
+    // uses this to align a polyphonic MT value with its matching note-on and
+    // note-off while other actions remain lane-wide.
+    uint8_t noteVoice = 0u;
     // One-based to match the tracker model. MIDI and chip adapters translate
     // this into their own channel representation.
     uint8_t channel = 1u;
@@ -839,6 +941,8 @@ private:
             ColumnState valueColumn;
             FxActionCell action;
             float value = 0.0f;
+            std::array<float, kMaximumNoteVoices> values {};
+            uint8_t valueCount = 1u;
             bool hasAction = false;
             bool hasValue = false;
         };
@@ -848,6 +952,7 @@ private:
         ColumnState noteColumn;
         ColumnState instrumentColumn;
         ColumnState velocityColumn;
+        ColumnState gateColumn;
         std::array<FxState, kFxPairCount> fxPairs;
         // SK is keyed by the resolved NOTE source row, matching the v8
         // first-pass-then-skip cycle. Storage is resized only at pattern

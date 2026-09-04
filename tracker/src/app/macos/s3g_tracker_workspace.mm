@@ -1,5 +1,6 @@
 #import "s3g_tracker_workspace.h"
 #import "s3g_tracker_controls.h"
+#import "s3g_tracker_phrase_view.h"
 #import "s3g_tracker_reshape_window.h"
 #import "s3g_tracker_warp_window.h"
 #include "s3g_tracker_grid_input.h"
@@ -23,6 +24,8 @@
 #include <limits>
 #include <string>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace {
 
@@ -36,6 +39,9 @@ using s3g::tracker::FxActionCellState;
 using s3g::tracker::FxPair;
 using s3g::tracker::FxValueCell;
 using s3g::tracker::FxValueCellState;
+using s3g::tracker::GateCell;
+using s3g::tracker::GateVoice;
+using s3g::tracker::GateVoiceMode;
 using s3g::tracker::InstrumentCell;
 using s3g::tracker::InstrumentCellState;
 using s3g::tracker::MidiStepRecordMode;
@@ -60,6 +66,7 @@ using s3g::tracker::kMaximumBurstEvents;
 using s3g::tracker::kMaximumBurstNameBytes;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
+using s3g::tracker::app::gridClipboardColumn;
 namespace layout = s3g::gui_layout;
 
 constexpr CGFloat kGridHeaderHeight = static_cast<CGFloat>(
@@ -261,6 +268,18 @@ NSString* midiNoteName(uint8_t note)
     return [NSString stringWithFormat:@"%s%d", names[note % 12u], octave];
 }
 
+NSString* pitchAssignmentText(const PitchMapAssignment& assignment)
+{
+    NSMutableArray<NSString*>* voices = [NSMutableArray arrayWithCapacity:
+        static_cast<NSUInteger>(assignment.voiceCount)];
+    for (std::size_t voice = 0u; voice < assignment.voiceCount; ++voice) {
+        const auto note = assignment.notes[voice];
+        [voices addObject:[NSString stringWithFormat:@"%@ · MIDI %03u",
+            midiNoteName(note), static_cast<unsigned int>(note)]];
+    }
+    return [voices componentsJoinedByString:@"  +  "];
+}
+
 NSString* noteVoiceText(uint8_t note, bool showMidiValue)
 {
     return showMidiValue
@@ -390,6 +409,20 @@ float resolvedVelocity(const Track& track, std::size_t row)
     return value;
 }
 
+ValueCell resolvedVelocityCell(const Track& track, std::size_t row)
+{
+    ValueCell memory = ValueCell::withValue(0.787f);
+    if (track.velocities.empty()) return memory;
+    const auto last = std::min(row, track.velocities.size() - 1u);
+    for (std::size_t index = 0u; index <= last; ++index) {
+        const auto& cell = track.velocities[index];
+        if (cell.state == ValueCellState::Value) memory = cell;
+        else if (cell.state == ValueCellState::Default)
+            memory = ValueCell::withValue(0.787f);
+    }
+    return memory;
+}
+
 float resolvedFxValue(const Track& track, std::size_t pair,
     std::size_t row)
 {
@@ -403,6 +436,38 @@ float resolvedFxValue(const Track& track, std::size_t pair,
             value = std::clamp(values[index].normalized, 0.0f, 1.0f);
     }
     return value;
+}
+
+FxValueCell resolvedFxValueCell(const Track& track, std::size_t pair,
+    std::size_t row)
+{
+    FxValueCell memory = FxValueCell::withValue(0.0f);
+    if (pair >= track.fxPairs.size()
+        || track.fxPairs[pair].values.empty()) return memory;
+    const auto& values = track.fxPairs[pair].values;
+    const auto last = std::min(row, values.size() - 1u);
+    for (std::size_t index = 0u; index <= last; ++index)
+        if (values[index].state == FxValueCellState::Value)
+            memory = values[index];
+    return memory;
+}
+
+bool resolvedSequencerAction(const Track& track, std::size_t pair,
+    std::size_t row, SequencerAction& resolved) noexcept
+{
+    if (pair >= track.fxPairs.size()) return false;
+    const auto& actions = track.fxPairs[pair].actions;
+    if (row >= actions.size()
+        || actions[row].state == FxActionCellState::Empty) return false;
+    for (std::size_t index = row + 1u; index-- > 0u;) {
+        const auto& action = actions[index];
+        if (action.state == FxActionCellState::Empty
+            || action.state == FxActionCellState::Previous) continue;
+        if (action.state != FxActionCellState::Sequencer) return false;
+        resolved = action.sequencerAction;
+        return resolved != SequencerAction::Count;
+    }
+    return false;
 }
 
 NSString* volumeText(const Track& track, std::size_t row,
@@ -466,7 +531,7 @@ bool pairContainsMidiControlChange(const FxPair& pair) noexcept
 }
 
 NSString* fxValueText(const Track& track, std::size_t pair,
-    std::size_t row)
+    std::size_t row, bool compact = true)
 {
     if (pair >= track.fxPairs.size()
         || row >= track.fxPairs[pair].values.size()) return @"PRV";
@@ -482,14 +547,46 @@ NSString* fxValueText(const Track& track, std::size_t pair,
             static_cast<std::size_t>(condition));
         if (definition) return nsString(std::string(definition->token));
     }
+    if (cell.valueVoiceCount() > 1u) {
+        if (compact)
+            return [NSString stringWithFormat:@"%.3f+%lu",
+                static_cast<double>(std::clamp(
+                    cell.normalized, 0.0f, 1.0f)),
+                static_cast<unsigned long>(cell.valueVoiceCount() - 1u)];
+        NSMutableArray<NSString*>* values = [NSMutableArray
+            arrayWithCapacity:cell.valueVoiceCount()];
+        for (std::size_t voice = 0u;
+             voice < cell.valueVoiceCount(); ++voice) {
+            [values addObject:[NSString stringWithFormat:@"%.3f",
+                static_cast<double>(std::clamp(
+                    cell.valueVoice(voice), 0.0f, 1.0f))]];
+        }
+        return [values componentsJoinedByString:@"+"];
+    }
     return [NSString stringWithFormat:@"%.3f",
         static_cast<double>(
             std::clamp(cell.normalized, 0.0f, 1.0f))];
 }
 
+NSString* gateText(const Track& track, std::size_t row, bool compact = true)
+{
+    if (row >= track.gates.size() || track.gates[row].voiceCount == 0u)
+        return @"DEF";
+    NSMutableArray<NSString*>* values = [NSMutableArray array];
+    const auto& cell = track.gates[row];
+    for (std::size_t voice = 0u; voice < cell.gateVoiceCount(); ++voice) {
+        const auto gate = cell.gateVoice(voice);
+        if (gate.mode == GateVoiceMode::Default) [values addObject:@"DEF"];
+        else if (gate.mode == GateVoiceMode::Tie) [values addObject:@"TIE"];
+        else [values addObject:[NSString stringWithFormat:
+            compact ? @"%.2g" : @"%.3g", static_cast<double>(gate.rows)]];
+    }
+    return [values componentsJoinedByString:@"+"];
+}
+
 std::size_t gridFieldCount(bool sequenceColumnsExpanded) noexcept
 {
-    return sequenceColumnsExpanded ? 6u : 2u;
+    return sequenceColumnsExpanded ? 7u : 2u;
 }
 
 CGFloat gridFieldStartFraction(bool sequenceColumnsExpanded,
@@ -504,11 +601,11 @@ CGFloat gridFieldStartFraction(bool sequenceColumnsExpanded,
         return starts[std::min<std::size_t>(
             field, starts.size() - 1u)];
     }
-    constexpr std::array<CGFloat, 6u> starts {
+    constexpr std::array<CGFloat, 7u> starts {
         0.0, s3g::tracker::app::kTrackerExpandedNoteFraction,
         s3g::tracker::app::kTrackerExpandedNoteFraction
             + s3g::tracker::app::kTrackerExpandedVolumeFraction,
-        0.51, 0.66, 0.83,
+        0.49, 0.61, 0.74, 0.87,
     };
     return starts[std::min<std::size_t>(field, starts.size() - 1u)];
 }
@@ -524,11 +621,11 @@ CGFloat gridFieldEndFraction(bool sequenceColumnsExpanded,
         constexpr std::array<CGFloat, 2u> ends { noteShare, 1.0 };
         return ends[std::min<std::size_t>(field, ends.size() - 1u)];
     }
-    constexpr std::array<CGFloat, 6u> ends {
+    constexpr std::array<CGFloat, 7u> ends {
         s3g::tracker::app::kTrackerExpandedNoteFraction,
         s3g::tracker::app::kTrackerExpandedNoteFraction
             + s3g::tracker::app::kTrackerExpandedVolumeFraction,
-        0.51, 0.66, 0.83, 1.0,
+        0.49, 0.61, 0.74, 0.87, 1.0,
     };
     return ends[std::min<std::size_t>(field, ends.size() - 1u)];
 }
@@ -618,18 +715,166 @@ ColumnDefinition* columnForField(Track& track, std::size_t page,
     std::size_t field) noexcept
 {
     (void)page;
-    field = std::min<std::size_t>(field, 5u);
+    field = std::min<std::size_t>(field, 6u);
     if (field == 0u) return &track.noteColumn;
     if (field == 1u) return &track.velocityColumn;
+    if (field == 6u) return &track.gateColumn;
     auto& pair = track.fxPairs[(field - 2u) / 2u];
     return ((field - 2u) % 2u) == 0u
         ? &pair.actionColumn : &pair.valueColumn;
 }
 
-bool gridFieldIsSequence(std::size_t field) noexcept { return field >= 2u; }
+bool gridFieldIsGate(std::size_t field) noexcept { return field == 6u; }
+bool gridFieldIsSequence(std::size_t field) noexcept
+{
+    return field >= 2u && field < 6u;
+}
 bool gridFieldIsSequenceAction(std::size_t field) noexcept
 {
     return gridFieldIsSequence(field) && ((field - 2u) % 2u) == 0u;
+}
+
+std::size_t gridSequencePair(std::size_t field) noexcept;
+
+uint8_t gridClipboardFieldType(std::size_t field) noexcept
+{
+    if (field == 0u) return 0u; // NOTE
+    if (field == 1u) return 1u; // VOL
+    if (gridFieldIsGate(field)) return 4u; // GATE
+    return gridFieldIsSequenceAction(field) ? 2u : 3u; // SEQ / VALUE
+}
+
+using TrackerGridCell = std::variant<NoteCell, ValueCell,
+    FxActionCell, FxValueCell, GateCell>;
+
+TrackerGridCell trackerGridCellAt(const Track& track, std::size_t field,
+    std::size_t row)
+{
+    if (field == 0u)
+        return row < track.notes.size() ? track.notes[row] : NoteCell::rest();
+    if (field == 1u)
+        return row < track.velocities.size() ? track.velocities[row]
+                                             : ValueCell::defaultValue();
+    if (gridFieldIsGate(field))
+        return row < track.gates.size() ? track.gates[row]
+                                        : GateCell::defaultValue();
+    const auto pair = gridSequencePair(field);
+    if (gridFieldIsSequenceAction(field))
+        return row < track.fxPairs[pair].actions.size()
+            ? track.fxPairs[pair].actions[row] : FxActionCell::empty();
+    return row < track.fxPairs[pair].values.size()
+        ? track.fxPairs[pair].values[row] : FxValueCell::previous();
+}
+
+void writeTrackerGridCell(Track& track, std::size_t field,
+    std::size_t row, const TrackerGridCell& cell)
+{
+    if (field == 0u) {
+        if (track.notes.size() <= row)
+            track.notes.resize(row + 1u, NoteCell::rest());
+        track.notes[row] = std::get<NoteCell>(cell);
+        track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
+        return;
+    }
+    if (field == 1u) {
+        if (track.velocities.size() <= row)
+            track.velocities.resize(row + 1u, ValueCell::defaultValue());
+        track.velocities[row] = std::get<ValueCell>(cell);
+        track.velocityColumn.length = std::max(
+            track.velocityColumn.length, row + 1u);
+        return;
+    }
+    if (gridFieldIsGate(field)) {
+        if (track.gates.size() <= row)
+            track.gates.resize(row + 1u, GateCell::defaultValue());
+        track.gates[row] = std::get<GateCell>(cell);
+        track.gateColumn.length = std::max(track.gateColumn.length, row + 1u);
+        return;
+    }
+    auto& pair = track.fxPairs[gridSequencePair(field)];
+    if (gridFieldIsSequenceAction(field)) {
+        if (pair.actions.size() <= row)
+            pair.actions.resize(row + 1u, FxActionCell::empty());
+        pair.actions[row] = std::get<FxActionCell>(cell);
+        pair.actionColumn.length = std::max(pair.actionColumn.length, row + 1u);
+    } else {
+        if (pair.values.size() <= row)
+            pair.values.resize(row + 1u, FxValueCell::previous());
+        pair.values[row] = std::get<FxValueCell>(cell);
+        pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
+    }
+}
+
+TrackerGridCell blankTrackerGridCell(std::size_t field)
+{
+    if (field == 0u) return NoteCell::rest();
+    if (field == 1u) return ValueCell::defaultValue();
+    if (gridFieldIsGate(field)) return GateCell::defaultValue();
+    if (gridFieldIsSequenceAction(field)) return FxActionCell::empty();
+    return FxValueCell::previous();
+}
+
+bool trackerGridCellEmpty(const TrackerGridCell& cell) noexcept
+{
+    if (const auto* note = std::get_if<NoteCell>(&cell))
+        return note->state == NoteCellState::Rest;
+    if (const auto* value = std::get_if<ValueCell>(&cell))
+        return value->state == ValueCellState::Default;
+    if (const auto* action = std::get_if<FxActionCell>(&cell))
+        return action->state == FxActionCellState::Empty;
+    if (const auto* gate = std::get_if<GateCell>(&cell))
+        return gate->voiceCount == 0u;
+    return std::get<FxValueCell>(cell).state == FxValueCellState::Previous;
+}
+
+bool trackerGridCellsEqual(const TrackerGridCell& a,
+    const TrackerGridCell& b) noexcept
+{
+    if (a.index() != b.index()) return false;
+    if (const auto* left = std::get_if<NoteCell>(&a)) {
+        const auto& right = std::get<NoteCell>(b);
+        if (left->state != right.state
+            || left->noteVoiceCount() != right.noteVoiceCount()) return false;
+        if (left->state != NoteCellState::Note) return left->note == right.note;
+        for (std::size_t voice = 0u; voice < left->noteVoiceCount(); ++voice)
+            if (left->noteVoice(voice) != right.noteVoice(voice)) return false;
+        return true;
+    }
+    if (const auto* left = std::get_if<ValueCell>(&a)) {
+        const auto& right = std::get<ValueCell>(b);
+        if (left->state != right.state
+            || left->valueVoiceCount() != right.valueVoiceCount()) return false;
+        if (left->state != ValueCellState::Value) return true;
+        for (std::size_t voice = 0u; voice < left->valueVoiceCount(); ++voice)
+            if (left->valueVoice(voice) != right.valueVoice(voice)) return false;
+        return true;
+    }
+    if (const auto* left = std::get_if<FxActionCell>(&a)) {
+        const auto& right = std::get<FxActionCell>(b);
+        return left->state == right.state && left->targetNode == right.targetNode
+            && left->parameterId == right.parameterId
+            && left->scope == right.scope
+            && left->sequencerAction == right.sequencerAction
+            && left->midiController == right.midiController;
+    }
+    if (const auto* left = std::get_if<GateCell>(&a)) {
+        const auto& right = std::get<GateCell>(b);
+        if (left->voiceCount != right.voiceCount) return false;
+        for (std::size_t voice = 0u; voice < left->gateVoiceCount(); ++voice) {
+            const auto lv = left->gateVoice(voice);
+            const auto rv = right.gateVoice(voice);
+            if (lv.mode != rv.mode || lv.rows != rv.rows) return false;
+        }
+        return true;
+    }
+    const auto& left = std::get<FxValueCell>(a);
+    const auto& right = std::get<FxValueCell>(b);
+    if (left.state != right.state
+        || left.valueVoiceCount() != right.valueVoiceCount()) return false;
+    if (left.state != FxValueCellState::Value) return true;
+    for (std::size_t voice = 0u; voice < left.valueVoiceCount(); ++voice)
+        if (left.valueVoice(voice) != right.valueVoice(voice)) return false;
+    return true;
 }
 std::size_t gridSequencePair(std::size_t field) noexcept
 {
@@ -643,6 +888,7 @@ std::size_t gridPlaybackRow(const TrackerViewState* state,
     if (!state || lane >= s3g::tracker::kMaximumTrackCount) return 0u;
     if (field == 0u) return state->notePlayheads[lane];
     if (field == 1u) return state->velocityPlayheads[lane];
+    if (gridFieldIsGate(field)) return state->notePlayheads[lane];
     const auto pair = gridSequencePair(field);
     return gridFieldIsSequenceAction(field)
         ? state->fxActionPlayheads[lane][pair]
@@ -944,6 +1190,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     reshapeWindowController;
 @property(nonatomic, strong) S3GTrackerWarpWindowController*
     warpWindowController;
+@property(nonatomic, strong) S3GTrackerPhraseView* phraseView;
 @property(nonatomic, strong) S3GTrackerEnvelopeView* envelopeView;
 @property(nonatomic, strong) NSView* consolePanel;
 @property(nonatomic, strong) NSView* consolePageRoot;
@@ -1014,11 +1261,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     lastRow:(std::size_t)lastRow;
 - (void)applyPitchMapContour:(PitchContour)contour
     firstRow:(std::size_t)firstRow lastRow:(std::size_t)lastRow;
+- (void)capturePhraseTrack:(std::size_t)track firstRow:(std::size_t)firstRow
+    lastRow:(std::size_t)lastRow;
+- (void)placeSelectedPhraseTrack:(std::size_t)track row:(std::size_t)row
+    merge:(BOOL)merge;
 @end
 
 @interface S3GTrackerGridView : NSView <NSTextFieldDelegate> {
     s3g::tracker::app::GridSelection _gridSelection;
-    std::array<std::array<std::size_t, 6u>,
+    std::array<std::array<std::size_t, 7u>,
         s3g::tracker::kMaximumTrackCount> _presentedPlayheads;
     BOOL _playbackPresentationPrimed;
     BOOL _presentedPlaying;
@@ -1026,6 +1277,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     uint32_t _presentedSongMuteMask;
     s3g::tracker::Pattern _rowClipboard;
     BOOL _hasRowClipboard;
+    std::vector<uint8_t> _copiedColumnTypes;
+    std::vector<TrackerGridCell> _copiedGridCells;
 }
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
@@ -1070,6 +1323,28 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSMenu*)velocityMenuForTrack:(std::size_t)track row:(std::size_t)row;
 - (NSDictionary*)columnActionPayloadForTrack:(std::size_t)track
     field:(std::size_t)field row:(std::size_t)row;
+- (void)appendSelectionMenuTo:(NSMenu*)menu;
+- (void)fillSelectionFromEdge:(NSMenuItem*)sender;
+- (void)fillSelectionSeries:(NSMenuItem*)sender;
+- (void)repeatGridSelection:(NSMenuItem*)sender;
+- (void)shiftSelectionCells:(NSMenuItem*)sender;
+- (void)moveGridSelection:(NSMenuItem*)sender;
+- (void)stretchGridSelection:(NSMenuItem*)sender;
+- (void)materializeGridSelection:(NSMenuItem*)sender;
+- (void)findReplaceGridSelection:(NSMenuItem*)sender;
+- (void)swapGridSelectionWithNextLane:(NSMenuItem*)sender;
+- (void)showGridSelectionStatistics:(NSMenuItem*)sender;
+- (void)splitSelectedNoteColumnByPitch:(NSMenuItem*)sender;
+- (void)mergeSelectedNoteLanes:(NSMenuItem*)sender;
+- (void)pasteGridSelectionSpecial:(NSMenuItem*)sender;
+- (void)captureGridSelectionAsPhrase:(NSMenuItem*)sender;
+- (void)placePhraseAtSelection:(NSMenuItem*)sender;
+- (void)placePhraseSlotAtSelection:(NSMenuItem*)sender;
+- (void)reverseGridSelection:(NSMenuItem*)sender;
+- (void)rotateGridSelection:(NSMenuItem*)sender;
+- (void)adjustSelectedValues:(NSMenuItem*)sender;
+- (void)scaleSelectedValues:(NSMenuItem*)sender;
+- (void)quantizeSelectedMicroTime:(NSMenuItem*)sender;
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, weak) S3GTrackerWorkspaceController* owner;
 @property(nonatomic, strong) NSTextField* cellEditor;
@@ -1093,6 +1368,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic) std::size_t numericDragRow;
 @property(nonatomic) std::size_t numericDragField;
 @property(nonatomic) NSInteger copiedPasteboardChangeCount;
+@property(nonatomic, copy) NSString* copiedClipboardText;
 @property(nonatomic) std::size_t copiedTrackCount;
 @property(nonatomic) std::size_t copiedFieldCount;
 @property(nonatomic) std::size_t copiedRowCount;
@@ -1124,7 +1400,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.accessibilityElement = YES;
         self.accessibilityRole = NSAccessibilityGroupRole;
         self.accessibilityLabel = @"Editable tracker lanes";
-        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. During Song playback Tracker follows the sounding pattern and becomes read-only, then returns to the editor pattern when playback stops. Use Expand Sequencing Columns to reveal SEQ1, V1, SEQ2, and V2 without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, and sequencing loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length and stride, read start, direction, and MUTE rows. Double-click length to enter forms such as 24x2, or double-click READ to set its one-based starting row. Click DIR to cycle direction or MUTE to toggle that column. Left and right move across visible fields; up and down move by the View toolbox JUMP value. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. Drag the row gutter or use Shift-up and Shift-down to select the global loop. Shift-click row numbers to select complete rows, then right-click a selected number for structural edits, MT quantize, humanize, and pattern-wide rhythm transforms. Select cells within one NOTE or VOL column and right-click that selection for lane-specific pitch, Burst, or velocity actions. NOTE accepts one pitch or a plus-separated stack such as 60+64+67, plus RPT, HLD, or KIL. VOL accepts one broadcast value or a matching stack such as 0.866+0.646+0.756; shorter stacks repeat their final value. H writes HLD directly. Sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
+        self.accessibilityHelp = @"Compact lanes show NOTE and VOL. During Song playback Tracker follows the sounding pattern and becomes read-only, then returns to the editor pattern when playback stops. Use Expand Detail to reveal SEQ1, V1, SEQ2, V2, and GATE without changing their data. NOTE NAME and NOTE MIDI switch the same stored pitches between names and decimal MIDI values. Each lane header has a SYNC control that restarts that track's NOTE, VOL, sequencing, and gate loops together, plus its own clickable MIDI channel from 1 through 16. Double-click the lane name to rename it. Each visible column header has separate label, length and stride, read start, direction, and MUTE rows. Double-click length to enter forms such as 24x2, or double-click READ to set its one-based starting row. Click DIR to cycle direction or MUTE to toggle that column. Left and right move across visible fields; up and down move by the View toolbox JUMP value. Shift-left and Shift-right move between lanes. Right-click SEQ1 or SEQ2 to choose a sequencing action or MIDI CC, or double-click and type its code. Drag VOL, V1, or V2 vertically to adjust it; Control-drag selects cells instead. GATE accepts DEF, a duration in rows from 0.01 to 64, TIE, or pitch-aligned stacks such as 0.5+TIE+1.25. Drag the row gutter or use Shift-up and Shift-down to select the global loop. Shift-click row numbers to select complete rows, then right-click a selected number for structural edits, MT quantize, humanize, and pattern-wide rhythm transforms. Right-click any selected cell range for Fill, Repeat, cell insert/delete/move, typed Paste Special, stretch/compress, materialize, find/replace, lane swap, and selection statistics. A single selected NOTE column can separate mixed MIDI pitches into routed lanes while preserving matching velocity, per-note gate, and MT voices; parameter and MIDI CC automation stay on the source lane. Select from one lane's NOTE column through another lane's NOTE column to merge pitches, velocities, gates, and per-note MT into polyphonic cells in the leftmost lane. NOTE accepts one pitch or a plus-separated stack such as 60+64+67, plus RPT, HLD, or KIL. VOL accepts one broadcast value or a matching stack such as 0.866+0.646+0.756; shorter stacks repeat their final value. An MT value accepts the same kind of aligned stack, such as 0.200+0.500+0.800; other SEQ actions remain lane-wide. H writes HLD directly. Sequence values accept 0.000 through 1.000; CC value pairs also accept MIDI integers 0 through 127. Delete clears every cell in a drag selection. Control-A, C, X, and V select all, copy, cut, and paste visible tracker cells. Control-Z and Control-Shift-Z undo and redo Tracker edits; Command shortcuts remain available to REAPER.";
     }
     return self;
 }
@@ -1248,9 +1524,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             InstrumentCell::empty());
         insertPatternRowCell(track.velocities, row, oldRows, count,
             ValueCell::defaultValue());
+        insertPatternRowCell(track.gates, row, oldRows, count,
+            GateCell::defaultValue());
         insertPatternColumnRows(track.noteColumn, row, count);
         insertPatternColumnRows(track.instrumentColumn, row, count);
         insertPatternColumnRows(track.velocityColumn, row, count);
+        insertPatternColumnRows(track.gateColumn, row, count);
         for (auto& pair : track.fxPairs) {
             insertPatternRowCell(pair.actions, row, oldRows, count,
                 FxActionCell::empty());
@@ -1274,6 +1553,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             paste(destination.notes, source.notes);
             paste(destination.instruments, source.instruments);
             paste(destination.velocities, source.velocities);
+            paste(destination.gates, source.gates);
             for (std::size_t pair = 0u;
                  pair < destination.fxPairs.size(); ++pair) {
                 paste(destination.fxPairs[pair].actions,
@@ -1330,9 +1610,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             InstrumentCell::empty());
         deletePatternRowCell(track.velocities, row, oldRows, count,
             ValueCell::defaultValue());
+        deletePatternRowCell(track.gates, row, oldRows, count,
+            GateCell::defaultValue());
         deletePatternColumnRows(track.noteColumn, row, count);
         deletePatternColumnRows(track.instrumentColumn, row, count);
         deletePatternColumnRows(track.velocityColumn, row, count);
+        deletePatternColumnRows(track.gateColumn, row, count);
         for (auto& pair : track.fxPairs) {
             deletePatternRowCell(pair.actions, row, oldRows, count,
                 FxActionCell::empty());
@@ -1387,6 +1670,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         copyRange(track.notes, NoteCell::rest());
         copyRange(track.instruments, InstrumentCell::empty());
         copyRange(track.velocities, ValueCell::defaultValue());
+        copyRange(track.gates, GateCell::defaultValue());
         for (auto& pair : track.fxPairs) {
             copyRange(pair.actions, FxActionCell::empty());
             copyRange(pair.values, FxValueCell::previous());
@@ -1692,6 +1976,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     } else if (field == 1u) {
         fieldName = @"Volume";
         fieldValue = volumeText(track, row);
+    } else if (gridFieldIsGate(field)) {
+        fieldName = @"Gate";
+        fieldValue = gateText(track, row, false);
     } else {
         const auto pair = gridSequencePair(field);
         if (gridFieldIsSequenceAction(field)) {
@@ -1961,10 +2248,24 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         pair.values.resize(row + 1u, FxValueCell::previous());
     const float current = resolvedFxValue(track,
         pairIndex, row);
-    const int scaled = static_cast<int>(std::lround(current * 100.0f));
-    pair.values[row] = FxValueCell::withValue(
-        static_cast<float>(std::clamp(scaled + delta, 0, 100))
-            / 100.0f);
+    auto& cell = pair.values[row];
+    if (cell.state == FxValueCellState::Value
+        && cell.valueVoiceCount() > 1u) {
+        std::array<float, s3g::tracker::kMaximumNoteVoices> values {};
+        const auto count = cell.valueVoiceCount();
+        for (std::size_t voice = 0u; voice < count; ++voice) {
+            const int scaled = static_cast<int>(std::lround(
+                cell.valueVoice(voice) * 100.0f));
+            values[voice] = static_cast<float>(
+                std::clamp(scaled + delta, 0, 100)) / 100.0f;
+        }
+        cell = FxValueCell::withValues(values, count);
+    } else {
+        const int scaled = static_cast<int>(std::lround(current * 100.0f));
+        cell = FxValueCell::withValue(
+            static_cast<float>(std::clamp(scaled + delta, 0, 100))
+                / 100.0f);
+    }
     pair.valueColumn.length = std::max(pair.valueColumn.length, row + 1u);
     session.pattern.visibleRows = std::max(session.pattern.visibleRows,
         row + 1u);
@@ -2151,6 +2452,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     ccRoot.submenu = ccMenu;
     [menu addItem:ccRoot];
+    [self appendSelectionMenuTo:menu];
     return menu;
 }
 
@@ -2275,6 +2577,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             ? NSControlStateValueOn : NSControlStateValueOff;
         [menu addItem:item];
     }
+    [self appendSelectionMenuTo:menu];
     return menu;
 }
 
@@ -2347,9 +2650,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
 
     const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto selectedColumn = gridClipboardColumn(trackIndex, 0u, fields);
     const BOOL convertibleSelection = _gridSelection.active
-        && range.firstTrack == range.lastTrack
-        && range.firstField == 0u && range.lastField == 0u
+        && _gridSelection.firstColumn(fields) == selectedColumn
+        && _gridSelection.lastColumn(fields) == selectedColumn
         && range.rowCount() >= 2u && range.rowCount() <= kMaximumBurstEvents;
     add(@"CREATE FROM SELECTED NOTE ROWS", @"capture",
         hasEmpty && convertibleSelection, -1, @{
@@ -2403,10 +2708,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     field:(std::size_t)field row:(std::size_t)row
 {
     const auto range = [self effectiveGridSelection];
+    const auto fields = self.trackerState
+        ? gridFieldCount(self.trackerState->sequenceColumnsExpanded) : 0u;
+    const auto selectedColumn = gridClipboardColumn(track, field, fields);
     const bool selectedColumnRange = _gridSelection.active
-        && range.firstTrack == track && range.lastTrack == track
-        && range.firstField == field && range.lastField == field
-        && range.contains(0u, track, field, row);
+        && _gridSelection.firstColumn(fields) == selectedColumn
+        && _gridSelection.lastColumn(fields) == selectedColumn
+        && _gridSelection.containsLinear(0u, track, field, row, fields);
     const auto first = selectedColumnRange ? range.firstRow : row;
     const auto last = selectedColumnRange ? range.lastRow : row;
     return @{
@@ -2465,6 +2773,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     burstRoot.submenu = [self burstMenuForTrack:track row:row];
     burstRoot.enabled = burstRoot.submenu.numberOfItems > 0u;
     [menu addItem:burstRoot];
+    [self appendSelectionMenuTo:menu];
     return menu;
 }
 
@@ -2498,6 +2807,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 static_cast<long>(minimum)],
             @selector(randomizeSelectedVelocityRows:), minimum);
     }
+    [self appendSelectionMenuTo:menu];
     return menu;
 }
 
@@ -2671,28 +2981,27 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             != nil;
     const bool noteField = field == 0u;
     const bool velocityField = field == 1u;
-    if (!noteField && !velocityField
-        && !gridFieldIsSequenceAction(field) && !conditionValue) {
-        [super rightMouseDown:event];
-        return;
-    }
     model->session.selectedField = field;
     [self selectTrack:lane row:row];
-    const auto selection = _gridSelection.range();
-    const bool preserveColumnRows = (noteField || velocityField)
-        && _gridSelection.active
-        && selection.firstTrack == lane && selection.lastTrack == lane
-        && selection.firstField == field && selection.lastField == field
-        && selection.contains(0u, lane, field, row);
-    if (!preserveColumnRows) [self clearGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const bool preserveSelection = _gridSelection.active
+        && _gridSelection.containsLinear(0u, lane, field, row, fields);
+    if (!preserveSelection) [self clearGridSelection];
     [self.window makeFirstResponder:self];
-    NSMenu* menu = noteField
-        ? [self noteMenuForTrack:lane row:row]
-        : velocityField
-        ? [self velocityMenuForTrack:lane row:row]
+    NSMenu* menu = noteField ? [self noteMenuForTrack:lane row:row]
+        : velocityField ? [self velocityMenuForTrack:lane row:row]
         : conditionValue
-        ? [self sequenceConditionMenuForTrack:lane row:row field:field]
-        : [self sequenceActionMenuForTrack:lane row:row field:field];
+            ? [self sequenceConditionMenuForTrack:lane row:row field:field]
+        : gridFieldIsSequenceAction(field)
+            ? [self sequenceActionMenuForTrack:lane row:row field:field]
+        : [[NSMenu alloc] initWithTitle:(
+            gridFieldIsGate(field) ? @"GATE" : @"VALUE")];
+    if (!noteField && !velocityField && !conditionValue
+        && !gridFieldIsSequenceAction(field)) {
+        menu.autoenablesItems = NO;
+        menu.font = trackerFont(9.5, NSFontWeightMedium);
+        [self appendSelectionMenuTo:menu];
+    }
     if (menu) [NSMenu popUpContextMenu:menu withEvent:event forView:self];
 }
 
@@ -2938,8 +3247,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 if (pair.values.size() <= self.numericDragRow)
                     pair.values.resize(self.numericDragRow + 1u,
                         FxValueCell::previous());
-                pair.values[self.numericDragRow]
-                    = FxValueCell::withValue(value);
+                auto& cell = pair.values[self.numericDragRow];
+                if (cell.state == FxValueCellState::Value
+                    && cell.valueVoiceCount() > 1u) {
+                    std::array<float, s3g::tracker::kMaximumNoteVoices>
+                        voices {};
+                    const float delta = value - self.numericDragStartValue;
+                    const auto count = cell.valueVoiceCount();
+                    for (std::size_t voice = 0u; voice < count; ++voice)
+                        voices[voice] = std::clamp(
+                            cell.valueVoice(voice) + delta, 0.0f, 1.0f);
+                    cell = FxValueCell::withValues(voices, count);
+                } else cell = FxValueCell::withValue(value);
                 pair.valueColumn.length = std::max(
                     pair.valueColumn.length, self.numericDragRow + 1u);
             }
@@ -3017,6 +3336,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             return volumeText(track, self.editingRow, false);
         return cell.state == ValueCellState::Previous ? @"PRV" : @"DEF";
     }
+    if (gridFieldIsGate(self.editingField))
+        return gateText(track, self.editingRow, false);
     const auto pairIndex = gridSequencePair(self.editingField);
     const auto& pair = track.fxPairs[pairIndex];
     if (gridFieldIsSequenceAction(self.editingField)) {
@@ -3024,7 +3345,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return fxActionText(track, pairIndex, self.editingRow);
     }
     if (self.editingRow >= pair.values.size()) return @"PRV";
-    return fxValueText(track, pairIndex, self.editingRow);
+    return fxValueText(track, pairIndex, self.editingRow, false);
 }
 
 - (void)beginCellEditing
@@ -3053,7 +3374,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             + static_cast<CGFloat>(row) * kGridRowHeight,
         fieldWidth, kGridRowHeight, model->sequenceColumnsExpanded, field);
     rect = NSInsetRect(rect, 1.0, 1.0);
-    if (field <= 1u && NSWidth(rect) < 280.0) {
+    if ((field <= 1u || gridFieldIsGate(field)) && NSWidth(rect) < 280.0) {
         const CGFloat width = std::min<CGFloat>(280.0, NSWidth(self.bounds));
         rect.origin.x = std::clamp(NSMinX(rect), 0.0,
             std::max<CGFloat>(0.0, NSWidth(self.bounds) - width));
@@ -3077,14 +3398,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.cellEditor.accessibilityLabel = @"Direct tracker cell value";
     [self addSubview:self.cellEditor];
     [self.window makeFirstResponder:self.cellEditor];
-    if (initialText) {
-        NSText* editor = self.cellEditor.currentEditor;
-        if ([editor respondsToSelector:@selector(setSelectedRange:)]) {
-            [(NSTextView*)editor setSelectedRange:NSMakeRange(
-                self.cellEditor.stringValue.length, 0u)];
-        }
-    } else {
-        [self.cellEditor selectText:nil];
+    NSText* editor = self.cellEditor.currentEditor;
+    if ([editor respondsToSelector:@selector(setSelectedRange:)]) {
+        [(NSTextView*)editor setSelectedRange:NSMakeRange(
+            self.cellEditor.stringValue.length, 0u)];
     }
 }
 
@@ -3282,6 +3599,41 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             track.velocityColumn.length, row + 1u);
         return YES;
     }
+    if (gridFieldIsGate(field)) {
+        if (track.gates.size() <= row)
+            track.gates.resize(row + 1u, GateCell::defaultValue());
+        if (lower.length == 0u || [lower isEqualToString:@"def"]
+            || [lower isEqualToString:@"default"]) {
+            track.gates[row] = GateCell::defaultValue();
+        } else {
+            NSArray<NSString*>* parts = [lower componentsSeparatedByString:@"+"];
+            if (parts.count == 0u
+                || parts.count > s3g::tracker::kMaximumNoteVoices) return NO;
+            std::array<GateVoice, s3g::tracker::kMaximumNoteVoices> voices {};
+            for (NSUInteger voice = 0u; voice < parts.count; ++voice) {
+                NSString* part = [parts[voice]
+                    stringByTrimmingCharactersInSet:
+                        NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                if ([part isEqualToString:@"def"]
+                    || [part isEqualToString:@"default"]) {
+                    voices[voice] = { GateVoiceMode::Default, 1.0f };
+                } else if ([part isEqualToString:@"tie"]
+                    || [part isEqualToString:@"t"]) {
+                    voices[voice] = { GateVoiceMode::Tie, 1.0f };
+                } else {
+                    double rows = 0.0;
+                    if (![self scanDouble:part result:&rows]
+                        || !std::isfinite(rows) || rows < 0.01 || rows > 64.0)
+                        return NO;
+                    voices[voice] = { GateVoiceMode::Rows,
+                        static_cast<float>(rows) };
+                }
+            }
+            track.gates[row] = GateCell::withVoices(voices, parts.count);
+        }
+        track.gateColumn.length = std::max(track.gateColumn.length, row + 1u);
+        return YES;
+    }
     const auto pairIndex = gridSequencePair(field);
     auto& pair = track.fxPairs[pairIndex];
     if (gridFieldIsSequenceAction(field)) {
@@ -3318,6 +3670,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         || [lower isEqualToString:@"previous"])
         pair.values[row] = FxValueCell::previous();
     else {
+        if ([lower containsString:@"+"]) {
+            SequencerAction action = SequencerAction::Count;
+            std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+            std::size_t count = 0u;
+            if (!resolvedSequencerAction(track, pairIndex, row, action)
+                || action != SequencerAction::MicroTime
+                || !parseVelocityStack(lower, voices, count)) return NO;
+            pair.values[row] = FxValueCell::withValues(voices, count);
+            pair.valueColumn.length = std::max(
+                pair.valueColumn.length, row + 1u);
+            return YES;
+        }
         const std::string_view entered(
             lower.UTF8String ? lower.UTF8String : "");
         const bool conditionValue = row < pair.actions.size()
@@ -3401,6 +3765,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         } else if (self.editingField == 1u) {
             if (track.velocities.size() < length)
                 track.velocities.resize(length, ValueCell::defaultValue());
+        } else if (gridFieldIsGate(self.editingField)) {
+            if (track.gates.size() < length)
+                track.gates.resize(length, GateCell::defaultValue());
         } else if (gridFieldIsSequenceAction(self.editingField)) {
             auto& actions = track.fxPairs[
                 gridSequencePair(self.editingField)].actions;
@@ -3503,10 +3870,29 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return row < track.notes.size()
             ? noteText(track.notes[row], model->showMidiNoteValues) : @"---";
     if (field == 1u) return volumeText(track, row);
+    if (gridFieldIsGate(field)) return gateText(track, row);
     const auto pair = gridSequencePair(field);
     return gridFieldIsSequenceAction(field)
         ? fxActionText(track, pair, row)
         : fxValueText(track, pair, row);
+}
+
+- (NSString*)clipboardTextForTrack:(std::size_t)trackIndex
+    row:(std::size_t)row page:(std::size_t)page field:(std::size_t)field
+{
+    auto* model = self.trackerState;
+    if (!model || trackIndex >= model->session.pattern.tracks.size()) return @"";
+    const auto& track = model->session.pattern.tracks[trackIndex];
+    (void)page;
+    if (field == 0u)
+        return row < track.notes.size()
+            ? noteText(track.notes[row], model->showMidiNoteValues, false)
+            : @"---";
+    if (field == 1u) return volumeText(track, row, false);
+    if (gridFieldIsGate(field)) return gateText(track, row, false);
+    if (gridFieldIsSequenceAction(field))
+        return fxActionText(track, gridSequencePair(field), row);
+    return fxValueText(track, gridSequencePair(field), row, false);
 }
 
 - (NSString*)clearTokenForPage:(std::size_t)page field:(std::size_t)field
@@ -3514,7 +3900,1498 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     (void)page;
     if (field == 0u) return @"---";
     if (field == 1u) return @"DEF";
+    if (gridFieldIsGate(field)) return @"DEF";
     return gridFieldIsSequenceAction(field) ? @"---" : @"PRV";
+}
+
+- (void)appendSelectionMenuTo:(NSMenu*)menu
+{
+    auto* model = self.trackerState;
+    if (!model || model->session.pattern.tracks.empty() || !menu) return;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    const BOOL editable = !model->songPlaybackActive;
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenu* selection = [[NSMenu alloc] initWithTitle:@"SELECTION"];
+    selection.autoenablesItems = NO;
+    const auto add = ^NSMenuItem*(NSMenu* target, NSString* title,
+        SEL action, NSInteger tag, BOOL enabled) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+            action:action keyEquivalent:@""];
+        item.target = self;
+        item.tag = tag;
+        item.enabled = enabled;
+        [target addItem:item];
+        return item;
+    };
+    NSMenu* fill = [[NSMenu alloc] initWithTitle:@"FILL"];
+    add(fill, @"FILL DOWN", @selector(fillSelectionFromEdge:), 1, editable);
+    add(fill, @"FILL UP", @selector(fillSelectionFromEdge:), -1, editable);
+    add(fill, @"LINEAR SERIES BETWEEN ENDS",
+        @selector(fillSelectionSeries:), 0, editable && range.rowCount() > 1u);
+    [fill addItem:NSMenuItem.separatorItem];
+    add(fill, @"REPEAT ONCE BELOW", @selector(repeatGridSelection:), 1, editable);
+    add(fill, @"REPEAT 2× BELOW", @selector(repeatGridSelection:), 2, editable);
+    add(fill, @"REPEAT 4× BELOW", @selector(repeatGridSelection:), 4, editable);
+    add(fill, @"REPEAT TO ROW 256", @selector(repeatGridSelection:), -1, editable);
+    NSMenuItem* fillRoot = [[NSMenuItem alloc] initWithTitle:@"FILL / REPEAT"
+        action:nil keyEquivalent:@""];
+    fillRoot.submenu = fill;
+    [selection addItem:fillRoot];
+
+    NSMenu* cells = [[NSMenu alloc] initWithTitle:@"CELLS"];
+    add(cells, @"INSERT CELLS DOWN", @selector(shiftSelectionCells:), 1, editable);
+    add(cells, @"DELETE CELLS UP", @selector(shiftSelectionCells:), -1, editable);
+    [cells addItem:NSMenuItem.separatorItem];
+    add(cells, @"MOVE UP 1", @selector(moveGridSelection:), -1, editable);
+    add(cells, @"MOVE DOWN 1", @selector(moveGridSelection:), 1, editable);
+    add(cells, @"MOVE UP BY JUMP", @selector(moveGridSelection:), -100, editable);
+    add(cells, @"MOVE DOWN BY JUMP", @selector(moveGridSelection:), 100, editable);
+    NSMenuItem* cellsRoot = [[NSMenuItem alloc] initWithTitle:@"CELLS"
+        action:nil keyEquivalent:@""];
+    cellsRoot.submenu = cells;
+    [selection addItem:cellsRoot];
+
+    NSMenu* paste = [[NSMenu alloc] initWithTitle:@"PASTE SPECIAL"];
+    const BOOL hasClipboard = !_copiedColumnTypes.empty();
+    add(paste, @"REPLACE", @selector(pasteGridSelectionSpecial:), 0,
+        editable && hasClipboard);
+    add(paste, @"MERGE INTO EMPTY", @selector(pasteGridSelectionSpecial:), 1,
+        editable && hasClipboard);
+    add(paste, @"RHYTHM ONLY", @selector(pasteGridSelectionSpecial:), 2,
+        editable && hasClipboard);
+    add(paste, @"NOTES ONLY", @selector(pasteGridSelectionSpecial:), 3,
+        editable && hasClipboard);
+    add(paste, @"VALUES ONLY", @selector(pasteGridSelectionSpecial:), 4,
+        editable && hasClipboard);
+    NSMenuItem* pasteRoot = [[NSMenuItem alloc] initWithTitle:@"PASTE SPECIAL"
+        action:nil keyEquivalent:@""];
+    pasteRoot.submenu = paste;
+    [selection addItem:pasteRoot];
+
+    NSMenu* transform = [[NSMenu alloc] initWithTitle:@"TRANSFORM"];
+    add(transform, @"REVERSE ROW ORDER", @selector(reverseGridSelection:),
+        0, editable && range.rowCount() > 1u);
+    add(transform, @"ROTATE UP 1", @selector(rotateGridSelection:), -1,
+        editable && range.rowCount() > 1u);
+    add(transform, @"ROTATE DOWN 1", @selector(rotateGridSelection:), 1,
+        editable && range.rowCount() > 1u);
+    [transform addItem:NSMenuItem.separatorItem];
+    add(transform, @"COMPRESS TO 50%", @selector(stretchGridSelection:), 50,
+        editable && range.rowCount() > 1u);
+    add(transform, @"STRETCH TO 200%", @selector(stretchGridSelection:), 200,
+        editable && range.rowCount() > 1u);
+    add(transform, @"MATERIALIZE PRV / DEF",
+        @selector(materializeGridSelection:), 0, editable);
+    add(transform, @"REPLACE FIRST VALUE WITH LAST",
+        @selector(findReplaceGridSelection:), 0,
+        editable && range.rowCount() > 1u);
+    add(transform, @"SWAP WITH NEXT LANE",
+        @selector(swapGridSelectionWithNextLane:), 0,
+        editable && firstColumn / fields == lastColumn / fields
+            && lastColumn / fields + 1u < model->session.pattern.tracks.size());
+    const BOOL oneNoteColumn = firstColumn == lastColumn
+        && firstColumn % fields == 0u;
+    add(transform, @"SEPARATE NOTES INTO LANES",
+        @selector(splitSelectedNoteColumnByPitch:), 0,
+        editable && oneNoteColumn);
+    const BOOL multipleNoteLanes = firstColumn % fields == 0u
+        && lastColumn % fields == 0u
+        && firstColumn / fields < lastColumn / fields;
+    add(transform, @"MERGE NOTES INTO ONE LANE",
+        @selector(mergeSelectedNoteLanes:), 0,
+        editable && multipleNoteLanes);
+
+    BOOL numericOnly = YES;
+    BOOL hasSequenceValue = NO;
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        const auto field = column % fields;
+        const BOOL numeric = field == 1u
+            || (gridFieldIsSequence(field)
+                && !gridFieldIsSequenceAction(field));
+        numericOnly = numericOnly && numeric;
+        hasSequenceValue = hasSequenceValue
+            || (gridFieldIsSequence(field)
+                && !gridFieldIsSequenceAction(field));
+    }
+    NSMenu* values = [[NSMenu alloc] initWithTitle:@"VALUE MATH"];
+    add(values, @"ADD 5 / 127", @selector(adjustSelectedValues:), 5,
+        editable && numericOnly);
+    add(values, @"SUBTRACT 5 / 127", @selector(adjustSelectedValues:), -5,
+        editable && numericOnly);
+    add(values, @"SCALE 80%", @selector(scaleSelectedValues:), 80,
+        editable && numericOnly);
+    add(values, @"SCALE 120%", @selector(scaleSelectedValues:), 120,
+        editable && numericOnly);
+    NSMenuItem* valuesRoot = [[NSMenuItem alloc] initWithTitle:@"VALUE MATH"
+        action:nil keyEquivalent:@""];
+    valuesRoot.submenu = values;
+    [transform addItem:valuesRoot];
+
+    NSMenu* timing = [[NSMenu alloc] initWithTitle:@"MICROTIME"];
+    add(timing, @"NUDGE EARLIER 1 MS",
+        @selector(quantizeSelectedMicroTime:), -1001,
+        editable && hasSequenceValue);
+    add(timing, @"NUDGE LATER 1 MS",
+        @selector(quantizeSelectedMicroTime:), 1001,
+        editable && hasSequenceValue);
+    [timing addItem:NSMenuItem.separatorItem];
+    for (const NSInteger amount : { 25, 50, 75, 100 })
+        add(timing, [NSString stringWithFormat:@"QUANTIZE %ld%% TO GRID",
+                static_cast<long>(amount)],
+            @selector(quantizeSelectedMicroTime:), amount,
+            editable && hasSequenceValue);
+    NSMenuItem* timingRoot = [[NSMenuItem alloc] initWithTitle:@"MICROTIME"
+        action:nil keyEquivalent:@""];
+    timingRoot.submenu = timing;
+    [transform addItem:timingRoot];
+    [transform addItem:NSMenuItem.separatorItem];
+    add(transform, @"SELECTION STATISTICS…",
+        @selector(showGridSelectionStatistics:), 0, YES);
+    NSMenuItem* transformRoot = [[NSMenuItem alloc] initWithTitle:@"TRANSFORM"
+        action:nil keyEquivalent:@""];
+    transformRoot.submenu = transform;
+    [selection addItem:transformRoot];
+
+    NSMenu* phrase = [[NSMenu alloc] initWithTitle:@"PHRASE"];
+    const BOOL oneLane = range.firstTrack == range.lastTrack;
+    NSString* selectedSlot = [NSString stringWithFormat:@"P%02lu",
+        static_cast<unsigned long>(model->selectedPhrase + 1u)];
+    add(phrase, [@"CAPTURE SELECTION AS " stringByAppendingString:selectedSlot],
+        @selector(captureGridSelectionAsPhrase:), 0,
+        editable && oneLane && range.rowCount() >= 2u
+            && range.rowCount() <= s3g::tracker::kMaximumPhraseRows);
+    [phrase addItem:NSMenuItem.separatorItem];
+    NSMenu* phraseLibrary = [[NSMenu alloc] initWithTitle:@"COPY FROM LIBRARY"];
+    phraseLibrary.autoenablesItems = NO;
+    for (std::size_t slot = 0u; slot < model->phraseLibrary.phrases.size(); ++slot) {
+        const auto& definition = model->phraseLibrary.phrases[slot];
+        if (definition.empty() && definition.name.empty()) continue;
+        NSString* name = definition.name.empty()
+            ? @"UNTITLED" : nsString(definition.name);
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:[NSString
+            stringWithFormat:@"P%02lu · %@ · %lu ROWS",
+            static_cast<unsigned long>(slot + 1u), name,
+            static_cast<unsigned long>(definition.length)]
+            action:@selector(placePhraseSlotAtSelection:) keyEquivalent:@""];
+        item.target = self;
+        item.tag = static_cast<NSInteger>(slot);
+        item.enabled = editable && oneLane;
+        [phraseLibrary addItem:item];
+    }
+    NSMenuItem* phraseLibraryRoot = [[NSMenuItem alloc]
+        initWithTitle:@"COPY FROM LIBRARY" action:nil keyEquivalent:@""];
+    phraseLibraryRoot.submenu = phraseLibrary;
+    phraseLibraryRoot.enabled = phraseLibrary.numberOfItems > 0u;
+    [phrase addItem:phraseLibraryRoot];
+    add(phrase, [@"COPY " stringByAppendingFormat:@"%@ HERE", selectedSlot],
+        @selector(placePhraseAtSelection:), 0, editable && oneLane);
+    add(phrase, [@"MERGE " stringByAppendingFormat:@"%@ INTO EMPTY", selectedSlot],
+        @selector(placePhraseAtSelection:), 1, editable && oneLane);
+    add(phrase, [NSString stringWithFormat:@"REAPPLY LAST P%02lu HERE",
+            static_cast<unsigned long>(model->lastPlacedPhrase + 1u)],
+        @selector(placePhraseAtSelection:), 2, editable && oneLane);
+    NSMenuItem* phraseRoot = [[NSMenuItem alloc] initWithTitle:@"PHRASE"
+        action:nil keyEquivalent:@""];
+    phraseRoot.submenu = phrase;
+    [selection addItem:phraseRoot];
+
+    NSMenuItem* root = [[NSMenuItem alloc] initWithTitle:[NSString
+        stringWithFormat:@"SELECTION  ·  %lu ROW%@ × %lu COLUMN%@",
+        static_cast<unsigned long>(range.rowCount()),
+        range.rowCount() == 1u ? @"" : @"S",
+        static_cast<unsigned long>(lastColumn - firstColumn + 1u),
+        lastColumn == firstColumn ? @"" : @"S"] action:nil keyEquivalent:@""];
+    root.submenu = selection;
+    [menu addItem:root];
+}
+
+- (void)captureGridSelectionAsPhrase:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    const auto range = [self effectiveGridSelection];
+    if (range.firstTrack != range.lastTrack) return;
+    [self.owner capturePhraseTrack:range.firstTrack
+        firstRow:range.firstRow lastRow:range.lastRow];
+}
+
+- (void)placePhraseAtSelection:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    const auto range = [self effectiveGridSelection];
+    if (range.firstTrack != range.lastTrack) return;
+    if (sender.tag == 2)
+        model->selectedPhrase = std::min<std::size_t>(model->lastPlacedPhrase,
+            s3g::tracker::kPhraseLibrarySlots - 1u);
+    [self.owner placeSelectedPhraseTrack:range.firstTrack row:range.firstRow
+        merge:sender.tag == 1];
+}
+
+- (void)placePhraseSlotAtSelection:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || sender.tag < 0
+        || static_cast<std::size_t>(sender.tag)
+            >= model->phraseLibrary.phrases.size()) return;
+    model->selectedPhrase = static_cast<std::size_t>(sender.tag);
+    const auto range = [self effectiveGridSelection];
+    [self.owner placeSelectedPhraseTrack:range.firstTrack row:range.firstRow
+        merge:NO];
+}
+
+- (void)reverseGridSelection:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto first = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto last = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : first;
+    for (std::size_t column = first; column <= last; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        for (std::size_t offset = 0u; offset < range.rowCount() / 2u; ++offset) {
+            const auto a = trackerGridCellAt(candidate.tracks[track], field,
+                range.firstRow + offset);
+            const auto b = trackerGridCellAt(candidate.tracks[track], field,
+                range.lastRow - offset);
+            writeTrackerGridCell(candidate.tracks[track], field,
+                range.firstRow + offset, b);
+            writeTrackerGridCell(candidate.tracks[track], field,
+                range.lastRow - offset, a);
+        }
+    }
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)rotateGridSelection:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive || sender.tag == 0) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    if (range.rowCount() < 2u) return;
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto first = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto last = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : first;
+    for (std::size_t column = first; column <= last; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        std::vector<TrackerGridCell> cells;
+        cells.reserve(range.rowCount());
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row)
+            cells.push_back(trackerGridCellAt(candidate.tracks[track], field, row));
+        if (sender.tag < 0)
+            std::rotate(cells.begin(), cells.begin() + 1, cells.end());
+        else
+            std::rotate(cells.rbegin(), cells.rbegin() + 1, cells.rend());
+        for (std::size_t offset = 0u; offset < cells.size(); ++offset)
+            writeTrackerGridCell(candidate.tracks[track], field,
+                range.firstRow + offset, cells[offset]);
+    }
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)adjustSelectedValues:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive || sender.tag == 0) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto first = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto last = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : first;
+    const float delta = static_cast<float>(sender.tag) / 127.0f;
+    BOOL changed = NO;
+    for (std::size_t column = first; column <= last; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+            if (field == 1u) {
+                auto cell = std::get<ValueCell>(trackerGridCellAt(
+                    candidate.tracks[track], field, row));
+                if (cell.state != ValueCellState::Value) continue;
+                std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+                for (std::size_t voice = 0u; voice < cell.valueVoiceCount(); ++voice)
+                    voices[voice] = std::clamp(cell.valueVoice(voice) + delta,
+                        0.0f, 1.0f);
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    ValueCell::withValues(voices, cell.valueVoiceCount()));
+                changed = YES;
+            } else if (gridFieldIsSequence(field)
+                && !gridFieldIsSequenceAction(field)) {
+                auto cell = std::get<FxValueCell>(trackerGridCellAt(
+                    candidate.tracks[track], field, row));
+                if (cell.state != FxValueCellState::Value) continue;
+                std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+                for (std::size_t voice = 0u; voice < cell.valueVoiceCount(); ++voice)
+                    voices[voice] = std::clamp(cell.valueVoice(voice) + delta,
+                        0.0f, 1.0f);
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    FxValueCell::withValues(voices, cell.valueVoiceCount()));
+                changed = YES;
+            }
+        }
+    }
+    if (changed) {
+        model->session.pattern = std::move(candidate);
+        [self.owner modulePatternChanged];
+    }
+}
+
+- (void)scaleSelectedValues:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive || sender.tag <= 0) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto first = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto last = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : first;
+    const float scale = static_cast<float>(sender.tag) / 100.0f;
+    BOOL changed = NO;
+    for (std::size_t column = first; column <= last; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+            if (field == 1u) {
+                auto cell = std::get<ValueCell>(trackerGridCellAt(
+                    candidate.tracks[track], field, row));
+                if (cell.state != ValueCellState::Value) continue;
+                std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+                for (std::size_t voice = 0u; voice < cell.valueVoiceCount(); ++voice)
+                    voices[voice] = std::clamp(cell.valueVoice(voice) * scale,
+                        0.0f, 1.0f);
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    ValueCell::withValues(voices, cell.valueVoiceCount()));
+                changed = YES;
+            } else if (gridFieldIsSequence(field)
+                && !gridFieldIsSequenceAction(field)) {
+                auto cell = std::get<FxValueCell>(trackerGridCellAt(
+                    candidate.tracks[track], field, row));
+                if (cell.state != FxValueCellState::Value) continue;
+                std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+                for (std::size_t voice = 0u; voice < cell.valueVoiceCount(); ++voice)
+                    voices[voice] = std::clamp(cell.valueVoice(voice) * scale,
+                        0.0f, 1.0f);
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    FxValueCell::withValues(voices, cell.valueVoiceCount()));
+                changed = YES;
+            }
+        }
+    }
+    if (changed) {
+        model->session.pattern = std::move(candidate);
+        [self.owner modulePatternChanged];
+    }
+}
+
+- (void)quantizeSelectedMicroTime:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive || sender.tag == 0) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto first = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto last = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : first;
+    const bool nudge = std::abs(sender.tag) > 1000;
+    const float strength = nudge ? 0.0f : std::clamp(
+        static_cast<float>(sender.tag) / 100.0f, 0.0f, 1.0f);
+    const float rangeMs = static_cast<float>(std::max(1.0,
+        model->session.transport.microTimingRangeMilliseconds));
+    const float nudgeDelta = nudge
+        ? static_cast<float>(sender.tag < 0 ? -1.0 : 1.0)
+            / (2.0f * rangeMs)
+        : 0.0f;
+    BOOL changed = NO;
+    for (std::size_t column = first; column <= last; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        if (!gridFieldIsSequence(field) || gridFieldIsSequenceAction(field))
+            continue;
+        auto& pair = candidate.tracks[track].fxPairs[gridSequencePair(field)];
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+            if (row >= pair.values.size()
+                || pair.values[row].state != FxValueCellState::Value) continue;
+            bool microTime = false;
+            for (std::size_t scan = 0u; scan <= row && scan < pair.actions.size(); ++scan) {
+                if (pair.actions[scan].state == FxActionCellState::Sequencer)
+                    microTime = pair.actions[scan].sequencerAction
+                        == SequencerAction::MicroTime;
+            }
+            if (!microTime) continue;
+            auto& cell = pair.values[row];
+            std::array<float, s3g::tracker::kMaximumNoteVoices> voices {};
+            for (std::size_t voice = 0u; voice < cell.valueVoiceCount(); ++voice)
+                voices[voice] = std::clamp(nudge
+                        ? cell.valueVoice(voice) + nudgeDelta
+                        : cell.valueVoice(voice)
+                            + (0.5f - cell.valueVoice(voice)) * strength,
+                    0.0f, 1.0f);
+            cell = FxValueCell::withValues(voices, cell.valueVoiceCount());
+            changed = YES;
+        }
+    }
+    if (changed) {
+        model->session.pattern = std::move(candidate);
+        [self.owner modulePatternChanged];
+    }
+}
+
+- (void)fillSelectionFromEdge:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    const auto sourceRow = sender.tag < 0 ? range.lastRow : range.firstRow;
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        const auto source = trackerGridCellAt(candidate.tracks[track],
+            field, sourceRow);
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row)
+            writeTrackerGridCell(candidate.tracks[track], field, row, source);
+    }
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)fillSelectionSeries:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    if (range.rowCount() < 2u) return;
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    bool changed = false;
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        const auto first = trackerGridCellAt(candidate.tracks[track],
+            field, range.firstRow);
+        const auto last = trackerGridCellAt(candidate.tracks[track],
+            field, range.lastRow);
+        for (std::size_t row = range.firstRow + 1u; row < range.lastRow; ++row) {
+            const float phase = static_cast<float>(row - range.firstRow)
+                / static_cast<float>(range.lastRow - range.firstRow);
+            if (field == 0u) {
+                const auto& a = std::get<NoteCell>(first);
+                const auto& b = std::get<NoteCell>(last);
+                if (a.state != NoteCellState::Note
+                    || b.state != NoteCellState::Note) continue;
+                const auto voices = std::max(a.noteVoiceCount(),
+                    b.noteVoiceCount());
+                std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
+                for (std::size_t voice = 0u; voice < voices; ++voice) {
+                    const int av = a.noteVoice(std::min(
+                        voice, a.noteVoiceCount() - 1u));
+                    const int bv = b.noteVoice(std::min(
+                        voice, b.noteVoiceCount() - 1u));
+                    notes[voice] = static_cast<uint8_t>(std::clamp<int>(
+                        static_cast<int>(std::lround(av + (bv - av) * phase)),
+                        0, 127));
+                }
+                std::sort(notes.begin(), notes.begin()
+                    + static_cast<std::ptrdiff_t>(voices));
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    NoteCell::withNotes(notes, voices));
+                changed = true;
+            } else if (field == 1u) {
+                const auto& a = std::get<ValueCell>(first);
+                const auto& b = std::get<ValueCell>(last);
+                if (a.state != ValueCellState::Value
+                    || b.state != ValueCellState::Value) continue;
+                const auto voices = std::max(a.valueVoiceCount(),
+                    b.valueVoiceCount());
+                std::array<float, s3g::tracker::kMaximumNoteVoices> values {};
+                for (std::size_t voice = 0u; voice < voices; ++voice) {
+                    const float av = a.valueVoice(std::min(
+                        voice, a.valueVoiceCount() - 1u));
+                    const float bv = b.valueVoice(std::min(
+                        voice, b.valueVoiceCount() - 1u));
+                    values[voice] = std::clamp(av + (bv - av) * phase,
+                        0.0f, 1.0f);
+                }
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    ValueCell::withValues(values, voices));
+                changed = true;
+            } else if (gridFieldIsGate(field)) {
+                const auto& a = std::get<GateCell>(first);
+                const auto& b = std::get<GateCell>(last);
+                if (a.voiceCount == 0u || b.voiceCount == 0u) continue;
+                const auto voices = std::max(a.gateVoiceCount(),
+                    b.gateVoiceCount());
+                std::array<GateVoice, s3g::tracker::kMaximumNoteVoices> gates {};
+                bool numeric = true;
+                for (std::size_t voice = 0u; voice < voices; ++voice) {
+                    const auto av = a.gateVoice(std::min(
+                        voice, a.gateVoiceCount() - 1u));
+                    const auto bv = b.gateVoice(std::min(
+                        voice, b.gateVoiceCount() - 1u));
+                    if (av.mode != GateVoiceMode::Rows
+                        || bv.mode != GateVoiceMode::Rows) {
+                        numeric = false; break;
+                    }
+                    gates[voice] = { GateVoiceMode::Rows,
+                        std::clamp(av.rows + (bv.rows - av.rows) * phase,
+                            0.01f, 64.0f) };
+                }
+                if (!numeric) continue;
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    GateCell::withVoices(gates, voices));
+                changed = true;
+            } else if (!gridFieldIsSequenceAction(field)) {
+                const auto& a = std::get<FxValueCell>(first);
+                const auto& b = std::get<FxValueCell>(last);
+                if (a.state != FxValueCellState::Value
+                    || b.state != FxValueCellState::Value) continue;
+                const auto voices = std::max(a.valueVoiceCount(),
+                    b.valueVoiceCount());
+                std::array<float, s3g::tracker::kMaximumNoteVoices> values {};
+                for (std::size_t voice = 0u; voice < voices; ++voice) {
+                    const float av = a.valueVoice(std::min(
+                        voice, a.valueVoiceCount() - 1u));
+                    const float bv = b.valueVoice(std::min(
+                        voice, b.valueVoiceCount() - 1u));
+                    values[voice] = std::clamp(
+                        av + (bv - av) * phase, 0.0f, 1.0f);
+                }
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    FxValueCell::withValues(values, voices));
+                changed = true;
+            }
+        }
+    }
+    if (!changed) { NSBeep(); return; }
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)repeatGridSelection:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    const auto rows = range.rowCount();
+    std::size_t repeats = sender.tag < 0
+        ? (256u - range.lastRow - 1u) / rows
+        : static_cast<std::size_t>(sender.tag);
+    if (repeats == 0u) return;
+    std::vector<TrackerGridCell> source;
+    source.reserve(rows * (lastColumn - firstColumn + 1u));
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row)
+        for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+            std::size_t track = 0u, field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                column, fields, track, field);
+            source.push_back(trackerGridCellAt(
+                candidate.tracks[track], field, row));
+        }
+    const auto columns = lastColumn - firstColumn + 1u;
+    std::size_t finalRow = range.lastRow;
+    for (std::size_t repeat = 0u; repeat < repeats; ++repeat) {
+        for (std::size_t rowOffset = 0u; rowOffset < rows; ++rowOffset) {
+            const auto row = range.lastRow + 1u + repeat * rows + rowOffset;
+            if (row >= 256u) break;
+            finalRow = row;
+            for (std::size_t columnOffset = 0u;
+                 columnOffset < columns; ++columnOffset) {
+                std::size_t track = 0u, field = 0u;
+                s3g::tracker::app::gridAddressForClipboardColumn(
+                    firstColumn + columnOffset, fields, track, field);
+                writeTrackerGridCell(candidate.tracks[track], field, row,
+                    source[rowOffset * columns + columnOffset]);
+            }
+        }
+    }
+    candidate.visibleRows = std::max(candidate.visibleRows, finalRow + 1u);
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)shiftSelectionCells:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    const auto count = range.rowCount();
+    const bool insert = sender.tag > 0;
+    const auto edit = [=](auto& values, const auto& blank,
+                          ColumnDefinition& definition) {
+        if (insert && values.size() < range.firstRow)
+            values.resize(range.firstRow, blank);
+        const auto position = std::min(range.firstRow, values.size());
+        if (insert) {
+            values.insert(values.begin() + static_cast<std::ptrdiff_t>(position),
+                count, blank);
+            if (values.size() > 256u) values.resize(256u);
+            definition.length = std::min<std::size_t>(
+                256u, std::max(definition.length, range.firstRow) + count);
+        } else {
+            const auto end = std::min(values.size(), range.lastRow + 1u);
+            if (position < end)
+                values.erase(values.begin() + static_cast<std::ptrdiff_t>(position),
+                    values.begin() + static_cast<std::ptrdiff_t>(end));
+            const auto removed = range.firstRow < definition.length
+                ? std::min(count, definition.length - range.firstRow) : 0u;
+            definition.length = std::max<std::size_t>(
+                1u, definition.length - removed);
+        }
+    };
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        std::size_t trackIndex = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, trackIndex, field);
+        auto& track = candidate.tracks[trackIndex];
+        if (field == 0u)
+            edit(track.notes, NoteCell::rest(), track.noteColumn);
+        else if (field == 1u)
+            edit(track.velocities, ValueCell::defaultValue(),
+                track.velocityColumn);
+        else if (gridFieldIsGate(field))
+            edit(track.gates, GateCell::defaultValue(), track.gateColumn);
+        else {
+            auto& pair = track.fxPairs[gridSequencePair(field)];
+            if (gridFieldIsSequenceAction(field))
+                edit(pair.actions, FxActionCell::empty(), pair.actionColumn);
+            else edit(pair.values, FxValueCell::previous(), pair.valueColumn);
+        }
+    }
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)moveGridSelection:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    int offset = static_cast<int>(sender.tag);
+    if (std::abs(offset) == 100) offset = offset < 0
+        ? -static_cast<int>(std::clamp<uint32_t>(model->trackerRowJump, 1u, 16u))
+        : static_cast<int>(std::clamp<uint32_t>(model->trackerRowJump, 1u, 16u));
+    const auto range = [self effectiveGridSelection];
+    const int destinationFirst = static_cast<int>(range.firstRow) + offset;
+    const int destinationLast = static_cast<int>(range.lastRow) + offset;
+    if (destinationFirst < 0 || destinationLast >= 256) { NSBeep(); return; }
+    auto candidate = model->session.pattern;
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    const auto columns = lastColumn - firstColumn + 1u;
+    std::vector<TrackerGridCell> cells;
+    cells.reserve(range.rowCount() * columns);
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row)
+        for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+            std::size_t track = 0u, field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                column, fields, track, field);
+            cells.push_back(trackerGridCellAt(candidate.tracks[track], field, row));
+            writeTrackerGridCell(candidate.tracks[track], field, row,
+                blankTrackerGridCell(field));
+        }
+    for (std::size_t rowOffset = 0u; rowOffset < range.rowCount(); ++rowOffset)
+        for (std::size_t columnOffset = 0u; columnOffset < columns;
+             ++columnOffset) {
+            std::size_t track = 0u, field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                firstColumn + columnOffset, fields, track, field);
+            writeTrackerGridCell(candidate.tracks[track], field,
+                static_cast<std::size_t>(destinationFirst) + rowOffset,
+                cells[rowOffset * columns + columnOffset]);
+        }
+    candidate.visibleRows = std::max(candidate.visibleRows,
+        static_cast<std::size_t>(destinationLast) + 1u);
+    model->session.pattern = std::move(candidate);
+    _gridSelection.anchorRow = static_cast<std::size_t>(
+        static_cast<int>(_gridSelection.anchorRow) + offset);
+    _gridSelection.focusRow = static_cast<std::size_t>(
+        static_cast<int>(_gridSelection.focusRow) + offset);
+    model->session.selectedRow = static_cast<std::size_t>(destinationFirst);
+    [self.owner modulePatternChanged];
+}
+
+- (void)stretchGridSelection:(NSMenuItem*)sender
+{
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    const auto range = [self effectiveGridSelection];
+    if (range.rowCount() < 2u) return;
+    const double factor = static_cast<double>(sender.tag) / 100.0;
+    const auto destinationRows = std::clamp<std::size_t>(
+        static_cast<std::size_t>(std::lround(range.rowCount() * factor)),
+        1u, 256u - range.firstRow);
+    auto candidate = model->session.pattern;
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        std::vector<std::pair<std::size_t, TrackerGridCell>> occupied;
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+            auto cell = trackerGridCellAt(candidate.tracks[track], field, row);
+            if (!trackerGridCellEmpty(cell))
+                occupied.emplace_back(row - range.firstRow, cell);
+            writeTrackerGridCell(candidate.tracks[track], field, row,
+                blankTrackerGridCell(field));
+        }
+        for (const auto& event : occupied) {
+            const auto mapped = range.rowCount() <= 1u ? 0u
+                : static_cast<std::size_t>(std::lround(
+                    static_cast<double>(event.first)
+                    * static_cast<double>(destinationRows - 1u)
+                    / static_cast<double>(range.rowCount() - 1u)));
+            writeTrackerGridCell(candidate.tracks[track], field,
+                range.firstRow + mapped, event.second);
+        }
+    }
+    candidate.visibleRows = std::max(candidate.visibleRows,
+        range.firstRow + destinationRows);
+    model->session.pattern = std::move(candidate);
+    _gridSelection.focusRow = range.firstRow + destinationRows - 1u;
+    _gridSelection.anchorRow = range.firstRow;
+    [self.owner modulePatternChanged];
+}
+
+- (void)materializeGridSelection:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    bool changed = false;
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        std::size_t trackIndex = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, trackIndex, field);
+        auto& track = candidate.tracks[trackIndex];
+        TrackerGridCell memory = blankTrackerGridCell(field);
+        bool hasMemory = false;
+        for (std::size_t row = 0u; row <= range.lastRow; ++row) {
+            auto cell = trackerGridCellAt(track, field, row);
+            if (field == 0u) {
+                auto note = std::get<NoteCell>(cell);
+                if (note.state == NoteCellState::Note) {
+                    memory = note; hasMemory = true;
+                } else if (row >= range.firstRow && hasMemory
+                    && (note.state == NoteCellState::RetriggerPrevious
+                        || note.state == NoteCellState::Hold)) {
+                    writeTrackerGridCell(track, field, row, memory);
+                    changed = true;
+                }
+            } else if (field == 1u) {
+                auto value = std::get<ValueCell>(cell);
+                if (value.state == ValueCellState::Value) {
+                    memory = value; hasMemory = true;
+                } else if (value.state == ValueCellState::Default) {
+                    memory = ValueCell::withValue(0.787f); hasMemory = true;
+                    if (row >= range.firstRow) {
+                        writeTrackerGridCell(track, field, row, memory);
+                        changed = true;
+                    }
+                } else if (row >= range.firstRow && hasMemory) {
+                    writeTrackerGridCell(track, field, row, memory);
+                    changed = true;
+                }
+            } else if (gridFieldIsGate(field)) {
+                // Gate defaults are intentional fallbacks to the transport gate;
+                // there is no previous-value state to materialize.
+                continue;
+            } else if (gridFieldIsSequenceAction(field)) {
+                auto action = std::get<FxActionCell>(cell);
+                if (action.state != FxActionCellState::Empty
+                    && action.state != FxActionCellState::Previous) {
+                    memory = action; hasMemory = true;
+                } else if (row >= range.firstRow && hasMemory
+                    && action.state == FxActionCellState::Previous) {
+                    writeTrackerGridCell(track, field, row, memory);
+                    changed = true;
+                }
+            } else {
+                auto value = std::get<FxValueCell>(cell);
+                if (value.state == FxValueCellState::Value) {
+                    memory = value; hasMemory = true;
+                } else if (row >= range.firstRow) {
+                    if (!hasMemory) memory = FxValueCell::withValue(0.0f);
+                    writeTrackerGridCell(track, field, row, memory);
+                    changed = true;
+                }
+            }
+        }
+    }
+    if (!changed) return;
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)findReplaceGridSelection:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    if (range.rowCount() < 2u) return;
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    std::size_t changed = 0u;
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+        std::size_t track = 0u, field = 0u;
+        s3g::tracker::app::gridAddressForClipboardColumn(
+            column, fields, track, field);
+        const auto find = trackerGridCellAt(candidate.tracks[track],
+            field, range.firstRow);
+        const auto replacement = trackerGridCellAt(candidate.tracks[track],
+            field, range.lastRow);
+        for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+            const auto current = trackerGridCellAt(
+                candidate.tracks[track], field, row);
+            if (!trackerGridCellsEqual(current, find)
+                || trackerGridCellsEqual(current, replacement)) continue;
+            writeTrackerGridCell(candidate.tracks[track], field, row,
+                replacement);
+            ++changed;
+        }
+    }
+    if (changed == 0u) return;
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)swapGridSelectionWithNextLane:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    auto candidate = model->session.pattern;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    const auto lane = firstColumn / fields;
+    if (lastColumn / fields != lane || lane + 1u >= candidate.tracks.size())
+        return;
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row)
+        for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+            const auto field = column % fields;
+            const auto a = trackerGridCellAt(candidate.tracks[lane], field, row);
+            const auto b = trackerGridCellAt(candidate.tracks[lane + 1u], field, row);
+            writeTrackerGridCell(candidate.tracks[lane], field, row, b);
+            writeTrackerGridCell(candidate.tracks[lane + 1u], field, row, a);
+        }
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)pasteGridSelectionSpecial:(NSMenuItem*)sender
+{
+    if (sender.tag == 0) { [self trackerPaste:sender]; return; }
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive || _copiedGridCells.empty()
+        || _copiedColumnTypes.empty() || self.copiedRowCount == 0u) return;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    if (firstColumn + _copiedColumnTypes.size()
+            > model->session.pattern.tracks.size() * fields
+        || range.firstRow + self.copiedRowCount > 256u) {
+        NSBeep(); return;
+    }
+    for (std::size_t offset = 0u; offset < _copiedColumnTypes.size(); ++offset) {
+        const auto sourceType = _copiedColumnTypes[offset];
+        const bool applies = sender.tag == 3 ? sourceType == 0u
+            : sender.tag == 4 ? sourceType == 1u || sourceType == 3u
+            : sender.tag == 2 ? sourceType == 0u : true;
+        if (applies && sourceType
+                != gridClipboardFieldType((firstColumn + offset) % fields)) {
+            NSBeep(); return;
+        }
+    }
+    auto candidate = model->session.pattern;
+    const auto columns = _copiedColumnTypes.size();
+    std::size_t changed = 0u;
+    for (std::size_t rowOffset = 0u; rowOffset < self.copiedRowCount;
+         ++rowOffset) {
+        for (std::size_t columnOffset = 0u; columnOffset < columns;
+             ++columnOffset) {
+            const auto sourceType = _copiedColumnTypes[columnOffset];
+            if ((sender.tag == 3 && sourceType != 0u)
+                || (sender.tag == 4 && sourceType != 1u && sourceType != 3u)
+                || (sender.tag == 2 && sourceType != 0u)) continue;
+            std::size_t track = 0u, field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                firstColumn + columnOffset, fields, track, field);
+            const auto row = range.firstRow + rowOffset;
+            const auto current = trackerGridCellAt(candidate.tracks[track],
+                field, row);
+            if (sender.tag == 1 && !trackerGridCellEmpty(current)) continue;
+            TrackerGridCell replacement = _copiedGridCells[
+                rowOffset * columns + columnOffset];
+            if (sender.tag == 2) {
+                const auto& rhythm = std::get<NoteCell>(replacement);
+                if (rhythm.state == NoteCellState::Note) {
+                    const auto& existing = std::get<NoteCell>(current);
+                    replacement = existing.state == NoteCellState::Note
+                        ? existing : NoteCell::withNote(
+                            laneDefaultNote(model->session, track));
+                }
+            }
+            if (trackerGridCellsEqual(current, replacement)) continue;
+            writeTrackerGridCell(candidate.tracks[track], field, row,
+                replacement);
+            ++changed;
+        }
+    }
+    if (changed == 0u) return;
+    candidate.visibleRows = std::max(candidate.visibleRows,
+        range.firstRow + self.copiedRowCount);
+    model->session.pattern = std::move(candidate);
+    [self.owner modulePatternChanged];
+}
+
+- (void)showGridSelectionStatistics:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->session.pattern.tracks.empty()) return;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    std::size_t hits = 0u, voices = 0u, values = 0u, actions = 0u;
+    double velocityTotal = 0.0;
+    std::size_t velocityCount = 0u;
+    uint8_t low = 127u, high = 0u;
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row)
+        for (std::size_t column = firstColumn; column <= lastColumn; ++column) {
+            std::size_t track = 0u, field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                column, fields, track, field);
+            const auto cell = trackerGridCellAt(
+                model->session.pattern.tracks[track], field, row);
+            if (const auto* note = std::get_if<NoteCell>(&cell)) {
+                if (note->state == NoteCellState::Note) {
+                    ++hits;
+                    voices += note->noteVoiceCount();
+                    for (std::size_t voice = 0u;
+                         voice < note->noteVoiceCount(); ++voice) {
+                        low = std::min(low, note->noteVoice(voice));
+                        high = std::max(high, note->noteVoice(voice));
+                    }
+                }
+            } else if (const auto* value = std::get_if<ValueCell>(&cell)) {
+                if (value->state == ValueCellState::Value) {
+                    ++values;
+                    for (std::size_t voice = 0u;
+                         voice < value->valueVoiceCount(); ++voice) {
+                        velocityTotal += value->valueVoice(voice);
+                        ++velocityCount;
+                    }
+                }
+            } else if (const auto* action = std::get_if<FxActionCell>(&cell)) {
+                if (action->state != FxActionCellState::Empty) ++actions;
+            } else if (const auto* gate = std::get_if<GateCell>(&cell)) {
+                if (gate->voiceCount > 0u) ++values;
+            } else if (std::get<FxValueCell>(cell).state
+                    == FxValueCellState::Value) ++values;
+        }
+    NSString* pitchRange = voices > 0u
+        ? [NSString stringWithFormat:@"%@ %03u – %@ %03u",
+            midiNoteName(low), low, midiNoteName(high), high] : @"—";
+    NSString* detail = [NSString stringWithFormat:
+        @"%lu row%@ × %lu column%@\n%lu note onset%@ · %lu voice%@\nPitch range %@\n%lu written value%@ · %lu SEQ action%@%@",
+        static_cast<unsigned long>(range.rowCount()),
+        range.rowCount() == 1u ? @"" : @"s",
+        static_cast<unsigned long>(lastColumn - firstColumn + 1u),
+        lastColumn == firstColumn ? @"" : @"s",
+        static_cast<unsigned long>(hits), hits == 1u ? @"" : @"s",
+        static_cast<unsigned long>(voices), voices == 1u ? @"" : @"s",
+        pitchRange, static_cast<unsigned long>(values),
+        values == 1u ? @"" : @"s", static_cast<unsigned long>(actions),
+        actions == 1u ? @"" : @"s", velocityCount > 0u
+            ? [NSString stringWithFormat:@"\nAverage velocity %.1f%%",
+                velocityTotal / static_cast<double>(velocityCount) * 100.0]
+            : @""];
+    NSAlert* alert = [[NSAlert alloc] init];
+    alert.messageText = @"Tracker Selection";
+    alert.informativeText = detail;
+    [alert addButtonWithTitle:@"OK"];
+    if (self.window) [alert beginSheetModalForWindow:self.window
+        completionHandler:nil];
+}
+
+- (void)splitSelectedNoteColumnByPitch:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    if (firstColumn != lastColumn || firstColumn % fields != 0u) return;
+    const auto sourceLane = firstColumn / fields;
+    if (sourceLane >= model->session.pattern.tracks.size()) return;
+    std::vector<uint8_t> pitches;
+    const auto& source = model->session.pattern.tracks[sourceLane];
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+        if (row >= source.notes.size()
+            || source.notes[row].state != NoteCellState::Note) continue;
+        for (std::size_t voice = 0u;
+             voice < source.notes[row].noteVoiceCount(); ++voice) {
+            const auto note = source.notes[row].noteVoice(voice);
+            if (std::find(pitches.begin(), pitches.end(), note) == pitches.end())
+                pitches.push_back(note);
+        }
+    }
+    if (pitches.size() < 2u) { NSBeep(); return; }
+    if (model->session.pattern.tracks.size() + pitches.size() - 1u
+        > s3g::tracker::kMaximumTrackCount) { NSBeep(); return; }
+    auto candidate = model->session.pattern;
+    const Track original = candidate.tracks[sourceLane];
+    std::vector<std::size_t> destinationLanes { sourceLane };
+    auto rows = std::max<std::size_t>(candidate.visibleRows,
+        std::max({ original.notes.size(), original.instruments.size(),
+            original.velocities.size(), original.gates.size(),
+            original.noteColumn.length,
+            original.instrumentColumn.length,
+            original.velocityColumn.length, original.gateColumn.length }));
+    for (const auto& pair : original.fxPairs)
+        rows = std::max({ rows, pair.actions.size(), pair.values.size(),
+            pair.actionColumn.length, pair.valueColumn.length });
+    candidate.tracks[sourceLane].notes.resize(rows, NoteCell::rest());
+    candidate.tracks[sourceLane].velocities.resize(
+        rows, ValueCell::defaultValue());
+    candidate.tracks[sourceLane].gates.resize(rows, GateCell::defaultValue());
+    for (std::size_t index = 1u; index < pitches.size(); ++index) {
+        Track split;
+        split.name = (original.name.empty() ? "LANE" : original.name)
+            + " · " + std::to_string(pitches[index]);
+        split.velocityScale = original.velocityScale;
+        split.midiChannel = original.midiChannel;
+        split.destination = original.destination;
+        split.initialInstrumentNodeId = original.initialInstrumentNodeId;
+        split.chokeGroup = original.chokeGroup;
+        split.notes.assign(rows, NoteCell::rest());
+        split.instruments.assign(rows, InstrumentCell::empty());
+        split.velocities.assign(rows, ValueCell::defaultValue());
+        split.gates.assign(rows, GateCell::defaultValue());
+        split.noteColumn = original.noteColumn;
+        split.instrumentColumn = original.instrumentColumn;
+        split.velocityColumn = original.velocityColumn;
+        split.gateColumn = original.gateColumn;
+        for (std::size_t pairIndex = 0u;
+             pairIndex < split.fxPairs.size(); ++pairIndex) {
+            auto& pair = split.fxPairs[pairIndex];
+            const auto& originalPair = original.fxPairs[pairIndex];
+            pair.actions.assign(rows, FxActionCell::empty());
+            pair.values.assign(rows, FxValueCell::previous());
+            pair.actionColumn = originalPair.actionColumn;
+            pair.valueColumn = originalPair.valueColumn;
+            pair.valueInterpolation = originalPair.valueInterpolation;
+        }
+        candidate.tracks.push_back(std::move(split));
+        destinationLanes.push_back(candidate.tracks.size() - 1u);
+    }
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+        const NoteCell note = row < original.notes.size()
+            ? original.notes[row] : NoteCell::rest();
+        const ValueCell velocity = row < original.velocities.size()
+            ? original.velocities[row] : ValueCell::defaultValue();
+        const GateCell gate = row < original.gates.size()
+            ? original.gates[row] : GateCell::defaultValue();
+        if (note.state != NoteCellState::Note) continue;
+        for (const auto lane : destinationLanes) {
+            candidate.tracks[lane].notes[row] = NoteCell::rest();
+            candidate.tracks[lane].velocities[row] = ValueCell::defaultValue();
+            candidate.tracks[lane].gates[row] = GateCell::defaultValue();
+        }
+        for (std::size_t voice = 0u; voice < note.noteVoiceCount(); ++voice) {
+            const auto pitch = note.noteVoice(voice);
+            const auto found = std::find(pitches.begin(), pitches.end(), pitch);
+            if (found == pitches.end()) continue;
+            const auto index = static_cast<std::size_t>(found - pitches.begin());
+            const auto lane = destinationLanes[index];
+            candidate.tracks[lane].notes[row] = NoteCell::withNote(pitch);
+            if (velocity.state == ValueCellState::Value) {
+                const auto velocityVoice = std::min<std::size_t>(voice,
+                    velocity.valueVoiceCount() - 1u);
+                candidate.tracks[lane].velocities[row]
+                    = ValueCell::withValue(velocity.valueVoice(velocityVoice));
+            } else candidate.tracks[lane].velocities[row] = velocity;
+            const auto voiceGate = gate.gateVoice(voice);
+            if (voiceGate.mode == GateVoiceMode::Tie)
+                candidate.tracks[lane].gates[row] = GateCell::tie();
+            else if (voiceGate.mode == GateVoiceMode::Rows)
+                candidate.tracks[lane].gates[row]
+                    = GateCell::withRows(voiceGate.rows);
+        }
+        for (std::size_t index = 1u;
+             index < destinationLanes.size(); ++index) {
+            auto& destination = candidate.tracks[destinationLanes[index]];
+            if (destination.notes[row].state != NoteCellState::Note) continue;
+            for (std::size_t pairIndex = 0u;
+                 pairIndex < original.fxPairs.size(); ++pairIndex) {
+                SequencerAction action = SequencerAction::Count;
+                if (!resolvedSequencerAction(
+                        original, pairIndex, row, action)) continue;
+                destination.fxPairs[pairIndex].actions[row]
+                    = FxActionCell::sequencer(action);
+                float value = resolvedFxValue(original, pairIndex, row);
+                if (action == SequencerAction::MicroTime) {
+                    const auto resolved = resolvedFxValueCell(
+                        original, pairIndex, row);
+                    std::size_t sourceVoice = 0u;
+                    while (sourceVoice < note.noteVoiceCount()
+                        && note.noteVoice(sourceVoice)
+                            != destination.notes[row].note) ++sourceVoice;
+                    value = resolved.valueVoice(std::min<std::size_t>(
+                        sourceVoice, resolved.valueVoiceCount() - 1u));
+                }
+                destination.fxPairs[pairIndex].values[row]
+                    = FxValueCell::withValue(value);
+            }
+        }
+    }
+    candidate.tracks[sourceLane].name =
+        (original.name.empty() ? "LANE" : original.name)
+        + " · " + std::to_string(pitches.front());
+    model->session.pattern = std::move(candidate);
+    if (model->session.laneDefaultNotes.size() < model->session.pattern.tracks.size())
+        model->session.laneDefaultNotes.resize(
+            model->session.pattern.tracks.size(), 60u);
+    model->session.laneDefaultNotes[sourceLane] = pitches.front();
+    for (std::size_t index = 1u; index < pitches.size(); ++index)
+        model->session.laneDefaultNotes[destinationLanes[index]] = pitches[index];
+    [self clearGridSelection];
+    [self.owner modulePatternChanged];
+}
+
+- (void)mergeSelectedNoteLanes:(NSMenuItem*)sender
+{
+    (void)sender;
+    auto* model = self.trackerState;
+    if (!model || model->songPlaybackActive) return;
+    const auto range = [self effectiveGridSelection];
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    if (firstColumn % fields != 0u || lastColumn % fields != 0u
+        || firstColumn / fields >= lastColumn / fields) {
+        NSBeep();
+        return;
+    }
+    const auto targetLane = firstColumn / fields;
+    const auto lastLane = lastColumn / fields;
+    if (lastLane >= model->session.pattern.tracks.size()) return;
+
+    const auto original = model->session.pattern;
+    auto candidate = original;
+    struct MergedVoice {
+        uint8_t note = 0u;
+        float velocity = 0.787f;
+        float microTime = 0.5f;
+        bool hasMicroTime = false;
+        GateVoice gate {};
+    };
+    struct MergedSequence {
+        SequencerAction action = SequencerAction::Count;
+        float value = 0.0f;
+    };
+    bool changed = false;
+    for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
+        std::vector<MergedVoice> voices;
+        std::array<std::vector<MergedSequence>,
+            s3g::tracker::kFxPairCount> sourceSequences;
+        for (std::size_t lane = targetLane; lane <= lastLane; ++lane) {
+            const auto& track = original.tracks[lane];
+            if (row >= track.notes.size()
+                || track.notes[row].state != NoteCellState::Note) continue;
+            const auto& note = track.notes[row];
+            const auto velocity = resolvedVelocityCell(track, row);
+            bool hasMicroTime = false;
+            FxValueCell microTime = FxValueCell::withValue(0.5f);
+            for (std::size_t pairIndex = 0u;
+                 pairIndex < track.fxPairs.size(); ++pairIndex) {
+                SequencerAction action = SequencerAction::Count;
+                if (resolvedSequencerAction(track, pairIndex, row, action)
+                    && action == SequencerAction::MicroTime) {
+                    hasMicroTime = true;
+                    microTime = resolvedFxValueCell(track, pairIndex, row);
+                }
+            }
+            for (std::size_t voice = 0u;
+                 voice < note.noteVoiceCount(); ++voice) {
+                const auto pitch = note.noteVoice(voice);
+                if (std::find_if(voices.begin(), voices.end(),
+                        [pitch](const auto& item) {
+                            return item.note == pitch;
+                        }) != voices.end()) continue;
+                const auto velocityVoice = std::min<std::size_t>(voice,
+                    velocity.valueVoiceCount() - 1u);
+                voices.push_back({ pitch,
+                    std::clamp(velocity.valueVoice(velocityVoice),
+                        0.0f, 1.0f),
+                    std::clamp(microTime.valueVoice(std::min<std::size_t>(
+                        voice, microTime.valueVoiceCount() - 1u)),
+                        0.0f, 1.0f), hasMicroTime,
+                    row < track.gates.size()
+                        ? track.gates[row].gateVoice(voice) : GateVoice {} });
+            }
+            if (lane == targetLane) continue;
+            for (std::size_t pairIndex = 0u;
+                 pairIndex < track.fxPairs.size(); ++pairIndex) {
+                SequencerAction action = SequencerAction::Count;
+                if (!resolvedSequencerAction(
+                        track, pairIndex, row, action)) continue;
+                if (action == SequencerAction::MicroTime) continue;
+                sourceSequences[pairIndex].push_back({ action,
+                    resolvedFxValue(track, pairIndex, row) });
+            }
+        }
+        if (voices.empty()) continue;
+        if (voices.size() > s3g::tracker::kMaximumNoteVoices) {
+            NSBeep();
+            return;
+        }
+
+        std::sort(voices.begin(), voices.end(), [](const auto& a,
+                                                    const auto& b) {
+            return a.note < b.note;
+        });
+
+        auto& target = candidate.tracks[targetLane];
+        if (std::any_of(voices.begin(), voices.end(), [](const auto& voice) {
+                return voice.hasMicroTime;
+            })) {
+            std::size_t microTimePair = target.fxPairs.size();
+            for (std::size_t pairIndex = 0u;
+                 pairIndex < target.fxPairs.size(); ++pairIndex) {
+                SequencerAction action = SequencerAction::Count;
+                if (resolvedSequencerAction(target, pairIndex, row, action)
+                    && action == SequencerAction::MicroTime)
+                    microTimePair = pairIndex;
+            }
+            if (microTimePair >= target.fxPairs.size()) {
+                for (std::size_t pairIndex = 0u;
+                     pairIndex < target.fxPairs.size(); ++pairIndex) {
+                    const auto& actions = target.fxPairs[pairIndex].actions;
+                    if (row >= actions.size()
+                        || actions[row].state == FxActionCellState::Empty) {
+                        microTimePair = pairIndex;
+                        break;
+                    }
+                }
+            }
+            if (microTimePair >= target.fxPairs.size()) { NSBeep(); return; }
+            std::array<float, s3g::tracker::kMaximumNoteVoices> values {};
+            for (std::size_t voice = 0u; voice < voices.size(); ++voice)
+                values[voice] = voices[voice].hasMicroTime
+                    ? voices[voice].microTime : 0.5f;
+            auto& pair = target.fxPairs[microTimePair];
+            if (pair.actions.size() <= row)
+                pair.actions.resize(row + 1u, FxActionCell::empty());
+            if (pair.values.size() <= row)
+                pair.values.resize(row + 1u, FxValueCell::previous());
+            pair.actions[row] = FxActionCell::sequencer(
+                SequencerAction::MicroTime);
+            pair.values[row] = FxValueCell::withValues(
+                values, voices.size());
+            pair.actionColumn.length = std::max(
+                pair.actionColumn.length, row + 1u);
+            pair.valueColumn.length = std::max(
+                pair.valueColumn.length, row + 1u);
+        }
+        for (std::size_t sourcePair = 0u;
+             sourcePair < sourceSequences.size(); ++sourcePair) {
+            for (const auto& sequence : sourceSequences[sourcePair]) {
+                bool alreadyPresent = false;
+                bool conflictingValue = false;
+                for (std::size_t targetPair = 0u;
+                     targetPair < target.fxPairs.size(); ++targetPair) {
+                    SequencerAction targetAction = SequencerAction::Count;
+                    if (!resolvedSequencerAction(target,
+                            targetPair, row, targetAction)
+                        || targetAction != sequence.action) continue;
+                    const auto targetValue = resolvedFxValue(
+                        target, targetPair, row);
+                    alreadyPresent = std::abs(targetValue - sequence.value)
+                        <= 0.000001f;
+                    conflictingValue = !alreadyPresent;
+                    break;
+                }
+                if (alreadyPresent) continue;
+                if (conflictingValue) { NSBeep(); return; }
+                std::size_t available = target.fxPairs.size();
+                for (std::size_t targetPair = 0u;
+                     targetPair < target.fxPairs.size(); ++targetPair) {
+                    const auto& actions = target.fxPairs[
+                        targetPair].actions;
+                    if (row >= actions.size()
+                        || actions[row].state == FxActionCellState::Empty) {
+                        available = targetPair;
+                        break;
+                    }
+                }
+                if (available >= target.fxPairs.size()) { NSBeep(); return; }
+                auto& pair = target.fxPairs[available];
+                if (pair.actions.size() <= row)
+                    pair.actions.resize(row + 1u, FxActionCell::empty());
+                if (pair.values.size() <= row)
+                    pair.values.resize(row + 1u, FxValueCell::previous());
+                pair.actions[row] = FxActionCell::sequencer(sequence.action);
+                pair.values[row] = FxValueCell::withValue(sequence.value);
+                pair.actionColumn.length = std::max(
+                    pair.actionColumn.length, row + 1u);
+                pair.valueColumn.length = std::max(
+                    pair.valueColumn.length, row + 1u);
+            }
+        }
+
+        std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
+        std::array<float, s3g::tracker::kMaximumNoteVoices> velocities {};
+        std::array<GateVoice, s3g::tracker::kMaximumNoteVoices> gates {};
+        bool hasExplicitGate = false;
+        for (std::size_t voice = 0u; voice < voices.size(); ++voice) {
+            notes[voice] = voices[voice].note;
+            velocities[voice] = voices[voice].velocity;
+            gates[voice] = voices[voice].gate;
+            hasExplicitGate |= gates[voice].mode != GateVoiceMode::Default;
+        }
+        if (target.notes.size() <= row)
+            target.notes.resize(row + 1u, NoteCell::rest());
+        if (target.velocities.size() <= row)
+            target.velocities.resize(row + 1u, ValueCell::defaultValue());
+        if (target.gates.size() <= row)
+            target.gates.resize(row + 1u, GateCell::defaultValue());
+        target.notes[row] = NoteCell::withNotes(notes, voices.size());
+        target.velocities[row]
+            = ValueCell::withValues(velocities, voices.size());
+        target.gates[row] = hasExplicitGate
+            ? GateCell::withVoices(gates, voices.size())
+            : GateCell::defaultValue();
+        changed = true;
+        target.noteColumn.length = std::max(
+            target.noteColumn.length, row + 1u);
+        target.velocityColumn.length = std::max(
+            target.velocityColumn.length, row + 1u);
+        target.gateColumn.length = std::max(
+            target.gateColumn.length, row + 1u);
+        for (std::size_t lane = targetLane + 1u;
+             lane <= lastLane; ++lane) {
+            const auto& source = original.tracks[lane];
+            if (row >= source.notes.size()
+                || source.notes[row].state != NoteCellState::Note) continue;
+            auto& moved = candidate.tracks[lane];
+            moved.notes[row] = NoteCell::rest();
+            if (row < moved.velocities.size())
+                moved.velocities[row] = ValueCell::defaultValue();
+            if (row < moved.gates.size())
+                moved.gates[row] = GateCell::defaultValue();
+        }
+    }
+    if (!changed) { NSBeep(); return; }
+    model->session.pattern = std::move(candidate);
+    model->session.selectedTrack = targetLane;
+    model->session.selectedRow = range.firstRow;
+    model->session.selectedField = 0u;
+    [self clearGridSelection];
+    [self.owner modulePatternChanged];
 }
 
 - (void)trackerSelectAll:(id)sender
@@ -3548,16 +5425,28 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     range.lastField = std::min(range.lastField,
         gridFieldCount(model->sequenceColumnsExpanded) - 1u);
     range.lastRow = std::min(range.lastRow, visibleRows(model) - 1u);
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
+    _copiedGridCells.clear();
+    _copiedGridCells.reserve(range.rowCount()
+        * (lastColumn - firstColumn + 1u));
     NSMutableArray<NSString*>* lines = [[NSMutableArray alloc] init];
     for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
         NSMutableArray<NSString*>* cells = [[NSMutableArray alloc] init];
-        for (std::size_t track = range.firstTrack;
-             track <= range.lastTrack; ++track) {
-            for (std::size_t field = range.firstField;
-                 field <= range.lastField; ++field) {
-                [cells addObject:[self cellTextForTrack:track row:row
-                    page:range.page field:field]];
-            }
+        for (std::size_t column = firstColumn;
+             column <= lastColumn; ++column) {
+            std::size_t track = 0u;
+            std::size_t field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                column, fields, track, field);
+            _copiedGridCells.push_back(trackerGridCellAt(
+                model->session.pattern.tracks[track], field, row));
+            [cells addObject:[self clipboardTextForTrack:track row:row
+                page:range.page field:field]];
         }
         [lines addObject:[cells componentsJoinedByString:@"\t"]];
     }
@@ -3565,10 +5454,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
     [pasteboard clearContents];
     [pasteboard setString:value forType:NSPasteboardTypeString];
+    self.copiedClipboardText = value;
     self.copiedPasteboardChangeCount = pasteboard.changeCount;
     self.copiedTrackCount = range.trackCount();
     self.copiedFieldCount = range.fieldCount();
     self.copiedRowCount = range.rowCount();
+    _copiedColumnTypes.clear();
+    _copiedColumnTypes.reserve(lastColumn - firstColumn + 1u);
+    for (std::size_t column = firstColumn; column <= lastColumn; ++column)
+        _copiedColumnTypes.push_back(gridClipboardFieldType(column % fields));
 }
 
 - (void)trackerCut:(id)sender
@@ -3587,17 +5481,24 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     range.lastField = std::min(range.lastField,
         gridFieldCount(model->sequenceColumnsExpanded) - 1u);
     range.lastRow = std::min<std::size_t>(range.lastRow, 255u);
+    const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
+    const auto lastColumn = _gridSelection.active
+        ? _gridSelection.lastColumn(fields) : firstColumn;
     for (std::size_t row = range.firstRow; row <= range.lastRow; ++row) {
-        for (std::size_t track = range.firstTrack;
-             track <= range.lastTrack; ++track) {
-            for (std::size_t field = range.firstField;
-                 field <= range.lastField; ++field) {
-                if (![self applyCellText:[self clearTokenForPage:range.page
-                        field:field] toTrack:candidate.tracks[track] row:row
-                        page:range.page field:field]) {
-                    NSBeep();
-                    return NO;
-                }
+        for (std::size_t column = firstColumn;
+             column <= lastColumn; ++column) {
+            std::size_t track = 0u;
+            std::size_t field = 0u;
+            s3g::tracker::app::gridAddressForClipboardColumn(
+                column, fields, track, field);
+            if (![self applyCellText:[self clearTokenForPage:range.page
+                    field:field] toTrack:candidate.tracks[track] row:row
+                    page:range.page field:field]) {
+                NSBeep();
+                return NO;
             }
         }
     }
@@ -3610,8 +5511,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)trackerPaste:(id)sender
 {
     (void)sender;
-    NSString* value = [NSPasteboard.generalPasteboard
-        stringForType:NSPasteboardTypeString];
+    NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
+    NSString* value = [pasteboard stringForType:NSPasteboardTypeString];
+    if (!value && self.copiedClipboardText
+        && self.copiedPasteboardChangeCount == pasteboard.changeCount)
+        value = self.copiedClipboardText;
     if (!value) { NSBeep(); return; }
     auto* model = self.trackerState;
     if (!model || model->session.pattern.tracks.empty()) return;
@@ -3637,36 +5541,54 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const auto range = [self effectiveGridSelection];
     const auto page = range.page;
     const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+    const auto firstColumn = _gridSelection.active
+        ? _gridSelection.firstColumn(fields)
+        : gridClipboardColumn(range.firstTrack, range.firstField, fields);
     const bool fillSelection = rows.count == 1u && widest == 1u
         && _gridSelection.active;
     const bool shapedInternalPaste = self.copiedPasteboardChangeCount
-            == NSPasteboard.generalPasteboard.changeCount
-        && self.copiedTrackCount > 0u && self.copiedFieldCount > 0u
+            == pasteboard.changeCount
         && self.copiedRowCount == rows.count
-        && self.copiedTrackCount * self.copiedFieldCount == widest;
+        && !_copiedColumnTypes.empty()
+        && _copiedColumnTypes.size() == widest
+        && _copiedGridCells.size() == rows.count * widest;
+    const auto maximumColumn = candidate.tracks.size() * fields;
+    if (range.firstRow + rows.count > 256u
+        || (!fillSelection && firstColumn + widest > maximumColumn)) {
+        NSBeep();
+        return;
+    }
+    if (shapedInternalPaste) {
+        for (std::size_t offset = 0u; offset < _copiedColumnTypes.size();
+             ++offset) {
+            if (_copiedColumnTypes[offset]
+                != gridClipboardFieldType((firstColumn + offset) % fields)) {
+                NSBeep();
+                return;
+            }
+        }
+    }
     std::size_t lastRow = range.firstRow;
     if (fillSelection) {
         NSString* cell = rows.firstObject.firstObject;
+        const auto selectionLastColumn = _gridSelection.lastColumn(fields);
         for (std::size_t row = range.firstRow;
              row <= std::min<std::size_t>(range.lastRow, 255u); ++row) {
-            for (std::size_t track = range.firstTrack;
-                 track <= std::min(range.lastTrack,
-                    candidate.tracks.size() - 1u); ++track) {
-                for (std::size_t field = range.firstField;
-                     field <= std::min(range.lastField, fields - 1u); ++field) {
-                    if (![self applyCellText:cell toTrack:candidate.tracks[track]
-                            row:row page:page field:field]) {
-                        NSBeep();
-                        return;
-                    }
+            for (std::size_t column = firstColumn;
+                 column <= selectionLastColumn; ++column) {
+                std::size_t track = 0u;
+                std::size_t field = 0u;
+                s3g::tracker::app::gridAddressForClipboardColumn(
+                    column, fields, track, field);
+                if (![self applyCellText:cell toTrack:candidate.tracks[track]
+                        row:row page:page field:field]) {
+                    NSBeep();
+                    return;
                 }
             }
             lastRow = row;
         }
     } else {
-        const auto firstColumn = s3g::tracker::app::gridClipboardColumn(
-            range.firstTrack, range.firstField, fields);
-        const auto maximumColumn = candidate.tracks.size() * fields;
         for (NSUInteger rowOffset = 0u; rowOffset < rows.count; ++rowOffset) {
             const auto destinationRow = range.firstRow
                 + static_cast<std::size_t>(rowOffset);
@@ -3676,25 +5598,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                  columnOffset < cells.count; ++columnOffset) {
                 std::size_t track = 0u;
                 std::size_t field = 0u;
+                const auto column = firstColumn
+                    + static_cast<std::size_t>(columnOffset);
+                s3g::tracker::app::gridAddressForClipboardColumn(column,
+                    fields, track, field);
                 if (shapedInternalPaste) {
-                    const auto sourceColumn = static_cast<std::size_t>(
-                        columnOffset);
-                    track = range.firstTrack
-                        + sourceColumn / self.copiedFieldCount;
-                    field = range.firstField
-                        + sourceColumn % self.copiedFieldCount;
-                    if (track >= candidate.tracks.size() || field >= fields)
-                        continue;
-                } else {
-                    const auto column = firstColumn
-                        + static_cast<std::size_t>(columnOffset);
-                    if (column >= maximumColumn) break;
-                    s3g::tracker::app::gridAddressForClipboardColumn(column,
-                        fields, track, field);
-                }
-                if (![self applyCellText:cells[columnOffset]
-                        toTrack:candidate.tracks[track] row:destinationRow
-                        page:page field:field]) {
+                    writeTrackerGridCell(candidate.tracks[track], field,
+                        destinationRow, _copiedGridCells[
+                            static_cast<std::size_t>(rowOffset) * widest
+                                + static_cast<std::size_t>(columnOffset)]);
+                } else if (![self applyCellText:cells[columnOffset]
+                               toTrack:candidate.tracks[track]
+                               row:destinationRow page:page field:field]) {
                     NSBeep();
                     return;
                 }
@@ -3831,6 +5746,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         == NSEventModifierFlagControl;
     const bool trackerControlShift = shortcutModifiers
         == (NSEventModifierFlagControl | NSEventModifierFlagShift);
+    const bool trackerControlOption = shortcutModifiers
+        == (NSEventModifierFlagControl | NSEventModifierFlagOption);
+    const bool trackerControlOptionShift = shortcutModifiers
+        == (NSEventModifierFlagControl | NSEventModifierFlagOption
+            | NSEventModifierFlagShift);
     if (trackerControl && [key isEqualToString:@"z"]) {
         [self.owner undoPressed:nil];
         return;
@@ -3853,6 +5773,90 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     if (trackerControl && [key isEqualToString:@"v"]) {
         [self trackerPaste:nil];
+        return;
+    }
+    if (trackerControlShift
+        && (event.keyCode == 123u || event.keyCode == 124u
+            || event.keyCode == 125u || event.keyCode == 126u)) {
+        const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+        if (!_gridSelection.active) {
+            _gridSelection.page = 0u;
+            _gridSelection.anchorTrack = _gridSelection.focusTrack
+                = session.selectedTrack;
+            _gridSelection.anchorField = _gridSelection.focusField
+                = session.selectedField;
+            _gridSelection.anchorRow = _gridSelection.focusRow
+                = session.selectedRow;
+        }
+        if (event.keyCode == 123u || event.keyCode == 124u) {
+            auto column = gridClipboardColumn(_gridSelection.focusTrack,
+                _gridSelection.focusField, fields);
+            const auto maximum = model->session.pattern.tracks.size()
+                * fields - 1u;
+            column = event.keyCode == 123u
+                ? (column == 0u ? 0u : column - 1u)
+                : std::min(column + 1u, maximum);
+            s3g::tracker::app::gridAddressForClipboardColumn(column, fields,
+                _gridSelection.focusTrack, _gridSelection.focusField);
+        } else {
+            _gridSelection.focusRow = event.keyCode == 126u
+                ? (_gridSelection.focusRow == 0u
+                    ? 0u : _gridSelection.focusRow - 1u)
+                : std::min(_gridSelection.focusRow + 1u,
+                    visibleRows(model) - 1u);
+        }
+        _gridSelection.active = true;
+        session.selectedTrack = _gridSelection.focusTrack;
+        session.selectedField = _gridSelection.focusField;
+        session.selectedRow = _gridSelection.focusRow;
+        self.selectingWholeRows = NO;
+        self.selectingGridCells = YES;
+        [self.owner moduleSelectionChanged];
+        return;
+    }
+    if (trackerControlShift && [key isEqualToString:@"p"]) {
+        const auto range = [self effectiveGridSelection];
+        if (range.firstTrack == range.lastTrack && range.rowCount() >= 2u
+            && range.rowCount() <= s3g::tracker::kMaximumPhraseRows)
+            [self.owner capturePhraseTrack:range.firstTrack
+                firstRow:range.firstRow lastRow:range.lastRow];
+        else NSBeep();
+        return;
+    }
+    if (trackerControl && [key isEqualToString:@"p"]) {
+        const auto range = [self effectiveGridSelection];
+        [self.owner placeSelectedPhraseTrack:range.firstTrack
+            row:range.firstRow merge:NO];
+        return;
+    }
+    if (trackerControlOption && key.length == 1u) {
+        const unichar digit = [key characterAtIndex:0u];
+        if (digit >= '0' && digit <= '9') {
+            model->trackerRowJump = digit == '0'
+                ? 10u : static_cast<uint32_t>(digit - '0');
+            if (self.owner.trackerCallbacks
+                && self.owner.trackerCallbacks->viewPreferencesChanged)
+                self.owner.trackerCallbacks->viewPreferencesChanged();
+            [self.owner reloadModel];
+            return;
+        }
+    }
+    if ((trackerControlOption || trackerControlOptionShift)
+        && (event.keyCode == 125u || event.keyCode == 126u)) {
+        const auto range = [self effectiveGridSelection];
+        const auto fields = gridFieldCount(model->sequenceColumnsExpanded);
+        const BOOL oneNoteColumn = _gridSelection.active
+            ? _gridSelection.firstColumn(fields)
+                    == _gridSelection.lastColumn(fields)
+                && _gridSelection.firstColumn(fields) % fields == 0u
+            : session.selectedField == 0u;
+        if (!oneNoteColumn) { NSBeep(); return; }
+        NSMenuItem* item = [[NSMenuItem alloc] init];
+        item.tag = (event.keyCode == 126u ? 1 : -1)
+            * (trackerControlOptionShift ? 12 : 1);
+        item.representedObject = [self columnActionPayloadForTrack:
+            range.firstTrack field:0u row:range.firstRow];
+        [self transposeSelectedNoteRows:item];
         return;
     }
     const auto editingModifiers = event.modifierFlags
@@ -3985,6 +5989,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             return;
         }
     }
+    if (!shift && gridFieldIsGate(session.selectedField)
+        && key.length == 1u) {
+        const unichar direct = [key characterAtIndex:0u];
+        if ((direct >= '0' && direct <= '9') || direct == '.'
+            || direct == 'd' || direct == 't') {
+            [self beginCellEditingWithInitialText:key];
+            return;
+        }
+    }
     if (event.keyCode == 125) {
         const auto jump = static_cast<std::size_t>(
             std::clamp<uint32_t>(model->trackerRowJump, 1u, 16u));
@@ -4022,6 +6035,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             [self writeCellState:NoteCellState::Rest advance:YES];
         else if (session.selectedField == 1u)
             [self adjustVolume:0.0f];
+        else if (gridFieldIsGate(session.selectedField)) {
+            auto& track = session.pattern.tracks[std::min(
+                session.selectedTrack, session.pattern.tracks.size() - 1u)];
+            if ([self applyCellText:@"DEF" toTrack:track row:session.selectedRow
+                    page:session.selectedPage field:session.selectedField])
+                [self.owner modulePatternChanged];
+        }
         else
             [self writeFxState:NO clear:YES];
         return;
@@ -4251,12 +6271,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         const auto page = 0u;
         const auto fieldCount = gridFieldCount(
             model->sequenceColumnsExpanded);
-        std::array<const ColumnDefinition*, 6u> columns {{
+        std::array<const ColumnDefinition*, 7u> columns {{
             &track.noteColumn, &track.velocityColumn,
             &track.fxPairs[0u].actionColumn,
             &track.fxPairs[0u].valueColumn,
             &track.fxPairs[1u].actionColumn,
             &track.fxPairs[1u].valueColumn,
+            &track.gateColumn,
         }};
         const CGFloat laneX = gridLaneX(lane, laneWidth);
         const CGFloat x = gridLaneFieldX(lane, laneWidth);
@@ -4325,8 +6346,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 kGridColumnLabelTop, fieldWidth,
                 kGridHeaderHeight - kGridColumnLabelTop,
                 model->sequenceColumnsExpanded, field);
-            constexpr std::array<const char*, 6u> labels {
-                "NOTE", "VOL", "SEQ1", "V1", "SEQ2", "V2",
+            constexpr std::array<const char*, 7u> labels {
+                "NOTE", "VOL", "SEQ1", "V1", "SEQ2", "V2", "GATE",
             };
             NSString* label = [NSString stringWithUTF8String:labels[field]];
             if (gridFieldIsSequence(field)
@@ -4429,6 +6450,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                     ? row == model->notePlayheads[lane]
                     : field == 1u
                         ? row == model->velocityPlayheads[lane]
+                    : gridFieldIsGate(field)
+                        ? row == model->notePlayheads[lane]
                     : gridFieldIsSequenceAction(field)
                         ? row == model->fxActionPlayheads[lane][pairIndex]
                         : row == model->fxValuePlayheads[lane][pairIndex]);
@@ -4453,8 +6476,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                     NSMaxY(fieldRect) - 1.0, NSWidth(fieldRect), 1.0),
                     grid);
                 const bool inSelection = _gridSelection.active
-                    && _gridSelection.range().contains(page, lane, field,
-                        row);
+                    && _gridSelection.containsLinear(page, lane, field,
+                        row, fieldCount);
                 if (inSelection) {
                     fillRect(NSInsetRect(fieldRect, 1.0, 1.0),
                         S3GTrackerThemeColor(
@@ -4481,6 +6504,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                     active = row < track.velocities.size()
                         && track.velocities[row].state
                             == ValueCellState::Value;
+                } else if (gridFieldIsGate(field)) {
+                    value = gateText(track, row);
+                    active = row < track.gates.size()
+                        && track.gates[row].voiceCount > 0u;
                 } else if (gridFieldIsSequenceAction(field)) {
                     value = fxActionText(track, pairIndex, row);
                     active = ![value isEqualToString:@"---"];
@@ -5815,16 +7842,30 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (int)pitchMapDisplayMinimum
 {
-    return std::min<int>(_pitchSettings.minimumNote,
+    int minimum = std::min<int>(_pitchSettings.minimumNote,
         std::clamp<int>(static_cast<int>(_pitchSettings.minimumNote)
             + _pitchSettings.transposeSemitones, 0, 127));
+    for (const auto& assignment : _pitchPreview.assignments) {
+        for (std::size_t voice = 0u; voice < assignment.voiceCount; ++voice) {
+            minimum = std::min<int>(minimum, assignment.originalNotes[voice]);
+            minimum = std::min<int>(minimum, assignment.notes[voice]);
+        }
+    }
+    return minimum;
 }
 
 - (int)pitchMapDisplayMaximum
 {
-    return std::max<int>(_pitchSettings.maximumNote,
+    int maximum = std::max<int>(_pitchSettings.maximumNote,
         std::clamp<int>(static_cast<int>(_pitchSettings.maximumNote)
             + _pitchSettings.transposeSemitones, 0, 127));
+    for (const auto& assignment : _pitchPreview.assignments) {
+        for (std::size_t voice = 0u; voice < assignment.voiceCount; ++voice) {
+            maximum = std::max<int>(maximum, assignment.originalNotes[voice]);
+            maximum = std::max<int>(maximum, assignment.notes[voice]);
+        }
+    }
+    return maximum;
 }
 
 - (NSPoint)pitchMapPointForAssignment:(const PitchMapAssignment&)assignment
@@ -5913,9 +7954,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self refreshPitchMapPreview];
     for (const auto& assignment : _pitchPreview.assignments) {
         if (assignment.row != model->session.selectedRow) continue;
-        return [NSString stringWithFormat:@"%@ · MIDI %03u",
-            midiNoteName(assignment.note),
-            static_cast<unsigned int>(assignment.note)];
+        return pitchAssignmentText(assignment);
     }
     return nil;
 }
@@ -6472,8 +8511,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             && _pitchOverrides[assignment.row] >= 0)
             assignment.note = static_cast<uint8_t>(
                 _pitchOverrides[assignment.row]);
-        if (assignment.note != assignment.originalNote)
-            ++_pitchPreview.changed;
+        s3g::tracker::retargetPitchMapVoicing(assignment, _pitchSettings);
+        bool changed = false;
+        for (std::size_t voice = 0u; voice < assignment.voiceCount; ++voice)
+            changed |= assignment.notes[voice]
+                != assignment.originalNotes[voice];
+        if (changed) ++_pitchPreview.changed;
     }
 }
 
@@ -6559,9 +8602,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     std::size_t changed = 0u;
     for (const auto& assignment : _pitchPreview.assignments) {
         if (assignment.row >= notes.size()
-            || notes[assignment.row].state != NoteCellState::Note
-            || notes[assignment.row].note == assignment.note) continue;
-        notes[assignment.row].note = assignment.note;
+            || notes[assignment.row].state != NoteCellState::Note) continue;
+        const auto& cell = notes[assignment.row];
+        bool rowChanged = cell.noteVoiceCount() != assignment.voiceCount;
+        for (std::size_t voice = 0u;
+             voice < assignment.voiceCount && !rowChanged; ++voice)
+            rowChanged = cell.noteVoice(voice) != assignment.notes[voice];
+        if (!rowChanged) continue;
+        notes[assignment.row] = NoteCell::withNotes(assignment.notes,
+            assignment.voiceCount);
         ++changed;
     }
     _pitchSettings.contour = PitchContour::Manual;
@@ -6965,19 +9014,33 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 std::min(self.trackerState->session.selectedTrack,
                     self.trackerState->session.pattern.tracks.size() - 1u)];
             std::vector<PitchPreviewEvent> events;
-            events.reserve(_pitchPreview.assignments.size());
+            events.reserve(_pitchPreview.assignments.size()
+                * s3g::tracker::kMaximumNoteVoices);
             const auto firstHit = _pitchPreview.assignments.front().row;
             for (const auto& assignment : _pitchPreview.assignments) {
-                PitchPreviewEvent event;
-                event.row = static_cast<uint16_t>(std::min<std::size_t>(
-                    255u, assignment.row - firstHit));
-                event.note = assignment.note;
-                event.velocity = static_cast<uint8_t>(std::clamp<int>(
-                    static_cast<int>(std::lround(
-                        resolvedVelocity(track, assignment.row) * 127.0f)),
-                    1, 127));
-                event.gatePercent = 70u;
-                events.push_back(event);
+                const auto rowVelocity = resolvedVelocity(
+                    track, assignment.row);
+                const ValueCell* authoredVelocity =
+                    assignment.row < track.velocities.size()
+                        && track.velocities[assignment.row].state
+                            == ValueCellState::Value
+                    ? &track.velocities[assignment.row] : nullptr;
+                for (std::size_t voice = 0u;
+                     voice < assignment.voiceCount; ++voice) {
+                    PitchPreviewEvent event;
+                    event.row = static_cast<uint16_t>(std::min<std::size_t>(
+                        255u, assignment.row - firstHit));
+                    event.note = assignment.notes[voice];
+                    const float velocity = authoredVelocity
+                        ? authoredVelocity->valueVoice(std::min<std::size_t>(
+                            voice, authoredVelocity->valueVoiceCount() - 1u))
+                        : rowVelocity;
+                    event.velocity = static_cast<uint8_t>(std::clamp<int>(
+                        static_cast<int>(std::lround(velocity * 127.0f)),
+                        1, 127));
+                    event.gatePercent = 70u;
+                    events.push_back(event);
+                }
             }
             if (self.owner.trackerCallbacks
                 && self.owner.trackerCallbacks->previewPitchSequence) {
@@ -6988,7 +9051,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                     track.midiChannel, projectBpm,
                     self.trackerState->session.transport.ticksPerBeat);
                 _pitchStatus = [NSString stringWithFormat:
-                    @"PREVIEW · %lu NOTES @ %.1f BPM",
+                    @"PREVIEW · %lu VOICES @ %.1f BPM",
                     static_cast<unsigned long>(events.size()), projectBpm];
                 [self pulsePitchPreviewFeedback];
             }
@@ -9771,17 +11834,31 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         kLaneColors[lane % kLaneColors.size()], 0.92);
     for (std::size_t index = 0u;
          index < _pitchPreview.assignments.size(); ++index) {
+        const auto& assignment = _pitchPreview.assignments[index];
         const NSPoint previewPoint = [self
             pitchMapPointForAssignmentAtIndex:index original:NO
             interval:drawingInterval];
-        const NSPoint originalPoint = [self
-            pitchMapPointForAssignmentAtIndex:index original:YES
-            interval:drawingInterval];
-        NSBezierPath* originalMarker = [NSBezierPath bezierPathWithOvalInRect:
-            NSMakeRect(originalPoint.x - 3.0, originalPoint.y - 3.0, 6.0, 6.0)];
-        [S3GTrackerThemeColor(S3GTrackerThemeRole::TextFaint, 0.72) setStroke];
-        originalMarker.lineWidth = 1.0;
-        [originalMarker stroke];
+        const std::size_t originalVoiceCount = drawingInterval
+            ? 1u : assignment.voiceCount;
+        for (std::size_t voice = 0u; voice < originalVoiceCount; ++voice) {
+            NSPoint originalPoint = NSZeroPoint;
+            if (drawingInterval) {
+                originalPoint = [self
+                    pitchMapPointForAssignmentAtIndex:index original:YES
+                    interval:YES];
+            } else {
+                PitchMapAssignment original = assignment;
+                original.note = original.originalNotes[voice];
+                originalPoint = [self pitchMapPointForAssignment:original];
+            }
+            NSBezierPath* originalMarker = [NSBezierPath
+                bezierPathWithOvalInRect:NSMakeRect(originalPoint.x - 3.0,
+                    originalPoint.y - 3.0, 6.0, 6.0)];
+            [S3GTrackerThemeColor(
+                S3GTrackerThemeRole::TextFaint, 0.72) setStroke];
+            originalMarker.lineWidth = 1.0;
+            [originalMarker stroke];
+        }
         if (!started) {
             [contour moveToPoint:previewPoint];
             started = true;
@@ -9799,6 +11876,43 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             pitchMapPointForAssignmentAtIndex:index original:NO
             interval:drawingInterval];
         const bool selected = assignment.row == model->session.selectedRow;
+        if (!drawingInterval && assignment.voiceCount > 1u) {
+            PitchMapAssignment highest = assignment;
+            highest.note = assignment.notes[assignment.voiceCount - 1u];
+            const NSPoint highestPoint = [self
+                pitchMapPointForAssignment:highest];
+            NSBezierPath* voicingStem = [NSBezierPath bezierPath];
+            [voicingStem moveToPoint:point];
+            [voicingStem lineToPoint:highestPoint];
+            voicingStem.lineWidth = selected ? 1.2 : 0.8;
+            [trackerColor(kLaneColors[lane % kLaneColors.size()],
+                selected ? 0.72 : 0.42) setStroke];
+            [voicingStem stroke];
+            for (std::size_t voice = 1u; voice < assignment.voiceCount;
+                 ++voice) {
+                PitchMapAssignment voiced = assignment;
+                voiced.note = assignment.notes[voice];
+                const NSPoint voicedPoint = [self
+                    pitchMapPointForAssignment:voiced];
+                const CGFloat voicedRadius = selected ? 4.0 : 3.2;
+                NSBezierPath* voicedMarker = [NSBezierPath
+                    bezierPathWithOvalInRect:NSMakeRect(
+                        voicedPoint.x - voicedRadius,
+                        voicedPoint.y - voicedRadius,
+                        voicedRadius * 2.0, voicedRadius * 2.0)];
+                [S3GTrackerThemeColor(S3GTrackerThemeRole::Canvas) setFill];
+                [voicedMarker fill];
+                voicedMarker.lineWidth = selected ? 1.7 : 1.1;
+                [laneColor setStroke];
+                [voicedMarker stroke];
+                if (assignment.notes[voice]
+                    != assignment.originalNotes[voice]) {
+                    [laneColor setFill];
+                    [[NSBezierPath bezierPathWithOvalInRect:
+                        NSInsetRect(voicedMarker.bounds, 1.9, 1.9)] fill];
+                }
+            }
+        }
         const CGFloat radius = selected ? 5.0 : 4.0;
         NSBezierPath* marker = [NSBezierPath bezierPathWithOvalInRect:
             NSMakeRect(point.x - radius, point.y - radius,
@@ -9820,9 +11934,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         }
     }
     if (selectedAssignment) {
-        NSString* flagText = [NSString stringWithFormat:@"%@ · MIDI %03u",
-            midiNoteName(selectedAssignment->note),
-            static_cast<unsigned int>(selectedAssignment->note)];
+        NSString* flagText = pitchAssignmentText(*selectedAssignment);
         if (drawingInterval) {
             const auto selectedIndex = static_cast<std::size_t>(
                 selectedAssignment - _pitchPreview.assignments.data());
@@ -9831,7 +11943,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 : [flagText stringByAppendingFormat:@" · %+d DEG",
                     [self pitchIntervalAtIndex:selectedIndex original:NO]];
         }
-        const CGFloat flagWidth = drawingInterval ? 156.0 : 104.0;
+        const CGFloat voiceWidth = 104.0 + static_cast<CGFloat>(
+            selectedAssignment->voiceCount - 1u) * 112.0;
+        const CGFloat flagWidth = std::min<CGFloat>(
+            NSWidth(graph) - 8.0, voiceWidth + (drawingInterval ? 54.0 : 0.0));
         constexpr CGFloat flagHeight = 18.0;
         CGFloat flagX = selectedPoint.x + 11.0;
         if (flagX + flagWidth > NSMaxX(graph) - 4.0)
@@ -10807,12 +12922,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const auto lane = std::min(session.selectedTrack,
         session.pattern.tracks.size() - 1u);
     auto& track = session.pattern.tracks[lane];
-    const auto field = std::min<std::size_t>(session.selectedField, 5u);
+    const auto field = std::min<std::size_t>(session.selectedField, 6u);
+    const bool gateField = gridFieldIsGate(field);
     const bool sequenceValue = gridFieldIsSequence(field)
         && !gridFieldIsSequenceAction(field);
     const auto pairIndex = sequenceValue ? gridSequencePair(field) : 0u;
     const auto rows = std::max<std::size_t>(16u,
-        std::min<std::size_t>(256u, !sequenceValue
+        std::min<std::size_t>(256u, gateField
+                ? track.gateColumn.length : !sequenceValue
                 ? track.velocityColumn.length
                 : track.fxPairs[pairIndex].valueColumn.length));
     const NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
@@ -10828,7 +12945,16 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         static_cast<NSInteger>(rows - 1u));
     const float value = static_cast<float>(std::clamp(
         1.0 - (point.y - top) / height, 0.0, 1.0));
-    if (!sequenceValue) {
+    if (gateField) {
+        if (track.gates.size() <= static_cast<std::size_t>(row))
+            track.gates.resize(static_cast<std::size_t>(row) + 1u,
+                GateCell::defaultValue());
+        track.gates[static_cast<std::size_t>(row)] = clear
+            ? GateCell::defaultValue()
+            : GateCell::withRows(std::max(0.01f, value * 4.0f));
+        track.gateColumn.length = std::max(track.gateColumn.length,
+            static_cast<std::size_t>(row) + 1u);
+    } else if (!sequenceValue) {
         if (track.velocities.size() <= static_cast<std::size_t>(row))
             track.velocities.resize(static_cast<std::size_t>(row) + 1u,
                 ValueCell::defaultValue());
@@ -10905,15 +13031,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         pattern->tracks.size() - 1u);
     const auto& track = pattern->tracks[lane];
     const auto field = std::min<std::size_t>(
-        model->session.selectedField, 5u);
+        model->session.selectedField, 6u);
+    const bool gateField = gridFieldIsGate(field);
     const bool sequenceValue = gridFieldIsSequence(field)
         && !gridFieldIsSequenceAction(field);
     const auto pairIndex = sequenceValue ? gridSequencePair(field) : 0u;
     const auto rows = std::max<std::size_t>(16u,
-        std::min<std::size_t>(256u, !sequenceValue
+        std::min<std::size_t>(256u, gateField
+                ? track.gateColumn.length : !sequenceValue
                 ? track.velocityColumn.length
                 : track.fxPairs[pairIndex].valueColumn.length));
-    NSString* envelopeName = !sequenceValue ? @"VOLUME"
+    NSString* envelopeName = gateField ? @"GATE (0–4 ROWS)"
+        : !sequenceValue ? @"VOLUME"
         : [NSString stringWithFormat:@"SEQUENCE %lu VALUE",
             static_cast<unsigned long>(pairIndex + 1u)];
     drawText([NSString stringWithFormat:@"%@ ENVELOPE  /  T%lu  /  %@%@",
@@ -10941,7 +13070,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         const CGFloat x = left + (static_cast<CGFloat>(row) + 0.5)
             * width / static_cast<CGFloat>(rows);
         fillRect(NSMakeRect(x, top, 0.5, height), trackerColor(0x292d30));
-        const float value = !sequenceValue ? resolvedVelocity(track, row)
+        const auto gate = row < track.gates.size()
+            ? track.gates[row].gateVoice(0u) : GateVoice {};
+        const float value = gateField
+            ? (gate.mode == GateVoiceMode::Tie ? 1.0f
+                : gate.mode == GateVoiceMode::Rows
+                    ? std::clamp(gate.rows / 4.0f, 0.0f, 1.0f) : 0.175f)
+            : !sequenceValue ? resolvedVelocity(track, row)
             : resolvedFxValue(track, pairIndex, row);
         const CGFloat y = top + (1.0 - value) * height;
         if (row == 0u) [curve moveToPoint:NSMakePoint(x, y)];
@@ -10952,7 +13087,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     curve.lineWidth = 1.2;
     [curve stroke];
     for (std::size_t row = 0u; row < rows; ++row) {
-        const bool explicitValue = !sequenceValue
+        const bool explicitValue = gateField
+            ? row < track.gates.size() && track.gates[row].voiceCount > 0u
+            : !sequenceValue
             ? row < track.velocities.size()
                 && track.velocities[row].state == ValueCellState::Value
             : row < track.fxPairs[pairIndex].values.size()
@@ -10961,7 +13098,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         if (!explicitValue) continue;
         const CGFloat x = left + (static_cast<CGFloat>(row) + 0.5)
             * width / static_cast<CGFloat>(rows);
-        const float value = !sequenceValue ? resolvedVelocity(track, row)
+        const auto gate = row < track.gates.size()
+            ? track.gates[row].gateVoice(0u) : GateVoice {};
+        const float value = gateField
+            ? (gate.mode == GateVoiceMode::Tie ? 1.0f
+                : gate.mode == GateVoiceMode::Rows
+                    ? std::clamp(gate.rows / 4.0f, 0.0f, 1.0f) : 0.175f)
+            : !sequenceValue ? resolvedVelocity(track, row)
             : resolvedFxValue(track, pairIndex, row);
         const CGFloat y = top + (1.0 - value) * height;
         const bool notePresent = row < track.noteColumn.length
@@ -11000,12 +13143,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         pattern->tracks.size() - 1u);
     const auto& track = pattern->tracks[lane];
     const auto field = std::min<std::size_t>(
-        model->session.selectedField, 5u);
+        model->session.selectedField, 6u);
+    const bool gateField = gridFieldIsGate(field);
     const bool sequenceValue = gridFieldIsSequence(field)
         && !gridFieldIsSequenceAction(field);
     const auto pairIndex = sequenceValue ? gridSequencePair(field) : 0u;
     const auto rows = std::max<std::size_t>(16u,
-        std::min<std::size_t>(256u, !sequenceValue
+        std::min<std::size_t>(256u, gateField
+                ? track.gateColumn.length : !sequenceValue
                 ? track.velocityColumn.length
                 : track.fxPairs[pairIndex].valueColumn.length));
     const CGFloat left = 30.0, right = 10.0, top = 34.0, bottom = 22.0;
@@ -11013,7 +13158,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         NSWidth(self.bounds) - left - right);
     const CGFloat height = std::max<CGFloat>(1.0,
         NSHeight(self.bounds) - top - bottom);
-    const auto playhead = (!sequenceValue ? model->velocityPlayheads[lane]
+    const auto playhead = (gateField ? model->notePlayheads[lane]
+        : !sequenceValue ? model->velocityPlayheads[lane]
         : model->fxValuePlayheads[lane][pairIndex]) % rows;
     const CGFloat x = left + (static_cast<CGFloat>(playhead) + 0.5)
         * width / static_cast<CGFloat>(rows);
@@ -11360,12 +13506,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self.loopEndField.widthAnchor constraintEqualToConstant:55.0].active = YES;
     [transportPrimary addArrangedSubview:self.loopEndField];
 
-    self.sequenceColumnsButton = [self button:@"EXPAND SEQ"
+    self.sequenceColumnsButton = [self button:@"EXPAND DETAIL"
         action:@selector(toggleSequenceColumns:)];
     [self.sequenceColumnsButton.widthAnchor
         constraintEqualToConstant:94.0].active = YES;
     self.sequenceColumnsButton.toolTip =
-        @"Show SEQ1, V1, SEQ2, and V2 in every tracker lane";
+        @"Show SEQ1, V1, SEQ2, V2, and GATE in every tracker lane";
     self.sequenceColumnsButton.accessibilityLabel =
         @"Expand tracker sequencing columns";
     [inputPrimary addArrangedSubview:self.sequenceColumnsButton];
@@ -11424,7 +13570,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.midiStepRecordPopup.target = self;
     self.midiStepRecordPopup.action = @selector(midiStepRecordModeChanged:);
     self.midiStepRecordPopup.accessibilityLabel = @"MIDI recording mode";
-    self.midiStepRecordPopup.toolTip = @"Arm recording to the lane shown beside this menu; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves timing in a SEQ pair";
+    self.midiStepRecordPopup.toolTip = @"Arm recording to the lane shown beside this menu; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves each chord voice's timing in an aligned MT stack";
     [self.midiStepRecordPopup.widthAnchor
         constraintEqualToConstant:75.0].active = YES;
     [transportPrimary addArrangedSubview:self.midiStepRecordPopup];
@@ -11491,6 +13637,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.reshapeWindowController = [[S3GTrackerReshapeWindowController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.warpWindowController = [[S3GTrackerWarpWindowController alloc]
+        initWithState:self.trackerState callbacks:self.trackerCallbacks];
+    self.phraseView = [[S3GTrackerPhraseView alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.envelopeView = [[S3GTrackerEnvelopeView alloc]
         initWithState:self.trackerState owner:self];
@@ -11895,10 +14043,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.deletePatternButton.enabled = state->patternBank.entries.size() > 1u
         && !state->songPlaybackActive;
     self.sequenceColumnsButton.title = state->sequenceColumnsExpanded
-        ? @"COLLAPSE SEQ" : @"EXPAND SEQ";
+        ? @"COLLAPSE DETAIL" : @"EXPAND DETAIL";
     self.sequenceColumnsButton.toolTip = state->sequenceColumnsExpanded
         ? @"Hide sequencing columns and keep NOTE and VOL visible"
-        : @"Show SEQ1, V1, SEQ2, and V2 in every tracker lane";
+        : @"Show SEQ1, V1, SEQ2, V2, and GATE in every tracker lane";
     self.sequenceColumnsButton.accessibilityLabel =
         state->sequenceColumnsExpanded
             ? @"Collapse tracker sequencing columns"
@@ -11920,7 +14068,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self.midiStepRecordPopup selectItemAtIndex:static_cast<NSInteger>(
         state->midiStepRecordMode)];
     self.midiStepRecordPopup.toolTip = state->midiStepInputAvailable
-        ? @"Armed modes record to the fixed REC LANE target; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves timing in a SEQ pair"
+        ? @"Armed modes record to the fixed REC LANE target; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves each chord voice's timing in an aligned MT stack"
         : @"This build does not expose a host MIDI input";
     self.undoButton.enabled = state->canUndo;
     self.redoButton.enabled = state->canRedo;
@@ -11949,6 +14097,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self.geometryView.playbackOverlay setNeedsDisplay:YES];
     [self.reshapeWindowController reloadModel];
     [self.warpWindowController reloadModel];
+    [self.phraseView reloadModel];
     [self.envelopeView setNeedsDisplay:YES];
     [self.envelopeView.playbackOverlay setNeedsDisplay:YES];
     [self.view setNeedsLayout:YES];
@@ -12093,6 +14242,27 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     (void)self.view;
     [self.reshapeWindowController reloadModel];
     return self.reshapeWindowController.window.contentView;
+}
+
+- (NSView*)phrasePageView
+{
+    (void)self.view;
+    [self.phraseView reloadModel];
+    return self.phraseView.view;
+}
+
+- (void)capturePhraseTrack:(std::size_t)track firstRow:(std::size_t)firstRow
+    lastRow:(std::size_t)lastRow
+{
+    if ([self.phraseView captureTrack:track firstRow:firstRow lastRow:lastRow]
+        && self.trackerCallbacks && self.trackerCallbacks->showPhrasePage)
+        self.trackerCallbacks->showPhrasePage();
+}
+
+- (void)placeSelectedPhraseTrack:(std::size_t)track row:(std::size_t)row
+    merge:(BOOL)merge
+{
+    [self.phraseView placeAtTrack:track row:row merge:merge];
 }
 
 - (NSView*)warpPageView

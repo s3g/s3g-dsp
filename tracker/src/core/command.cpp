@@ -1808,10 +1808,16 @@ FxValueCell mutatedFxValueCell(const FxValueCell& cell,
     uint64_t& rng) noexcept
 {
     if (randomChance(rng, 0.22)) return FxValueCell::previous();
-    const auto base = cell.state == FxValueCellState::Value
-        ? static_cast<double>(cell.normalized) : nextRandom(rng);
-    return FxValueCell::withValue(static_cast<float>(std::clamp(
-        base + (nextRandom(rng) - 0.5) * 0.35, 0.0, 1.0)));
+    const auto voices = cell.state == FxValueCellState::Value
+        ? cell.valueVoiceCount() : 1u;
+    std::array<float, kMaximumNoteVoices> values {};
+    for (std::size_t voice = 0u; voice < voices; ++voice) {
+        const auto base = cell.state == FxValueCellState::Value
+            ? static_cast<double>(cell.valueVoice(voice)) : nextRandom(rng);
+        values[voice] = static_cast<float>(std::clamp(
+            base + (nextRandom(rng) - 0.5) * 0.35, 0.0, 1.0));
+    }
+    return FxValueCell::withValues(values, voices);
 }
 
 NoteCell mutatedNoteSymbol(const NoteCell& cell, uint64_t& rng) noexcept
@@ -4414,10 +4420,17 @@ std::size_t quantizeMicroTimeRows(TrackerSession& session,
                 if (pair.values.size() <= row)
                     pair.values.resize(row + 1u, FxValueCell::previous());
                 auto& value = pair.values[row];
-                if (value.state == FxValueCellState::Value
-                    && std::abs(value.normalized - 0.5f) <= 0.00001f)
-                    continue;
-                value = FxValueCell::withValue(0.5f);
+                const auto voices = value.state == FxValueCellState::Value
+                    ? value.valueVoiceCount() : 1u;
+                bool centered = value.state == FxValueCellState::Value;
+                for (std::size_t voice = 0u;
+                     centered && voice < voices; ++voice)
+                    centered = std::abs(value.valueVoice(voice) - 0.5f)
+                        <= 0.00001f;
+                if (centered) continue;
+                std::array<float, kMaximumNoteVoices> centeredValues {};
+                centeredValues.fill(0.5f);
+                value = FxValueCell::withValues(centeredValues, voices);
                 pair.valueColumn.length = std::max(
                     pair.valueColumn.length, row + 1u);
                 ++changed;
