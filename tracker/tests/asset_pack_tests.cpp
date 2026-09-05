@@ -3,9 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <fstream>
 #include <iostream>
-#include <sstream>
 #include <string>
 
 using namespace s3g::tracker;
@@ -164,53 +162,5 @@ int main()
         == ProjectErrorCode::SizeLimitExceeded);
     assert(encodeProjectDocument(full, after).ok() && before == after);
 
-    std::ifstream starter(std::string(S3G_TRACKER_SOURCE_DIR)
-        + "/../examples/tracker/packs/s3g-drum-foundations-01.s3gpack",
-        std::ios::binary);
-    assert(starter.good());
-    std::ostringstream starterBytes;
-    starterBytes << starter.rdbuf();
-    TrackerAssetPack starterPack;
-    assert(decodeTrackerAssetPack(starterBytes.str(), starterPack).ok());
-    ProjectDocument starterDestination;
-    AssetPackImportReport starterReport;
-    assert(importTrackerAssetPack(starterPack, starterDestination,
-        &starterReport).ok());
-    assert(starterReport.burstsAdded == 16u
-        && starterReport.phrasesAdded == kPhraseLibrarySlots);
-    std::size_t polyphonicRows = 0u;
-    std::size_t microTimeRows = 0u;
-    std::size_t polyphonicMicroTimeRows = 0u;
-    std::array<bool, 16u> referencedStarterBursts {};
-    for (const auto& starterPhrase : starterPack.phraseBank.library.phrases) {
-        assert(!starterPhrase.empty() && !starterPhrase.name.empty());
-        assert(starterPhrase.previewMidiChannel == 1u);
-        bool phraseIsPolyphonic = false;
-        for (const auto& cell : starterPhrase.notes) {
-            polyphonicRows += cell.noteVoiceCount() > 1u ? 1u : 0u;
-            phraseIsPolyphonic |= cell.noteVoiceCount() > 1u;
-            if (cell.state == NoteCellState::Burst
-                && cell.note < referencedStarterBursts.size())
-                referencedStarterBursts[cell.note] = true;
-        }
-        for (std::size_t row = 0u; row < starterPhrase.length; ++row) {
-            const auto& action = starterPhrase.fxPairs[0u].actions[row];
-            if (action.state != FxActionCellState::Sequencer
-                || action.sequencerAction != SequencerAction::MicroTime)
-                continue;
-            ++microTimeRows;
-            const auto& values = starterPhrase.fxPairs[0u].values[row];
-            assert(values.state == ValueCellState::Value);
-            polyphonicMicroTimeRows += values.valueVoiceCount() > 1u ? 1u : 0u;
-        }
-        assert(phraseIsPolyphonic);
-    }
-    assert(polyphonicRows >= 300u);
-    assert(microTimeRows >= 300u);
-    assert(polyphonicMicroTimeRows >= 250u);
-    assert(std::all_of(referencedStarterBursts.begin(),
-        referencedStarterBursts.end(), [](bool referenced) {
-            return referenced;
-        }));
     return 0;
 }

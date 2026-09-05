@@ -1685,7 +1685,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     const auto family = s3g::gui_layout::trackerGeometryFamilyLayout({
         static_cast<double>(NSWidth(self.view.bounds)),
         static_cast<double>(NSHeight(self.view.bounds)),
-    }, 1u, 10u, false);
+    }, 1u, 11u, false);
     const auto cocoaRect = [](const s3g::gui_layout::Rect& rect) {
         return NSMakeRect(static_cast<CGFloat>(rect.x),
             static_cast<CGFloat>(rect.y),
@@ -1759,13 +1759,13 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.nameField.frame = textFrame(self.libraryPanel, 2u);
     self.lengthPopup.frame = controlFrame(self.libraryPanel, 3u);
     layoutButtons(@[ self.saveButton, self.duplicateButton,
-        self.deleteButton ], self.libraryPanel, 4u);
-    self.projectCopyButton.frame = controlFrame(self.libraryPanel, 5u);
+        self.deleteButton ], self.libraryPanel, 5u);
+    layoutButtons(@[ self.importPackButton, self.exportPackButton ],
+        self.libraryPanel, 8u);
+    layoutButtons(@[ self.exportAllButton, self.projectCopyButton ],
+        self.libraryPanel, 9u);
     layoutButtons(@[ self.clearBankButton, self.deleteBankButton ],
-        self.libraryPanel, 6u);
-    self.importPackButton.frame = controlFrame(self.libraryPanel, 7u);
-    self.exportPackButton.frame = controlFrame(self.libraryPanel, 8u);
-    self.exportAllButton.frame = controlFrame(self.libraryPanel, 9u);
+        self.libraryPanel, 10u);
 
     layoutLabel(self.previewChannelLabel, 0u);
     self.previewChannelPopup.frame = controlFrame(self.auditionPanel, 0u);
@@ -1861,7 +1861,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         action:@selector(clearBankPressed:)];
     self.deleteBankButton = [self button:@"DELETE BANK"
         action:@selector(deleteBankPressed:)];
-    self.projectCopyButton = [self button:@"COPY TO PROJECT"
+    self.projectCopyButton = [self button:@"COPY PROJECT"
         action:@selector(copyProjectPressed:)];
     self.previewButton = [self button:@"PREVIEW ▶"
         action:@selector(previewPressed:)];
@@ -1890,8 +1890,10 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         action:@selector(importPackPressed:)];
     self.exportPackButton = [self button:@"EXPORT ONE"
         action:@selector(exportPackPressed:)];
-    self.exportAllButton = [self button:@"EXPORT ALL"
+    self.exportAllButton = [self button:@"EXPORT BANK"
         action:@selector(exportAllPacksPressed:)];
+    self.exportAllButton.toolTip =
+        @"Export every Phrase in this bank and all referenced Bursts";
     for (NSButton* button in @[ self.importPackButton,
              self.exportPackButton, self.exportAllButton ])
         [self.libraryPanel addSubview:button];

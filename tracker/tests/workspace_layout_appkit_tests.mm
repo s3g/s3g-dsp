@@ -480,7 +480,7 @@ int main()
             s3g::gui_layout::trackerGeometryFamilyLayout({
                 static_cast<double>(NSWidth(phrasePage.bounds)),
                 static_cast<double>(NSHeight(phrasePage.bounds)),
-            }, 1u, 7u, false);
+            }, 1u, 11u, false);
         check([phraseEditorPanel.toolboxTitle
                     isEqualToString:
                         @"PHRASE TRACKER  /  PROJECT MIDI PHRASE"]
@@ -505,23 +505,49 @@ int main()
             phrasePage, @"IMPORT PACK");
         NSButton* phraseExportOne = descendantButton(
             phrasePage, @"EXPORT ONE");
-        NSButton* phraseExportAll = descendantButton(
-            phrasePage, @"EXPORT ALL");
+        NSButton* phraseExportBank = descendantButton(
+            phrasePage, @"EXPORT BANK");
+        NSButton* phraseCopyProject = descendantButton(
+            phrasePage, @"COPY PROJECT");
+        NSButton* phraseClearBank = descendantButton(
+            phrasePage, @"CLEAR BANK");
+        NSButton* phraseDeleteBank = descendantButton(
+            phrasePage, @"DELETE BANK");
+        NSButton* phraseSave = descendantButton(phrasePage, @"SAVE");
+        NSButton* phraseDuplicate = descendantButton(phrasePage, @"DUP");
+        NSButton* phraseDelete = descendantButton(phrasePage, @"DELETE");
         NSButton* phraseCopyToLane = descendantButton(
             phrasePage, @"COPY TO LANE");
-        const NSRect exportAllFrame = phraseExportAll
-            ? [phraseExportAll.superview convertRect:phraseExportAll.frame
+        const NSRect exportBankFrame = phraseExportBank
+            ? [phraseExportBank.superview convertRect:phraseExportBank.frame
                 toView:phrasePage] : NSZeroRect;
         const NSRect copyToLaneFrame = phraseCopyToLane
             ? [phraseCopyToLane.superview convertRect:phraseCopyToLane.frame
                 toView:phrasePage] : NSZeroRect;
-        check(phraseImportPack && phraseExportOne && phraseExportAll
-                && NSWidth(phraseImportPack.frame) >= 109.0
-                && NSWidth(phraseExportOne.frame) >= 109.0
-                && NSWidth(phraseExportAll.frame) >= 109.0
-                && std::abs(NSMidY(exportAllFrame)
+        check(phraseImportPack && phraseExportOne && phraseExportBank
+                && phraseCopyProject && phraseClearBank && phraseDeleteBank
+                && phraseSave && phraseDuplicate && phraseDelete
+                && near(NSWidth(phraseImportPack.frame),
+                    NSWidth(phraseExportOne.frame))
+                && near(NSWidth(phraseExportBank.frame),
+                    NSWidth(phraseCopyProject.frame))
+                && near(NSWidth(phraseClearBank.frame),
+                    NSWidth(phraseDeleteBank.frame))
+                && near(NSWidth(phraseImportPack.frame),
+                    NSWidth(phraseExportBank.frame))
+                && near(NSWidth(phraseSave.frame),
+                    NSWidth(phraseDuplicate.frame))
+                && near(NSWidth(phraseDuplicate.frame),
+                    NSWidth(phraseDelete.frame))
+                && near(NSMidY(phraseImportPack.frame),
+                    NSMidY(phraseExportOne.frame))
+                && near(NSMidY(phraseExportBank.frame),
+                    NSMidY(phraseCopyProject.frame))
+                && near(NSMidY(phraseClearBank.frame),
+                    NSMidY(phraseDeleteBank.frame))
+                && std::abs(NSMidY(exportBankFrame)
                     - NSMidY(copyToLaneFrame)) >= 20.0,
-            "Phrase pack actions should occupy a separate row with enough width for their complete titles");
+            "Phrase and Burst libraries should share the same three-button primary row and paired pack/bank action grid");
         check(phraseLibrary.numberOfItems == 64u
                 && phraseLength.numberOfItems == 63u
                 && phrasePreviewChannel.numberOfItems == 16u
@@ -616,7 +642,7 @@ int main()
         [phraseController performSelector:@selector(exportAllPacksPressed:)
             withObject:nil];
         check(phraseLibraryExportRequests == 1,
-            "Phrase EXPORT ALL should dispatch the complete project Phrase Library");
+            "Phrase EXPORT BANK should dispatch the complete project Phrase Library");
         const int phraseChangesBeforeDuplicate = patternChangeRequests;
         [phraseController performSelector:@selector(duplicatePressed:)
             withObject:nil];

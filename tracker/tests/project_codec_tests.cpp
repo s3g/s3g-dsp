@@ -465,41 +465,6 @@ void testDefaultAppDemoIsSaveable()
         "the app's initial MIDI kit/session/song state should save without normalization repair");
 }
 
-void testRapBurstSeqDemoLoadsAsMidiComposition()
-{
-    std::string sourceDirectory = __FILE__;
-    const auto filename = sourceDirectory.find_last_of('/');
-    if (filename != std::string::npos)
-        sourceDirectory.erase(filename);
-    const std::string demoPath = sourceDirectory
-        + "/../../examples/tracker/rap-beat-burst-seq-demo.s3gt";
-    ProjectDocument demo;
-    const auto loaded = loadProjectDocument(demoPath, demo);
-    check(loaded.ok(),
-        "the rap Burst/SEQ demo should load as a MIDI composition");
-    if (!loaded.ok()) return;
-
-    bool hasBurst = false;
-    bool hasSequencerAction = false;
-    for (const auto& burst : demo.burstBanks[0u].library.bursts)
-        hasBurst |= !burst.empty();
-    for (const auto& entry : demo.patternBank.entries) {
-        for (const auto& track : entry.pattern.tracks) {
-            for (const auto& pair : track.fxPairs) {
-                for (const auto& action : pair.actions) {
-                    hasSequencerAction |= action.state
-                        == FxActionCellState::Sequencer;
-                }
-            }
-        }
-    }
-    check(demo.session.songPlaybackEnabled
-            && !demo.patternBank.entries.empty()
-            && !demo.song.rows.empty()
-            && hasBurst && hasSequencerAction,
-        "the rap demo should retain its Song, Burst, and SEQ content");
-}
-
 void testUnknownFieldsAreSafelyIgnored()
 {
     std::string encoded;
@@ -725,7 +690,6 @@ int main()
     testEmptyOptionalSongIsAValidProject();
     testProjectWideBurstIdentity();
     testDefaultAppDemoIsSaveable();
-    testRapBurstSeqDemoLoadsAsMidiComposition();
     testUnknownFieldsAreSafelyIgnored();
     testStrictTransactionalRejection();
     testAtomicStorePublishesCompleteReplacement();

@@ -23,6 +23,11 @@ __pycache__/
 # Local high-resolution GUI sources; docs use the rendered PNGs.
 docs/assets/**/masters/*.pdf
 
+# Tracker songs and Phrase/Burst packs are authored locally and distributed
+# separately when ready; keep generated content out of the plug-in repository.
+examples/tracker/**/*.s3gt
+examples/tracker/**/*.s3gpack
+
 # Local social/video production. Keep reel automation, capture notes, raw
 # ScreenFlow sessions, and rendered movies out of the GitHub repository.
 **/*[Rr]eel*
