@@ -1240,6 +1240,32 @@ void testBurstExpansionUsesSubRowTimingAndIgnoresDensityMultipliers()
             && std::abs(events[1u].normalizedVelocity
                 - 0.8f * 96.0f / 127.0f) < 1.0e-5f,
         "lane VOL and per-substep velocity should multiply before MIDI output");
+
+    scheduler.stop();
+    s3g::tracker::BurstBank projectBank
+        = s3g::tracker::makeProjectBurstBank();
+    s3g::tracker::BurstBank importedBank;
+    importedBank.id = 9u;
+    importedBank.name = "IMPORTED BURSTS";
+    importedBank.library.bursts[0u].name = "BANKED HIT";
+    importedBank.library.bursts[0u].eventCount = 1u;
+    importedBank.library.bursts[0u].events[0u]
+        = { 0u, 99u, 127u, 50u };
+    Pattern bankedPattern;
+    bankedPattern.visibleRows = 2u;
+    Track bankedTrack;
+    bankedTrack.notes = { NoteCell::withBurst(0u, 9u), NoteCell::rest() };
+    bankedTrack.noteColumn.length = 2u;
+    bankedPattern.tracks.push_back(std::move(bankedTrack));
+    scheduler.setBurstBanks({ std::move(projectBank),
+        std::move(importedBank) });
+    scheduler.setPattern(std::move(bankedPattern));
+    scheduler.setTransport(transport());
+    scheduler.start();
+    const auto bankedCount = scheduler.process(
+        8000u, events.data(), events.size());
+    check(bankedCount == 1u && events[0u].note == 99u,
+        "playback should resolve a Burst by stable bank ID plus local slot");
 }
 
 } // namespace

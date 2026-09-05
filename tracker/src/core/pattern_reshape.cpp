@@ -461,7 +461,8 @@ void mutateRhythm(PatternReshapeResult& result,
                         >= chance) continue;
                 const auto choice = mutationBits(settings.mutationSeed,
                     lane, row, 32u) % burstSlots.size();
-                cell = NoteCell::withBurst(burstSlots[choice]);
+                cell = NoteCell::withBurst(
+                    burstSlots[choice], settings.burstBankId);
                 ++result.burstsCreated;
             }
         }

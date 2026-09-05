@@ -3165,7 +3165,8 @@ CommandResult executeTokens(TrackerSession& session,
         session.burstLibrary.bursts[slot] = burst;
         auto& track = session.pattern.tracks[lane];
         ensureNoteStorage(session, track, row + 1u);
-        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
+        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot),
+            session.activeBurstBankId);
         track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
         return success("Created " + burstSlotToken(slot) + " and wrote it to "
                 + laneLabel(session, lane) + ", row "
@@ -3955,7 +3956,8 @@ CommandResult executeTokens(TrackerSession& session,
                     return failure(burstSlotToken(burstSlot)
                         + " is empty; define it before placing a reference.");
                 cell = NoteCell::withBurst(
-                    static_cast<uint8_t>(burstSlot));
+                    static_cast<uint8_t>(burstSlot),
+                    session.activeBurstBankId);
             }
             else if (parseMidiNote(tokens[3], midiNote))
                 cell = NoteCell::withNote(midiNote);

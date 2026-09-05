@@ -44,9 +44,9 @@ public:
     {
         sequencer_.setBurstLibrary(std::move(library));
     }
-    const BurstLibrary& burstLibrary() const noexcept
+    void setBurstBanks(std::vector<BurstBank> banks)
     {
-        return sequencer_.burstLibrary();
+        sequencer_.setBurstBanks(std::move(banks));
     }
     bool preparePatternSet(std::vector<Pattern> patterns,
         std::size_t initialPatternIndex = 0u);

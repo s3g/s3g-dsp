@@ -30,8 +30,10 @@
 namespace {
 
 using s3g::tracker::Direction;
+using s3g::tracker::AssetBankId;
 using s3g::tracker::BurstDefinition;
 using s3g::tracker::BurstEvent;
+using s3g::tracker::BurstLibrary;
 using s3g::tracker::ColumnDefinition;
 using s3g::tracker::EventDestination;
 using s3g::tracker::FxActionCell;
@@ -60,6 +62,7 @@ using s3g::tracker::ValueCell;
 using s3g::tracker::ValueCellState;
 using s3g::tracker::ValueInterpolation;
 using s3g::tracker::burstSlotToken;
+using s3g::tracker::assetBankToken;
 using s3g::tracker::fitBurstGatesToRow;
 using s3g::tracker::kBurstDefinitionCount;
 using s3g::tracker::kMaximumBurstEvents;
@@ -305,7 +308,8 @@ NSString* noteText(const NoteCell& cell, bool showMidiValue,
         return [values componentsJoinedByString:@"+"];
     }
     case NoteCellState::Burst:
-        return nsString(s3g::tracker::burstSlotToken(cell.note));
+        return nsString(s3g::tracker::assetBankToken(cell.burstBankId)
+            + ":" + s3g::tracker::burstSlotToken(cell.note));
     case NoteCellState::RetriggerPrevious: return @"RPT";
     case NoteCellState::Kill: return @"KIL";
     case NoteCellState::Hold: return @"HLD";
@@ -382,14 +386,14 @@ void setGeometryBurstTiming(BurstDefinition& burst,
 }
 
 std::size_t geometryBurstUsageCount(const Pattern& pattern,
-    std::size_t slot) noexcept
+    s3g::tracker::AssetBankId bankId, std::size_t slot) noexcept
 {
     std::size_t count = 0u;
     for (const auto& track : pattern.tracks)
         count += static_cast<std::size_t>(std::count_if(
-            track.notes.begin(), track.notes.end(), [slot](const NoteCell& cell) {
+            track.notes.begin(), track.notes.end(), [bankId, slot](const NoteCell& cell) {
                 return cell.state == NoteCellState::Burst
-                    && cell.note == slot;
+                    && cell.burstBankId == bankId && cell.note == slot;
             }));
     return count;
 }
@@ -402,16 +406,31 @@ std::size_t projectBurstUsageCount(const TrackerViewState& state,
         const Pattern* pattern = &entry.pattern;
         if (entry.id == state.patternBank.activePatternId)
             pattern = &state.session.pattern;
-        count += geometryBurstUsageCount(*pattern, slot);
+        count += geometryBurstUsageCount(
+            *pattern, state.activeBurstBankId, slot);
     }
-    for (const auto& phrase : state.phraseLibrary.phrases) {
-        count += static_cast<std::size_t>(std::count_if(
-            phrase.notes.begin(), phrase.notes.end(), [&](const NoteCell& cell) {
-                return cell.state == NoteCellState::Burst
-                    && cell.note == slot;
-            }));
+    for (const auto& bank : state.phraseBanks) {
+        const auto& library = bank.id == state.activePhraseBankId
+            ? state.phraseLibrary : bank.library;
+        for (const auto& phrase : library.phrases) {
+            count += static_cast<std::size_t>(std::count_if(
+                phrase.notes.begin(), phrase.notes.end(), [&](const NoteCell& cell) {
+                    return cell.state == NoteCellState::Burst
+                        && cell.burstBankId == state.activeBurstBankId
+                        && cell.note == slot;
+                }));
+        }
     }
     return count;
+}
+
+const BurstLibrary* workspaceBurstLibrary(const TrackerViewState& state,
+    s3g::tracker::AssetBankId bankId) noexcept
+{
+    if (bankId == state.activeBurstBankId)
+        return &state.session.burstLibrary;
+    const auto* bank = findBurstBank(state.burstBanks, bankId);
+    return bank ? &bank->library : nullptr;
 }
 
 float resolvedVelocity(const Track& track, std::size_t row)
@@ -1139,6 +1158,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     S3GTrackerGeometryMenuPitchScale,
     S3GTrackerGeometryMenuPitchContour,
     S3GTrackerGeometryMenuPitchLeap,
+    S3GTrackerGeometryMenuBurstBank,
 };
 @class S3GTrackerGeometryWindowController;
 @class S3GTrackerEnvelopeView;
@@ -2688,41 +2708,62 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     NSMenuItem* useRoot = [[NSMenuItem alloc] initWithTitle:@"USE BURST"
         action:nil keyEquivalent:@""];
     NSMenu* useMenu = [[NSMenu alloc] initWithTitle:@"USE BURST"];
-    for (std::size_t slot = 0u; slot < bursts.size(); ++slot) {
-        const auto& burst = bursts[slot];
-        if (burst.empty()) continue;
-        NSString* title = [NSString stringWithFormat:@"%@  ·  %@  ·  %u STEPS",
-            nsString(burstSlotToken(slot)), nsString(burst.name),
-            static_cast<unsigned int>(burst.eventCount)];
-        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
-            action:@selector(burstMenuSelected:) keyEquivalent:@""];
-        item.target = self;
-        item.representedObject = @{
-            @"track": @(trackIndex), @"row": @(row), @"kind": @"use",
-            @"slot": @(slot),
-        };
-        item.state = current.state == NoteCellState::Burst
-                && current.note == slot
-            ? NSControlStateValueOn : NSControlStateValueOff;
-        [useMenu addItem:item];
+    for (const auto& bank : model->burstBanks) {
+        const auto* library = workspaceBurstLibrary(*model, bank.id);
+        if (!library) continue;
+        NSMenu* bankMenu = [[NSMenu alloc] initWithTitle:nsString(bank.name)];
+        for (std::size_t slot = 0u; slot < library->bursts.size(); ++slot) {
+            const auto& burst = library->bursts[slot];
+            if (burst.empty()) continue;
+            const auto identity = assetBankToken(bank.id) + ":"
+                + burstSlotToken(slot);
+            NSString* title = [NSString stringWithFormat:
+                @"%@  ·  %@  ·  %u STEPS", nsString(identity),
+                nsString(burst.name),
+                static_cast<unsigned int>(burst.eventCount)];
+            NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+                action:@selector(burstMenuSelected:) keyEquivalent:@""];
+            item.target = self;
+            item.representedObject = @{
+                @"track": @(trackIndex), @"row": @(row), @"kind": @"use",
+                @"slot": @(slot), @"bank": @(bank.id),
+            };
+            item.state = current.state == NoteCellState::Burst
+                    && current.burstBankId == bank.id && current.note == slot
+                ? NSControlStateValueOn : NSControlStateValueOff;
+            [bankMenu addItem:item];
+        }
+        if (bankMenu.numberOfItems == 0) continue;
+        NSString* bankTitle = [NSString stringWithFormat:@"%@  ·  %@",
+            nsString(assetBankToken(bank.id)), nsString(bank.name)];
+        NSMenuItem* bankRoot = [[NSMenuItem alloc] initWithTitle:bankTitle
+            action:nil keyEquivalent:@""];
+        bankRoot.submenu = bankMenu;
+        [useMenu addItem:bankRoot];
     }
     useRoot.submenu = useMenu;
     useRoot.enabled = useMenu.numberOfItems > 0;
     [menu addItem:useRoot];
 
-    if (current.state == NoteCellState::Burst
-        && current.note < bursts.size()
-        && !bursts[current.note].empty()) {
+    const auto* currentLibrary = current.state == NoteCellState::Burst
+        ? workspaceBurstLibrary(*model, current.burstBankId) : nullptr;
+    if (currentLibrary && current.note < currentLibrary->bursts.size()
+        && !currentLibrary->bursts[current.note].empty()) {
+        const BOOL currentBankHasEmpty = std::any_of(
+            currentLibrary->bursts.begin(), currentLibrary->bursts.end(),
+            [](const BurstDefinition& definition) { return definition.empty(); });
         [menu addItem:NSMenuItem.separatorItem];
+        const auto identity = assetBankToken(current.burstBankId) + ":"
+            + burstSlotToken(current.note);
+        NSDictionary* bankPayload = @{ @"bank": @(current.burstBankId) };
         add([NSString stringWithFormat:@"EDIT %@ IN BURSTS",
-                nsString(burstSlotToken(current.note))], @"edit", YES,
-            current.note, nil);
-        add(@"DUPLICATE AND EDIT", @"duplicate", hasEmpty,
-            current.note, nil);
+                nsString(identity)], @"edit", YES, current.note, bankPayload);
+        add(@"DUPLICATE AND EDIT", @"duplicate", currentBankHasEmpty,
+            current.note, bankPayload);
         add(@"EXPAND TO TRACKER ROWS", @"expand", YES,
-            current.note, nil);
+            current.note, bankPayload);
         add(@"CONVERT TO FIRST NOTE", @"convert", YES,
-            current.note, nil);
+            current.note, bankPayload);
     }
     return menu;
 }
@@ -2842,6 +2883,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         || ![payload isKindOfClass:NSDictionary.class]) return;
     auto& pattern = model->session.pattern;
     auto& bursts = model->session.burstLibrary.bursts;
+    const auto bankId = payload[@"bank"]
+        ? static_cast<AssetBankId>([payload[@"bank"] unsignedIntValue])
+        : model->activeBurstBankId;
     const auto trackIndex = [payload[@"track"] unsignedIntegerValue];
     const auto row = [payload[@"row"] unsignedIntegerValue];
     NSString* kind = payload[@"kind"];
@@ -2907,28 +2951,51 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         bursts[slot] = burst;
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
-        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
-    } else if ([kind isEqualToString:@"use"] && slot < bursts.size()
-        && !bursts[slot].empty()) {
+        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot),
+            model->activeBurstBankId);
+    } else if ([kind isEqualToString:@"use"]) {
+        const auto* library = workspaceBurstLibrary(*model, bankId);
+        if (!library || slot >= library->bursts.size()
+            || library->bursts[slot].empty()) return;
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
-        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot));
-    } else if ([kind isEqualToString:@"duplicate"]
-        && slot < bursts.size()) {
-        const auto destination = findEmpty();
-        if (destination >= bursts.size()) return;
-        bursts[destination] = bursts[slot];
-        bursts[destination].name += " COPY";
+        track.notes[row] = NoteCell::withBurst(static_cast<uint8_t>(slot),
+            bankId);
+    } else if ([kind isEqualToString:@"duplicate"]) {
+        if (bankId != model->activeBurstBankId
+            && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->selectBurstBank)
+            self.owner.trackerCallbacks->selectBurstBank(bankId);
+        auto& selectedBursts = model->session.burstLibrary.bursts;
+        if (slot >= selectedBursts.size() || selectedBursts[slot].empty())
+            return;
+        const auto found = std::find_if(selectedBursts.begin(),
+            selectedBursts.end(), [](const BurstDefinition& definition) {
+                return definition.empty();
+            });
+        const auto destination = found == selectedBursts.end()
+            ? selectedBursts.size() : static_cast<std::size_t>(
+                found - selectedBursts.begin());
+        if (destination >= selectedBursts.size()) return;
+        selectedBursts[destination] = selectedBursts[slot];
+        selectedBursts[destination].name += " COPY";
         [self.owner modulePatternChanged];
         [self.owner editBurstSlot:destination];
         return;
-    } else if ([kind isEqualToString:@"edit"]
-        && slot < bursts.size()) {
+    } else if ([kind isEqualToString:@"edit"]) {
+        if (bankId != model->activeBurstBankId
+            && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->selectBurstBank)
+            self.owner.trackerCallbacks->selectBurstBank(bankId);
+        if (slot >= model->session.burstLibrary.bursts.size()
+            || model->session.burstLibrary.bursts[slot].empty()) return;
         [self.owner editBurstSlot:slot];
         return;
-    } else if ([kind isEqualToString:@"expand"]
-        && slot < bursts.size()) {
-        const auto burst = bursts[slot];
+    } else if ([kind isEqualToString:@"expand"]) {
+        const auto* library = workspaceBurstLibrary(*model, bankId);
+        if (!library || slot >= library->bursts.size()
+            || library->bursts[slot].empty()) return;
+        const auto burst = library->bursts[slot];
         const auto required = std::min<std::size_t>(kGridMaximumRows,
             row + burst.eventCount);
         track.notes.resize(std::max(track.notes.size(), required),
@@ -2946,11 +3013,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         track.noteColumn.length = std::max(track.noteColumn.length, required);
         track.velocityColumn.length = std::max(
             track.velocityColumn.length, required);
-    } else if ([kind isEqualToString:@"convert"]
-        && slot < bursts.size()
-        && !bursts[slot].empty()) {
+    } else if ([kind isEqualToString:@"convert"]) {
+        const auto* library = workspaceBurstLibrary(*model, bankId);
+        if (!library || slot >= library->bursts.size()
+            || library->bursts[slot].empty()) return;
         track.notes[row] = NoteCell::withNote(
-            bursts[slot].events[0u].note);
+            library->bursts[slot].events[0u].note);
     } else return;
     track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
     pattern.visibleRows = std::max(pattern.visibleRows, row + 1u);
@@ -3584,6 +3652,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
         std::size_t burstSlot = 0u;
+        AssetBankId burstBankId = model->activeBurstBankId;
         const char* noteUtf8 = lower.UTF8String;
         if ([lower isEqualToString:@"---"] || [lower isEqualToString:@"rest"]
             || lower.length == 0u) track.notes[row] = NoteCell::rest();
@@ -3597,11 +3666,16 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             || [lower isEqualToString:@"hold"]
             || [lower isEqualToString:@"~"])
             track.notes[row] = NoteCell::hold();
-        else if (noteUtf8 && s3g::tracker::parseBurstSlot(noteUtf8,
-                burstSlot) && burstSlot < model->session.burstLibrary.bursts.size()
-            && !model->session.burstLibrary.bursts[burstSlot].empty())
+        else if (noteUtf8
+            && (s3g::tracker::parseQualifiedBurstToken(noteUtf8,
+                    burstBankId, burstSlot)
+                || s3g::tracker::parseBurstSlot(noteUtf8, burstSlot))) {
+            const auto* library = workspaceBurstLibrary(*model, burstBankId);
+            if (!library || burstSlot >= library->bursts.size()
+                || library->bursts[burstSlot].empty()) return NO;
             track.notes[row] = NoteCell::withBurst(
-                static_cast<uint8_t>(burstSlot));
+                static_cast<uint8_t>(burstSlot), burstBankId);
+        }
         else {
             std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> voices {};
             std::size_t count = 0u;
@@ -7518,7 +7592,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         static_cast<double>(NSHeight(self.bounds)),
     }, self.geometryViewMode == S3GTrackerGeometryViewModePitchMap
         ? 7u : 4u,
-        self.geometryViewMode == S3GTrackerGeometryViewModeBurst ? 8u : 7u,
+        self.geometryViewMode == S3GTrackerGeometryViewModeBurst ? 11u : 7u,
         !self.burstLibraryOnly);
 }
 
@@ -7648,6 +7722,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSRect)burstSlotMenuBoxRect
 {
     return s3g::clap_gui::cocoaRect(layout::processorMenuBoxRect(
+        [self geometryLayout].laneCycle, 1u));
+}
+
+- (NSRect)burstBankMenuBoxRect
+{
+    return s3g::clap_gui::cocoaRect(layout::processorMenuBoxRect(
         [self geometryLayout].laneCycle, 0u));
 }
 
@@ -7660,7 +7740,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSRect)burstNameBoxRect
 {
     return s3g::clap_gui::cocoaRect(layout::processorMenuBoxRect(
-        [self geometryLayout].laneCycle, 1u));
+        [self geometryLayout].laneCycle, 2u));
 }
 
 - (NSRect)pitchScopeMenuBoxRect
@@ -8332,6 +8412,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return @[ @"1 DEGREE", @"2 DEGREES", @"3 DEGREES",
             @"4 DEGREES", @"5 DEGREES", @"6 DEGREES",
             @"7 DEGREES", @"8 DEGREES" ];
+    if (menu == S3GTrackerGeometryMenuBurstBank) {
+        NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
+        for (const auto& bank : self.trackerState->burstBanks)
+            [titles addObject:bank.name.empty()
+                ? @"UNTITLED BANK" : nsString(bank.name)];
+        return titles;
+    }
     if (menu == S3GTrackerGeometryMenuBurstSlot) {
         NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
         const auto* model = self.trackerState;
@@ -8382,6 +8469,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             _pitchSettings.maximumLeapDegrees, 1u, 8u) - 1u);
     if (menu == S3GTrackerGeometryMenuBurstSlot)
         return static_cast<NSInteger>(_selectedBurstSlot);
+    if (menu == S3GTrackerGeometryMenuBurstBank) {
+        for (std::size_t index = 0u;
+             index < self.trackerState->burstBanks.size(); ++index)
+            if (self.trackerState->burstBanks[index].id
+                == self.trackerState->activeBurstBankId)
+                return static_cast<NSInteger>(index);
+        return 0;
+    }
     if (menu == S3GTrackerGeometryMenuBurstEvent)
         return static_cast<NSInteger>(_selectedBurstEvent);
     if (menu == S3GTrackerGeometryMenuLane)
@@ -8412,6 +8507,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return [self pitchLeapMenuBoxRect];
     if (menu == S3GTrackerGeometryMenuBurstSlot)
         return [self burstSlotMenuBoxRect];
+    if (menu == S3GTrackerGeometryMenuBurstBank)
+        return [self burstBankMenuBoxRect];
     if (menu == S3GTrackerGeometryMenuBurstEvent)
         return [self burstEventMenuBoxRect];
     if (menu == S3GTrackerGeometryMenuLane) return [self laneMenuBoxRect];
@@ -8481,6 +8578,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         _selectedBurstSlot = static_cast<std::size_t>(index);
         _selectedBurstEvent = 0u;
         [self syncBurstNameControls];
+    } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstBank) {
+        const auto bank = self.trackerState->burstBanks[
+            static_cast<std::size_t>(index)].id;
+        _selectedBurstSlot = 0u;
+        _selectedBurstEvent = 0u;
+        if (self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->selectBurstBank)
+            self.owner.trackerCallbacks->selectBurstBank(bank);
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuBurstEvent) {
         _selectedBurstEvent = static_cast<std::size_t>(index);
     } else if (_openGeometryMenu == S3GTrackerGeometryMenuPitchScope) {
@@ -8816,6 +8921,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (BOOL)handleBurstToolboxClickAtPoint:(NSPoint)point
 {
+    if (NSPointInRect(point, [self burstBankMenuBoxRect])) {
+        [self openGeometryMenu:S3GTrackerGeometryMenuBurstBank];
+        return YES;
+    }
     if (NSPointInRect(point, [self burstSlotMenuBoxRect])) {
         [self openGeometryMenu:S3GTrackerGeometryMenuBurstSlot];
         return YES;
@@ -8865,7 +8974,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     for (NSUInteger index = 0u; index < 2u; ++index) {
         if (!NSPointInRect(point,
-                [self burstActionRectForRow:2u index:index count:2u]))
+                [self burstActionRectForRow:3u index:index count:2u]))
             continue;
         if (index == 0u && burst.eventCount > 1u) {
             const auto remove = std::min<std::size_t>(_selectedBurstEvent,
@@ -8896,7 +9005,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     for (NSUInteger index = 0u; index < 3u; ++index) {
         if (!NSPointInRect(point,
-                [self burstActionRectForRow:4u index:index count:3u]))
+                [self burstActionRectForRow:5u index:index count:3u]))
             continue;
         if (index == 0u) {
             const auto slot = [self firstEmptyBurstSlot];
@@ -8928,7 +9037,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     for (NSUInteger index = 0u; index < 2u; ++index) {
         if (!NSPointInRect(point,
-                [self burstActionRectForRow:7u index:index count:2u]))
+                [self burstActionRectForRow:8u index:index count:2u]))
             continue;
         if (index == 0u && self.owner.trackerCallbacks
             && self.owner.trackerCallbacks->importAssetPack)
@@ -8940,10 +9049,44 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 _selectedBurstSlot);
         return YES;
     }
+    for (NSUInteger index = 0u; index < 2u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:9u index:index count:2u]))
+            continue;
+        if (index == 0u && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->exportBurstLibraryAssetPack)
+            self.owner.trackerCallbacks->exportBurstLibraryAssetPack();
+        else if (index == 1u && !burst.empty()
+            && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->copyBurstToProject) {
+            const auto destination = self.owner.trackerCallbacks
+                ->copyBurstToProject(_selectedBurstSlot);
+            if (destination < kBurstDefinitionCount) {
+                _selectedBurstSlot = destination;
+                _selectedBurstEvent = 0u;
+            } else {
+                NSBeep();
+            }
+        }
+        [self setNeedsDisplay:YES];
+        return YES;
+    }
+    for (NSUInteger index = 0u; index < 2u; ++index) {
+        if (!NSPointInRect(point,
+                [self burstActionRectForRow:10u index:index count:2u]))
+            continue;
+        if (index == 0u && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->deleteUnusedBursts)
+            self.owner.trackerCallbacks->deleteUnusedBursts();
+        else if (index == 1u && self.owner.trackerCallbacks
+            && self.owner.trackerCallbacks->deleteBurstBank)
+            self.owner.trackerCallbacks->deleteBurstBank();
+        return YES;
+    }
     if (burst.empty()) return NO;
     for (NSUInteger index = 0u; index < 3u; ++index) {
         if (!NSPointInRect(point,
-                [self burstActionRectForRow:5u index:index count:3u]))
+                [self burstActionRectForRow:6u index:index count:3u]))
             continue;
         const auto shape = index == 0u ? "even"
             : index == 1u ? "accelerate" : "decelerate";
@@ -8954,7 +9097,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     for (NSUInteger index = 0u; index < 3u; ++index) {
         if (!NSPointInRect(point,
-                [self burstActionRectForRow:6u index:index count:3u]))
+                [self burstActionRectForRow:7u index:index count:3u]))
             continue;
         if (index == 0u) {
             std::reverse(burst.events.begin(),
@@ -8981,7 +9124,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         if (track.notes.size() <= row)
             track.notes.resize(row + 1u, NoteCell::rest());
         track.notes[row] = NoteCell::withBurst(
-            static_cast<uint8_t>(_selectedBurstSlot));
+            static_cast<uint8_t>(_selectedBurstSlot),
+            self.trackerState->activeBurstBankId);
         track.noteColumn.length = std::max(track.noteColumn.length, row + 1u);
         [self.owner modulePatternChanged];
         [self pulseBurstPlaceFeedback];
@@ -11513,20 +11657,27 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         [display drawAtPoint:NSMakePoint(controlX + 8.0, y - 2.0)
             withAttributes:infoAttrs];
     };
+    const auto* activeBurstBank = findBurstBank(
+        self.trackerState->burstBanks,
+        self.trackerState->activeBurstBankId);
+    drawTrackerProcessorMenu(@"BANK", activeBurstBank
+            ? nsString(activeBurstBank->name) : @"PROJECT BURSTS",
+        layout::rowY(geometry.laneCycle, 0u), libraryX, libraryWidth,
+        labels, values, style);
     drawTrackerProcessorMenu(@"BURST",
         [NSString stringWithFormat:@"%@  ·  %@",
             nsString(burstSlotToken(_selectedBurstSlot)),
             burst.empty() ? @"EMPTY" : nsString(burst.name)],
-        layout::rowY(geometry.laneCycle, 0u), libraryX, libraryWidth,
-        labels, values, style);
-    drawTrackerProcessorMenu(@"NAME", burst.empty() ? @"—" : nsString(burst.name),
         layout::rowY(geometry.laneCycle, 1u), libraryX, libraryWidth,
         labels, values, style);
+    drawTrackerProcessorMenu(@"NAME", burst.empty() ? @"—" : nsString(burst.name),
+        layout::rowY(geometry.laneCycle, 2u), libraryX, libraryWidth,
+        labels, values, style);
     [@"EVENTS" drawAtPoint:NSMakePoint(layout::processorLabelX(libraryX),
-        layout::rowY(geometry.laneCycle, 2u) - 2.0) withAttributes:labels];
+        layout::rowY(geometry.laneCycle, 3u) - 2.0) withAttributes:labels];
     for (NSUInteger index = 0u; index < 2u; ++index)
         S3GTrackerDrawSuiteActionButton(
-            [self burstActionRectForRow:2u index:index count:2u],
+            [self burstActionRectForRow:3u index:index count:2u],
             index == 0u
                 ? [NSString stringWithFormat:@"−  %u", burst.eventCount]
                 : [NSString stringWithFormat:@"%u  +", burst.eventCount],
@@ -11534,19 +11685,22 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     drawBurstInfo(@"USAGE", [NSString stringWithFormat:@"%lu NOTE CELLS",
             static_cast<unsigned long>(projectBurstUsageCount(
                 *self.trackerState, _selectedBurstSlot))],
-        geometry.laneCycle, 3u,
+        geometry.laneCycle, 4u,
         S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted));
     const NSArray<NSArray<NSString*>*>* actionRows = @[
         @[ @"NEW", @"DUP", @"DELETE" ],
         @[ @"EVEN", @"ACCEL", @"DECEL" ],
         @[ @"REVERSE", @"ROT <", @"ROT >" ],
-        @[ @"IMPORT PACK", @"EXPORT PACK" ],
+        @[ @"IMPORT PACK", @"EXPORT ONE" ],
+        @[ @"EXPORT BANK", @"COPY PROJECT" ],
+        @[ @"PURGE UNUSED", @"DELETE BANK" ],
     ];
     for (NSUInteger rowIndex = 0u; rowIndex < actionRows.count; ++rowIndex) {
-        const auto row = static_cast<uint32_t>(4u + rowIndex);
+        const auto row = static_cast<uint32_t>(5u + rowIndex);
         const auto rowLabels = actionRows[rowIndex];
         for (NSUInteger index = 0u; index < rowLabels.count; ++index) {
-            const BOOL danger = rowIndex == 0u && index == 2u;
+            const BOOL danger = (rowIndex == 0u && index == 2u)
+                || (rowIndex == 5u && index == 1u);
             S3GTrackerDrawSuiteActionButton(
                 [self burstActionRectForRow:row index:index
                     count:rowLabels.count], rowLabels[index],
@@ -12631,7 +12785,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
                 static_cast<unsigned int>(cell.note)];
         }
         else if (cell.state == NoteCellState::Burst)
-            cellName = nsString(burstSlotToken(cell.note));
+            cellName = nsString(assetBankToken(cell.burstBankId) + ":"
+                + burstSlotToken(cell.note));
         else if (cell.state == NoteCellState::RetriggerPrevious) cellName = @"RTR";
         else if (cell.state == NoteCellState::Hold) cellName = @"HLD";
         else if (cell.state == NoteCellState::Kill) cellName = @"KIL";

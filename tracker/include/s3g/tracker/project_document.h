@@ -13,10 +13,10 @@
 namespace s3g::tracker {
 
 // The native file is a MIDI-composition document, not a snapshot of the
-// retired internal instrument rack. Version 2 is intentionally a breaking
+// retired internal instrument rack. Version 3 is intentionally a breaking
 // boundary: the decoder accepts this exact format/version pair and performs no
 // migration from the former hybrid tracker/instrument schemas.
-constexpr uint32_t kProjectFormatVersion = 2u;
+constexpr uint32_t kProjectFormatVersion = 3u;
 constexpr const char* kProjectFormatIdentifier
     = "s3g-tracker-midi-composition";
 constexpr const char* kProjectFileExtension = ".s3gt";
@@ -43,17 +43,29 @@ struct ProjectSessionState {
     // Seed consumed by deterministic playback-time probability/generative
     // actions. This remains distinct from the transactional command RNG.
     uint32_t playbackSeed = 0x6d2b79f5u;
+    AssetBankId activeBurstBankId = kProjectAssetBankId;
+    AssetBankId activePhraseBankId = kProjectAssetBankId;
 };
 
 struct ProjectDocument {
     PatternBank patternBank = makeDefaultPatternBank();
-    BurstLibrary burstLibrary;
-    PhraseLibrary phraseLibrary;
+    std::vector<BurstBank> burstBanks { makeProjectBurstBank() };
+    std::vector<PhraseBank> phraseBanks { makeProjectPhraseBank() };
     TransportSettings transport;
     TimingWarpLibrary warpLibrary;
     ProjectSessionState session;
     InstrumentRackState instrumentRack = makeDefaultInstrumentRack();
     SongArrangement song;
 };
+
+inline AssetBankId nextAssetBankId(const ProjectDocument& document) noexcept
+{
+    AssetBankId next = kProjectAssetBankId + 1u;
+    for (const auto& bank : document.burstBanks)
+        if (bank.id >= next) next = bank.id + 1u;
+    for (const auto& bank : document.phraseBanks)
+        if (bank.id >= next) next = bank.id + 1u;
+    return next == kInvalidAssetBankId ? kProjectAssetBankId + 1u : next;
+}
 
 } // namespace s3g::tracker

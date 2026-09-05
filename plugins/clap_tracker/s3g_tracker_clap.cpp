@@ -182,20 +182,52 @@ bool loadActivePatternIntoSession(TrackerViewState& state)
     return true;
 }
 
+bool syncActiveAssetBanks(TrackerViewState& state)
+{
+    auto* burst = s3g::tracker::findBurstBank(
+        state.burstBanks, state.activeBurstBankId);
+    auto* phrase = s3g::tracker::findPhraseBank(
+        state.phraseBanks, state.activePhraseBankId);
+    if (!burst || !phrase) return false;
+    burst->library = state.session.burstLibrary;
+    phrase->library = state.phraseLibrary;
+    state.session.activeBurstBankId = state.activeBurstBankId;
+    return true;
+}
+
+bool loadActiveAssetBanks(TrackerViewState& state)
+{
+    const auto* burst = s3g::tracker::findBurstBank(
+        state.burstBanks, state.activeBurstBankId);
+    const auto* phrase = s3g::tracker::findPhraseBank(
+        state.phraseBanks, state.activePhraseBankId);
+    if (!burst || !phrase) return false;
+    state.session.burstLibrary = burst->library;
+    state.session.activeBurstBankId = burst->id;
+    state.phraseLibrary = phrase->library;
+    state.selectedPhrase = std::min<std::size_t>(state.selectedPhrase,
+        state.phraseLibrary.phrases.size() - 1u);
+    return true;
+}
+
 void refreshProjectBurstUsageCounts(TrackerViewState& state)
 {
+    (void)syncSessionToActivePattern(state);
+    (void)syncActiveAssetBanks(state);
     state.session.projectBurstUsageCounts.fill(0u);
     const auto countNotes = [&](const std::vector<s3g::tracker::NoteCell>& notes) {
         for (const auto& cell : notes) {
             if (cell.state == s3g::tracker::NoteCellState::Burst
+                && cell.burstBankId == state.activeBurstBankId
                 && cell.note < state.session.projectBurstUsageCounts.size())
                 ++state.session.projectBurstUsageCounts[cell.note];
         }
     };
     for (const auto& entry : state.patternBank.entries)
         for (const auto& track : entry.pattern.tracks) countNotes(track.notes);
-    for (const auto& phrase : state.phraseLibrary.phrases)
-        countNotes(phrase.notes);
+    for (const auto& bank : state.phraseBanks)
+        for (const auto& phrase : bank.library.phrases)
+            countNotes(phrase.notes);
 }
 
 std::string nextPatternId(const s3g::tracker::PatternBank& bank)
@@ -347,7 +379,7 @@ ProjectDocument makeInitialDocument()
 
     ProjectDocument document;
     document.patternBank = state.patternBank;
-    document.burstLibrary = state.session.burstLibrary;
+    document.burstBanks[0u].library = state.session.burstLibrary;
     document.transport = state.session.transport;
     document.warpLibrary = state.session.warpLibrary;
     document.session.gateMilliseconds = state.session.gateMilliseconds;
@@ -650,7 +682,7 @@ struct Runtime {
             songPatternIndices = plan.songPatternIndices;
         }
         projectTransport.sampleRate = sampleRate;
-        scheduler.setBurstLibrary(document.burstLibrary);
+        scheduler.setBurstBanks(document.burstBanks);
         valid = scheduler.preparePatternSet(std::move(patterns),
             plan.initialPatternIndex);
         if (!valid) return;
@@ -2796,28 +2828,215 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         if (!owner || !owner->_state
             || slot >= owner->_state->session.burstLibrary.bursts.size())
             return;
+        (void)syncActiveAssetBanks(*owner->_state);
         const auto& burst = owner->_state->session.burstLibrary.bursts[slot];
         [owner presentExportAssetPack:s3g::tracker::makeBurstAssetPack(
             burst.name.empty() ? "BURST PACK" : burst.name,
             owner->_state->session.burstLibrary, slot)];
     };
+    _callbacks->exportBurstLibraryAssetPack = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state) return;
+        (void)syncActiveAssetBanks(*owner->_state);
+        const auto* bank = s3g::tracker::findBurstBank(
+            owner->_state->burstBanks, owner->_state->activeBurstBankId);
+        const std::string name = bank && !bank->name.empty()
+            ? bank->name : "BURST LIBRARY PACK";
+        [owner presentExportAssetPack:s3g::tracker::makeBurstLibraryAssetPack(
+            name, owner->_state->session.burstLibrary)];
+    };
     _callbacks->exportPhraseAssetPack = [weakSelf](std::size_t slot) {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner || !owner->_state
             || slot >= owner->_state->phraseLibrary.phrases.size()) return;
+        (void)syncActiveAssetBanks(*owner->_state);
         const auto& phrase = owner->_state->phraseLibrary.phrases[slot];
         [owner presentExportAssetPack:s3g::tracker::makePhraseAssetPack(
             phrase.name.empty() ? "PHRASE PACK" : phrase.name,
             owner->_state->phraseLibrary, slot,
-            owner->_state->session.burstLibrary)];
+            owner->_state->burstBanks)];
     };
     _callbacks->exportPhraseLibraryAssetPack = [weakSelf] {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner || !owner->_state) return;
+        (void)syncActiveAssetBanks(*owner->_state);
         [owner presentExportAssetPack:
             s3g::tracker::makePhraseLibraryAssetPack(
                 "PHRASE LIBRARY PACK", owner->_state->phraseLibrary,
-                owner->_state->session.burstLibrary)];
+                owner->_state->burstBanks)];
+    };
+    _callbacks->copyBurstToProject = [weakSelf](std::size_t sourceSlot) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state) return s3g::tracker::kBurstDefinitionCount;
+        (void)syncActiveAssetBanks(*owner->_state);
+        const auto* sourceBank = s3g::tracker::findBurstBank(
+            owner->_state->burstBanks, owner->_state->activeBurstBankId);
+        auto* projectBank = s3g::tracker::findBurstBank(
+            owner->_state->burstBanks, s3g::tracker::kProjectAssetBankId);
+        if (!sourceBank || !projectBank
+            || sourceSlot >= sourceBank->library.bursts.size()
+            || sourceBank->library.bursts[sourceSlot].empty())
+            return s3g::tracker::kBurstDefinitionCount;
+        const auto empty = std::find_if(projectBank->library.bursts.begin(),
+            projectBank->library.bursts.end(), [](const auto& definition) {
+                return definition.empty();
+            });
+        if (empty == projectBank->library.bursts.end()) {
+            owner->_state->status = "Project Burst bank is full";
+            [owner.workspace reloadModel];
+            return s3g::tracker::kBurstDefinitionCount;
+        }
+        const auto destination = static_cast<std::size_t>(
+            empty - projectBank->library.bursts.begin());
+        *empty = sourceBank->library.bursts[sourceSlot];
+        if (sourceBank->id == s3g::tracker::kProjectAssetBankId)
+            empty->name += " COPY";
+        owner->_state->activeBurstBankId = s3g::tracker::kProjectAssetBankId;
+        (void)loadActiveAssetBanks(*owner->_state);
+        refreshProjectBurstUsageCounts(*owner->_state);
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+        return destination;
+    };
+    _callbacks->copyPhraseToProject = [weakSelf](std::size_t sourceSlot) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state) return s3g::tracker::kPhraseLibrarySlots;
+        (void)syncActiveAssetBanks(*owner->_state);
+        const auto* sourceBank = s3g::tracker::findPhraseBank(
+            owner->_state->phraseBanks, owner->_state->activePhraseBankId);
+        auto* projectBank = s3g::tracker::findPhraseBank(
+            owner->_state->phraseBanks, s3g::tracker::kProjectAssetBankId);
+        if (!sourceBank || !projectBank
+            || sourceSlot >= sourceBank->library.phrases.size())
+            return s3g::tracker::kPhraseLibrarySlots;
+        const auto& source = sourceBank->library.phrases[sourceSlot];
+        if (source.empty() && source.name.empty())
+            return s3g::tracker::kPhraseLibrarySlots;
+        const auto empty = std::find_if(projectBank->library.phrases.begin(),
+            projectBank->library.phrases.end(), [](const auto& definition) {
+                return definition.empty() && definition.name.empty();
+            });
+        if (empty == projectBank->library.phrases.end()) {
+            owner->_state->status = "Project Phrase bank is full";
+            [owner.workspace reloadModel];
+            return s3g::tracker::kPhraseLibrarySlots;
+        }
+        const auto destination = static_cast<std::size_t>(
+            empty - projectBank->library.phrases.begin());
+        *empty = source;
+        if (sourceBank->id == s3g::tracker::kProjectAssetBankId)
+            empty->name += " COPY";
+        owner->_state->activePhraseBankId = s3g::tracker::kProjectAssetBankId;
+        owner->_state->activeBurstBankId = s3g::tracker::kProjectAssetBankId;
+        owner->_state->selectedPhrase = destination;
+        (void)loadActiveAssetBanks(*owner->_state);
+        refreshProjectBurstUsageCounts(*owner->_state);
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+        return destination;
+    };
+    _callbacks->selectBurstBank = [weakSelf](s3g::tracker::AssetBankId id) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state || id == owner->_state->activeBurstBankId)
+            return;
+        (void)syncActiveAssetBanks(*owner->_state);
+        if (!s3g::tracker::findBurstBank(owner->_state->burstBanks, id)) return;
+        owner->_state->activeBurstBankId = id;
+        (void)loadActiveAssetBanks(*owner->_state);
+        refreshProjectBurstUsageCounts(*owner->_state);
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+    };
+    _callbacks->selectPhraseBank = [weakSelf](s3g::tracker::AssetBankId id) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state || id == owner->_state->activePhraseBankId)
+            return;
+        (void)syncActiveAssetBanks(*owner->_state);
+        const auto* phrase = s3g::tracker::findPhraseBank(
+            owner->_state->phraseBanks, id);
+        if (!phrase) return;
+        owner->_state->activePhraseBankId = id;
+        owner->_state->activeBurstBankId = phrase->companionBurstBankId;
+        owner->_state->selectedPhrase = 0u;
+        (void)loadActiveAssetBanks(*owner->_state);
+        refreshProjectBurstUsageCounts(*owner->_state);
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+    };
+    _callbacks->clearPhraseBank = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state) return;
+        owner->_state->phraseLibrary = {};
+        owner->_state->selectedPhrase = 0u;
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+    };
+    _callbacks->deletePhraseBank = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state
+            || owner->_state->activePhraseBankId
+                == s3g::tracker::kProjectAssetBankId) return;
+        (void)syncActiveAssetBanks(*owner->_state);
+        const auto id = owner->_state->activePhraseBankId;
+        owner->_state->phraseBanks.erase(std::remove_if(
+            owner->_state->phraseBanks.begin(), owner->_state->phraseBanks.end(),
+            [id](const s3g::tracker::PhraseBank& bank) { return bank.id == id; }),
+            owner->_state->phraseBanks.end());
+        owner->_state->activePhraseBankId = s3g::tracker::kProjectAssetBankId;
+        const auto* project = s3g::tracker::findPhraseBank(
+            owner->_state->phraseBanks, s3g::tracker::kProjectAssetBankId);
+        owner->_state->activeBurstBankId = project
+            ? project->companionBurstBankId
+            : s3g::tracker::kProjectAssetBankId;
+        owner->_state->selectedPhrase = 0u;
+        (void)loadActiveAssetBanks(*owner->_state);
+        refreshProjectBurstUsageCounts(*owner->_state);
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+    };
+    _callbacks->deleteUnusedBursts = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state) return;
+        refreshProjectBurstUsageCounts(*owner->_state);
+        for (std::size_t slot = 0u;
+             slot < owner->_state->session.burstLibrary.bursts.size(); ++slot)
+            if (owner->_state->session.projectBurstUsageCounts[slot] == 0u)
+                owner->_state->session.burstLibrary.bursts[slot] = {};
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
+    };
+    _callbacks->deleteBurstBank = [weakSelf] {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || !owner->_state
+            || owner->_state->activeBurstBankId
+                == s3g::tracker::kProjectAssetBankId) return;
+        refreshProjectBurstUsageCounts(*owner->_state);
+        const auto id = owner->_state->activeBurstBankId;
+        const bool inUse = std::any_of(
+            owner->_state->session.projectBurstUsageCounts.begin(),
+            owner->_state->session.projectBurstUsageCounts.end(),
+            [](std::size_t count) { return count != 0u; });
+        const bool isCompanion = std::any_of(owner->_state->phraseBanks.begin(),
+            owner->_state->phraseBanks.end(), [id](const auto& bank) {
+                return bank.companionBurstBankId == id;
+            });
+        if (inUse || isCompanion) {
+            owner->_state->status = inUse
+                ? "Burst bank is still referenced by Patterns or Phrases"
+                : "Delete its companion Phrase bank before deleting this Burst bank";
+            [owner.workspace reloadModel];
+            return;
+        }
+        (void)syncActiveAssetBanks(*owner->_state);
+        owner->_state->burstBanks.erase(std::remove_if(
+            owner->_state->burstBanks.begin(), owner->_state->burstBanks.end(),
+            [id](const auto& bank) { return bank.id == id; }),
+            owner->_state->burstBanks.end());
+        owner->_state->activeBurstBankId = s3g::tracker::kProjectAssetBankId;
+        (void)loadActiveAssetBanks(*owner->_state);
+        refreshProjectBurstUsageCounts(*owner->_state);
+        [owner commitProject:YES];
+        [owner.workspace reloadModel];
     };
     _callbacks->showTrackerPage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageTracker];
@@ -3449,9 +3668,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     ProjectDocument document;
     if (!_state) return document;
     (void)syncSessionToActivePattern(*_state);
+    (void)syncActiveAssetBanks(*_state);
     document.patternBank = _state->patternBank;
-    document.burstLibrary = _state->session.burstLibrary;
-    document.phraseLibrary = _state->phraseLibrary;
+    document.burstBanks = _state->burstBanks;
+    document.phraseBanks = _state->phraseBanks;
     document.transport = _state->session.transport;
     document.warpLibrary = _state->session.warpLibrary;
     document.session.gateMilliseconds = _state->session.gateMilliseconds;
@@ -3461,6 +3681,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     document.session.trackerRowJump = _state->trackerRowJump;
     document.session.commandRngState = _state->session.commandRngState;
     document.session.playbackSeed = _state->session.playbackSeed;
+    document.session.activeBurstBankId = _state->activeBurstBankId;
+    document.session.activePhraseBankId = _state->activePhraseBankId;
     document.instrumentRack = _state->instrumentRack;
     document.song = [self.songWindow songArrangement];
     normalizeMidiOnlyDocument(document);
@@ -3473,8 +3695,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     ProjectDocument midiDocument = document;
     normalizeMidiOnlyDocument(midiDocument);
     _state->patternBank = midiDocument.patternBank;
-    _state->session.burstLibrary = midiDocument.burstLibrary;
-    _state->phraseLibrary = midiDocument.phraseLibrary;
+    _state->burstBanks = midiDocument.burstBanks;
+    _state->phraseBanks = midiDocument.phraseBanks;
+    _state->activeBurstBankId = midiDocument.session.activeBurstBankId;
+    _state->activePhraseBankId = midiDocument.session.activePhraseBankId;
+    (void)loadActiveAssetBanks(*_state);
     (void)loadActivePatternIntoSession(*_state);
     _state->session.transport = midiDocument.transport;
     _state->session.warpLibrary = midiDocument.warpLibrary;

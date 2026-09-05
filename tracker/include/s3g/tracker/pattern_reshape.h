@@ -36,6 +36,7 @@ struct PatternReshapeSettings {
     float syncopation = 0.0f;    // -1 strong-grid, +1 off-grid
     uint32_t displacementRows = 0u; // 0..4 maximum move
     float burstChance = 0.0f;    // 0..1 conversion probability
+    AssetBankId burstBankId = kProjectAssetBankId;
     float cycleDrift = 0.0f;     // 0..1 chance to choose nearby 4..64 cycle
     uint64_t mutationSeed = 1u;
     std::vector<uint8_t> laneDefaultNotes;

@@ -18,6 +18,7 @@ namespace s3g::tracker {
 struct TrackerSession {
     Pattern pattern;
     BurstLibrary burstLibrary;
+    AssetBankId activeBurstBankId = kProjectAssetBankId;
     // Coordinator-provided whole-project reference counts let live-code
     // deletion remain safe even though TrackerSession edits one active
     // Pattern at a time. Standalone command users fall back to the active

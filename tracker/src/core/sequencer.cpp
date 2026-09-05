@@ -16,6 +16,14 @@ std::string burstSlotToken(std::size_t index)
         + std::to_string(oneBased);
 }
 
+std::string assetBankToken(AssetBankId id)
+{
+    if (id == kInvalidAssetBankId) return {};
+    std::string digits = std::to_string(id);
+    if (digits.size() < 3u) digits.insert(0u, 3u - digits.size(), '0');
+    return "BK" + digits;
+}
+
 bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept
 {
     if (text.size() != 3u || (text.front() != 'B' && text.front() != 'b')
@@ -25,6 +33,24 @@ bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept
         + static_cast<std::size_t>(text[2] - '0');
     if (value == 0u || value > kBurstDefinitionCount) return false;
     index = value - 1u;
+    return true;
+}
+
+bool parseQualifiedBurstToken(std::string_view text, AssetBankId& bankId,
+    std::size_t& index) noexcept
+{
+    const auto separator = text.find(':');
+    if (separator == std::string_view::npos || separator < 3u
+        || (text[0u] != 'B' && text[0u] != 'b')
+        || (text[1u] != 'K' && text[1u] != 'k')
+        || !parseBurstSlot(text.substr(separator + 1u), index)) return false;
+    AssetBankId parsed = 0u;
+    const auto digits = text.substr(2u, separator - 2u);
+    const auto result = std::from_chars(
+        digits.data(), digits.data() + digits.size(), parsed);
+    if (result.ec != std::errc {} || result.ptr != digits.data() + digits.size()
+        || parsed == kInvalidAssetBankId) return false;
+    bankId = parsed;
     return true;
 }
 
@@ -347,8 +373,25 @@ void Sequencer::setPattern(Pattern pattern)
 
 void Sequencer::setBurstLibrary(BurstLibrary library)
 {
-    burstLibrary_ = std::move(library);
-    normalizeBurstLibrary(burstLibrary_);
+    BurstBank bank = makeProjectBurstBank();
+    bank.library = std::move(library);
+    setBurstBanks({ std::move(bank) });
+}
+
+void Sequencer::setBurstBanks(std::vector<BurstBank> banks)
+{
+    if (banks.empty()) banks.push_back(makeProjectBurstBank());
+    for (auto& bank : banks) normalizeBurstLibrary(bank.library);
+    burstBanks_ = std::move(banks);
+}
+
+const BurstDefinition* Sequencer::findBurst(AssetBankId bankId,
+    uint8_t slot) const noexcept
+{
+    const auto* bank = s3g::tracker::findBurstBank(burstBanks_, bankId);
+    if (!bank || slot >= bank->library.bursts.size()) return nullptr;
+    const auto& burst = bank->library.bursts[slot];
+    return burst.empty() ? nullptr : &burst;
 }
 
 bool Sequencer::preparePatternSet(std::vector<Pattern> patterns,
@@ -1342,6 +1385,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             EventDestination destination = EventDestination::None;
             std::size_t sourceRow = 0u;
             uint8_t burstDefinition = kNoBurstDefinition;
+            AssetBankId burstBankId = kProjectAssetBankId;
             bool trigger = false;
             bool retrigger = false;
             bool hardRelease = false;
@@ -1413,14 +1457,16 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.note = candidate.notes[0u];
                 candidate.velocity = candidate.velocities[0u];
                 candidate.trigger = true;
-            } else if (cell.state == NoteCellState::Burst
-                && cell.note < burstLibrary_.bursts.size()
-                && !burstLibrary_.bursts[cell.note].empty()) {
-                candidate.note = burstLibrary_.bursts[cell.note].events[0u].note;
-                candidate.notes[0u] = candidate.note;
-                candidate.velocities[0u] = candidate.velocity;
-                candidate.burstDefinition = cell.note;
-                candidate.trigger = true;
+            } else if (cell.state == NoteCellState::Burst) {
+                const auto* burst = findBurst(cell.burstBankId, cell.note);
+                if (burst) {
+                    candidate.note = burst->events[0u].note;
+                    candidate.notes[0u] = candidate.note;
+                    candidate.velocities[0u] = candidate.velocity;
+                    candidate.burstDefinition = cell.note;
+                    candidate.burstBankId = cell.burstBankId;
+                    candidate.trigger = true;
+                }
             } else if (cell.state == NoteCellState::RetriggerPrevious) {
                 candidate.trigger = memory.hasNote && !memory.noteMuted;
                 candidate.retrigger = candidate.trigger;
@@ -1459,6 +1505,8 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                                    uint64_t durationSamples = 0u,
                                    uint8_t burstDefinition
                                        = kNoBurstDefinition,
+                                   AssetBankId burstBankId
+                                       = kProjectAssetBankId,
                                    uint8_t noteVoice = 0u) {
             ScheduledEvent event;
             event.absoluteSampleTime = absoluteSampleTime;
@@ -1473,6 +1521,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 : velocity;
             event.note = note;
             event.burstDefinition = burstDefinition;
+            event.burstBankId = burstBankId;
             event.noteVoice = noteVoice;
             event.channel = channel;
             event.kind = kind;
@@ -1689,16 +1738,18 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.trigger = true;
                 candidate.retrigger = false;
                 candidate.burstDefinition = kNoBurstDefinition;
-            } else if (source.state == NoteCellState::Burst
-                && source.note < burstLibrary_.bursts.size()
-                && !burstLibrary_.bursts[source.note].empty()) {
-                candidate.note = burstLibrary_.bursts[source.note].events[0u].note;
-                candidate.notes[0u] = candidate.note;
-                candidate.velocities[0u] = candidate.velocity;
-                candidate.burstDefinition = source.note;
-                candidate.sourceRow = offsetRow;
-                candidate.trigger = true;
-                candidate.retrigger = false;
+            } else if (source.state == NoteCellState::Burst) {
+                const auto* burst = findBurst(source.burstBankId, source.note);
+                if (burst) {
+                    candidate.note = burst->events[0u].note;
+                    candidate.notes[0u] = candidate.note;
+                    candidate.velocities[0u] = candidate.velocity;
+                    candidate.burstDefinition = source.note;
+                    candidate.burstBankId = source.burstBankId;
+                    candidate.sourceRow = offsetRow;
+                    candidate.trigger = true;
+                    candidate.retrigger = false;
+                }
             }
         }
         if (!candidate.trigger && !candidate.hold
@@ -1723,6 +1774,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                 candidate.destination = memory.lastEmittedDestination;
                 candidate.burstDefinition
                     = memory.lastEmittedBurstDefinition;
+                candidate.burstBankId = memory.lastEmittedBurstBankId;
                 candidate.trigger = true;
                 candidate.retrigger = false;
             }
@@ -1804,6 +1856,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                         ? memory.activeVelocities[voice]
                         : memory.activeVelocity,
                     releaseDestination, 0u, kNoBurstDefinition,
+                    kProjectAssetBankId,
                     static_cast<uint8_t>(std::min<std::size_t>(
                         voice, kMaximumNoteVoices - 1u)));
             }
@@ -1959,6 +2012,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
             memory.lastEmittedNodeId = candidate.nodeId;
             memory.lastEmittedDestination = candidate.destination;
             memory.lastEmittedBurstDefinition = candidate.burstDefinition;
+            memory.lastEmittedBurstBankId = candidate.burstBankId;
             memory.hasLastEmitted = true;
             memory.sustainHeld = sustainOnset;
             for (std::size_t voice = 0u;
@@ -1977,6 +2031,7 @@ void Sequencer::emitTick(uint64_t absoluteSampleTime, uint32_t frameOffset,
                     candidate.destination,
                     duration,
                     candidate.burstDefinition,
+                    candidate.burstBankId,
                     static_cast<uint8_t>(voice));
             }
         }

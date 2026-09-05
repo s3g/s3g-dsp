@@ -29,6 +29,10 @@ struct TrackerViewState {
     // app coordinator before selection, persistence, and playback publication.
     PatternBank patternBank = makeDefaultPatternBank();
     PhraseLibrary phraseLibrary;
+    std::vector<BurstBank> burstBanks { makeProjectBurstBank() };
+    std::vector<PhraseBank> phraseBanks { makeProjectPhraseBank() };
+    AssetBankId activeBurstBankId = kProjectAssetBankId;
+    AssetBankId activePhraseBankId = kProjectAssetBankId;
     std::size_t selectedPhrase = 0u;
     std::size_t lastPlacedPhrase = 0u;
     InstrumentRackState instrumentRack = makeDefaultInstrumentRack();
@@ -139,8 +143,17 @@ struct WorkspaceCallbacks {
     std::function<void()> showPhrasePage;
     std::function<void()> importAssetPack;
     std::function<void(std::size_t)> exportBurstAssetPack;
+    std::function<void()> exportBurstLibraryAssetPack;
     std::function<void(std::size_t)> exportPhraseAssetPack;
     std::function<void()> exportPhraseLibraryAssetPack;
+    std::function<std::size_t(std::size_t)> copyBurstToProject;
+    std::function<std::size_t(std::size_t)> copyPhraseToProject;
+    std::function<void(AssetBankId)> selectBurstBank;
+    std::function<void(AssetBankId)> selectPhraseBank;
+    std::function<void()> clearPhraseBank;
+    std::function<void()> deletePhraseBank;
+    std::function<void()> deleteUnusedBursts;
+    std::function<void()> deleteBurstBank;
     std::function<void()> showTrackerPage;
     std::function<void()> showWarpPage;
     std::function<void()> showInstrumentWindow;

@@ -39,6 +39,16 @@ NSString* phraseString(const std::string& text)
     return value ? value : @"";
 }
 
+const s3g::tracker::BurstLibrary* phraseBurstLibrary(
+    const TrackerViewState* state, s3g::tracker::AssetBankId bankId)
+{
+    if (!state) return nullptr;
+    if (bankId == state->activeBurstBankId)
+        return &state->session.burstLibrary;
+    const auto* bank = s3g::tracker::findBurstBank(state->burstBanks, bankId);
+    return bank ? &bank->library : nullptr;
+}
+
 NSString* phraseNoteText(const s3g::tracker::NoteCell& cell)
 {
     if (cell.state == NoteCellState::Rest) return @"---";
@@ -46,7 +56,9 @@ NSString* phraseNoteText(const s3g::tracker::NoteCell& cell)
     if (cell.state == NoteCellState::Hold) return @"HLD";
     if (cell.state == NoteCellState::Kill) return @"KIL";
     if (cell.state == NoteCellState::Burst)
-        return [NSString stringWithFormat:@"B%02u", cell.note + 1u];
+        return [NSString stringWithFormat:@"%s:B%02u",
+            s3g::tracker::assetBankToken(cell.burstBankId).c_str(),
+            cell.note + 1u];
     NSMutableArray<NSString*>* notes = [NSMutableArray array];
     for (std::size_t voice = 0u; voice < cell.noteVoiceCount(); ++voice)
         [notes addObject:[NSString stringWithFormat:@"%u",
@@ -200,7 +212,7 @@ NSString* phraseGridCellText(const PhraseDefinition& phrase,
 }
 
 bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
-    const s3g::tracker::BurstLibrary& burstLibrary,
+    const TrackerViewState& state,
     std::size_t row, std::size_t field)
 {
     if (row >= phrase.length || field >= 7u) return false;
@@ -226,15 +238,18 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                 s3g::tracker::NoteCell::kill());
             return true;
         }
-        if (token.length == 3u && [token hasPrefix:@"B"]) {
-            const NSInteger slot = [[token substringFromIndex:1u] integerValue];
-            if (slot < 1 || slot > 64
-                || burstLibrary.bursts[
-                    static_cast<std::size_t>(slot - 1)].empty())
-                return false;
+        std::size_t burstSlot = 0u;
+        auto burstBankId = state.activeBurstBankId;
+        const bool qualifiedBurst = s3g::tracker::parseQualifiedBurstToken(
+            token.UTF8String, burstBankId, burstSlot);
+        if (qualifiedBurst || s3g::tracker::parseBurstSlot(
+                token.UTF8String, burstSlot)) {
+            const auto* library = phraseBurstLibrary(&state, burstBankId);
+            if (!library || burstSlot >= library->bursts.size()
+                || library->bursts[burstSlot].empty()) return false;
             writePhraseGridCell(phrase, field, row,
                 s3g::tracker::NoteCell::withBurst(
-                    static_cast<uint8_t>(slot - 1)));
+                    static_cast<uint8_t>(burstSlot), burstBankId));
             return true;
         }
         NSArray<NSString*>* parts = [token componentsSeparatedByString:@"+"];
@@ -403,6 +418,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, assign) WorkspaceCallbacks* trackerCallbacks;
 @property(nonatomic, strong) S3GTrackerPopupButton* libraryPopup;
+@property(nonatomic, strong) S3GTrackerPopupButton* bankPopup;
 @property(nonatomic, strong) NSTextField* nameField;
 @property(nonatomic, strong) S3GTrackerPopupButton* lengthPopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* previewChannelPopup;
@@ -414,6 +430,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, strong) S3GTrackerToolboxView* auditionPanel;
 @property(nonatomic, strong) S3GTrackerToolboxView* placementPanel;
 @property(nonatomic, strong) NSTextField* phraseLabel;
+@property(nonatomic, strong) NSTextField* bankLabel;
 @property(nonatomic, strong) NSTextField* nameLabel;
 @property(nonatomic, strong) NSTextField* lengthLabel;
 @property(nonatomic, strong) NSTextField* previewChannelLabel;
@@ -427,6 +444,9 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, strong) NSButton* importPackButton;
 @property(nonatomic, strong) NSButton* exportPackButton;
 @property(nonatomic, strong) NSButton* exportAllButton;
+@property(nonatomic, strong) NSButton* clearBankButton;
+@property(nonatomic, strong) NSButton* deleteBankButton;
+@property(nonatomic, strong) NSButton* projectCopyButton;
 @property(nonatomic, strong) NSButton* previewButton;
 @property(nonatomic, strong) NSButton* placeButton;
 @property(nonatomic, strong) NSTimer* previewTimer;
@@ -1135,36 +1155,44 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
             phrase->notes[self.selectedRow] = s3g::tracker::NoteCell::hold();
         else if ([token isEqualToString:@"KIL"])
             phrase->notes[self.selectedRow] = s3g::tracker::NoteCell::kill();
-        else if (token.length == 3u && [token hasPrefix:@"B"]) {
-            const NSInteger slot = [[token substringFromIndex:1u] integerValue];
-            if (slot < 1 || slot > 64
-                || self.owner.trackerState->session.burstLibrary.bursts[
-                    static_cast<std::size_t>(slot - 1)].empty()) {
-                NSBeep();
-                return;
-            }
-            phrase->notes[self.selectedRow] = s3g::tracker::NoteCell::withBurst(
-                static_cast<uint8_t>(slot - 1));
-        }
         else {
-            NSArray<NSString*>* parts = [token componentsSeparatedByString:@"+"];
-            std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
-            std::size_t count = 0u;
-            for (NSString* part in parts) {
-                uint8_t note = 0u;
-                if (count >= notes.size()
-                    || !s3g::tracker::parseMidiNote(part.UTF8String, note)) {
+            std::size_t burstSlot = 0u;
+            auto burstBankId = self.owner.trackerState->activeBurstBankId;
+            const bool qualifiedBurst = s3g::tracker::parseQualifiedBurstToken(
+                token.UTF8String, burstBankId, burstSlot);
+            const bool simpleBurst = !qualifiedBurst
+                && s3g::tracker::parseBurstSlot(token.UTF8String, burstSlot);
+            if (qualifiedBurst || simpleBurst) {
+                const auto* library = phraseBurstLibrary(
+                    self.owner.trackerState, burstBankId);
+                if (!library || burstSlot >= library->bursts.size()
+                    || library->bursts[burstSlot].empty()) {
                     NSBeep();
                     return;
                 }
-                notes[count++] = note;
+                phrase->notes[self.selectedRow]
+                    = s3g::tracker::NoteCell::withBurst(
+                        static_cast<uint8_t>(burstSlot), burstBankId);
+            } else {
+                NSArray<NSString*>* parts = [token componentsSeparatedByString:@"+"];
+                std::array<uint8_t, s3g::tracker::kMaximumNoteVoices> notes {};
+                std::size_t count = 0u;
+                for (NSString* part in parts) {
+                    uint8_t note = 0u;
+                    if (count >= notes.size()
+                        || !s3g::tracker::parseMidiNote(part.UTF8String, note)) {
+                        NSBeep();
+                        return;
+                    }
+                    notes[count++] = note;
+                }
+                std::sort(notes.begin(), notes.begin() + count);
+                if (std::adjacent_find(notes.begin(), notes.begin() + count)
+                    != notes.begin() + count) { NSBeep(); return; }
+                phrase->notes[self.selectedRow] = count == 1u
+                    ? s3g::tracker::NoteCell::withNote(notes[0u])
+                    : s3g::tracker::NoteCell::withNotes(notes, count);
             }
-            std::sort(notes.begin(), notes.begin() + count);
-            if (std::adjacent_find(notes.begin(), notes.begin() + count)
-                != notes.begin() + count) { NSBeep(); return; }
-            phrase->notes[self.selectedRow] = count == 1u
-                ? s3g::tracker::NoteCell::withNote(notes[0u])
-                : s3g::tracker::NoteCell::withNotes(notes, count);
         }
     } else if (self.selectedField == 1u) {
         if ([token isEqualToString:@"DEF"] || token.length == 0u)
@@ -1448,7 +1476,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                     writePhraseGridCell(candidate, field, row,
                         _copiedGridCells[0u]);
                 } else if (!applyPhraseCellText(rows[0u][0u], candidate,
-                               self.owner.trackerState->session.burstLibrary,
+                               *self.owner.trackerState,
                                row, field)) {
                     NSBeep(); return;
                 }
@@ -1478,7 +1506,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                             static_cast<std::size_t>(rowOffset) * widest
                                 + static_cast<std::size_t>(fieldOffset)]);
                 else if (!applyPhraseCellText(cells[fieldOffset], candidate,
-                               self.owner.trackerState->session.burstLibrary,
+                               *self.owner.trackerState,
                                destinationRow, destinationField)) {
                     NSBeep(); return;
                 }
@@ -1657,7 +1685,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     const auto family = s3g::gui_layout::trackerGeometryFamilyLayout({
         static_cast<double>(NSWidth(self.view.bounds)),
         static_cast<double>(NSHeight(self.view.bounds)),
-    }, 1u, 7u, false);
+    }, 1u, 10u, false);
     const auto cocoaRect = [](const s3g::gui_layout::Rect& rect) {
         return NSMakeRect(static_cast<CGFloat>(rect.x),
             static_cast<CGFloat>(rect.y),
@@ -1722,17 +1750,22 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                 NSHeight(available));
     };
 
-    layoutLabel(self.phraseLabel, 0u);
-    layoutLabel(self.nameLabel, 1u);
-    layoutLabel(self.lengthLabel, 2u);
-    self.libraryPopup.frame = controlFrame(self.libraryPanel, 0u);
-    self.nameField.frame = textFrame(self.libraryPanel, 1u);
-    self.lengthPopup.frame = controlFrame(self.libraryPanel, 2u);
+    layoutLabel(self.bankLabel, 0u);
+    layoutLabel(self.phraseLabel, 1u);
+    layoutLabel(self.nameLabel, 2u);
+    layoutLabel(self.lengthLabel, 3u);
+    self.bankPopup.frame = controlFrame(self.libraryPanel, 0u);
+    self.libraryPopup.frame = controlFrame(self.libraryPanel, 1u);
+    self.nameField.frame = textFrame(self.libraryPanel, 2u);
+    self.lengthPopup.frame = controlFrame(self.libraryPanel, 3u);
     layoutButtons(@[ self.saveButton, self.duplicateButton,
-        self.deleteButton ], self.libraryPanel, 3u);
-    self.importPackButton.frame = controlFrame(self.libraryPanel, 4u);
-    self.exportPackButton.frame = controlFrame(self.libraryPanel, 5u);
-    self.exportAllButton.frame = controlFrame(self.libraryPanel, 6u);
+        self.deleteButton ], self.libraryPanel, 4u);
+    self.projectCopyButton.frame = controlFrame(self.libraryPanel, 5u);
+    layoutButtons(@[ self.clearBankButton, self.deleteBankButton ],
+        self.libraryPanel, 6u);
+    self.importPackButton.frame = controlFrame(self.libraryPanel, 7u);
+    self.exportPackButton.frame = controlFrame(self.libraryPanel, 8u);
+    self.exportAllButton.frame = controlFrame(self.libraryPanel, 9u);
 
     layoutLabel(self.previewChannelLabel, 0u);
     self.previewChannelPopup.frame = controlFrame(self.auditionPanel, 0u);
@@ -1786,6 +1819,12 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.libraryPopup.target = self;
     self.libraryPopup.action = @selector(slotChanged:);
     [self.libraryPanel addSubview:self.libraryPopup];
+    self.bankPopup = [[S3GTrackerPopupButton alloc]
+        initWithFrame:NSZeroRect pullsDown:NO];
+    self.bankPopup.s3gUsesCanvasMenu = YES;
+    self.bankPopup.target = self;
+    self.bankPopup.action = @selector(bankChanged:);
+    [self.libraryPanel addSubview:self.bankPopup];
     self.nameField = [[NSTextField alloc] initWithFrame:NSZeroRect];
     S3GTrackerStyleSuiteTextField(self.nameField, NSTextAlignmentLeft);
     self.nameField.delegate = self;
@@ -1818,13 +1857,21 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         action:@selector(duplicatePressed:)];
     self.deleteButton = [self button:@"DELETE"
         action:@selector(deletePressed:)];
+    self.clearBankButton = [self button:@"CLEAR BANK"
+        action:@selector(clearBankPressed:)];
+    self.deleteBankButton = [self button:@"DELETE BANK"
+        action:@selector(deleteBankPressed:)];
+    self.projectCopyButton = [self button:@"COPY TO PROJECT"
+        action:@selector(copyProjectPressed:)];
     self.previewButton = [self button:@"PREVIEW ▶"
         action:@selector(previewPressed:)];
     for (NSButton* button in @[ self.saveButton, self.duplicateButton,
-             self.deleteButton ])
+             self.deleteButton, self.projectCopyButton,
+             self.clearBankButton, self.deleteBankButton ])
         [self.libraryPanel addSubview:button];
     [self.auditionPanel addSubview:self.previewButton];
 
+    self.bankLabel = [self suiteLabel:@"BANK" panel:self.libraryPanel];
     self.phraseLabel = [self suiteLabel:@"PHRASE" panel:self.libraryPanel];
     self.nameLabel = [self suiteLabel:@"NAME" panel:self.libraryPanel];
     self.lengthLabel = [self suiteLabel:@"LENGTH" panel:self.libraryPanel];
@@ -1908,6 +1955,49 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         self.trackerCallbacks->importAssetPack();
 }
 
+- (void)bankChanged:(id)sender
+{
+    (void)sender;
+    [self stopPhrasePreview];
+    NSNumber* selected = self.bankPopup.selectedItem.representedObject;
+    if (selected && self.trackerCallbacks
+        && self.trackerCallbacks->selectPhraseBank)
+        self.trackerCallbacks->selectPhraseBank(
+            static_cast<s3g::tracker::AssetBankId>(selected.unsignedIntValue));
+}
+
+- (void)clearBankPressed:(id)sender
+{
+    (void)sender;
+    [self stopPhrasePreview];
+    if (self.trackerCallbacks && self.trackerCallbacks->clearPhraseBank)
+        self.trackerCallbacks->clearPhraseBank();
+}
+
+- (void)deleteBankPressed:(id)sender
+{
+    (void)sender;
+    [self stopPhrasePreview];
+    if (self.trackerCallbacks && self.trackerCallbacks->deletePhraseBank)
+        self.trackerCallbacks->deletePhraseBank();
+}
+
+- (void)copyProjectPressed:(id)sender
+{
+    (void)sender;
+    [self stopPhrasePreview];
+    if (!self.trackerState || !self.trackerCallbacks
+        || !self.trackerCallbacks->copyPhraseToProject) return;
+    const auto destination = self.trackerCallbacks->copyPhraseToProject(
+        self.trackerState->selectedPhrase);
+    if (destination >= s3g::tracker::kPhraseLibrarySlots) {
+        NSBeep();
+        return;
+    }
+    self.trackerState->selectedPhrase = destination;
+    [self reloadModel];
+}
+
 - (void)exportPackPressed:(id)sender
 {
     (void)sender;
@@ -1938,6 +2028,17 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 - (void)reloadModel
 {
     if (!self.isViewLoaded || !self.trackerState) return;
+    [self.bankPopup removeAllItems];
+    for (const auto& bank : self.trackerState->phraseBanks) {
+        NSString* title = bank.name.empty() ? @"UNTITLED BANK"
+            : phraseString(bank.name);
+        [self.bankPopup addItemWithTitle:title];
+        self.bankPopup.lastItem.representedObject = @(bank.id);
+        if (bank.id == self.trackerState->activePhraseBankId)
+            [self.bankPopup selectItem:self.bankPopup.lastItem];
+    }
+    self.deleteBankButton.enabled = self.trackerState->activePhraseBankId
+        != s3g::tracker::kProjectAssetBankId;
     [self.libraryPopup removeAllItems];
     for (std::size_t slot = 0u; slot < s3g::tracker::kPhraseLibrarySlots; ++slot) {
         const auto& phrase = self.trackerState->phraseLibrary.phrases[slot];
@@ -2127,16 +2228,17 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     std::vector<PitchPreviewEvent> events;
     float velocity = 100.0f / 127.0f;
     std::size_t firstAudibleRow = phrase->length;
-    for (std::size_t row = 0u; row < phrase->length; ++row)
-        if (phrase->notes[row].state == NoteCellState::Note
-            || (phrase->notes[row].state == NoteCellState::Burst
-                && phrase->notes[row].note
-                    < self.trackerState->session.burstLibrary.bursts.size()
-                && !self.trackerState->session.burstLibrary.bursts[
-                    phrase->notes[row].note].empty())) {
+    for (std::size_t row = 0u; row < phrase->length; ++row) {
+        const auto& note = phrase->notes[row];
+        const auto* library = note.state == NoteCellState::Burst
+            ? phraseBurstLibrary(self.trackerState, note.burstBankId) : nullptr;
+        if (note.state == NoteCellState::Note
+            || (library && note.note < library->bursts.size()
+                && !library->bursts[note.note].empty())) {
             firstAudibleRow = row;
             break;
         }
+    }
     for (std::size_t row = 0u; row < phrase->length; ++row) {
         if (row < phrase->velocities.size()) {
             const auto& value = phrase->velocities[row];
@@ -2148,10 +2250,11 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
                 && phrase->notes[row].state != NoteCellState::Burst)) continue;
         const auto& note = phrase->notes[row];
         if (note.state == NoteCellState::Burst) {
-            if (note.note >= self.trackerState->session.burstLibrary.bursts.size())
+            const auto* library = phraseBurstLibrary(
+                self.trackerState, note.burstBankId);
+            if (!library || note.note >= library->bursts.size())
                 continue;
-            const auto& burst = self.trackerState->session.burstLibrary.bursts[
-                note.note];
+            const auto& burst = library->bursts[note.note];
             for (std::size_t eventIndex = 0u;
                  eventIndex < burst.eventCount; ++eventIndex) {
                 const auto& event = burst.events[eventIndex];

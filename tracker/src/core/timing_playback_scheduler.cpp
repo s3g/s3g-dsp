@@ -448,17 +448,17 @@ std::size_t TimingPlaybackScheduler::process(uint32_t frameCount,
                 continue;
             }
             if (event.burstDefinition != kNoBurstDefinition) {
-                const auto& bursts = sequencer_.burstLibrary().bursts;
-                if (event.burstDefinition >= bursts.size()) {
+                const auto* burst = sequencer_.findBurst(
+                    event.burstBankId, event.burstDefinition);
+                if (!burst) {
                     ++timingDroppedEventCount_;
                     continue;
                 }
-                const auto& burst = bursts[event.burstDefinition];
                 const auto eventCount = std::min<std::size_t>(
-                    burst.eventCount, kMaximumBurstEvents);
+                    burst->eventCount, kMaximumBurstEvents);
                 for (std::size_t burstEventIndex = 0u;
                      burstEventIndex < eventCount; ++burstEventIndex) {
-                    const auto& authored = burst.events[burstEventIndex];
+                    const auto& authored = burst->events[burstEventIndex];
                     ScheduledEvent expanded = event;
                     expanded.burstDefinition = kNoBurstDefinition;
                     expanded.note = authored.note;

@@ -33,6 +33,40 @@ struct PhraseLibrary {
     std::array<PhraseDefinition, kPhraseLibrarySlots> phrases {};
 };
 
+struct PhraseBank {
+    AssetBankId id = kInvalidAssetBankId;
+    std::string name;
+    // The companion Burst bank is the default target for new Burst cells in
+    // this Phrase bank. Individual cells still carry their exact bank ID.
+    AssetBankId companionBurstBankId = kProjectAssetBankId;
+    PhraseLibrary library;
+};
+
+inline PhraseBank makeProjectPhraseBank()
+{
+    PhraseBank bank;
+    bank.id = kProjectAssetBankId;
+    bank.name = "PROJECT PHRASES";
+    bank.companionBurstBankId = kProjectAssetBankId;
+    return bank;
+}
+
+inline PhraseBank* findPhraseBank(std::vector<PhraseBank>& banks,
+    AssetBankId id) noexcept
+{
+    const auto found = std::find_if(banks.begin(), banks.end(),
+        [id](const PhraseBank& bank) { return bank.id == id; });
+    return found == banks.end() ? nullptr : &*found;
+}
+
+inline const PhraseBank* findPhraseBank(const std::vector<PhraseBank>& banks,
+    AssetBankId id) noexcept
+{
+    const auto found = std::find_if(banks.begin(), banks.end(),
+        [id](const PhraseBank& bank) { return bank.id == id; });
+    return found == banks.end() ? nullptr : &*found;
+}
+
 enum class PhrasePlacementMode : uint8_t {
     Replace,
     MergeIntoEmpty,

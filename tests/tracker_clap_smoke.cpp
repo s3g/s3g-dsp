@@ -591,7 +591,9 @@ int main(int argc, char** argv)
             && factoryJson.find(
                 "\"format\": \"s3g-tracker-midi-composition\"")
                 != std::string::npos
-            && factoryJson.find("\"version\": 2") != std::string::npos
+            && factoryJson.find("\"version\": 3") != std::string::npos
+            && factoryJson.find("\"burstBanks\"") != std::string::npos
+            && factoryJson.find("\"phraseBanks\"") != std::string::npos
             && factoryJson.find("instrumentRack") == std::string::npos
             && factoryJson.find("sampleRate") == std::string::npos
             && factoryJson.find("\"showMidiNoteValues\": true")

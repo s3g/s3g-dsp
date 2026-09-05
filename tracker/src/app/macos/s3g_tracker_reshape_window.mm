@@ -817,6 +817,7 @@ PatternReshapeSettings defaultPanelSettings()
 {
     if (!self.trackerState) return;
     _settings.laneDefaultNotes = self.trackerState->session.laneDefaultNotes;
+    _settings.burstBankId = self.trackerState->activeBurstBankId;
     _result = reshapePattern(self.trackerState->session.pattern,
         self.trackerState->session.burstLibrary, _settings);
     self.profileView.displaysReshaped = self.showingReshaped;

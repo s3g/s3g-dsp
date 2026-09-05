@@ -879,6 +879,7 @@ JsonValue encodeNoteCells(const std::vector<NoteCell>& cells,
                         + "].burst", "burst slot must be B01..B64");
             cell.object["burst"] = number(
                 static_cast<uint32_t>(cells[index].note));
+            cell.object["burstBank"] = number(cells[index].burstBankId);
             cell.object["state"] = JsonValue::stringValue("burst");
             break;
         default:
@@ -956,12 +957,19 @@ bool decodeNoteCells(const JsonValue& input, std::vector<NoteCell>& destination,
         } else if (state->string == "burst") {
             const auto* burst = requiredField(input.array[index], "burst",
                 JsonType::Number, cellPath, result);
+            const auto* bank = requiredField(input.array[index], "burstBank",
+                JsonType::Number, cellPath, result);
             uint32_t value = 0u;
-            if (!burst || !checkedUint32(*burst, value,
+            uint32_t bankId = 0u;
+            if (!burst || !bank || !checkedUint32(*burst, value,
                     static_cast<uint32_t>(kBurstDefinitionCount - 1u),
-                    cellPath + ".burst", result)) return false;
+                    cellPath + ".burst", result)
+                || !checkedUint32(*bank, bankId,
+                    std::numeric_limits<uint32_t>::max(),
+                    cellPath + ".burstBank", result)
+                || bankId == kInvalidAssetBankId) return false;
             candidate.push_back(NoteCell::withBurst(
-                static_cast<uint8_t>(value)));
+                static_cast<uint8_t>(value), bankId));
         } else {
             return setError(result, ProjectErrorCode::OutOfRange,
                 cellPath + ".state", "unknown note cell state");
@@ -1837,6 +1845,131 @@ bool decodePhraseLibrary(const JsonValue& input, PhraseLibrary& destination,
     return true;
 }
 
+JsonValue encodeBurstBanks(const std::vector<BurstBank>& banks,
+    ProjectResult& result)
+{
+    JsonValue output = JsonValue::arrayValue();
+    if (banks.empty() || banks.size() > kMaximumAssetBanks)
+        setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.burstBanks", "project must contain 1..64 Burst banks");
+    std::vector<AssetBankId> ids;
+    for (std::size_t index = 0u; index < banks.size(); ++index) {
+        const auto& bank = banks[index];
+        const std::string path = "$.burstBanks[" + std::to_string(index) + "]";
+        if (bank.id == kInvalidAssetBankId
+            || std::find(ids.begin(), ids.end(), bank.id) != ids.end())
+            setError(result, ProjectErrorCode::InconsistentData, path + ".id",
+                "Burst bank ID must be nonzero and unique");
+        ids.push_back(bank.id);
+        JsonValue item = JsonValue::objectValue();
+        item.object["id"] = number(bank.id);
+        item.object["name"] = encodeCheckedString(bank.name,
+            kMaximumNameBytes, path + ".name", result);
+        item.object["slots"] = encodeBursts(bank.library,
+            path + ".slots", result);
+        output.array.push_back(std::move(item));
+    }
+    return output;
+}
+
+bool decodeBurstBanks(const JsonValue& input,
+    std::vector<BurstBank>& destination, ProjectResult& result)
+{
+    if (input.type != JsonType::Array || input.array.empty()
+        || input.array.size() > kMaximumAssetBanks)
+        return setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.burstBanks", "project must contain 1..64 Burst banks");
+    std::vector<BurstBank> candidate;
+    candidate.reserve(input.array.size());
+    for (std::size_t index = 0u; index < input.array.size(); ++index) {
+        const auto& item = input.array[index];
+        const std::string path = "$.burstBanks[" + std::to_string(index) + "]";
+        const auto* id = requiredField(item, "id", JsonType::Number, path, result);
+        const auto* name = requiredField(item, "name", JsonType::String, path, result);
+        const auto* slots = requiredField(item, "slots", JsonType::Array, path, result);
+        BurstBank bank;
+        if (!id || !name || !slots
+            || !checkedUint32(*id, bank.id,
+                std::numeric_limits<uint32_t>::max(), path + ".id", result)
+            || bank.id == kInvalidAssetBankId
+            || !checkedString(*name, bank.name, kMaximumNameBytes,
+                path + ".name", result)
+            || !decodeBursts(*slots, bank.library, path + ".slots", result))
+            return false;
+        if (findBurstBank(candidate, bank.id))
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path + ".id", "Burst bank ID is duplicated");
+        candidate.push_back(std::move(bank));
+    }
+    destination = std::move(candidate);
+    return true;
+}
+
+JsonValue encodePhraseBanks(const std::vector<PhraseBank>& banks,
+    ProjectResult& result)
+{
+    JsonValue output = JsonValue::arrayValue();
+    if (banks.empty() || banks.size() > kMaximumAssetBanks)
+        setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.phraseBanks", "project must contain 1..64 Phrase banks");
+    std::vector<AssetBankId> ids;
+    for (std::size_t index = 0u; index < banks.size(); ++index) {
+        const auto& bank = banks[index];
+        const std::string path = "$.phraseBanks[" + std::to_string(index) + "]";
+        if (bank.id == kInvalidAssetBankId
+            || std::find(ids.begin(), ids.end(), bank.id) != ids.end())
+            setError(result, ProjectErrorCode::InconsistentData, path + ".id",
+                "Phrase bank ID must be nonzero and unique");
+        ids.push_back(bank.id);
+        JsonValue item = JsonValue::objectValue();
+        item.object["id"] = number(bank.id);
+        item.object["name"] = encodeCheckedString(bank.name,
+            kMaximumNameBytes, path + ".name", result);
+        item.object["companionBurstBank"] = number(bank.companionBurstBankId);
+        item.object["slots"] = encodePhraseLibrary(bank.library, result);
+        output.array.push_back(std::move(item));
+    }
+    return output;
+}
+
+bool decodePhraseBanks(const JsonValue& input,
+    std::vector<PhraseBank>& destination, ProjectResult& result)
+{
+    if (input.type != JsonType::Array || input.array.empty()
+        || input.array.size() > kMaximumAssetBanks)
+        return setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.phraseBanks", "project must contain 1..64 Phrase banks");
+    std::vector<PhraseBank> candidate;
+    candidate.reserve(input.array.size());
+    for (std::size_t index = 0u; index < input.array.size(); ++index) {
+        const auto& item = input.array[index];
+        const std::string path = "$.phraseBanks[" + std::to_string(index) + "]";
+        const auto* id = requiredField(item, "id", JsonType::Number, path, result);
+        const auto* name = requiredField(item, "name", JsonType::String, path, result);
+        const auto* companion = requiredField(item, "companionBurstBank",
+            JsonType::Number, path, result);
+        const auto* slots = requiredField(item, "slots", JsonType::Array, path, result);
+        PhraseBank bank;
+        if (!id || !name || !companion || !slots
+            || !checkedUint32(*id, bank.id,
+                std::numeric_limits<uint32_t>::max(), path + ".id", result)
+            || !checkedUint32(*companion, bank.companionBurstBankId,
+                std::numeric_limits<uint32_t>::max(),
+                path + ".companionBurstBank", result)
+            || bank.id == kInvalidAssetBankId
+            || bank.companionBurstBankId == kInvalidAssetBankId
+            || !checkedString(*name, bank.name, kMaximumNameBytes,
+                path + ".name", result)
+            || !decodePhraseLibrary(*slots, bank.library, result)) return false;
+        if (findPhraseBank(candidate, bank.id))
+            return setError(result, ProjectErrorCode::InconsistentData,
+                path + ".id", "Phrase bank ID is duplicated");
+        candidate.push_back(std::move(bank));
+    }
+    destination = std::move(candidate);
+    return true;
+}
+
 JsonValue encodePatternBank(const PatternBank& bank, ProjectResult& result)
 {
     const auto validation = validatePatternBank(bank);
@@ -2029,7 +2162,7 @@ JsonValue encodeAssetPackDocument(const TrackerAssetPack& pack,
     root.object["version"] = number(kTrackerAssetPackVersion);
     root.object["name"] = encodeCheckedString(pack.name, kMaximumNameBytes,
         "$.name", result);
-    JsonValue bursts = encodeBursts(pack.burstLibrary, "$.bursts", result);
+    JsonValue bursts = encodeBursts(pack.burstBank.library, "$.bursts", result);
     for (auto& item : bursts.array) {
         const auto slot = item.object.find("slot");
         if (slot == item.object.end()) continue;
@@ -2037,17 +2170,17 @@ JsonValue encodeAssetPackDocument(const TrackerAssetPack& pack,
             static_cast<std::size_t>(slot->second.number)));
     }
     root.object["bursts"] = std::move(bursts);
-    JsonValue phrases = encodePhraseLibrary(pack.phraseLibrary, result);
+    JsonValue phrases = encodePhraseLibrary(pack.phraseBank.library, result);
     for (std::size_t index = 0u; index < phrases.array.size(); ++index) {
         auto& item = phrases.array[index];
         item.object["id"] = JsonValue::stringValue(packPhraseId(index));
         JsonValue dependencies = JsonValue::arrayValue();
         std::array<bool, kBurstDefinitionCount> seen {};
-        for (const auto& cell : pack.phraseLibrary.phrases[index].notes) {
+        for (const auto& cell : pack.phraseBank.library.phrases[index].notes) {
             if (cell.state != NoteCellState::Burst
                 || cell.note >= seen.size() || seen[cell.note]) continue;
             seen[cell.note] = true;
-            if (pack.burstLibrary.bursts[cell.note].empty()) {
+            if (pack.burstBank.library.bursts[cell.note].empty()) {
                 setError(result, ProjectErrorCode::InconsistentData,
                     "$.phrases[" + std::to_string(index) + "]",
                     "Phrase references a Burst missing from the pack");
@@ -2059,6 +2192,10 @@ JsonValue encodeAssetPackDocument(const TrackerAssetPack& pack,
         item.object["burstDependencies"] = std::move(dependencies);
     }
     root.object["phrases"] = std::move(phrases);
+    root.object["burstBankName"] = encodeCheckedString(pack.burstBank.name,
+        kMaximumNameBytes, "$.burstBankName", result);
+    root.object["phraseBankName"] = encodeCheckedString(pack.phraseBank.name,
+        kMaximumNameBytes, "$.phraseBankName", result);
     return root;
 }
 
@@ -2078,7 +2215,12 @@ bool decodeAssetPackDocument(const JsonValue& root,
         "$", result);
     const auto* phrases = requiredField(root, "phrases", JsonType::Array,
         "$", result);
-    if (!format || !version || !name || !bursts || !phrases) return false;
+    const auto* burstBankName = requiredField(root, "burstBankName",
+        JsonType::String, "$", result);
+    const auto* phraseBankName = requiredField(root, "phraseBankName",
+        JsonType::String, "$", result);
+    if (!format || !version || !name || !bursts || !phrases
+        || !burstBankName || !phraseBankName) return false;
     if (format->string != kTrackerAssetPackFormat)
         return setError(result, ProjectErrorCode::InvalidArgument,
             "$.format", "file is not an s3g Tracker asset pack");
@@ -2091,11 +2233,18 @@ bool decodeAssetPackDocument(const JsonValue& root,
             "$.version", "asset pack version is not supported");
 
     TrackerAssetPack candidate;
+    candidate.burstBank.id = kProjectAssetBankId;
+    candidate.phraseBank.id = kProjectAssetBankId;
+    candidate.phraseBank.companionBurstBankId = kProjectAssetBankId;
     if (!checkedString(*name, candidate.name, kMaximumNameBytes,
             "$.name", result)
-        || !decodeBursts(*bursts, candidate.burstLibrary,
+        || !checkedString(*burstBankName, candidate.burstBank.name,
+            kMaximumNameBytes, "$.burstBankName", result)
+        || !checkedString(*phraseBankName, candidate.phraseBank.name,
+            kMaximumNameBytes, "$.phraseBankName", result)
+        || !decodeBursts(*bursts, candidate.burstBank.library,
             "$.bursts", result)
-        || !decodePhraseLibrary(*phrases, candidate.phraseLibrary, result))
+        || !decodePhraseLibrary(*phrases, candidate.phraseBank.library, result))
         return false;
 
     std::map<std::string, std::size_t> burstIds;
@@ -2142,10 +2291,10 @@ bool decodeAssetPackDocument(const JsonValue& root,
                     "Burst dependency ID is missing from the pack");
             declared[found->second] = true;
         }
-        for (const auto& cell : candidate.phraseLibrary.phrases[index].notes) {
+        for (const auto& cell : candidate.phraseBank.library.phrases[index].notes) {
             if (cell.state != NoteCellState::Burst) continue;
             if (cell.note >= declared.size() || !declared[cell.note]
-                || candidate.burstLibrary.bursts[cell.note].empty())
+                || candidate.burstBank.library.bursts[cell.note].empty())
                 return setError(result, ProjectErrorCode::InconsistentData,
                     path + ".burstDependencies",
                     "Phrase Burst reference is not declared by asset ID");
@@ -2421,8 +2570,10 @@ bool validateBurstReferences(const ProjectDocument& document,
         for (std::size_t row = 0u; row < notes.size(); ++row) {
             const auto& cell = notes[row];
             if (cell.state != NoteCellState::Burst) continue;
-            if (cell.note < document.burstLibrary.bursts.size()
-                && !document.burstLibrary.bursts[cell.note].empty())
+            const auto* bank = findBurstBank(document.burstBanks,
+                cell.burstBankId);
+            if (bank && cell.note < bank->library.bursts.size()
+                && !bank->library.bursts[cell.note].empty())
                 continue;
             return setError(result, ProjectErrorCode::InconsistentData,
                 path + "[" + std::to_string(row) + "].burst",
@@ -2440,12 +2591,21 @@ bool validateBurstReferences(const ProjectDocument& document,
                         + "].notes")) return false;
         }
     }
-    for (std::size_t phrase = 0u;
-         phrase < document.phraseLibrary.phrases.size(); ++phrase) {
-        if (!validateNotes(document.phraseLibrary.phrases[phrase].notes,
-                "$.phrases[" + std::to_string(phrase) + "].notes"))
-            return false;
+    for (std::size_t bank = 0u; bank < document.phraseBanks.size(); ++bank) {
+        for (std::size_t phrase = 0u;
+             phrase < document.phraseBanks[bank].library.phrases.size();
+             ++phrase) {
+            if (!validateNotes(
+                    document.phraseBanks[bank].library.phrases[phrase].notes,
+                    "$.phraseBanks[" + std::to_string(bank) + "].slots["
+                        + std::to_string(phrase) + "].notes")) return false;
+        }
     }
+    for (const auto& phraseBank : document.phraseBanks)
+        if (!findBurstBank(document.burstBanks,
+                phraseBank.companionBurstBankId))
+            return setError(result, ProjectErrorCode::InconsistentData,
+                "$.phraseBanks", "Phrase bank companion Burst bank is missing");
     return true;
 }
 
@@ -2463,10 +2623,8 @@ JsonValue encodeDocument(const ProjectDocument& document,
     root.object["format"] = JsonValue::stringValue(kProjectFormatIdentifier);
     root.object["patterns"] = encodePatternBank(
         document.patternBank, result);
-    root.object["bursts"] = encodeBursts(
-        document.burstLibrary, "$.bursts", result);
-    root.object["phrases"] = encodePhraseLibrary(
-        document.phraseLibrary, result);
+    root.object["burstBanks"] = encodeBurstBanks(document.burstBanks, result);
+    root.object["phraseBanks"] = encodePhraseBanks(document.phraseBanks, result);
     root.object["version"] = number(kProjectFormatVersion);
     root.object["workspace"] = encodeSession(document.session, result);
     root.object["arrangement"] = encodeSong(document.song, result);
@@ -2490,7 +2648,9 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         JsonType::Number, "$", result);
     const auto* patternBank = requiredField(root, "patterns",
         JsonType::Object, "$", result);
-    const auto* burstLibrary = requiredField(root, "bursts",
+    const auto* burstBanks = requiredField(root, "burstBanks",
+        JsonType::Array, "$", result);
+    const auto* phraseBanks = requiredField(root, "phraseBanks",
         JsonType::Array, "$", result);
     const auto* transport = requiredField(root, "playback", JsonType::Object,
         "$", result);
@@ -2500,7 +2660,7 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
         "$", result);
     const auto* warpLibrary = requiredField(root, "warps",
         JsonType::Array, "$", result);
-    if (!format || !schema || !patternBank || !burstLibrary
+    if (!format || !schema || !patternBank || !burstBanks || !phraseBanks
         || !transport || !session
         || !song || !warpLibrary) return false;
     if (format->string != kProjectFormatIdentifier)
@@ -2515,20 +2675,22 @@ bool decodeDocument(const JsonValue& root, ProjectDocument& destination,
             "$.version", "MIDI composition version is not supported");
 
     ProjectDocument candidate;
-    const auto phrases = root.object.find("phrases");
     if (!decodePatternBank(*patternBank, candidate.patternBank, result)
-        || !decodeBursts(*burstLibrary, candidate.burstLibrary,
-            "$.bursts", result)
+        || !decodeBurstBanks(*burstBanks, candidate.burstBanks, result)
+        || !decodePhraseBanks(*phraseBanks, candidate.phraseBanks, result)
         || !decodeTransport(*transport, candidate.transport, result)
         || !decodeSession(*session, candidate.session, result)
         || !decodeSong(*song, candidate.song, result)
         || !decodeTimingWarpLibrary(*warpLibrary, candidate.warpLibrary,
             result)
-        || (phrases != root.object.end()
-            && !decodePhraseLibrary(phrases->second,
-                candidate.phraseLibrary, result))
         || !validateSongReferences(candidate, result)
         || !validateBurstReferences(candidate, result)) return false;
+    if (!findBurstBank(candidate.burstBanks,
+            candidate.session.activeBurstBankId)
+        || !findPhraseBank(candidate.phraseBanks,
+            candidate.session.activePhraseBankId))
+        return setError(result, ProjectErrorCode::InconsistentData,
+            "$.workspace", "active asset bank is missing");
     destination = std::move(candidate);
     return true;
 }
@@ -2943,6 +3105,8 @@ JsonValue encodeSession(const ProjectSessionState& session,
         session.showMidiNoteValues);
     output.object["trackerRowJump"] = number(session.trackerRowJump);
     output.object["playbackSeed"] = number(session.playbackSeed);
+    output.object["activeBurstBank"] = number(session.activeBurstBankId);
+    output.object["activePhraseBank"] = number(session.activePhraseBankId);
     return output;
 }
 
@@ -2961,8 +3125,12 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
         JsonType::Boolean, "$.session", result);
     const auto* showMidi = requiredField(input, "showMidiNoteValues",
         JsonType::Boolean, "$.session", result);
+    const auto* activeBurstBank = requiredField(input, "activeBurstBank",
+        JsonType::Number, "$.session", result);
+    const auto* activePhraseBank = requiredField(input, "activePhraseBank",
+        JsonType::Number, "$.session", result);
     if (!gate || !tempoScale || !commandSeed || !playbackSeed
-        || !songEnabled || !showMidi)
+        || !songEnabled || !showMidi || !activeBurstBank || !activePhraseBank)
         return false;
     ProjectSessionState candidate;
     if (!checkedNumber(*gate, candidate.gateMilliseconds, 1.0, 10000.0,
@@ -2975,7 +3143,15 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
             "$.session.commandRngState", result)
         || !checkedUint32(*playbackSeed, candidate.playbackSeed,
             std::numeric_limits<uint32_t>::max(), "$.session.playbackSeed",
-            result)) return false;
+            result)
+        || !checkedUint32(*activeBurstBank, candidate.activeBurstBankId,
+            std::numeric_limits<uint32_t>::max(),
+            "$.session.activeBurstBank", result)
+        || !checkedUint32(*activePhraseBank, candidate.activePhraseBankId,
+            std::numeric_limits<uint32_t>::max(),
+            "$.session.activePhraseBank", result)
+        || candidate.activeBurstBankId == kInvalidAssetBankId
+        || candidate.activePhraseBankId == kInvalidAssetBankId) return false;
     const auto rowJump = input.object.find("trackerRowJump");
     if (rowJump != input.object.end()
         && !checkedUint32(rowJump->second, candidate.trackerRowJump, 16u,

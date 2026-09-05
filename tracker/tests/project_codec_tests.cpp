@@ -44,7 +44,7 @@ ProjectDocument makeDocument()
     ProjectDocument document;
     activePattern(document).name = "Native Pattern α";
     activePattern(document).visibleRows = 12u;
-    auto& burst = document.burstLibrary.bursts[0u];
+    auto& burst = document.burstBanks[0u].library.bursts[0u];
     burst.name = "Break Rush";
     burst.eventCount = 4u;
     burst.events[0u] = { 0u, 48u, 127u, 70u };
@@ -183,18 +183,18 @@ ProjectDocument makeDocument()
     document.session.commandRngState = std::numeric_limits<uint64_t>::max();
     document.session.playbackSeed = 0xfedcba98u;
 
-    auto& phrase = document.phraseLibrary.phrases[3u];
+    auto& phrase = document.phraseBanks[0u].library.phrases[3u];
     phrase = makeBlankPhrase(7u);
     phrase.name = "Odd Hat Turn";
     phrase.previewMidiChannel = 10u;
     phrase.notes[0u] = NoteCell::withNote(42u);
     phrase.notes[3u] = NoteCell::withNote(46u);
     phrase.notes[5u] = NoteCell::withBurst(4u);
-    document.burstLibrary.bursts[4u].name = "Phrase flam";
-    document.burstLibrary.bursts[4u].eventCount = 2u;
-    document.burstLibrary.bursts[4u].events[0u]
+    document.burstBanks[0u].library.bursts[4u].name = "Phrase flam";
+    document.burstBanks[0u].library.bursts[4u].eventCount = 2u;
+    document.burstBanks[0u].library.bursts[4u].events[0u]
         = { 0u, 38u, 118u, 40u };
-    document.burstLibrary.bursts[4u].events[1u]
+    document.burstBanks[0u].library.bursts[4u].events[1u]
         = { 49152u, 38u, 90u, 25u };
     phrase.velocities[3u] = ValueCell::withValue(0.72f);
     phrase.fxPairs[0u].actions[3u] = FxActionCell::sequencer(
@@ -221,6 +221,21 @@ ProjectDocument makeDocument()
     secondRow.durationTicks = 7u;
     secondRow.repeats = 1u;
     document.song.rows.push_back(std::move(secondRow));
+    BurstBank importedBursts;
+    importedBursts.id = 9u;
+    importedBursts.name = "IMPORTED BREAKS BURSTS";
+    importedBursts.library.bursts[2u] = document.burstBanks[0u]
+        .library.bursts[0u];
+    document.burstBanks.push_back(std::move(importedBursts));
+    PhraseBank importedPhrases;
+    importedPhrases.id = 10u;
+    importedPhrases.name = "IMPORTED BREAKS";
+    importedPhrases.companionBurstBankId = 9u;
+    importedPhrases.library.phrases[0u] = makeBlankPhrase(4u);
+    importedPhrases.library.phrases[0u].name = "BANKED RUFF";
+    importedPhrases.library.phrases[0u].notes[1u]
+        = NoteCell::withBurst(2u, 9u);
+    document.phraseBanks.push_back(std::move(importedPhrases));
     return document;
 }
 
@@ -234,7 +249,9 @@ void testCompleteDeterministicRoundTrip()
     check(firstEncoding.find(
                 "\"format\": \"s3g-tracker-midi-composition\"")
                 != std::string::npos
-            && firstEncoding.find("\"version\": 2") != std::string::npos
+            && firstEncoding.find("\"version\": 3") != std::string::npos
+            && firstEncoding.find("\"burstBanks\"") != std::string::npos
+            && firstEncoding.find("\"phraseBanks\"") != std::string::npos
             && firstEncoding.find("\"patterns\"") != std::string::npos
             && firstEncoding.find("\"arrangement\"") != std::string::npos
             && firstEncoding.find("\"playback\"") != std::string::npos
@@ -252,7 +269,7 @@ void testCompleteDeterministicRoundTrip()
             && firstEncoding.find("instruments") == std::string::npos
             && firstEncoding.find("sampleRate") == std::string::npos
             && firstEncoding.find("mainOutput") == std::string::npos,
-        "version 2 should contain only MIDI composition, playback, arrangement, and workspace data");
+        "version 3 should contain banked MIDI composition, playback, arrangement, and workspace data");
 
     ProjectDocument decoded;
     const auto decodedResult = decodeProjectDocument(firstEncoding, decoded);
@@ -269,21 +286,28 @@ void testCompleteDeterministicRoundTrip()
             && decoded.session.trackerRowJump == 3u
             && std::abs(decoded.session.tempoScale - 1.5) < 1.0e-9,
         "random seeds, Song mode, NOTE view, and row jump should survive without precision loss");
-    check(decoded.phraseLibrary.phrases[3u].name == "Odd Hat Turn"
-            && decoded.phraseLibrary.phrases[3u].length == 7u
-            && decoded.phraseLibrary.phrases[3u].previewMidiChannel == 10u
-            && decoded.phraseLibrary.phrases[3u].notes[3u].note == 46u
-            && decoded.phraseLibrary.phrases[3u].notes[5u].state
+    check(decoded.phraseBanks[0u].library.phrases[3u].name == "Odd Hat Turn"
+            && decoded.phraseBanks[0u].library.phrases[3u].length == 7u
+            && decoded.phraseBanks[0u].library.phrases[3u].previewMidiChannel == 10u
+            && decoded.phraseBanks[0u].library.phrases[3u].notes[3u].note == 46u
+            && decoded.phraseBanks[0u].library.phrases[3u].notes[5u].state
                 == NoteCellState::Burst
-            && decoded.burstLibrary.bursts[4u].name
+            && decoded.burstBanks[0u].library.bursts[4u].name
                 == "Phrase flam"
-            && decoded.burstLibrary.bursts[4u].events[1u]
+            && decoded.burstBanks[0u].library.bursts[4u].events[1u]
                 .position == 49152u
-            && decoded.phraseLibrary.phrases[3u].fxPairs[0u].values[3u]
+            && decoded.phraseBanks[0u].library.phrases[3u].fxPairs[0u].values[3u]
                 .normalized == 0.6f
-            && decoded.phraseLibrary.phrases[3u].gates[3u]
+            && decoded.phraseBanks[0u].library.phrases[3u].gates[3u]
                 .gateVoice(0u).rows == 0.75f,
         "project phrase library should preserve preview channel, odd lengths, gates, and typed cells");
+    check(decoded.burstBanks.size() == 2u
+            && decoded.phraseBanks.size() == 2u
+            && decoded.burstBanks[1u].id == 9u
+            && decoded.phraseBanks[1u].companionBurstBankId == 9u
+            && decoded.phraseBanks[1u].library.phrases[0u]
+                    .notes[1u].burstBankId == 9u,
+        "stable bank IDs and companion Burst references should round trip");
     check(activePattern(decoded).tracks[0u].noteColumn.phase == 2u
             && activePattern(decoded).tracks[0u].notes[3u].state
                 == NoteCellState::Hold
@@ -302,8 +326,8 @@ void testCompleteDeterministicRoundTrip()
             && activePattern(decoded).tracks[0u].gates[7u]
                     .gateVoice(1u).mode == GateVoiceMode::Tie
             && activePattern(decoded).tracks[0u].gateColumn.phase == 4u
-            && decoded.burstLibrary.bursts[0u].name == "Break Rush"
-            && decoded.burstLibrary.bursts[0u].events[2u].note == 50u
+            && decoded.burstBanks[0u].library.bursts[0u].name == "Break Rush"
+            && decoded.burstBanks[0u].library.bursts[0u].events[2u].note == 50u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actionColumn.phase == 4u
             && activePattern(decoded).tracks[0u].fxPairs[0u].actions[11u]
                 .sequencerAction == SequencerAction::Euclid
@@ -377,7 +401,7 @@ void testEmptyOptionalSongIsAValidProject()
 void testProjectWideBurstIdentity()
 {
     ProjectDocument document;
-    auto& shared = document.burstLibrary.bursts[3u];
+    auto& shared = document.burstBanks[0u].library.bursts[3u];
     shared.name = "ONE SHARED RUFF";
     shared.eventCount = 2u;
     shared.events[0u] = { 0u, 38u, 118u, 35u };
@@ -399,7 +423,7 @@ void testProjectWideBurstIdentity()
     second.tracks[0u].notes[2u] = NoteCell::withBurst(3u);
     document.patternBank.entries.push_back({ "A02", second, {}, {} });
 
-    auto& phrase = document.phraseLibrary.phrases[0u];
+    auto& phrase = document.phraseBanks[0u].library.phrases[0u];
     phrase = makeBlankPhrase(4u);
     phrase.name = "SHARED RUFF PHRASE";
     phrase.notes[1u] = NoteCell::withBurst(3u);
@@ -413,10 +437,10 @@ void testProjectWideBurstIdentity()
         "one project Burst should satisfy references from multiple patterns and a Phrase");
     ProjectDocument decoded;
     check(decodeProjectDocument(encoded, decoded).ok()
-            && decoded.burstLibrary.bursts[3u].name == "ONE SHARED RUFF"
+            && decoded.burstBanks[0u].library.bursts[3u].name == "ONE SHARED RUFF"
             && decoded.patternBank.entries[0u].pattern.tracks[0u].notes[0u].note == 3u
             && decoded.patternBank.entries[1u].pattern.tracks[0u].notes[2u].note == 3u
-            && decoded.phraseLibrary.phrases[0u].notes[1u].note == 3u,
+            && decoded.phraseBanks[0u].library.phrases[0u].notes[1u].note == 3u,
         "project roundtrip should preserve a single shared Burst slot identity everywhere");
 }
 
@@ -457,7 +481,7 @@ void testRapBurstSeqDemoLoadsAsMidiComposition()
 
     bool hasBurst = false;
     bool hasSequencerAction = false;
-    for (const auto& burst : demo.burstLibrary.bursts)
+    for (const auto& burst : demo.burstBanks[0u].library.bursts)
         hasBurst |= !burst.empty();
     for (const auto& entry : demo.patternBank.entries) {
         for (const auto& track : entry.pattern.tracks) {
@@ -512,8 +536,8 @@ void testStrictTransactionalRejection()
     activePattern(destination).name = "sentinel";
 
     std::string wrongVersion = encoded;
-    const auto version = wrongVersion.find("\"version\": 2");
-    wrongVersion.replace(version, std::string("\"version\": 2").size(),
+    const auto version = wrongVersion.find("\"version\": 3");
+    wrongVersion.replace(version, std::string("\"version\": 3").size(),
         "\"version\": 99");
     const auto unsupported = decodeProjectDocument(wrongVersion, destination);
     check(unsupported.code == ProjectErrorCode::UnsupportedSchemaVersion

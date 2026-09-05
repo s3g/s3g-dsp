@@ -1170,7 +1170,8 @@
                 },
                 {
                   "burst": 2,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -1532,7 +1533,8 @@
                 },
                 {
                   "burst": 0,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 },
                 {
                   "state": "rest"
@@ -1931,7 +1933,8 @@
                 },
                 {
                   "burst": 1,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -3042,7 +3045,8 @@
                 },
                 {
                   "burst": 0,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -3441,7 +3445,8 @@
                 },
                 {
                   "burst": 1,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -4938,7 +4943,8 @@
                 },
                 {
                   "burst": 1,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -5678,7 +5684,8 @@
                 },
                 {
                   "burst": 2,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -6048,7 +6055,8 @@
                 },
                 {
                   "burst": 3,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -6803,7 +6811,8 @@
                 },
                 {
                   "burst": 4,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -7166,7 +7175,8 @@
                 },
                 {
                   "burst": 5,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 },
                 {
                   "state": "rest"
@@ -7921,7 +7931,8 @@
                 },
                 {
                   "burst": 1,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 },
                 {
                   "note": 36,
@@ -8284,7 +8295,8 @@
                 },
                 {
                   "burst": 4,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 },
                 {
                   "state": "rest"
@@ -8643,7 +8655,8 @@
                 },
                 {
                   "burst": 2,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 },
                 {
                   "state": "rest"
@@ -8653,7 +8666,8 @@
                 },
                 {
                   "burst": 5,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -9008,7 +9022,8 @@
                 },
                 {
                   "burst": 0,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 },
                 {
                   "state": "rest"
@@ -9021,7 +9036,8 @@
                 },
                 {
                   "burst": 3,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -10130,7 +10146,8 @@
                 },
                 {
                   "burst": 2,
-                  "state": "burst"
+                  "state": "burst",
+                  "burstBank": 1
                 }
               ],
               "velocities": [
@@ -10582,7 +10599,7 @@
     "warpEnabled": false,
     "warpStack": []
   },
-  "version": 2,
+  "version": 3,
   "warps": [],
   "workspace": {
     "commandRngState": "7523668246347670629",
@@ -10591,158 +10608,174 @@
     "showMidiNoteValues": true,
     "songPlaybackEnabled": true,
     "tempoScale": 1,
-    "trackerRowJump": 1
+    "trackerRowJump": 1,
+    "activeBurstBank": 1,
+    "activePhraseBank": 1
   },
-  "bursts": [
+  "burstBanks": [
     {
-      "events": [
+      "id": 1,
+      "name": "PROJECT BURSTS",
+      "slots": [
         {
-          "gate": 33,
-          "note": 61,
-          "position": 0,
-          "velocity": 96
+          "events": [
+            {
+              "gate": 33,
+              "note": 61,
+              "position": 0,
+              "velocity": 96
+            },
+            {
+              "gate": 33,
+              "note": 61,
+              "position": 21845,
+              "velocity": 65
+            },
+            {
+              "gate": 33,
+              "note": 46,
+              "position": 43690,
+              "velocity": 84
+            }
+          ],
+          "name": "HAT 3 CHOP",
+          "slot": 0
         },
         {
-          "gate": 33,
-          "note": 61,
-          "position": 21845,
-          "velocity": 65
+          "events": [
+            {
+              "gate": 41,
+              "note": 36,
+              "position": 0,
+              "velocity": 118
+            },
+            {
+              "gate": 59,
+              "note": 36,
+              "position": 26624,
+              "velocity": 78
+            }
+          ],
+          "name": "KICK DRAG",
+          "slot": 1
         },
         {
-          "gate": 33,
-          "note": 46,
-          "position": 43690,
-          "velocity": 84
+          "events": [
+            {
+              "gate": 38,
+              "note": 43,
+              "position": 0,
+              "velocity": 108
+            },
+            {
+              "gate": 31,
+              "note": 75,
+              "position": 24576,
+              "velocity": 74
+            },
+            {
+              "gate": 31,
+              "note": 43,
+              "position": 45056,
+              "velocity": 120
+            }
+          ],
+          "name": "FLOOR TOM RIM PHRASE",
+          "slot": 2
+        },
+        {
+          "events": [
+            {
+              "gate": 20,
+              "note": 61,
+              "position": 0,
+              "velocity": 99
+            },
+            {
+              "gate": 20,
+              "note": 61,
+              "position": 13107,
+              "velocity": 61
+            },
+            {
+              "gate": 20,
+              "note": 61,
+              "position": 26214,
+              "velocity": 82
+            },
+            {
+              "gate": 20,
+              "note": 46,
+              "position": 39321,
+              "velocity": 72
+            },
+            {
+              "gate": 20,
+              "note": 61,
+              "position": 52428,
+              "velocity": 91
+            }
+          ],
+          "name": "HAT 5 CUT",
+          "slot": 3
+        },
+        {
+          "events": [
+            {
+              "gate": 22,
+              "note": 40,
+              "position": 0,
+              "velocity": 46
+            },
+            {
+              "gate": 25,
+              "note": 38,
+              "position": 14336,
+              "velocity": 69
+            },
+            {
+              "gate": 53,
+              "note": 40,
+              "position": 30720,
+              "velocity": 116
+            }
+          ],
+          "name": "SNARE RIM RUFF",
+          "slot": 4
+        },
+        {
+          "events": [
+            {
+              "gate": 31,
+              "note": 43,
+              "position": 0,
+              "velocity": 97
+            },
+            {
+              "gate": 34,
+              "note": 43,
+              "position": 20480,
+              "velocity": 67
+            },
+            {
+              "gate": 34,
+              "note": 75,
+              "position": 43008,
+              "velocity": 112
+            }
+          ],
+          "name": "FLOOR TOM DRAG",
+          "slot": 5
         }
-      ],
-      "name": "HAT 3 CHOP",
-      "slot": 0
-    },
+      ]
+    }
+  ],
+  "phraseBanks": [
     {
-      "events": [
-        {
-          "gate": 41,
-          "note": 36,
-          "position": 0,
-          "velocity": 118
-        },
-        {
-          "gate": 59,
-          "note": 36,
-          "position": 26624,
-          "velocity": 78
-        }
-      ],
-      "name": "KICK DRAG",
-      "slot": 1
-    },
-    {
-      "events": [
-        {
-          "gate": 38,
-          "note": 43,
-          "position": 0,
-          "velocity": 108
-        },
-        {
-          "gate": 31,
-          "note": 75,
-          "position": 24576,
-          "velocity": 74
-        },
-        {
-          "gate": 31,
-          "note": 43,
-          "position": 45056,
-          "velocity": 120
-        }
-      ],
-      "name": "FLOOR TOM RIM PHRASE",
-      "slot": 2
-    },
-    {
-      "events": [
-        {
-          "gate": 20,
-          "note": 61,
-          "position": 0,
-          "velocity": 99
-        },
-        {
-          "gate": 20,
-          "note": 61,
-          "position": 13107,
-          "velocity": 61
-        },
-        {
-          "gate": 20,
-          "note": 61,
-          "position": 26214,
-          "velocity": 82
-        },
-        {
-          "gate": 20,
-          "note": 46,
-          "position": 39321,
-          "velocity": 72
-        },
-        {
-          "gate": 20,
-          "note": 61,
-          "position": 52428,
-          "velocity": 91
-        }
-      ],
-      "name": "HAT 5 CUT",
-      "slot": 3
-    },
-    {
-      "events": [
-        {
-          "gate": 22,
-          "note": 40,
-          "position": 0,
-          "velocity": 46
-        },
-        {
-          "gate": 25,
-          "note": 38,
-          "position": 14336,
-          "velocity": 69
-        },
-        {
-          "gate": 53,
-          "note": 40,
-          "position": 30720,
-          "velocity": 116
-        }
-      ],
-      "name": "SNARE RIM RUFF",
-      "slot": 4
-    },
-    {
-      "events": [
-        {
-          "gate": 31,
-          "note": 43,
-          "position": 0,
-          "velocity": 97
-        },
-        {
-          "gate": 34,
-          "note": 43,
-          "position": 20480,
-          "velocity": 67
-        },
-        {
-          "gate": 34,
-          "note": 75,
-          "position": 43008,
-          "velocity": 112
-        }
-      ],
-      "name": "FLOOR TOM DRAG",
-      "slot": 5
+      "id": 1,
+      "name": "PROJECT PHRASES",
+      "companionBurstBank": 1,
+      "slots": []
     }
   ]
 }

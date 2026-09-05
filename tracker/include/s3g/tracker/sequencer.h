@@ -31,6 +31,10 @@ constexpr std::size_t kMaximumPendingScheduledEvents = 8192u;
 constexpr std::size_t kMaximumCcInterpolationEventsPerTick = 128u;
 constexpr double kMaximumCcInterpolationRateHz = 200.0;
 constexpr std::size_t kMaximumNoteVoices = 8u;
+using AssetBankId = uint32_t;
+constexpr AssetBankId kProjectAssetBankId = 1u;
+constexpr AssetBankId kInvalidAssetBankId = 0u;
+constexpr std::size_t kMaximumAssetBanks = 64u;
 
 enum class NoteCellState : uint8_t {
     Rest,
@@ -46,6 +50,10 @@ struct NoteCell {
     uint8_t note = 0u;
     uint8_t voiceCount = 0u;
     std::array<uint8_t, kMaximumNoteVoices - 1u> additionalNotes {};
+    // Burst slots are local to a named project bank. Keeping the stable bank
+    // ID in the cell means importing or reordering banks never changes what a
+    // placed Pattern or reusable Phrase plays.
+    AssetBankId burstBankId = kProjectAssetBankId;
 
     static NoteCell rest() { return {}; }
 
@@ -106,11 +114,14 @@ struct NoteCell {
             voice - 1u, additionalNotes.size() - 1u)];
     }
 
-    static NoteCell withBurst(uint8_t definition)
+    static NoteCell withBurst(uint8_t definition,
+        AssetBankId bankId = kProjectAssetBankId)
     {
         NoteCell cell;
         cell.state = NoteCellState::Burst;
         cell.note = definition;
+        cell.burstBankId = bankId == kInvalidAssetBankId
+            ? kProjectAssetBankId : bankId;
         return cell;
     }
 };
@@ -142,8 +153,41 @@ struct BurstLibrary {
     std::array<BurstDefinition, kBurstDefinitionCount> bursts {};
 };
 
+struct BurstBank {
+    AssetBankId id = kInvalidAssetBankId;
+    std::string name;
+    BurstLibrary library;
+};
+
+inline BurstBank makeProjectBurstBank()
+{
+    BurstBank bank;
+    bank.id = kProjectAssetBankId;
+    bank.name = "PROJECT BURSTS";
+    return bank;
+}
+
+inline BurstBank* findBurstBank(std::vector<BurstBank>& banks,
+    AssetBankId id) noexcept
+{
+    const auto found = std::find_if(banks.begin(), banks.end(),
+        [id](const BurstBank& bank) { return bank.id == id; });
+    return found == banks.end() ? nullptr : &*found;
+}
+
+inline const BurstBank* findBurstBank(const std::vector<BurstBank>& banks,
+    AssetBankId id) noexcept
+{
+    const auto found = std::find_if(banks.begin(), banks.end(),
+        [id](const BurstBank& bank) { return bank.id == id; });
+    return found == banks.end() ? nullptr : &*found;
+}
+
 std::string burstSlotToken(std::size_t index);
+std::string assetBankToken(AssetBankId id);
 bool parseBurstSlot(std::string_view text, std::size_t& index) noexcept;
+bool parseQualifiedBurstToken(std::string_view text, AssetBankId& bankId,
+    std::size_t& index) noexcept;
 // Set each event's gate to the distance to the next event; the final event
 // ends at the primary Tracker-row boundary. Percent storage is rounded to the
 // nearest legal 1..100 value.
@@ -670,6 +714,7 @@ struct ScheduledEvent {
     // canonical first event of a Burst recipe for TimingPlaybackScheduler to
     // expand after whole-burst SEQ gates and timing have resolved.
     uint8_t burstDefinition = kNoBurstDefinition;
+    AssetBankId burstBankId = kProjectAssetBankId;
     // Zero-based position in the source NOTE cell. TimingPlaybackScheduler
     // uses this to align a polyphonic MT value with its matching note-on and
     // note-off while other actions remain lane-wide.
@@ -751,7 +796,13 @@ public:
     void replacePattern(Pattern pattern);
     const Pattern& pattern() const noexcept { return pattern_; }
     void setBurstLibrary(BurstLibrary library);
-    const BurstLibrary& burstLibrary() const noexcept { return burstLibrary_; }
+    void setBurstBanks(std::vector<BurstBank> banks);
+    const std::vector<BurstBank>& burstBanks() const noexcept
+    {
+        return burstBanks_;
+    }
+    const BurstDefinition* findBurst(AssetBankId bankId,
+        uint8_t slot) const noexcept;
 
     // Builds a frozen, normalized set of runtime patterns and pre-sizes every
     // lane buffer needed by any member. This is a stopped control-thread
@@ -931,6 +982,7 @@ private:
         uint32_t lastEmittedNodeId = kInvalidInstrumentNode;
         EventDestination lastEmittedDestination = EventDestination::None;
         uint8_t lastEmittedBurstDefinition = kNoBurstDefinition;
+        AssetBankId lastEmittedBurstBankId = kProjectAssetBankId;
         bool hasLastEmitted = false;
         bool hasNote = false;
         bool noteMuted = true;
@@ -1003,7 +1055,7 @@ private:
     uint64_t allocateNoteId() noexcept;
 
     Pattern pattern_;
-    BurstLibrary burstLibrary_;
+    std::vector<BurstBank> burstBanks_ { makeProjectBurstBank() };
     std::vector<Pattern> preparedPatterns_;
     std::vector<TrackPlaybackState> playback_;
     std::array<ScheduledEvent, kMaximumTrackCount * kMaximumNoteVoices>

@@ -1,5 +1,7 @@
 #include "s3g/tracker/asset_pack.h"
 
+#include <algorithm>
+#include <array>
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -25,33 +27,35 @@ BurstDefinition burst(std::string name, uint8_t note)
 int main()
 {
     ProjectDocument source;
-    source.burstLibrary.bursts[7u] = burst("Shared ruff", 36u);
-    auto& phrase = source.phraseLibrary.phrases[5u];
+    auto& sourceBursts = source.burstBanks[0u].library;
+    auto& sourcePhrases = source.phraseBanks[0u].library;
+    sourceBursts.bursts[7u] = burst("Shared ruff", 36u);
+    auto& phrase = sourcePhrases.phrases[5u];
     phrase = makeBlankPhrase(5u);
     phrase.name = "Odd break turn";
     phrase.notes[1u] = NoteCell::withBurst(7u);
     phrase.notes[3u] = NoteCell::withNote(42u);
 
     const auto pack = makePhraseAssetPack("Break Foundations",
-        source.phraseLibrary, 5u, source.burstLibrary);
-    assert(pack.phraseLibrary.phrases[0u].name == "Odd break turn");
-    assert(pack.phraseLibrary.phrases[0u].notes[1u].note == 0u);
-    assert(pack.burstLibrary.bursts[0u].name == "Shared ruff");
+        sourcePhrases, 5u, sourceBursts);
+    assert(pack.phraseBank.library.phrases[0u].name == "Odd break turn");
+    assert(pack.phraseBank.library.phrases[0u].notes[1u].note == 0u);
+    assert(pack.burstBank.library.bursts[0u].name == "Shared ruff");
 
-    source.burstLibrary.bursts[9u] = burst("Second ornament", 42u);
-    auto& secondPhrase = source.phraseLibrary.phrases[12u];
+    sourceBursts.bursts[9u] = burst("Second ornament", 42u);
+    auto& secondPhrase = sourcePhrases.phrases[12u];
     secondPhrase = makeBlankPhrase(7u);
     secondPhrase.name = "Second phrase";
     secondPhrase.notes[2u] = NoteCell::withBurst(7u);
     secondPhrase.notes[5u] = NoteCell::withBurst(9u);
     const auto libraryPack = makePhraseLibraryAssetPack("Complete library",
-        source.phraseLibrary, source.burstLibrary);
-    assert(libraryPack.phraseLibrary.phrases[0u].name == "Odd break turn");
-    assert(libraryPack.phraseLibrary.phrases[1u].name == "Second phrase");
-    assert(libraryPack.burstLibrary.bursts[0u].name == "Shared ruff");
-    assert(libraryPack.burstLibrary.bursts[1u].name == "Second ornament");
-    assert(libraryPack.phraseLibrary.phrases[1u].notes[2u].note == 0u);
-    assert(libraryPack.phraseLibrary.phrases[1u].notes[5u].note == 1u);
+        sourcePhrases, sourceBursts);
+    assert(libraryPack.phraseBank.library.phrases[0u].name == "Odd break turn");
+    assert(libraryPack.phraseBank.library.phrases[1u].name == "Second phrase");
+    assert(libraryPack.burstBank.library.bursts[0u].name == "Shared ruff");
+    assert(libraryPack.burstBank.library.bursts[1u].name == "Second ornament");
+    assert(libraryPack.phraseBank.library.phrases[1u].notes[2u].note == 0u);
+    assert(libraryPack.phraseBank.library.phrases[1u].notes[5u].note == 1u);
     std::string libraryEncoded;
     assert(encodeTrackerAssetPack(libraryPack, libraryEncoded).ok());
     TrackerAssetPack libraryDecoded;
@@ -62,6 +66,42 @@ int main()
         &libraryReport).ok());
     assert(libraryReport.phrasesAdded == 2u
         && libraryReport.burstsAdded == 2u);
+
+    BurstBank importedBursts;
+    importedBursts.id = 9u;
+    importedBursts.name = "IMPORTED BREAKS";
+    importedBursts.library.bursts[4u] = burst("Foreign drag", 46u);
+    source.burstBanks[0u].library = sourceBursts;
+    source.burstBanks.push_back(importedBursts);
+    auto crossBankPhrases = sourcePhrases;
+    crossBankPhrases.phrases[5u].notes[4u] = NoteCell::withBurst(4u, 9u);
+    const auto crossBankPack = makePhraseAssetPack("Cross-bank phrase",
+        crossBankPhrases, 5u, source.burstBanks);
+    const auto& packedPhrase = crossBankPack.phraseBank.library.phrases[0u];
+    assert(crossBankPack.burstBank.library.bursts[0u].name == "Shared ruff");
+    assert(crossBankPack.burstBank.library.bursts[1u].name == "Foreign drag");
+    assert(packedPhrase.notes[1u].note == 0u
+        && packedPhrase.notes[4u].note == 1u);
+    assert(packedPhrase.notes[1u].burstBankId == kProjectAssetBankId
+        && packedPhrase.notes[4u].burstBankId == kProjectAssetBankId);
+    std::string crossBankEncoded;
+    assert(encodeTrackerAssetPack(crossBankPack, crossBankEncoded).ok());
+    TrackerAssetPack crossBankDecoded;
+    assert(decodeTrackerAssetPack(crossBankEncoded, crossBankDecoded).ok());
+    ProjectDocument crossBankDestination;
+    assert(importTrackerAssetPack(crossBankDecoded,
+        crossBankDestination).ok());
+    const auto importedBankId = crossBankDestination.burstBanks[1u].id;
+    const auto& importedPhrase =
+        crossBankDestination.phraseBanks[1u].library.phrases[0u];
+    assert(importedPhrase.notes[1u].burstBankId == importedBankId
+        && importedPhrase.notes[4u].burstBankId == importedBankId);
+
+    const auto burstBankPack = makeBurstLibraryAssetPack(
+        "Imported break collection", importedBursts.library);
+    assert(burstBankPack.burstBank.library.bursts[4u].name
+        == "Foreign drag");
+    assert(burstBankPack.phraseBank.library.phrases[0u].empty());
 
     std::string encoded;
     const auto packResult = encodeTrackerAssetPack(pack, encoded);
@@ -75,22 +115,27 @@ int main()
 
     TrackerAssetPack decoded;
     assert(decodeTrackerAssetPack(encoded, decoded).ok());
-    assert(decoded.burstLibrary.bursts[0u].events[1u].note == 37u);
-    assert(decoded.phraseLibrary.phrases[0u].notes[1u].state
+    assert(decoded.burstBank.library.bursts[0u].events[1u].note == 37u);
+    assert(decoded.phraseBank.library.phrases[0u].notes[1u].state
         == NoteCellState::Burst);
 
     ProjectDocument destination;
-    destination.burstLibrary.bursts[0u] = burst("Occupied", 60u);
+    destination.burstBanks[0u].library.bursts[0u] = burst("Occupied", 60u);
     AssetPackImportReport report;
     assert(importTrackerAssetPack(decoded, destination, &report).ok());
     assert(report.burstsAdded == 1u && report.phrasesAdded == 1u);
-    assert(destination.burstLibrary.bursts[1u].name == "Shared ruff");
-    assert(destination.phraseLibrary.phrases[0u].notes[1u].note == 1u);
+    assert(destination.burstBanks.size() == 2u
+        && destination.phraseBanks.size() == 2u);
+    assert(destination.burstBanks[1u].library.bursts[0u].name == "Shared ruff");
+    assert(destination.phraseBanks[1u].library.phrases[0u].notes[1u].note == 0u);
+    assert(destination.phraseBanks[1u].library.phrases[0u].notes[1u].burstBankId
+        == destination.burstBanks[1u].id);
 
     report = {};
     assert(importTrackerAssetPack(decoded, destination, &report).ok());
-    assert(report.burstsReused == 1u && report.phrasesReused == 1u
-        && report.burstsAdded == 0u && report.phrasesAdded == 0u);
+    assert(report.burstsAdded == 1u && report.phrasesAdded == 1u
+        && destination.burstBanks.size() == 3u
+        && destination.phraseBanks.size() == 3u);
 
     std::string malformed = encoded;
     const auto dependency = malformed.find("burst-b01",
@@ -106,9 +151,12 @@ int main()
         == ProjectErrorCode::InconsistentData);
 
     ProjectDocument full;
-    for (std::size_t slot = 0u; slot < kBurstDefinitionCount; ++slot)
-        full.burstLibrary.bursts[slot] = burst(
-            "FULL " + std::to_string(slot), 40u);
+    for (std::size_t bank = 1u; bank < kMaximumAssetBanks; ++bank) {
+        BurstBank extra = makeProjectBurstBank();
+        extra.id = static_cast<AssetBankId>(bank + 1u);
+        extra.name = "FULL " + std::to_string(bank);
+        full.burstBanks.push_back(std::move(extra));
+    }
     std::string before;
     std::string after;
     assert(encodeProjectDocument(full, before).ok());
@@ -128,12 +176,41 @@ int main()
     AssetPackImportReport starterReport;
     assert(importTrackerAssetPack(starterPack, starterDestination,
         &starterReport).ok());
-    assert(starterReport.burstsAdded == 4u
-        && starterReport.phrasesAdded == 5u);
+    assert(starterReport.burstsAdded == 16u
+        && starterReport.phrasesAdded == kPhraseLibrarySlots);
     std::size_t polyphonicRows = 0u;
-    for (const auto& starterPhrase : starterPack.phraseLibrary.phrases)
-        for (const auto& cell : starterPhrase.notes)
+    std::size_t microTimeRows = 0u;
+    std::size_t polyphonicMicroTimeRows = 0u;
+    std::array<bool, 16u> referencedStarterBursts {};
+    for (const auto& starterPhrase : starterPack.phraseBank.library.phrases) {
+        assert(!starterPhrase.empty() && !starterPhrase.name.empty());
+        assert(starterPhrase.previewMidiChannel == 1u);
+        bool phraseIsPolyphonic = false;
+        for (const auto& cell : starterPhrase.notes) {
             polyphonicRows += cell.noteVoiceCount() > 1u ? 1u : 0u;
-    assert(polyphonicRows == 27u);
+            phraseIsPolyphonic |= cell.noteVoiceCount() > 1u;
+            if (cell.state == NoteCellState::Burst
+                && cell.note < referencedStarterBursts.size())
+                referencedStarterBursts[cell.note] = true;
+        }
+        for (std::size_t row = 0u; row < starterPhrase.length; ++row) {
+            const auto& action = starterPhrase.fxPairs[0u].actions[row];
+            if (action.state != FxActionCellState::Sequencer
+                || action.sequencerAction != SequencerAction::MicroTime)
+                continue;
+            ++microTimeRows;
+            const auto& values = starterPhrase.fxPairs[0u].values[row];
+            assert(values.state == ValueCellState::Value);
+            polyphonicMicroTimeRows += values.valueVoiceCount() > 1u ? 1u : 0u;
+        }
+        assert(phraseIsPolyphonic);
+    }
+    assert(polyphonicRows >= 300u);
+    assert(microTimeRows >= 300u);
+    assert(polyphonicMicroTimeRows >= 250u);
+    assert(std::all_of(referencedStarterBursts.begin(),
+        referencedStarterBursts.end(), [](bool referenced) {
+            return referenced;
+        }));
     return 0;
 }
