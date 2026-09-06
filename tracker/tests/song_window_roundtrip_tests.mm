@@ -680,6 +680,7 @@ void testSelectedRowDuplicateAndMove(
     auto output = [controller songArrangement];
     const auto& copy = output.rows[2u];
     check(output.rows.size() == 4u && table.selectedRow == 2
+            && copy.id != 0u && copy.id != output.rows[1u].id
             && copy.patternId == source.patternId
             && copy.durationTicks == source.durationTicks
             && copy.repeats == source.repeats

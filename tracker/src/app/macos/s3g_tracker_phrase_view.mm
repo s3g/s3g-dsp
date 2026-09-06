@@ -448,6 +448,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, strong) NSButton* deleteBankButton;
 @property(nonatomic, strong) NSButton* projectCopyButton;
 @property(nonatomic, strong) NSButton* previewButton;
+@property(nonatomic, strong) NSButton* loopButton;
 @property(nonatomic, strong) NSButton* placeButton;
 @property(nonatomic, strong) NSTimer* previewTimer;
 @property(nonatomic) NSInteger previewPlayheadRow;
@@ -1769,8 +1770,14 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 
     layoutLabel(self.previewChannelLabel, 0u);
     self.previewChannelPopup.frame = controlFrame(self.auditionPanel, 0u);
+    const CGFloat auditionGap = 4.0;
+    const CGFloat auditionWidth = 78.0;
     self.previewButton.frame = NSMakeRect(
-        NSWidth(self.auditionPanel.bounds) - 90.0, 3.0, 78.0, 15.0);
+        NSWidth(self.auditionPanel.bounds) - 12.0 - auditionWidth,
+        3.0, auditionWidth, 15.0);
+    self.loopButton.frame = NSMakeRect(
+        NSMinX(self.previewButton.frame) - auditionGap - auditionWidth,
+        3.0, auditionWidth, 15.0);
 
     layoutLabel(self.placementModeLabel, 0u);
     layoutLabel(self.placementTargetLabel, 1u);
@@ -1810,7 +1817,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     [root addSubview:self.auditionPanel];
     self.placementPanel = [[S3GTrackerToolboxView alloc]
         initWithFrame:NSZeroRect];
-    self.placementPanel.toolboxTitle = @"TRACKER BRIDGE";
+    self.placementPanel.toolboxTitle = @"PLACEMENT";
     [root addSubview:self.placementPanel];
 
     self.libraryPopup = [[S3GTrackerPopupButton alloc]
@@ -1850,7 +1857,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     }
     self.previewChannelPopup.target = self;
     self.previewChannelPopup.action = @selector(previewChannelChanged:);
-    self.previewChannelPopup.toolTip = @"MIDI channel used only by Phrase Preview";
+    self.previewChannelPopup.toolTip = @"MIDI channel used only by Phrase Listen";
     [self.auditionPanel addSubview:self.previewChannelPopup];
     self.saveButton = [self button:@"SAVE" action:@selector(savePressed:)];
     self.duplicateButton = [self button:@"DUP"
@@ -1863,13 +1870,16 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         action:@selector(deleteBankPressed:)];
     self.projectCopyButton = [self button:@"COPY PROJECT"
         action:@selector(copyProjectPressed:)];
-    self.previewButton = [self button:@"PREVIEW ▶"
+    self.previewButton = [self button:@"LISTEN ▶"
         action:@selector(previewPressed:)];
+    self.loopButton = [self button:@"LOOP: OFF"
+        action:@selector(loopPressed:)];
     for (NSButton* button in @[ self.saveButton, self.duplicateButton,
              self.deleteButton, self.projectCopyButton,
              self.clearBankButton, self.deleteBankButton ])
         [self.libraryPanel addSubview:button];
     [self.auditionPanel addSubview:self.previewButton];
+    [self.auditionPanel addSubview:self.loopButton];
 
     self.bankLabel = [self suiteLabel:@"BANK" panel:self.libraryPanel];
     self.phraseLabel = [self suiteLabel:@"PHRASE" panel:self.libraryPanel];
@@ -1883,7 +1893,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.modePopup.s3gUsesCanvasMenu = YES;
     [self.modePopup addItemsWithTitles:@[@"REPLACE", @"MERGE EMPTY"]];
     [self.placementPanel addSubview:self.modePopup];
-    self.placeButton = [self button:@"COPY TO LANE"
+    self.placeButton = [self button:@"PLACE IN TRACKER"
         action:@selector(placePressed:)];
     [self.placementPanel addSubview:self.placeButton];
     self.importPackButton = [self button:@"IMPORT PACK"
@@ -2057,6 +2067,10 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         @"%lu ROWS", static_cast<unsigned long>(phrase->length)]];
     [self.previewChannelPopup selectItemAtIndex:static_cast<NSInteger>(
         std::clamp<int>(phrase->previewMidiChannel, 1, 16) - 1)];
+    self.loopButton.state = self.trackerState->phraseLoopPreview
+        ? NSControlStateValueOn : NSControlStateValueOff;
+    self.loopButton.title = self.trackerState->phraseLoopPreview
+        ? @"LOOP: ON" : @"LOOP: OFF";
     if (self.trackerState->session.pattern.tracks.empty())
         self.placementTargetValue.stringValue = @"NO LANES";
     else
@@ -2117,6 +2131,16 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     phrase->previewMidiChannel = static_cast<uint8_t>(
         self.previewChannelPopup.indexOfSelectedItem + 1);
     [self phraseEdited];
+}
+
+- (void)loopPressed:(id)sender
+{
+    (void)sender;
+    self.trackerState->phraseLoopPreview
+        = !self.trackerState->phraseLoopPreview;
+    if (!self.trackerState->phraseLoopPreview && self.previewTimer)
+        [self stopPhrasePreview];
+    [self reloadModel];
 }
 
 - (void)savePressed:(id)sender
@@ -2224,6 +2248,10 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 - (void)previewPressed:(id)sender
 {
     (void)sender;
+    if (self.previewTimer) {
+        [self stopPhrasePreview];
+        return;
+    }
     PhraseDefinition* phrase = [self selectedPhrase];
     if (!phrase || !self.trackerCallbacks
         || !self.trackerCallbacks->previewPitchSequence) return;
@@ -2292,6 +2320,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         projectBpm,
         self.trackerState->session.transport.ticksPerBeat);
     [self stopPhrasePreview];
+    self.previewButton.state = NSControlStateValueOn;
     self.previewPhraseSlot = self.trackerState->selectedPhrase;
     self.previewPlayheadRow = static_cast<NSInteger>(firstAudibleRow);
     self.previewLastRow = static_cast<NSInteger>(phrase->length - 1u);
@@ -2309,15 +2338,18 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
             if (!owner || !owner.trackerState
                 || owner.trackerState->playing
                 || owner.trackerState->selectedPhrase
-                    != owner.previewPhraseSlot
-                || owner.previewPlayheadRow >= owner.previewLastRow) {
+                    != owner.previewPhraseSlot) {
                 [timer invalidate];
-                if (owner) {
-                    owner.previewTimer = nil;
-                    owner.previewPlayheadRow = -1;
-                    owner.previewLastRow = -1;
-                    [owner.grid setNeedsDisplay:YES];
-                }
+                if (owner) [owner stopPhrasePreview];
+                return;
+            }
+            if (owner.previewPlayheadRow >= owner.previewLastRow) {
+                [timer invalidate];
+                owner.previewTimer = nil;
+                if (owner.trackerState->phraseLoopPreview)
+                    [owner previewPressed:nil];
+                else
+                    [owner stopPhrasePreview];
                 return;
             }
             ++owner.previewPlayheadRow;
@@ -2336,6 +2368,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.previewTimer = nil;
     self.previewPlayheadRow = -1;
     self.previewLastRow = -1;
+    self.previewButton.state = NSControlStateValueOff;
     [self.grid setNeedsDisplay:YES];
 }
 

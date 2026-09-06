@@ -21,6 +21,40 @@ constexpr const char* kProjectFormatIdentifier
     = "s3g-tracker-midi-composition";
 constexpr const char* kProjectFileExtension = ".s3gt";
 
+constexpr std::size_t kMaximumAssemblyBlocks = 64u;
+constexpr uint32_t kMaximumAssemblyBlockRepeats = 64u;
+
+enum class AssemblyPlacementMode : uint8_t {
+    Replace,
+    MergeIntoEmpty,
+};
+
+enum class AssemblyFitMode : uint8_t {
+    ExtendPattern,
+    Crop,
+    Wrap,
+};
+
+// Project-persistent staging recipe for the ASSEMBLE page. Blocks reference
+// reusable Phrase assets only while they are in the tray. Placing the tray
+// materializes ordinary Tracker cells, leaving no playback dependency.
+struct PhraseAssemblyBlock {
+    AssetBankId phraseBankId = kProjectAssetBankId;
+    uint32_t phraseSlot = 0u;
+    uint32_t repeats = 1u;
+};
+
+struct PhraseAssemblyDraft {
+    std::vector<PhraseAssemblyBlock> blocks;
+    std::string targetPatternId;
+    uint32_t targetTrack = 0u;
+    uint32_t targetRow = 0u;
+    uint8_t previewMidiChannel = 1u;
+    AssemblyPlacementMode placementMode = AssemblyPlacementMode::Replace;
+    AssemblyFitMode fitMode = AssemblyFitMode::ExtendPattern;
+    bool loopPreview = false;
+};
+
 struct ProjectSessionState {
     double gateMilliseconds = 90.0;
     // Musical rate applied to the host tempo by the CLAP tracker. Values are
@@ -45,6 +79,7 @@ struct ProjectSessionState {
     uint32_t playbackSeed = 0x6d2b79f5u;
     AssetBankId activeBurstBankId = kProjectAssetBankId;
     AssetBankId activePhraseBankId = kProjectAssetBankId;
+    PhraseAssemblyDraft assembly;
 };
 
 struct ProjectDocument {

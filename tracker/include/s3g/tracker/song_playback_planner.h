@@ -38,6 +38,10 @@ struct SongPatternLoop {
 // patternLoop is likewise row-local: absence means OFF. When present it sets
 // the pattern rows played during this Song row without changing durationTicks.
 struct SongRow {
+    // Stable editor identity. Playback still traverses the ordered vector,
+    // but live arrangement edits use this value to find the row that was
+    // sounding or queued before rows were reordered.
+    uint32_t id = 0u;
     std::string patternId;
     uint32_t durationTicks = 16u;
     uint32_t repeats = 1u;

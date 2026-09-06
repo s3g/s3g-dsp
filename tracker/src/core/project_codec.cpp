@@ -2397,6 +2397,7 @@ JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
         const auto& row = song.rows[index];
         const std::string path = "$.song.rows[" + std::to_string(index) + "]";
         JsonValue encoded = JsonValue::objectValue();
+        encoded.object["id"] = number(row.id);
         if (row.bpm.has_value())
             encoded.object["bpm"] = JsonValue::numberValue(*row.bpm);
         encoded.object["durationTicks"] = number(row.durationTicks);
@@ -2465,6 +2466,11 @@ bool decodeSong(const JsonValue& input, SongArrangement& destination,
             JsonType::Number, path, result);
         if (!patternId || !duration || !repeats || !muted) return false;
         SongRow row;
+        const auto id = inputRow.object.find("id");
+        if (id != inputRow.object.end()
+            && !checkedUint32(id->second, row.id,
+                std::numeric_limits<uint32_t>::max(), path + ".id", result))
+            return false;
         if (!checkedString(*patternId, row.patternId, kMaximumNameBytes,
                 path + ".patternId", result)
             || row.patternId.empty()
@@ -3107,6 +3113,33 @@ JsonValue encodeSession(const ProjectSessionState& session,
     output.object["playbackSeed"] = number(session.playbackSeed);
     output.object["activeBurstBank"] = number(session.activeBurstBankId);
     output.object["activePhraseBank"] = number(session.activePhraseBankId);
+    JsonValue assembly = JsonValue::objectValue();
+    assembly.object["fit"] = number(static_cast<uint32_t>(
+        session.assembly.fitMode));
+    assembly.object["loopPreview"] = JsonValue::booleanValue(
+        session.assembly.loopPreview);
+    assembly.object["mode"] = number(static_cast<uint32_t>(
+        session.assembly.placementMode));
+    assembly.object["previewMidiChannel"] = number(static_cast<uint32_t>(
+        session.assembly.previewMidiChannel));
+    assembly.object["targetPatternId"] = encodeCheckedString(
+        session.assembly.targetPatternId, kMaximumNameBytes,
+        "$.workspace.assembly.targetPatternId", result);
+    assembly.object["targetRow"] = number(session.assembly.targetRow);
+    assembly.object["targetTrack"] = number(session.assembly.targetTrack);
+    JsonValue blocks = JsonValue::arrayValue();
+    if (session.assembly.blocks.size() > kMaximumAssemblyBlocks)
+        setError(result, ProjectErrorCode::SizeLimitExceeded,
+            "$.workspace.assembly.blocks", "assembly exceeds 64 blocks");
+    for (const auto& block : session.assembly.blocks) {
+        JsonValue item = JsonValue::objectValue();
+        item.object["bank"] = number(block.phraseBankId);
+        item.object["phrase"] = number(block.phraseSlot);
+        item.object["repeats"] = number(block.repeats);
+        blocks.array.push_back(std::move(item));
+    }
+    assembly.object["blocks"] = std::move(blocks);
+    output.object["assembly"] = std::move(assembly);
     return output;
 }
 
@@ -3162,6 +3195,81 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
     if (!checkedBoolean(*showMidi,
             candidate.showMidiNoteValues,
             "$.session.showMidiNoteValues", result)) return false;
+    const auto assembly = input.object.find("assembly");
+    if (assembly != input.object.end()) {
+        if (assembly->second.type != JsonType::Object)
+            return setError(result, ProjectErrorCode::TypeMismatch,
+                "$.workspace.assembly", "assembly must be an object");
+        const auto& object = assembly->second;
+        const auto* blocks = requiredField(object, "blocks", JsonType::Array,
+            "$.workspace.assembly", result);
+        const auto* fit = requiredField(object, "fit", JsonType::Number,
+            "$.workspace.assembly", result);
+        const auto* loop = requiredField(object, "loopPreview",
+            JsonType::Boolean, "$.workspace.assembly", result);
+        const auto* mode = requiredField(object, "mode", JsonType::Number,
+            "$.workspace.assembly", result);
+        const auto* channel = requiredField(object, "previewMidiChannel",
+            JsonType::Number, "$.workspace.assembly", result);
+        const auto* targetPattern = requiredField(object, "targetPatternId",
+            JsonType::String, "$.workspace.assembly", result);
+        const auto* targetRow = requiredField(object, "targetRow",
+            JsonType::Number, "$.workspace.assembly", result);
+        const auto* targetTrack = requiredField(object, "targetTrack",
+            JsonType::Number, "$.workspace.assembly", result);
+        if (!blocks || !fit || !loop || !mode || !channel || !targetPattern
+            || !targetRow || !targetTrack) return false;
+        if (blocks->array.size() > kMaximumAssemblyBlocks)
+            return setError(result, ProjectErrorCode::SizeLimitExceeded,
+                "$.workspace.assembly.blocks", "assembly exceeds 64 blocks");
+        uint32_t fitValue = 0u, modeValue = 0u, channelValue = 0u;
+        if (!checkedUint32(*fit, fitValue, 2u,
+                "$.workspace.assembly.fit", result)
+            || !checkedUint32(*mode, modeValue, 1u,
+                "$.workspace.assembly.mode", result)
+            || !checkedUint32(*channel, channelValue, 16u,
+                "$.workspace.assembly.previewMidiChannel", result)
+            || channelValue == 0u
+            || !checkedString(*targetPattern,
+                candidate.assembly.targetPatternId, kMaximumNameBytes,
+                "$.workspace.assembly.targetPatternId", result)
+            || !checkedUint32(*targetRow, candidate.assembly.targetRow, 255u,
+                "$.workspace.assembly.targetRow", result)
+            || !checkedUint32(*targetTrack, candidate.assembly.targetTrack,
+                static_cast<uint32_t>(kMaximumTrackCount - 1u),
+                "$.workspace.assembly.targetTrack", result)
+            || !checkedBoolean(*loop, candidate.assembly.loopPreview,
+                "$.workspace.assembly.loopPreview", result)) return false;
+        candidate.assembly.fitMode = static_cast<AssemblyFitMode>(fitValue);
+        candidate.assembly.placementMode
+            = static_cast<AssemblyPlacementMode>(modeValue);
+        candidate.assembly.previewMidiChannel
+            = static_cast<uint8_t>(channelValue);
+        for (std::size_t index = 0u; index < blocks->array.size(); ++index) {
+            const auto& item = blocks->array[index];
+            const std::string path = "$.workspace.assembly.blocks["
+                + std::to_string(index) + "]";
+            const auto* bank = requiredField(item, "bank", JsonType::Number,
+                path, result);
+            const auto* phrase = requiredField(item, "phrase",
+                JsonType::Number, path, result);
+            const auto* repeats = requiredField(item, "repeats",
+                JsonType::Number, path, result);
+            if (!bank || !phrase || !repeats) return false;
+            PhraseAssemblyBlock block;
+            if (!checkedUint32(*bank, block.phraseBankId,
+                    std::numeric_limits<uint32_t>::max(), path + ".bank",
+                    result)
+                || block.phraseBankId == kInvalidAssetBankId
+                || !checkedUint32(*phrase, block.phraseSlot,
+                    static_cast<uint32_t>(kPhraseLibrarySlots - 1u),
+                    path + ".phrase", result)
+                || !checkedUint32(*repeats, block.repeats,
+                    kMaximumAssemblyBlockRepeats, path + ".repeats", result)
+                || block.repeats == 0u) return false;
+            candidate.assembly.blocks.push_back(block);
+        }
+    }
     destination = std::move(candidate);
     return true;
 }

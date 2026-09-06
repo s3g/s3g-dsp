@@ -38,7 +38,9 @@ int main()
     assert(destination.midiChannel == 4u);
     assert(destination.notes[9u].note == 48u);
     assert(destination.notes[11u].note == 51u);
-    assert(destination.noteColumn.length == 14u);
+    // Placement must make the copied rows reachable without shrinking an
+    // already-longer destination cycle (a default Track starts at 16 rows).
+    assert(destination.noteColumn.length >= 14u);
     assert(destination.fxPairs[0u].values[11u].normalized == 0.625f);
     assert(destination.gates[11u].gateVoice(0u).rows == 0.5f);
 

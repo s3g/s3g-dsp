@@ -75,6 +75,8 @@ typedef void (^S3GTrackerSongProjectFileHandler)(void);
 - (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid
     quantization:(NSInteger)quantization;
 - (void)setPlaybackLocked:(BOOL)locked;
+- (void)moveMutedLaneFrom:(NSUInteger)source to:(NSUInteger)destination
+    patternId:(NSString*)patternId;
 #endif
 
 @end

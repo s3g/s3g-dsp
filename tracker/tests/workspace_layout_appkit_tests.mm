@@ -82,6 +82,8 @@
 - (NSRect)revealHeaderButtonRect;
 - (NSRect)fitBurstGatesHeaderButtonRect;
 - (NSRect)burstPreviewHeaderButtonRect;
+- (NSRect)burstLoopHeaderButtonRect;
+- (NSRect)burstPreviewChannelMenuBoxRect;
 - (NSRect)pitchPreviewHeaderButtonRect;
 - (NSRect)pitchTransposeSliderTrack;
 - (NSRect)pitchInvertToggleRect;
@@ -411,9 +413,11 @@ int main()
         NSView* geometryPage = [controller geometryPageView];
         NSView* burstPage = [controller burstPageView];
         NSView* phrasePage = [controller phrasePageView];
+        NSView* assemblePage = [controller assemblePageView];
         NSView* reshapePage = [controller reshapePageView];
         NSView* warpPage = [controller warpPageView];
         id phraseController = [controller valueForKey:@"phraseView"];
+        id assembleController = [controller valueForKey:@"assembleView"];
         S3GTrackerPopupButton* phraseLength = [phraseController
             valueForKey:@"lengthPopup"];
         S3GTrackerPopupButton* phraseLibrary = [phraseController
@@ -489,7 +493,7 @@ int main()
                 && [phraseAuditionPanel.toolboxTitle
                     isEqualToString:@"AUDITION"]
                 && [phrasePlacementPanel.toolboxTitle
-                    isEqualToString:@"TRACKER BRIDGE"]
+                    isEqualToString:@"PLACEMENT"]
                 && near(NSMinX(phraseEditorPanel.frame),
                     expectedPhraseLayout.fieldPanel.x)
                 && near(NSWidth(phraseEditorPanel.frame),
@@ -517,7 +521,13 @@ int main()
         NSButton* phraseDuplicate = descendantButton(phrasePage, @"DUP");
         NSButton* phraseDelete = descendantButton(phrasePage, @"DELETE");
         NSButton* phraseCopyToLane = descendantButton(
-            phrasePage, @"COPY TO LANE");
+            phrasePage, @"PLACE IN TRACKER");
+        NSButton* phraseListen = descendantButton(phrasePage, @"LISTEN ▶");
+        NSButton* phraseLoop = descendantButton(phrasePage, @"LOOP: OFF");
+        [phraseLoop performClick:nil];
+        const BOOL phraseLoopEnabled = state.phraseLoopPreview
+            && [phraseLoop.title isEqualToString:@"LOOP: ON"];
+        [phraseLoop performClick:nil];
         const NSRect exportBankFrame = phraseExportBank
             ? [phraseExportBank.superview convertRect:phraseExportBank.frame
                 toView:phrasePage] : NSZeroRect;
@@ -527,6 +537,8 @@ int main()
         check(phraseImportPack && phraseExportOne && phraseExportBank
                 && phraseCopyProject && phraseClearBank && phraseDeleteBank
                 && phraseSave && phraseDuplicate && phraseDelete
+                && phraseListen && phraseLoop
+                && phraseLoopEnabled && !state.phraseLoopPreview
                 && near(NSWidth(phraseImportPack.frame),
                     NSWidth(phraseExportOne.frame))
                 && near(NSWidth(phraseExportBank.frame),
@@ -848,6 +860,43 @@ int main()
         [phraseController reloadModel];
         phraseTestWindow.contentView = [[NSView alloc] initWithFrame:NSZeroRect];
         [phraseTestWindow orderOut:nil];
+
+        NSWindow* assembleTestWindow = [[NSWindow alloc]
+            initWithContentRect:NSMakeRect(0.0, 0.0, 900.0, 660.0)
+            styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered
+            defer:NO];
+        assemblePage.frame = assembleTestWindow.contentView.bounds;
+        assembleTestWindow.contentView = assemblePage;
+        [assembleTestWindow makeKeyAndOrderFront:nil];
+        [assemblePage layoutSubtreeIfNeeded];
+        S3GTrackerToolboxView* assemblyAuditionPanel = [assembleController
+            valueForKey:@"assemblyPanel"];
+        S3GTrackerToolboxView* assemblyPlacementPanel = [assembleController
+            valueForKey:@"targetPanel"];
+        NSButton* assemblyListen = [assembleController
+            valueForKey:@"previewButton"];
+        NSButton* assemblyLoop = [assembleController valueForKey:@"loopButton"];
+        NSButton* assemblyPlace = [assembleController
+            valueForKey:@"placeButton"];
+        const NSPoint listenPoint = [assemblyListen convertPoint:NSMakePoint(
+            NSMidX(assemblyListen.bounds), NSMidY(assemblyListen.bounds))
+            toView:nil];
+        check(assemblyListen
+                && [assemblyListen.title isEqualToString:@"LISTEN ▶"]
+                && [assemblyLoop.title isEqualToString:@"LOOP: OFF"]
+                && near(NSMidY(assemblyListen.frame),
+                    NSMidY(assemblyLoop.frame))
+                && [assemblyPlacementPanel.toolboxTitle
+                    isEqualToString:@"PLACEMENT"]
+                && [assemblyPlace.title isEqualToString:@"PLACE IN TRACKER"]
+                && NSContainsRect(assemblyAuditionPanel.bounds,
+                    assemblyListen.frame)
+                && [assembleTestWindow.contentView hitTest:listenPoint]
+                    == assemblyListen,
+            "Assemble Listen should be visible and clickable inside Assembly / Audition");
+        assembleTestWindow.contentView = [[NSView alloc]
+            initWithFrame:NSZeroRect];
+        [assembleTestWindow orderOut:nil];
         [window makeKeyAndOrderFront:nil];
         [consoleOutput layoutSubtreeIfNeeded];
         check([consoleToolbox isKindOfClass:
@@ -944,13 +993,31 @@ int main()
                 && [burstSaveButton.title isEqualToString:@"SAVE"]
                 && matrixBurst.name == "AMEN PUSH",
             "Burst Library should use a persistent NAME field and explicit SAVE action like Warps");
+        [burstPage openGeometryMenu:13];
+        [burstPage applyGeometryMenuSelection:8u];
+        const NSRect burstChannelMenu = [burstPage
+            burstPreviewChannelMenuBoxRect];
+        const NSRect burstLoopButton = [burstPage
+            burstLoopHeaderButtonRect];
         const NSRect previewBurstButton = [burstPage
             burstPreviewHeaderButtonRect];
+        check([burstPage itemsForGeometryMenu:13].count == 16u
+                && state.burstPreviewMidiChannel == 9u
+                && !NSIntersectsRect(burstLoopButton, previewBurstButton)
+                && NSMaxY(burstLoopButton) < NSMinY(burstChannelMenu),
+            "Burst Audition should expose separate Listen, Loop, and MIDI channel controls");
+        (void)[burstPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(burstLoopButton), NSMidY(burstLoopButton))];
+        const BOOL burstLoopEnabled = state.burstLoopPreview;
+        (void)[burstPage handleToolboxClickAtPoint:NSMakePoint(
+            NSMidX(burstLoopButton), NSMidY(burstLoopButton))];
+        check(burstLoopEnabled && !state.burstLoopPreview,
+            "Burst Audition Loop should toggle on and off independently of Listen");
         const BOOL previewed = [burstPage handleToolboxClickAtPoint:
             NSMakePoint(NSMidX(previewBurstButton), NSMidY(previewBurstButton))];
         check(previewed && burstPreviewRequests == 1
                 && previewedBurst.name == "AMEN PUSH"
-                && previewedChannel == 1u
+                && previewedChannel == 9u
                 && near(previewedBpm, state.session.transport.bpm)
                 && previewedTicksPerBeat
                     == state.session.transport.ticksPerBeat,
@@ -3005,6 +3072,8 @@ int main()
 
         const auto patternBeforeDrumSplit = state.session.pattern;
         const auto defaultsBeforeDrumSplit = state.session.laneDefaultNotes;
+        const auto burstBeforeDrumSplit =
+            state.session.burstLibrary.bursts[3u];
         const auto laneCountBeforeDrumSplit = state.session.pattern.tracks.size();
         auto& mixedDrums = state.session.pattern.tracks[6u];
         mixedDrums.name = "LIVE DRUMS";
@@ -3022,6 +3091,16 @@ int main()
         layeredDrumVelocity[1u] = 0.4f;
         mixedDrums.velocities[32u] = s3g::tracker::ValueCell::withValues(
             layeredDrumVelocity, 2u);
+        auto& routedBurst = state.session.burstLibrary.bursts[3u];
+        routedBurst.name = "CLOSED HAT BURST";
+        routedBurst.eventCount = 2u;
+        routedBurst.events[0u] = { 0u, 42u, 100u, 45u };
+        routedBurst.events[1u] = { 32768u, 42u, 82u, 35u };
+        mixedDrums.notes[33u] = s3g::tracker::NoteCell::withBurst(
+            3u, s3g::tracker::kProjectAssetBankId);
+        mixedDrums.velocities[33u]
+            = s3g::tracker::ValueCell::withValue(0.55f);
+        mixedDrums.gates[33u] = s3g::tracker::GateCell::withRows(0.5f);
         auto& drumTiming = mixedDrums.fxPairs[0u];
         drumTiming.actionColumn.length = 48u;
         drumTiming.actionColumn.stride = 3u;
@@ -3043,6 +3122,11 @@ int main()
                 s3g::tracker::SequencerAction::Flam);
         drumTiming.values[32u]
             = s3g::tracker::FxValueCell::withValue(0.75f);
+        drumTiming.actions[33u]
+            = s3g::tracker::FxActionCell::sequencer(
+                s3g::tracker::SequencerAction::MicroTime);
+        drumTiming.values[33u]
+            = s3g::tracker::FxValueCell::withValue(0.6f);
         auto& drumAutomation = mixedDrums.fxPairs[1u];
         drumAutomation.actions[31u]
             = s3g::tracker::FxActionCell::midiControlChange(74u);
@@ -3061,7 +3145,7 @@ int main()
         [grid.documentView beginGridSelectionAtTrack:6u
             field:0u row:30u page:0u];
         [grid.documentView extendGridSelectionToTrack:6u
-            field:0u row:32u];
+            field:0u row:33u];
         NSMenu* drumSplitMenu = [grid.documentView
             noteMenuForTrack:6u row:31u];
         NSMenuItem* selectionRoot = drumSplitMenu.itemArray.lastObject;
@@ -3092,10 +3176,21 @@ int main()
                 && separatedSource.notes[31u].state
                     == s3g::tracker::NoteCellState::Rest
                 && separatedSource.notes[32u].note == 36u
+                && separatedSource.notes[33u].state
+                    == s3g::tracker::NoteCellState::Rest
                 && separatedSnare.notes[31u].note == 38u
                 && separatedHat.notes[32u].note == 42u
+                && separatedHat.notes[33u].state
+                    == s3g::tracker::NoteCellState::Burst
+                && separatedHat.notes[33u].note == 3u
+                && separatedHat.notes[33u].burstBankId
+                    == s3g::tracker::kProjectAssetBankId
                 && std::abs(separatedHat.velocities[32u].normalized - 0.4f)
                     < 0.00001f
+                && near(separatedHat.velocities[33u].normalized, 0.55)
+                && separatedHat.gates[33u].gateVoice(0u).mode
+                    == s3g::tracker::GateVoiceMode::Rows
+                && near(separatedHat.gates[33u].gateVoice(0u).rows, 0.5)
                 && separatedSnare.midiChannel == separatedSource.midiChannel
                 && separatedHat.initialInstrumentNodeId
                     == separatedSource.initialInstrumentNodeId
@@ -3117,6 +3212,10 @@ int main()
                     == s3g::tracker::SequencerAction::MicroTime
                 && near(separatedHat.fxPairs[1u].values[32u].normalized,
                     0.8)
+                && separatedHat.fxPairs[0u].actions[33u].sequencerAction
+                    == s3g::tracker::SequencerAction::MicroTime
+                && near(separatedHat.fxPairs[0u].values[33u].normalized,
+                    0.6)
                 && separatedSnare.fxPairs[1u].actions[31u].state
                     == s3g::tracker::FxActionCellState::Empty
                 && separatedSnare.fxPairs[0u].actionColumn.length == 48u
@@ -3125,7 +3224,7 @@ int main()
                 && separatedSnare.fxPairs[0u].valueColumn.length == 40u
                 && separatedSnare.fxPairs[0u].valueColumn.direction
                     == s3g::tracker::Direction::Palindrome,
-            "Separate Notes Into Lanes should split live-recorded drum pitches, velocity voices, and resolved note-local SEQ state while preserving routing and leaving MIDI automation behind");
+            "Separate Notes Into Lanes should split drum pitches and route Burst cells by their first event note while preserving velocity, gate, note-local SEQ state, routing, and source MIDI automation");
 
         auto& mergeTarget = state.session.pattern.tracks[
             laneCountBeforeDrumSplit];
@@ -3215,6 +3314,7 @@ int main()
             "Merge Notes Into One Lane should reject an entire edit when any merged row would exceed eight unique voices");
         state.session.pattern = patternBeforeDrumSplit;
         state.session.laneDefaultNotes = defaultsBeforeDrumSplit;
+        state.session.burstLibrary.bursts[3u] = burstBeforeDrumSplit;
         state.sequenceColumnsExpanded = clipboardExpandedBefore;
 
         auto& clearTrack = state.session.pattern.tracks[0u];

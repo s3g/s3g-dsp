@@ -4,6 +4,7 @@
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_help_window.h"
 #import "s3g_tracker_phrase_view.h"
+#import "s3g_tracker_assemble_view.h"
 #import "s3g_tracker_workspace.h"
 #include "s3g_tracker_workspace_layout.h"
 
@@ -2241,6 +2242,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     S3GTrackerClapPageGeometry,
     S3GTrackerClapPageBursts,
     S3GTrackerClapPagePhrases,
+    S3GTrackerClapPageAssemble,
     S3GTrackerClapPageReshape,
     S3GTrackerClapPageWarps,
     S3GTrackerClapPageConsole,
@@ -2287,7 +2289,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
     NSArray<NSString*>* titles = @[
         @"TRACKER", @"SONG", @"GEOMETRY", @"BURSTS", @"PHRASES",
-        @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
+        @"ASSEMBLE", @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
     ];
     NSMutableArray<S3GTrackerActionButton*>* buttons =
         [[NSMutableArray alloc] initWithCapacity:titles.count];
@@ -2413,6 +2415,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             && [(id<S3GTrackerPhraseKeyHandling>)phrasePage
                 s3gHandlePhraseKeyEquivalent:event]) return YES;
     }
+    if (self.selectedPage == S3GTrackerClapPageAssemble) {
+        NSView* page = self.pageViews[
+            static_cast<NSUInteger>(S3GTrackerClapPageAssemble)];
+        if ([page conformsToProtocol:@protocol(S3GTrackerAssembleKeyHandling)]
+            && [(id<S3GTrackerAssembleKeyHandling>)page
+                s3gHandleAssembleKeyEquivalent:event]) return YES;
+    }
     return [super performKeyEquivalent:event];
 }
 
@@ -2427,6 +2436,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             && [(id<S3GTrackerPhraseKeyHandling>)phrasePage
                 s3gHandlePhraseKeyEquivalent:event]) return;
     }
+    if (self.selectedPage == S3GTrackerClapPageAssemble) {
+        NSView* page = self.pageViews[
+            static_cast<NSUInteger>(S3GTrackerClapPageAssemble)];
+        if ([page conformsToProtocol:@protocol(S3GTrackerAssembleKeyHandling)]
+            && [(id<S3GTrackerAssembleKeyHandling>)page
+                s3gHandleAssembleKeyEquivalent:event]) return;
+    }
     [super keyDown:event];
 }
 
@@ -2435,8 +2451,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [super layout];
     constexpr CGFloat navigationHeight = 40.0;
     CGFloat x = 12.0;
-    const std::array<CGFloat, 9u> widths {{
-        76.0, 54.0, 78.0, 66.0, 70.0, 72.0, 58.0, 66.0, 50.0,
+    const std::array<CGFloat, 10u> widths {{
+        70.0, 50.0, 72.0, 60.0, 64.0, 72.0, 66.0, 54.0, 60.0, 46.0,
     }};
     for (NSUInteger index = 0u; index < self.pageButtons.count; ++index) {
         const CGFloat width = widths[std::min<std::size_t>(
@@ -2507,6 +2523,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     return page == S3GTrackerClapPageGeometry
         || page == S3GTrackerClapPageBursts
         || page == S3GTrackerClapPagePhrases
+        || page == S3GTrackerClapPageAssemble
         || page == S3GTrackerClapPageReshape
         || page == S3GTrackerClapPageWarps
         || page == S3GTrackerClapPageConsole
@@ -2541,8 +2558,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         backing:NSBackingStoreBuffered defer:NO];
     NSArray<NSString*>* names = @[
         @"Tracker", @"Song", @"Rhythm Geometry", @"Bursts",
-        @"MIDI Phrases", @"Pattern Reshape", @"Timing Warps", @"Console",
-        @"Help",
+        @"MIDI Phrases", @"Phrase Assembly", @"Pattern Reshape",
+        @"Timing Warps", @"Console", @"Help",
     ];
     window.title = [@"s3g Tracker — " stringByAppendingString:
         names[static_cast<NSUInteger>(index)]];
@@ -2819,6 +2836,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     };
     _callbacks->showPhrasePage = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPagePhrases];
+    };
+    _callbacks->showAssemblePage = [weakSelf] {
+        [weakSelf.pageView showPage:S3GTrackerClapPageAssemble];
     };
     _callbacks->importAssetPack = [weakSelf] {
         [weakSelf presentImportAssetPack];
@@ -3191,6 +3211,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
             owner->_state->midiRecordTrack), std::memory_order_release);
         [owner updateMidiMonitorChannel];
     };
+    _callbacks->tracksReordered = [weakSelf](const std::string& patternId,
+        std::size_t source, std::size_t destination) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        NSString* pattern = [NSString stringWithUTF8String:patternId.c_str()];
+        [owner.songWindow moveMutedLaneFrom:source to:destination
+            patternId:pattern ? pattern : @""];
+    };
     _callbacks->executeCommand = [weakSelf](const std::string& command) {
         [weakSelf executeCommand:command];
     };
@@ -3214,6 +3242,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [self.workspace geometryPageView],
         [self.workspace burstPageView],
         [self.workspace phrasePageView],
+        [self.workspace assemblePageView],
         [self.workspace reshapePageView],
         [self.workspace warpPageView],
         [self.workspace consolePageView],
@@ -3683,6 +3712,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     document.session.playbackSeed = _state->session.playbackSeed;
     document.session.activeBurstBankId = _state->activeBurstBankId;
     document.session.activePhraseBankId = _state->activePhraseBankId;
+    document.session.assembly = _state->assembly;
     document.instrumentRack = _state->instrumentRack;
     document.song = [self.songWindow songArrangement];
     normalizeMidiOnlyDocument(document);
@@ -3699,6 +3729,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->phraseBanks = midiDocument.phraseBanks;
     _state->activeBurstBankId = midiDocument.session.activeBurstBankId;
     _state->activePhraseBankId = midiDocument.session.activePhraseBankId;
+    _state->assembly = midiDocument.session.assembly;
     (void)loadActiveAssetBanks(*_state);
     (void)loadActivePatternIntoSession(*_state);
     _state->session.transport = midiDocument.transport;
@@ -3841,6 +3872,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     // sounding, so future-row edits are heard without restarting the Song or
     // mutating scheduler-owned vectors on the audio thread.
     [self cancelRuntimePublication];
+    const int32_t priorPendingRow = _plugin->visualPendingSongRow.load(
+        std::memory_order_acquire);
+    const auto priorQuantization = static_cast<SongLaunchQuantization>(
+        std::min<uint32_t>(_plugin->songLaunchQuantization.load(
+            std::memory_order_acquire), static_cast<uint32_t>(
+                SongLaunchQuantization::NextSongRow)));
     cancelQueuedVariation(*_plugin);
     ProjectDocument document = [self currentDocument];
     _state->patternBank = document.patternBank;
@@ -3856,25 +3893,64 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const std::size_t currentRow = audibleRow >= 0
         ? static_cast<std::size_t>(audibleRow)
         : _state->songPlaybackRow;
-    const bool hasNextRow = currentRow + 1u < document.song.rows.size();
+    // Row drag can change numeric indices while the old immutable runtime is
+    // still sounding. Resolve that row through its stable ID before choosing
+    // the successor in the edited arrangement.
+    std::size_t editedCurrentRow = currentRow;
+    if (_playingSongArrangementValid
+        && currentRow < _playingSongArrangement.rows.size()) {
+        const uint32_t currentId = _playingSongArrangement.rows[currentRow].id;
+        if (currentId != 0u) {
+            const auto found = std::find_if(document.song.rows.begin(),
+                document.song.rows.end(), [currentId](
+                    const s3g::tracker::SongRow& row) {
+                    return row.id == currentId;
+                });
+            if (found != document.song.rows.end())
+                editedCurrentRow = static_cast<std::size_t>(
+                    found - document.song.rows.begin());
+        }
+    }
+    const bool hasNextRow = editedCurrentRow + 1u < document.song.rows.size();
     const bool wraps = !document.song.rows.empty() && document.song.loop;
-    if (hasNextRow || wraps) {
-        const std::size_t nextRow = hasNextRow ? currentRow + 1u : 0u;
-        _plugin->songLaunchRow.store(static_cast<uint32_t>(nextRow),
+    std::optional<std::size_t> preservedPendingRow;
+    if (priorPendingRow >= 0 && _playingSongArrangementValid
+        && static_cast<std::size_t>(priorPendingRow)
+            < _playingSongArrangement.rows.size()) {
+        const uint32_t pendingId = _playingSongArrangement.rows[
+            static_cast<std::size_t>(priorPendingRow)].id;
+        const auto found = std::find_if(document.song.rows.begin(),
+            document.song.rows.end(), [pendingId](
+                const s3g::tracker::SongRow& row) {
+                return pendingId != 0u && row.id == pendingId;
+            });
+        if (found != document.song.rows.end())
+            preservedPendingRow = static_cast<std::size_t>(
+                found - document.song.rows.begin());
+    }
+    if (preservedPendingRow || hasNextRow || wraps) {
+        const std::size_t launchRow = preservedPendingRow
+            ? *preservedPendingRow : hasNextRow ? editedCurrentRow + 1u : 0u;
+        const auto quantization = preservedPendingRow
+            ? priorQuantization : SongLaunchQuantization::NextSongRow;
+        _plugin->songLaunchRow.store(static_cast<uint32_t>(launchRow),
             std::memory_order_relaxed);
         _plugin->songLaunchQuantization.store(static_cast<uint32_t>(
-            SongLaunchQuantization::NextSongRow),
+            quantization),
             std::memory_order_relaxed);
         const SongArrangement updatedArrangement = document.song;
         _plugin->songArrangementUpdatePending.store(true,
             std::memory_order_release);
-        if (queueSongDocument(*_plugin, std::move(document), nextRow,
-                SongLaunchQuantization::NextSongRow, dirty)) {
+        if (queueSongDocument(*_plugin, std::move(document), launchRow,
+                quantization, dirty)) {
             _playingSongArrangement = updatedArrangement;
             _playingSongArrangementValid = true;
             _deferredSongRuntimePublication = false;
-            _state->status = "Song update scheduled for row "
-                + std::to_string(nextRow + 1u);
+            _state->status = preservedPendingRow
+                ? "Song update preserved queued row "
+                    + std::to_string(launchRow + 1u)
+                : "Song update scheduled for row "
+                    + std::to_string(launchRow + 1u);
             [self.workspace appendConsoleMessage:_state->status error:NO];
             [self.workspace reloadModel];
             return;

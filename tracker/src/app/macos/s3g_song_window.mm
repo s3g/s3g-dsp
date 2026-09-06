@@ -33,6 +33,7 @@ NSString* const S3GSongColumnSwing = @"swing";
 NSString* const S3GSongColumnEnergy = @"energy";
 NSString* const S3GSongColumnMutes = @"mutes";
 NSString* const S3GSongColumnDelete = @"delete";
+NSString* const S3GSongRowPasteboardType = @"org.s3g.tracker.song-row";
 
 constexpr std::array<NSInteger, 16u> kSongTickChoices {
     1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256,
@@ -46,6 +47,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 } // namespace
 
 @interface S3GTrackerSongRow : NSObject
+@property(nonatomic) uint32_t identity;
 @property(nonatomic, copy) NSString* pattern;
 @property(nonatomic) NSInteger repeats;
 @property(nonatomic) NSInteger ticks;
@@ -580,6 +582,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 @property(nonatomic) BOOL pendingPlaybackRowValid;
 @property(nonatomic) NSInteger pendingPlaybackQuantization;
 @property(nonatomic) BOOL playbackLocked;
+@property(nonatomic) uint32_t nextRowIdentity;
 @end
 
 @implementation S3GTrackerSongWindowController
@@ -621,6 +624,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _arrangementTicksPerBeat = 4;
     _playbackEnabled = NO;
     _currentPlaybackRowValid = NO;
+    _nextRowIdentity = 1u;
 
     window.title = @"s3g Tracker — Song";
     window.minSize = NSMakeSize(900.0, 430.0);
@@ -639,6 +643,8 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 - (S3GTrackerSongRow*)newRowWithPattern:(NSString*)pattern
 {
     S3GTrackerSongRow* row = [[S3GTrackerSongRow alloc] init];
+    row.identity = self.nextRowIdentity++;
+    if (self.nextRowIdentity == 0u) self.nextRowIdentity = 1u;
     row.pattern = pattern;
     row.repeats = 1;
     row.ticks = 4;
@@ -843,6 +849,9 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _tableView.allowsColumnReordering = NO;
     _tableView.allowsColumnResizing = NO;
     _tableView.allowsMultipleSelection = NO;
+    [_tableView registerForDraggedTypes:@[ S3GSongRowPasteboardType ]];
+    [_tableView setDraggingSourceOperationMask:
+        (NSDragOperationMove | NSDragOperationCopy) forLocal:YES];
 
     [self addColumn:S3GSongColumnRow title:@"ROW" width:40.0 minWidth:40.0];
     [self addColumn:S3GSongColumnPattern title:@"PATTERN" width:110.0 minWidth:100.0];
@@ -988,6 +997,69 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 {
     (void)tableView;
     return static_cast<NSInteger>(self.rows.count);
+}
+
+- (id<NSPasteboardWriting>)tableView:(NSTableView*)tableView
+    pasteboardWriterForRow:(NSInteger)row
+{
+    NSEvent* event = NSApp.currentEvent;
+    if (!event || row < 0 || row >= static_cast<NSInteger>(self.rows.count))
+        return nil;
+    const NSPoint point = [tableView convertPoint:event.locationInWindow
+        fromView:nil];
+    const NSInteger column = [tableView columnAtPoint:point];
+    if (column < 0 || ![tableView.tableColumns[(NSUInteger)column].identifier
+            isEqualToString:S3GSongColumnRow]) return nil;
+    NSPasteboardItem* item = [[NSPasteboardItem alloc] init];
+    [item setString:[NSString stringWithFormat:@"%ld", row]
+        forType:S3GSongRowPasteboardType];
+    return item;
+}
+
+- (NSDragOperation)tableView:(NSTableView*)tableView
+    validateDrop:(id<NSDraggingInfo>)info proposedRow:(NSInteger)row
+    proposedDropOperation:(NSTableViewDropOperation)operation
+{
+    (void)info;
+    if (operation != NSTableViewDropAbove || row < 0
+        || row > static_cast<NSInteger>(self.rows.count))
+        return NSDragOperationNone;
+    [tableView setDropRow:row dropOperation:NSTableViewDropAbove];
+    return (NSApp.currentEvent.modifierFlags & NSEventModifierFlagOption)
+        ? NSDragOperationCopy : NSDragOperationMove;
+}
+
+- (BOOL)tableView:(NSTableView*)tableView acceptDrop:(id<NSDraggingInfo>)info
+    row:(NSInteger)destination dropOperation:(NSTableViewDropOperation)operation
+{
+    (void)operation;
+    NSString* text = [info.draggingPasteboard
+        stringForType:S3GSongRowPasteboardType];
+    const NSInteger source = text.integerValue;
+    if (source < 0 || source >= static_cast<NSInteger>(self.rows.count)
+        || destination < 0
+        || destination > static_cast<NSInteger>(self.rows.count)) return NO;
+    const BOOL copy = (NSApp.currentEvent.modifierFlags
+        & NSEventModifierFlagOption) != 0u;
+    if (copy && self.rows.count >= s3g::tracker::kMaximumSongRows) return NO;
+    S3GTrackerSongRow* moving = copy
+        ? [self copyRow:self.rows[(NSUInteger)source]]
+        : self.rows[(NSUInteger)source];
+    NSInteger insertion = destination;
+    if (!copy) {
+        [self.rows removeObjectAtIndex:(NSUInteger)source];
+        if (source < insertion) --insertion;
+    }
+    insertion = std::clamp<NSInteger>(insertion, 0,
+        static_cast<NSInteger>(self.rows.count));
+    [self.rows insertObject:moving atIndex:(NSUInteger)insertion];
+    [tableView reloadData];
+    [tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:
+        (NSUInteger)insertion] byExtendingSelection:NO];
+    [tableView scrollRowToVisible:insertion];
+    [self updateRowToolAvailability];
+    [self songDidChange];
+    return YES;
 }
 
 - (NSTableRowView*)tableView:(NSTableView*)tableView rowViewForRow:(NSInteger)row
@@ -1156,8 +1228,12 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         initWithFrame:NSMakeRect(0.0, 0.0, tableColumn.width, tableView.rowHeight)];
 
     if ([column isEqualToString:S3GSongColumnRow]) {
-        [cell addSubview:[self cellText:[NSString stringWithFormat:@"%02ld", rowIndex + 1]
-            row:rowIndex column:column editable:NO alignment:NSTextAlignmentCenter]];
+        NSTextField* grip = [self cellText:[NSString stringWithFormat:
+            @"⠿ %02ld", rowIndex + 1] row:rowIndex column:column
+            editable:NO alignment:NSTextAlignmentCenter];
+        grip.textColor = s3gSongColor(0xa0a7a8);
+        grip.toolTip = @"Drag to move this Song row; Option-drag duplicates it";
+        [cell addSubview:grip];
     } else if ([column isEqualToString:S3GSongColumnPattern]) {
         S3GTrackerPopupButton* pattern = [[S3GTrackerPopupButton alloc]
             initWithFrame:NSMakeRect(4.0,
@@ -1970,6 +2046,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     arrangement.rows.reserve(self.rows.count);
     for (S3GTrackerSongRow* source in self.rows) {
         s3g::tracker::SongRow row;
+        row.id = source.identity;
         const char* pattern = source.pattern.UTF8String;
         row.patternId = pattern ? pattern : "";
         row.durationTicks = static_cast<uint32_t>(std::clamp<NSInteger>(
@@ -2007,6 +2084,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 - (void)setSongArrangement:(const s3g::tracker::SongArrangement&)arrangement
 {
     [self.rows removeAllObjects];
+    self.nextRowIdentity = 1u;
     self.arrangementName = [NSString stringWithUTF8String:
         arrangement.name.c_str()];
     self.arrangementLoops = arrangement.loop;
@@ -2021,6 +2099,9 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
             source.patternId.c_str()];
         S3GTrackerSongRow* row = [self newRowWithPattern:
             pattern ? pattern : @"A01"];
+        row.identity = source.id == 0u ? row.identity : source.id;
+        self.nextRowIdentity = std::max<uint32_t>(self.nextRowIdentity,
+            row.identity + 1u);
         row.ticks = static_cast<NSInteger>(source.durationTicks);
         row.repeats = static_cast<NSInteger>(source.repeats);
         row.energy = static_cast<NSInteger>(std::lround(
@@ -2055,6 +2136,32 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     [self updateRowToolAvailability];
     // Applying a project is presentation synchronization, not a user edit.
     // The coordinator publishes file loads and history restores exactly once.
+}
+
+- (void)moveMutedLaneFrom:(NSUInteger)source to:(NSUInteger)destination
+    patternId:(NSString*)patternId
+{
+    if (source == destination || source >= 32u || destination >= 32u
+        || patternId.length == 0u) return;
+    for (S3GTrackerSongRow* row in self.rows) {
+        if (![row.pattern isEqualToString:patternId]) continue;
+        const BOOL sourceMuted = [row.mutedLanes containsIndex:source];
+        NSMutableIndexSet* remapped = [[NSMutableIndexSet alloc] init];
+        [row.mutedLanes enumerateIndexesUsingBlock:
+            ^(NSUInteger lane, BOOL* stop) {
+                (void)stop;
+                NSUInteger mapped = lane;
+                if (source < destination && lane > source
+                    && lane <= destination) mapped = lane - 1u;
+                else if (source > destination && lane >= destination
+                    && lane < source) mapped = lane + 1u;
+                if (lane != source && mapped < 32u)
+                    [remapped addIndex:mapped];
+            }];
+        if (sourceMuted) [remapped addIndex:destination];
+        row.mutedLanes = remapped;
+    }
+    [self.tableView reloadData];
 }
 
 @end

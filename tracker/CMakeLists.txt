@@ -124,6 +124,7 @@ if(BUILD_TESTING)
       tests/workspace_layout_appkit_tests.mm
       src/app/macos/s3g_tracker_workspace.mm
       src/app/macos/s3g_tracker_phrase_view.mm
+      src/app/macos/s3g_tracker_assemble_view.mm
       src/app/macos/s3g_tracker_controls.mm
       src/app/macos/s3g_tracker_reshape_window.mm
       src/app/macos/s3g_tracker_warp_window.mm)

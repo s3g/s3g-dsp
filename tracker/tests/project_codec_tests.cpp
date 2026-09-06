@@ -182,6 +182,15 @@ ProjectDocument makeDocument()
     document.session.trackerRowJump = 3u;
     document.session.commandRngState = std::numeric_limits<uint64_t>::max();
     document.session.playbackSeed = 0xfedcba98u;
+    document.session.assembly.targetPatternId = "B02";
+    document.session.assembly.targetTrack = 1u;
+    document.session.assembly.targetRow = 23u;
+    document.session.assembly.previewMidiChannel = 10u;
+    document.session.assembly.placementMode
+        = AssemblyPlacementMode::MergeIntoEmpty;
+    document.session.assembly.fitMode = AssemblyFitMode::Wrap;
+    document.session.assembly.loopPreview = true;
+    document.session.assembly.blocks.push_back({ 1u, 3u, 2u });
 
     auto& phrase = document.phraseBanks[0u].library.phrases[3u];
     phrase = makeBlankPhrase(7u);
@@ -353,6 +362,18 @@ void testCompleteDeterministicRoundTrip()
             && decoded.patternBank.entries[1u].aliases.at("aux") == 1u
             && decoded.song.rows[1u].patternId == "B02",
         "pattern order, IDs, selection, per-pattern authoring state, and Song references should round trip");
+    check(decoded.session.assembly.targetPatternId == "B02"
+            && decoded.session.assembly.targetTrack == 1u
+            && decoded.session.assembly.targetRow == 23u
+            && decoded.session.assembly.previewMidiChannel == 10u
+            && decoded.session.assembly.placementMode
+                == AssemblyPlacementMode::MergeIntoEmpty
+            && decoded.session.assembly.fitMode == AssemblyFitMode::Wrap
+            && decoded.session.assembly.loopPreview
+            && decoded.session.assembly.blocks.size() == 1u
+            && decoded.session.assembly.blocks[0u].phraseSlot == 3u
+            && decoded.session.assembly.blocks[0u].repeats == 2u,
+        "the project-persistent Phrase assembly tray should round trip");
     check(decoded.transport.timingWarpEnabled
             && decoded.transport.timingWarp.size() == 2u
             && decoded.transport.loopEnabled

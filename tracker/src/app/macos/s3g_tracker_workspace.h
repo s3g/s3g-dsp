@@ -9,6 +9,7 @@
 #include "s3g/tracker/pattern_bank.h"
 #include "s3g/tracker/phrase_library.h"
 #include "s3g/tracker/pitch_map.h"
+#include "s3g/tracker/project_document.h"
 #include "s3g_tracker_audio_device.h"
 
 #include <array>
@@ -35,6 +36,13 @@ struct TrackerViewState {
     AssetBankId activePhraseBankId = kProjectAssetBankId;
     std::size_t selectedPhrase = 0u;
     std::size_t lastPlacedPhrase = 0u;
+    // Audition controls are transient workspace preferences. Phrase routing
+    // remains stored with each Phrase; Burst routing has no effect on placed
+    // cells, which continue to use the destination lane's MIDI channel.
+    uint8_t burstPreviewMidiChannel = 1u;
+    bool burstLoopPreview = false;
+    bool phraseLoopPreview = false;
+    PhraseAssemblyDraft assembly;
     InstrumentRackState instrumentRack = makeDefaultInstrumentRack();
     uint32_t selectedRackInstrument = 0u;
     std::array<std::size_t, kVisibleLaneCount> notePlayheads {};
@@ -141,6 +149,7 @@ struct WorkspaceCallbacks {
     std::function<void()> showBurstPage;
     std::function<void()> showReshapePage;
     std::function<void()> showPhrasePage;
+    std::function<void()> showAssemblePage;
     std::function<void()> importAssetPack;
     std::function<void(std::size_t)> exportBurstAssetPack;
     std::function<void()> exportBurstLibraryAssetPack;
@@ -200,6 +209,10 @@ struct WorkspaceCallbacks {
     std::function<void()> viewPreferencesChanged;
     std::function<void(MidiStepRecordMode)> midiStepRecordModeChanged;
     std::function<void(std::size_t)> midiRecordTrackChanged;
+    // Called after a complete lane moves so Song rows can remap their mute
+    // bit positions before the project snapshot is committed.
+    std::function<void(const std::string&, std::size_t, std::size_t)>
+        tracksReordered;
     std::function<void(const std::string&)> executeCommand;
 };
 
@@ -227,6 +240,7 @@ struct WorkspaceCallbacks {
 - (NSView*)burstPageView;
 - (NSView*)reshapePageView;
 - (NSView*)phrasePageView;
+- (NSView*)assemblePageView;
 - (NSView*)warpPageView;
 - (NSView*)consolePageView;
 - (void)focusConsole;
