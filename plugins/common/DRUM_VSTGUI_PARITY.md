@@ -12,7 +12,10 @@ Do not overwrite the original documentation images during comparison.
 
 Snare, Floor Tom, Concert Bass, Toms, Clap, Cowbell, Crash, and Break now use the
 same foundation, with their original per-instrument layouts and drawings.
-Companion Echo/Overload/Mixer remain Cocoa and are a separate migration pass.
+The companion pass now also covers **Drum Echo, Drum Overload, and Drum Mixer
+16**, completing the thirteen-plugin family. Their current Cocoa source and
+[Echo](../../docs/drum-echo.html), [Overload](../../docs/drum-overload.html), and
+[Mixer](../../docs/drum-mixer.html) guides are the effects specification.
 
 ## Adaptation boundaries
 
@@ -56,13 +59,43 @@ Companion Echo/Overload/Mixer remain Cocoa and are a separate migration pass.
 | Performance | Pads enqueue original transient trigger gestures; audible without external MIDI and independent of MIDI Receive; open-to-closed/pedal choke retained. |
 | Host changes | Periodic refresh updates parameters, graphic activity, and factory/CUSTOM recognition after automation/state changes. |
 
+## Companion effects parity
+
+- Echo: original 760×376 OUTPUT / MULTI-HEAD TAPE / DRUM RESPONSE layout,
+  all 14 controls, seven HEADS patterns, ten CLOCK choices, linear TIME slider,
+  PK / HIT / WET DUCK readouts. Tail reporting and tempo fallback are unchanged.
+- Overload: original 760×376 OUTPUT / DRIVE / COLOR layout, all 13 controls,
+  eight CIRCUIT choices, PK / GR / CORE readouts. Preserve the original
+  `s3g EFFECT DRUM OVERLOAD` title wording, with shared typography and grays.
+- Mixer: original 1320×600 eight-strip layout, all 81 parameters, five dials
+  per strip, logarithmic FREQ, horizontal AUX, vertical LEVEL, MUTE/SOLO,
+  SUM/DIRECT, master trim, and complete AUX BUS. Keep dial sweep/needle and
+  diagonal drag sensitivity, fader handle geometry, per-lane VU thresholds,
+  calibrated-to-sRGB green/amber/red colors **and activity-colored outlines**.
+- No invented factory bank or RANDOM button: the original INIT field resets
+  defaults. Echo/Overload INIT and user LOAD preserve output trim; Mixer resets
+  or restores the complete mixer. Project state always restores saved trim.
+- User presets retain the original codecs and directories, with Unicode file
+  services and corrupt-file rejection. Parse/save on an isolated instance;
+  publish a complete parameter batch and DSP reset to the audio thread. This
+  preserves the original user-load tail/filter reset without GUI-thread DSP
+  mutation. Failed/full-queue loads do not partially apply a preset.
+- Echo/Overload previously wrote GUI values directly into DSP. Their VSTGUI
+  editors now use published atomic values and queued host gestures. Mixer uses
+  its existing parameter model/queue service with an internal reset command.
+  All three reserve END capacity before beginning a drag, including hide during
+  drag and host-output backpressure. State formats, descriptors, parameter IDs,
+  metadata, audio routing, and processing formulas are unchanged.
+- The shared title, panel, menu, slider, text-alignment, resource, and 65–200%
+  lifecycle foundation is reused; no changes to the accepted instrument GUI.
+
 ## Builds and verification
 
 macOS remains Cocoa by default for source builds. Opt into these editors with
 `S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS=ON` and portable GUI support enabled.
-`S3G_BUILD_DRUM_GUI_PILOTS=ON` builds just these instruments without requiring
+`S3G_BUILD_DRUM_GUI_PILOTS=ON` builds just Kick and Hi-Hat without requiring
 unrelated future components (which contain macOS-only audit targets).
-`S3G_BUILD_DRUM_GUI_FAMILY=ON` selects all ten instruments without enabling
+`S3G_BUILD_DRUM_GUI_FAMILY=ON` selects all ten instruments and three effects without enabling
 those unrelated components; use this for the Windows family cross-build.
 Windows uses VSTGUI automatically when portable GUI support is enabled.
 
@@ -83,6 +116,18 @@ Verification targets:
   resource removed, verifying that missing resources do not prevent use.
 - Windows PE/export/runtime dependency and font/license packaging validation.
   `bash scripts/package-windows-clap-drum-pilots.sh` creates a fresh test zip.
+  That script still packages only Kick/Hi-Hat; it is not a full-family package.
+- `s3g_drum_{echo,overload,mixer}_canvas_smoke`: actual input for every slider,
+  dial and menu choice, double-click defaults, all mute/solo/routing/bus buttons,
+  INIT, Unicode presets, trim preservation/project recall, malformed files,
+  full-batch rejection, host backpressure, hide during drag, and audio-driven
+  readouts/meters. Mixer geometry is compared directly with Cocoa helpers.
+  `S3G_DRUM_EFFECT_CAPTURE_DIR` writes idle/active/menu/hover, larger Windows-font
+  captures, and matched Cocoa PDF masters. The font-fallback environment flag
+  above is also supported by these tests.
+- `audit_drum_{echo,overload,mixer}`: original DSP/CLAP/state and native-host
+  GUI tests. The Overload native-host interaction check now supports both Cocoa
+  and VSTGUI, with the same DRIVE/menu checks plus balanced portable gestures.
 
 Reference output locations for the instrument rollout:
 
@@ -90,12 +135,25 @@ Reference output locations for the instrument rollout:
 - `build-clap-sample-vstgui-fidelity/drum-family-reference`: native-host VSTGUI captures.
 - `build-clap-sample-vstgui-fidelity/drum-family-parity`: deterministic active/idle,
   menus, and real-audio pad captures.
+- The corresponding `drum-effects-reference` directories contain fresh Cocoa
+  and VSTGUI effect captures; `drum-effects-parity` contains deterministic
+  effect control/meter captures. Published documentation images remain intact.
 
 Exact source comparisons verify unchanged DSP processing, state save/load,
 parameter queues, slider mappings, factory assignments, and Cocoa draw methods
 for all eight new ports. Fresh Cocoa and VSTGUI captures have been compared for
 all eight; original published documentation images are not overwritten.
 
-Actual REAPER testing of the new eight ports on Windows and user visual acceptance remain **pending**.
+The user accepted the ten instrument editors on Mac. Actual REAPER testing of
+the new effects on Mac/Windows, and the eight later instrument ports on Windows,
+remain **pending**.
 Automated tests and cross-compilation must not be reported as Windows runtime
 acceptance. No installed plugins are replaced by the build or packaging steps.
+
+Effects verification completed 2026-09-09: macOS VSTGUI and Cocoa fallback
+builds/audits pass for all three; Windows x64 cross-builds have `clap_entry`,
+only OS/UCRT imports, and matching font/license resources. All 18 selected
+regressions pass (13 Drum canvases plus five shared/Sample tests), as do the
+three effect tests with copied font-less bundles. Native-host captures and
+matched idle/active Cocoa references were visually compared. These effects
+are built but have not been installed by this migration pass.

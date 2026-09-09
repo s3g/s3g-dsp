@@ -9,7 +9,7 @@ constexpr clap_id preservedOutput = kOutputParamId;
 
 class Editor final : public EffectEditor {
 public:
-  explicit Editor(Plugin &p) : EffectEditor(p) {}
+  using EffectEditor::EffectEditor;
   void rows(const s3g::gui_layout::Panel &panel, const uint32_t *indices,
             uint32_t count) {
     const auto &metrics = s3g::gui_layout::kStandardMetrics;

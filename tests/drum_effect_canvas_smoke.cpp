@@ -294,11 +294,10 @@ int main() {
     Events events;
     render(v, "idle");
     cocoa(p, "idle");
-    v.font = foundation::makeUiFont(11.);
-    v.titleFont = foundation::makeUiFont(11.5);
-    render(v, "windows-font-size");
-    v.font = foundation::makeUiFont(10.);
-    v.titleFont = foundation::makeUiFont(10.5);
+    {
+      Editor windowsFont(p, foundation::FontMetrics{11., 11.5, 8., 7.});
+      render(windowsFont, "windows-font-size");
+    }
     for (const auto &control : controls()) {
       const auto info = v.info(control.id);
       for (double norm : {0., .37, 1.}) {

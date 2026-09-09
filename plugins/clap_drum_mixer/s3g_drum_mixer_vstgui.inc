@@ -34,7 +34,7 @@ inline double busY(clap_id id) {
 
 class Editor final : public EffectEditor {
 public:
-  explicit Editor(Plugin &p) : EffectEditor(p) {}
+  using EffectEditor::EffectEditor;
   double fromNormalized(clap_id id, double norm) const override {
     return paramValueFromNormalized(id, norm);
   }

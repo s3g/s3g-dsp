@@ -1,8 +1,13 @@
 // Included inside fx_canvas. Plugin/state/parameter definitions stay local.
 class EffectEditor : public View {
 public:
-  explicit EffectEditor(Plugin &instance)
-      : View(kGuiWidth, kGuiHeight), p(instance) {}
+  explicit EffectEditor(
+      Plugin &instance,
+      const foundation::FontMetrics &metrics = foundation::fontMetrics())
+      : View(kGuiWidth, kGuiHeight), p(instance) {
+    font = foundation::makeUiFont(metrics.body);
+    titleFont = foundation::makeUiFont(metrics.title);
+  }
   ~EffectEditor() override { stopRefresh(); }
   static CRect box(s3g::gui_layout::Rect r) {
     return rect(r.x, r.y, r.width, r.height);
