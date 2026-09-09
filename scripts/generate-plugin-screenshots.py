@@ -52,6 +52,13 @@ DOCUMENTATION_SAMPLE_RECIPES = {
     ),
     f"{PLUGIN_ID_PREFIX}crcltr": (
         ("sample-circulator.wav", 2, 6.0, 13),
+        ("sample-circulator.wav", 2, 6.0, 13),
+    ),
+    f"{PLUGIN_ID_PREFIX}sample-cutups": (
+        ("cut-a.wav", 1, 2.4, 7),
+        ("cut-b.wav", 1, 2.8, 8),
+        ("cut-c.wav", 1, 3.2, 9),
+        ("cut-d.wav", 1, 3.6, 10),
     ),
 }
 SHARED_BUNDLE_PLUGIN_IDS = {
@@ -90,7 +97,7 @@ GUI_COMMAND_RE = re.compile(
     (?P<width>[0-9]+)[ \t]+
     (?P<height>[0-9]+)
     (?:[ \t]+"(?P<prefix>[^"\r\n]+)"[ \t]+
-       (?P<mode>responsive-wide|responsive|dynamic|fixed))?
+    (?P<mode>responsive-wide|responsive|proportional|dynamic|fixed|\$\{s3g_(?:macro|sample_player|sample_family|sample_rings|drum)_gui_smoke_mode\}))?
     [ \t]*(?:\#[^\r\n]*)?$
     """,
     re.VERBOSE,
@@ -255,8 +262,46 @@ def logical_gui_commands(path: Path) -> list[tuple[int, str]]:
     return commands
 
 
+def cmake_cache_bool(build_dir: Path, name: str, default: bool) -> bool:
+    cache = build_dir / "CMakeCache.txt"
+    try:
+        contents = cache.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return default
+    match = re.search(
+        rf"^{re.escape(name)}:BOOL=(ON|OFF|TRUE|FALSE|1|0)$",
+        contents,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if match is None:
+        return default
+    return match.group(1).upper() in {"ON", "TRUE", "1"}
+
+
+def resolve_configured_gui_mode(mode: str | None, build_dir: Path) -> str | None:
+    portable = cmake_cache_bool(
+        build_dir, "S3G_ENABLE_PORTABLE_CLAP_GUI", True
+    )
+    if mode in {"${s3g_macro_gui_smoke_mode}", "${s3g_sample_player_gui_smoke_mode}"}:
+        return "proportional" if portable else "responsive"
+    sample_portable = portable and cmake_cache_bool(
+        build_dir, "S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS", False
+    )
+    if mode == "${s3g_sample_family_gui_smoke_mode}":
+        return "proportional" if sample_portable else "responsive"
+    if mode == "${s3g_sample_rings_gui_smoke_mode}":
+        return "proportional" if sample_portable else "responsive-wide"
+    if mode == "${s3g_drum_gui_smoke_mode}":
+        drum_portable = portable and cmake_cache_bool(
+            build_dir, "S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS", False
+        )
+        return "proportional" if drum_portable else "responsive"
+    return mode
+
+
 def read_gui_inventory(
-    paths: list[Path], bundles: dict[str, Bundle], manifest_path: Path
+    paths: list[Path], bundles: dict[str, Bundle], manifest_path: Path,
+    build_dir: Path,
 ) -> list[Capture]:
     captures: list[Capture] = []
     seen: dict[str, Capture] = {}
@@ -277,7 +322,7 @@ def read_gui_inventory(
                     f"{display_path(manifest_path)}"
                 )
             prefix = match.group("prefix")
-            mode = match.group("mode")
+            mode = resolve_configured_gui_mode(match.group("mode"), build_dir)
             extra_arguments = (
                 (prefix, mode)
                 if prefix is not None and mode is not None
@@ -1043,10 +1088,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
+        build_dir = args.build_dir.resolve()
         manifest_path = args.active_manifest.resolve()
         bundles = read_active_manifest(manifest_path)
         captures = read_gui_inventory(
-            cmake_inventory_paths(args.cmake_file.resolve()), bundles, manifest_path
+            cmake_inventory_paths(args.cmake_file.resolve()), bundles,
+            manifest_path, build_dir,
         )
         inventory = {capture.plugin_id: capture for capture in captures}
         name_map = (
@@ -1067,7 +1114,6 @@ def main() -> int:
             print_inventory(selected, names)
             return 0
 
-        build_dir = args.build_dir.resolve()
         output_dir = args.output_dir.resolve()
         dpi = 72 * args.scale
         renderer = find_renderer(dry_run=args.dry_run)

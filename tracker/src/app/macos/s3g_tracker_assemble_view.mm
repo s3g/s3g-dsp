@@ -49,7 +49,10 @@ const PhraseDefinition *assemblyPhrase(const TrackerViewState *state,
   if (!library || block.phraseSlot >= library->phrases.size())
     return nullptr;
   const auto &phrase = library->phrases[block.phraseSlot];
-  return phrase.empty() && phrase.name.empty() ? nullptr : &phrase;
+  return phrase.empty() && phrase.name.empty() &&
+                 !phrase.recommendedBpm.has_value()
+             ? nullptr
+             : &phrase;
 }
 
 std::size_t blockRows(const TrackerViewState *state,
@@ -1231,7 +1234,8 @@ placed:
     return;
   auto found = std::find_if(library->phrases.begin(), library->phrases.end(),
                             [](const PhraseDefinition &phrase) {
-                              return phrase.empty() && phrase.name.empty();
+                              return phrase.empty() && phrase.name.empty() &&
+                                     !phrase.recommendedBpm.has_value();
                             });
   if (found == library->phrases.end()) {
     NSBeep();

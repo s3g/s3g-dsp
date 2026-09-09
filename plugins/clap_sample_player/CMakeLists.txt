@@ -10,6 +10,23 @@ target_include_directories(s3g_sample_player_clap PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 target_compile_features(s3g_sample_player_clap PRIVATE cxx_std_17)
 
+if(WIN32)
+  if(NOT S3G_DR_LIBS_INCLUDE_DIR)
+    message(FATAL_ERROR "Windows Sample Player requires the pinned dr_libs source")
+  endif()
+  target_include_directories(s3g_sample_player_clap SYSTEM PRIVATE
+    "${S3G_DR_LIBS_INCLUDE_DIR}")
+endif()
+
+if(S3G_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_sample_player_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_sample_player_vstgui.cpp"
+    S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI)
+elseif(APPLE)
+  target_compile_definitions(s3g_sample_player_clap PRIVATE
+    S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI=1)
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_player_clap PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
@@ -37,4 +54,7 @@ if(APPLE)
     COMMAND ${CMAKE_COMMAND} -E touch
       "$<TARGET_BUNDLE_DIR:s3g_sample_player_clap>"
     VERBATIM)
+elseif(WIN32)
+  set_target_properties(s3g_sample_player_clap PROPERTIES
+    SUFFIX ".clap")
 endif()

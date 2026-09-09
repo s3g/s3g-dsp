@@ -568,6 +568,52 @@ bool lowCutoffDeclickProbe()
     return true;
 }
 
+bool onsetDeclickProbe()
+{
+    s3g::AmbiAcidEncoder acid;
+    acid.prepare(kSampleRate);
+    acid.setOutputMode(s3g::AmbiAcidOutputMode::DualMono);
+    auto params = acid.params();
+    params.tempoBpm = 60.0f;
+    params.stepsPerBeat = 1u;
+    params.patternLength = 1u;
+    params.gateLength = 1.0f;
+    params.resonance = 0.92f;
+    params.drive = 0.90f;
+    params.wakeAmount = 0.0f;
+    params.outputGainDb = 0.0f;
+    acid.setParams(params);
+    std::array<s3g::AmbiAcidStep, s3g::kAmbiAcidStepCount> pattern {};
+    pattern[0u] = { 0, true, true, false };
+    acid.setPattern(pattern);
+
+    std::array<float, s3g::kAmbiAcidChannels> frame {};
+    float previous = 0.0f;
+    float earlyPeak = 0.0f;
+    float maximumDelta = 0.0f;
+    double settledEnergy = 0.0;
+    for (uint32_t sample = 0u; sample < 512u; ++sample) {
+        acid.processFrame(frame.data(), frame.size());
+        const float mono = frame[0u];
+        if (!std::isfinite(mono)) return false;
+        if (sample < 16u)
+            earlyPeak = std::max(earlyPeak, std::fabs(mono));
+        if (sample < 256u)
+            maximumDelta = std::max(maximumDelta,
+                std::fabs(mono - previous));
+        else
+            settledEnergy += static_cast<double>(mono) * mono;
+        previous = mono;
+    }
+    if (earlyPeak > 0.08f || maximumDelta > 0.08f
+        || settledEnergy < 1.0e-5) {
+        std::cerr << "acid onset was not de-clicked: early="
+                  << earlyPeak << ", delta=" << maximumDelta << "\n";
+        return false;
+    }
+    return true;
+}
+
 struct SpatialMetrics {
     double wEnergy = 0.0;
     double directionalEnergy = 0.0;
@@ -704,6 +750,7 @@ int main()
         || !clockGateAndPitchProbe()
         || !slideProbe()
         || !voiceExtensionProbe()
+        || !onsetDeclickProbe()
         || !lowCutoffDeclickProbe()
         || !ambisonicWakeAndOrderProbe()
         || !listenerRemovalProbe()

@@ -1,12 +1,18 @@
 #include "s3g_macro_shred.h"
 #include "s3g_realtime.h"
 
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI)
+#include "../common/s3g_clap_gui_param_queue.h"
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_macro_effect_vstgui.h"
+#endif
+
 #include <clap/clap.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -92,6 +98,7 @@ struct SavedState {
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     const clap_host_tail_t* hostTail = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
@@ -104,7 +111,13 @@ struct Plugin {
     std::atomic<float> governorReduction { 0.0f };
     std::atomic<float> loopFrequencyHz { 900.0f };
     std::atomic<bool> panicRequested { false };
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI)
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::portable_gui::MacroEffectEditor* guiEditor = nullptr;
+    uint32_t guiWidth = kGuiWidth;
+    uint32_t guiHeight = kGuiHeight;
+    bool guiVisible = false;
+#elif defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -165,15 +178,23 @@ void applyParam(Plugin& p, clap_id id, double value)
     }
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
+    return true;
+}
 
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI) || (defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__))
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI) || (defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__))
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -259,6 +280,10 @@ void finishExtraChannels(const clap_audio_buffer_t& input, const clap_audio_buff
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI)
+    s3g::clap_gui::serviceParamEvents(p->guiParamEvents, proc->out_events,
+        [](clap_id, double) {});
+#endif
     readParamEvents(*p, proc->in_events);
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
         p->shred.panic();
@@ -443,9 +468,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+    const clap_output_events_t* out)
 {
-    readParamEvents(*self(plugin), in);
+    auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI)
+    s3g::clap_gui::serviceParamEvents(p->guiParamEvents, out,
+        [](clap_id, double) {});
+#endif
+    readParamEvents(*p, in);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
@@ -536,7 +567,7 @@ const clap_plugin_tail_t tailExt { tailGet };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__)
 #if S3G_MACRO_SHRED_CHANNEL_COUNT == 1
 #define S3GMacroShredView S3GMacroShredMonoView
 #elif S3G_MACRO_SHRED_CHANNEL_COUNT == 8
@@ -1119,13 +1150,238 @@ const clap_plugin_gui_t guiExt {
 };
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI)
+namespace {
+
+bool guiReadParam(void* context, uint32_t id, double* value)
+{
+    if (!context) return false;
+    auto& plugin = *static_cast<Plugin*>(context);
+    return paramsGetValue(&plugin.plugin, static_cast<clap_id>(id), value);
+}
+
+float guiReadPeak(void* context)
+{
+    return static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed);
+}
+
+float guiReadActivity(void* context)
+{
+    return static_cast<Plugin*>(context)->loopActivity.load(
+        std::memory_order_relaxed);
+}
+
+float guiReadReduction(void* context)
+{
+    return static_cast<Plugin*>(context)->governorReduction.load(
+        std::memory_order_relaxed);
+}
+
+float guiReadFrequency(void* context)
+{
+    return static_cast<Plugin*>(context)->loopFrequencyHz.load(
+        std::memory_order_relaxed);
+}
+
+void guiRequestPanic(void* context)
+{
+    static_cast<Plugin*>(context)->panicRequested.store(
+        true, std::memory_order_release);
+}
+
+void guiApplyParam(void* context, uint32_t id, double value)
+{
+    if (!context) return;
+    auto& plugin = *static_cast<Plugin*>(context);
+    applyParam(plugin, static_cast<clap_id>(id), value);
+    (void)s3g::clap_gui::enqueueParamEvent(plugin.guiParamEvents,
+        plugin.host, plugin.hostParams,
+        s3g::clap_gui::ParamEventKind::Value,
+        static_cast<clap_id>(id), value);
+}
+
+void guiBeginParamEdit(void* context, uint32_t id)
+{
+    if (!context) return;
+    auto& plugin = *static_cast<Plugin*>(context);
+    (void)s3g::clap_gui::enqueueParamEvent(plugin.guiParamEvents,
+        plugin.host, plugin.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureBegin,
+        static_cast<clap_id>(id));
+}
+
+void guiEndParamEdit(void* context, uint32_t id)
+{
+    if (!context) return;
+    auto& plugin = *static_cast<Plugin*>(context);
+    (void)s3g::clap_gui::enqueueParamEvent(plugin.guiParamEvents,
+        plugin.host, plugin.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureEnd,
+        static_cast<clap_id>(id));
+}
+
+bool guiDefaultValue(void*, uint32_t id, double* value)
+{
+    if (!value) return false;
+    for (const auto& definition : kParamDefs) {
+        if (definition.id == id) {
+            *value = definition.def;
+            return true;
+        }
+    }
+    return false;
+}
+
+void guiResetDefaults(void* context)
+{
+    auto& plugin = *static_cast<Plugin*>(context);
+    const float output = plugin.params.outputGainDb;
+    for (const auto& definition : kParamDefs) {
+        if (definition.id != kOutputParamId)
+            applyParam(plugin, definition.id, definition.def);
+    }
+    applyParam(plugin, kOutputParamId, output);
+}
+
+bool guiSavePreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    SavedState state {};
+    state.params = static_cast<Plugin*>(context)->params;
+    std::FILE* file = s3g::portable_gui::foundation::openFileUtf8(path, "wb");
+    if (!file) return false;
+    const bool ok = std::fwrite(&state, sizeof(state), 1u, file) == 1u;
+    return std::fclose(file) == 0 && ok;
+}
+
+bool guiLoadPreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    SavedState state {};
+    std::FILE* file = s3g::portable_gui::foundation::openFileUtf8(path, "rb");
+    if (!file) return false;
+    const bool read = std::fread(&state, sizeof(state), 1u, file) == 1u;
+    const bool closed = std::fclose(file) == 0;
+    if (!read || !closed || state.version != kStateVersion) return false;
+    auto& plugin = *static_cast<Plugin*>(context);
+    const float output = plugin.params.outputGainDb;
+    plugin.params = state.params;
+    plugin.params.outputGainDb = output;
+    plugin.shred.setParams(plugin.params);
+    plugin.params = plugin.shred.params();
+    if (plugin.hostTail && plugin.hostTail->changed)
+        plugin.hostTail->changed(plugin.host);
+    return true;
+}
+
+bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool floating)
+{
+    return s3g::clap_gui::portable::isApiSupported(api, floating);
+}
+
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* floating)
+{
+    return s3g::clap_gui::portable::getPreferredApi(api, floating);
+}
+
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
+{
+    auto* p = self(plugin);
+    return s3g::clap_gui::portable::create(
+        p->guiEditor, api, floating, [p]() {
+            s3g::portable_gui::MacroEffectEditorConfig config {};
+            config.callbacks.context = p;
+            config.callbacks.getParamValue = guiReadParam;
+            config.callbacks.getOutputPeak = guiReadPeak;
+            config.callbacks.getActivity = guiReadActivity;
+            config.callbacks.getSecondaryActivity = guiReadReduction;
+            config.callbacks.getFrequencyHz = guiReadFrequency;
+            config.callbacks.requestPanic = guiRequestPanic;
+            config.callbacks.beginParamEdit = guiBeginParamEdit;
+            config.callbacks.setParam = guiApplyParam;
+            config.callbacks.endParamEdit = guiEndParamEdit;
+            config.callbacks.getDefaultValue = guiDefaultValue;
+            config.callbacks.resetToDefaults = guiResetDefaults;
+            config.callbacks.loadPreset = guiLoadPreset;
+            config.callbacks.savePreset = guiSavePreset;
+            config.kind = s3g::portable_gui::MacroEffectKind::Shred;
+            config.pluginName = S3G_MACRO_SHRED_PLUGIN_NAME;
+            config.channelCount = kChannelCount;
+            config.nativeWidth = kGuiWidth;
+            config.nativeHeight = kGuiHeight;
+            return s3g::portable_gui::createMacroEffectEditor(
+                config, p->guiWidth, p->guiHeight);
+        });
+}
+
+void guiDestroy(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    p->guiVisible = false;
+    s3g::clap_gui::portable::destroy(p->guiEditor,
+        s3g::portable_gui::destroyMacroEffectEditor);
+}
+
+bool guiSetScale(const clap_plugin_t*, double) { return false; }
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height)
+{
+    const auto* p = self(plugin);
+    return s3g::clap_gui::portable::getSize(
+        p->guiWidth, p->guiHeight, width, height);
+}
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::portable::getResizeHints(
+        kGuiWidth, kGuiHeight, hints);
+}
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::portable::adjustSize(
+        kGuiWidth, kGuiHeight, width, height);
+}
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
+{
+    auto* p = self(plugin);
+    return s3g::clap_gui::portable::setSize(p->guiEditor,
+        kGuiWidth, kGuiHeight, p->guiWidth, p->guiHeight, width, height,
+        s3g::portable_gui::setMacroEffectEditorSize);
+}
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
+{
+    return s3g::clap_gui::portable::setParent(self(plugin)->guiEditor,
+        window, s3g::portable_gui::setMacroEffectEditorParent);
+}
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+bool guiShow(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    return s3g::clap_gui::portable::setVisible(p->guiEditor,
+        p->guiVisible, true, s3g::portable_gui::setMacroEffectEditorVisible);
+}
+bool guiHide(const clap_plugin_t* plugin)
+{
+    auto* p = self(plugin);
+    return s3g::clap_gui::portable::setVisible(p->guiEditor,
+        p->guiVisible, false, s3g::portable_gui::setMacroEffectEditorVisible);
+}
+const clap_plugin_gui_t guiExt {
+    guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy,
+    guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints,
+    guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient,
+    guiSuggestTitle, guiShow, guiHide
+};
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI) || (defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__))
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

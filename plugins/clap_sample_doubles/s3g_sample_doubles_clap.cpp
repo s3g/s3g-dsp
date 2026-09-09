@@ -1,9 +1,15 @@
+#include "../common/s3g_sample_file_decode.h"
 #include "s3g_sample_doubles.h"
 #include "s3g_sample_doubles_presets.h"
 #include "s3g_sample_tempo_estimator.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_sample_storage.h"
 #include "../common/s3g_clap_state_stream.h"
+
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_family_vstgui.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -279,7 +285,7 @@ struct StatePrefix {
 
 static_assert(sizeof(StatePrefix) == 12u);
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     uint64_t tempoRevision = 0u;
@@ -403,7 +409,7 @@ struct Plugin {
     bool projectCopyInFlight = false;
     std::chrono::steady_clock::time_point nextProjectCopyProbe {};
     bool active = false;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::atomic<bool> projectRenamePending { false };
     s3g::sample_storage::ProjectFileRegistration projectFileRegistration;
     std::mutex loaderMutex;
@@ -414,10 +420,21 @@ struct Plugin {
     uint64_t loadGeneration = 0u;
     uint64_t tempoAnalysisGeneration = 0u;
     bool loaderStopping = false;
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    s3g::portable_gui::SampleFamilyEditor* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth;
+    uint32_t portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    uint32_t portableFeedbackMask = 0u;
+    std::chrono::steady_clock::time_point portableFeedbackUntil {};
+#endif
 };
+
 
 Plugin* self(const clap_plugin_t* plugin)
 {
@@ -462,7 +479,7 @@ uint64_t regularFileByteCount(const std::string& path) noexcept
 {
     if (path.empty()) return 0u;
     std::error_code error;
-    const auto bytes = std::filesystem::file_size(path, error);
+    const auto bytes = std::filesystem::file_size(std::filesystem::u8path(path), error);
     return error || bytes > std::numeric_limits<uint64_t>::max()
         ? 0u : static_cast<uint64_t>(bytes);
 }
@@ -495,7 +512,7 @@ std::string sampleStorageDisplayText(const Plugin& instance,
         instance.samplePath, maximumPathCharacters);
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 void projectSampleRenamed(void* owner, const std::string& absolutePath)
 {
     auto* instance = static_cast<Plugin*>(owner);
@@ -843,14 +860,14 @@ bool publishAsset(Plugin& instance, std::shared_ptr<const SampleAsset> asset,
     instance.samplePath = std::move(path);
     instance.resolvedSamplePath = std::move(resolvedPath);
     if (instance.resolvedSamplePath.empty()
-        && std::filesystem::path(instance.samplePath).is_absolute())
+        && std::filesystem::u8path(instance.samplePath).is_absolute())
         instance.resolvedSamplePath = instance.samplePath;
     instance.sourceFileBytes = sourceFileBytes != 0u
         ? sourceFileBytes : regularFileByteCount(instance.resolvedSamplePath);
     if (instance.samplePath.empty()) {
         instance.projectCopyPending = false;
         instance.projectSavePending = false;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
         instance.projectFileRegistration.clear();
 #endif
     }
@@ -874,10 +891,11 @@ void applySafeDefaultBounds(Plugin& instance,
         static_cast<double>(bounds.endFrame) / frames, false);
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         NSError* nsError = nil;
@@ -923,7 +941,18 @@ bool decodeSampleFile(const std::string& path,
         error.clear();
         return true;
     }
+
+#else
+    if (!s3g::sample_file::decodeWaveFile(path, assetOut, error)) return false;
+    if (assetOut->channelCount > 2u) {
+        assetOut.reset();
+        error = "CHANNEL COUNT NOT SUPPORTED";
+        return false;
+    }
+    return true;
+#endif
 }
+#endif
 
 void retainTempoEstimate(Plugin& instance,
     const s3g::sample::TempoEstimate& tempo) noexcept
@@ -938,6 +967,7 @@ void retainTempoEstimate(Plugin& instance,
         std::memory_order_release);
 }
 
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool installDecodedSample(Plugin& instance, const std::string& path,
     std::shared_ptr<const SampleAsset> asset,
     const s3g::sample::TempoEstimate* tempo = nullptr,
@@ -1752,7 +1782,7 @@ bool pluginInit(const clap_plugin_t* plugin)
         instance.hostState = static_cast<const clap_host_state_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startSampleLoader(instance)) {
         instance.status = "COULD NOT START SAMPLE LOADER";
         return false;
@@ -1764,12 +1794,20 @@ bool pluginInit(const clap_plugin_t* plugin)
 #if defined(__APPLE__)
 void destroyGui(Plugin& instance);
 #endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 
 void pluginDestroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
     auto& instance = *self(plugin);
+#if defined(__APPLE__)
     destroyGui(instance);
+#endif
     instance.projectFileRegistration.clear();
     instance.projectRenamePending.store(false, std::memory_order_release);
     stopSampleLoader(instance);
@@ -1978,7 +2016,7 @@ void pluginOnMainThread(const clap_plugin_t* plugin)
     if (instance.cueStateDirtyPending.exchange(false,
             std::memory_order_acq_rel))
         markStateDirty(instance);
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceSampleLoads(instance);
 #else
     (void)instance;
@@ -2384,13 +2422,13 @@ bool restoreSavedState(Plugin& instance, const Saved& saved,
     bool projectLocatorPending = false;
     if (!path.empty()) {
         if (requestedStorageMode == StorageMode::Project) {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
             std::string error;
             const auto context = s3g::sample_storage::reaperContext(
                 instance.host);
             if (!s3g::sample_storage::resolveProjectRelativePath(context,
                     path, resolvedPath, &error)) {
-                if (std::filesystem::path(path).is_absolute())
+                if (std::filesystem::u8path(path).is_absolute())
                     resolvedPath = path;
                 projectLocatorPending = true;
             }
@@ -2425,12 +2463,21 @@ bool restoreSavedState(Plugin& instance, const Saved& saved,
             return false;
         }
     } else if (!resolvedPath.empty()) {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
         std::string error;
         if (!decodeSampleFile(resolvedPath, asset, error) || !asset
             || asset->channelCount > 2u) asset.reset();
 #endif
     }
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    ++instance.loadGeneration;
+    ++instance.tempoAnalysisGeneration;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.clear();
+    }
+    instance.projectCopyInFlight = false;
+#endif
     if (!publishAsset(instance, std::move(asset), path, false, resolvedPath,
             regularFileByteCount(resolvedPath))) return false;
     // Loading a legacy record must reset newly appended parameters to their
@@ -2447,7 +2494,7 @@ bool restoreSavedState(Plugin& instance, const Saved& saved,
         && projectLocatorPending && instance.controlAsset
         && !instance.resolvedSamplePath.empty();
     instance.projectSavePending = instance.projectCopyPending;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (requestedStorageMode == StorageMode::Project
         && instance.controlAsset && !projectLocatorPending
         && !instance.resolvedSamplePath.empty()) {
@@ -2478,7 +2525,7 @@ bool restoreSavedState(Plugin& instance, const Saved& saved,
             + (instance.controlAsset
                 ? " DOUBLES RESTORED" : " RESTORED - SAMPLE OFFLINE");
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     maybeQueuePendingProjectStorage(instance);
 #endif
     return true;
@@ -4649,6 +4696,392 @@ const clap_plugin_gui_t gui {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+
+uint32_t portableParameterCount(void* context)
+{
+    return context ? paramsCount(&static_cast<Plugin*>(context)->plugin) : 0u;
+}
+
+bool portableParameterInfo(void* context, uint32_t index,
+    s3g::portable_gui::SampleFamilyParameterInfo* result)
+{
+    if (!context || !result) return false;
+    clap_param_info_t info {};
+    if (!paramsGetInfo(&static_cast<Plugin*>(context)->plugin, index, &info))
+        return false;
+    result->id = info.id;
+    std::snprintf(result->name, sizeof(result->name), "%s", info.name);
+    std::snprintf(result->module, sizeof(result->module), "%s", info.module);
+    result->minimum = info.min_value;
+    result->maximum = info.max_value;
+    result->defaultValue = info.default_value;
+    result->stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+    result->readOnly = (info.flags & CLAP_PARAM_IS_READONLY) != 0u;
+    return true;
+}
+
+double portableReadParameter(void* context, uint32_t id)
+{
+    if (!context) return 0.0;
+    double value = 0.0;
+    (void)paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), &value);
+    return value;
+}
+
+bool portableParameterText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, capacity);
+}
+
+void portableBeginParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamGestureBegin(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableSetParameter(void* context, uint32_t id, double value)
+{
+    if (context) queueGuiParamValue(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id), value);
+}
+
+void portableEndParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamGestureEnd(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableResetParameters(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : kParamDefs)
+        queueGuiParamValue(instance, definition.id, definition.defaultValue);
+}
+
+uint32_t portableSampleSlotCount(void*) { return 1u; }
+
+const SampleAsset* portableAsset(void* context, uint32_t)
+{
+    return context ? static_cast<Plugin*>(context)->controlAsset.get()
+                   : nullptr;
+}
+
+const char* portableSamplePath(void* context, uint32_t)
+{
+    return context ? static_cast<Plugin*>(context)->samplePath.c_str() : "";
+}
+
+const char* portableSampleStatus(void* context, uint32_t)
+{
+    return context ? static_cast<Plugin*>(context)->status.c_str() : "";
+}
+
+
+void portableApplyTempoMultiplier(void* context, double multiplier, bool automatic)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    const bool hasEstimate = instance.tempoEstimateValid.load(std::memory_order_acquire);
+    if (automatic && !hasEstimate) {
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        queueTempoAnalysis(instance);
+#endif
+        return;
+    }
+    const double base = hasEstimate ? instance.estimatedTempoBpm.load(std::memory_order_acquire)
+        : paramValue(instance, kSourceTempoParamId);
+    const auto* def = paramDef(kSourceTempoParamId);
+    if (!def || !std::isfinite(base)) return;
+    queueGuiParamGesture(instance, kSourceTempoParamId, clampParam(*def, base * multiplier));
+    instance.tempoOrigin.store(static_cast<uint8_t>(automatic
+        ? TempoOrigin::Estimated : TempoOrigin::Manual), std::memory_order_release);
+    instance.status = automatic ? "DETECTED BPM APPLIED" : "BPM OCTAVE ADJUSTED";
+}
+
+bool portableDoublesState(void* context, s3g::portable_gui::SampleFamilyDoublesState* state)
+{
+    if (!context || !state) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto origin = static_cast<TempoOrigin>(instance.tempoOrigin.load(std::memory_order_acquire));
+    const bool valid = instance.tempoEstimateValid.load(std::memory_order_acquire);
+    const double estimate = instance.estimatedTempoBpm.load(std::memory_order_acquire);
+    const int confidence = static_cast<int>(std::lround(instance.tempoConfidence.load(std::memory_order_acquire) * 100.0f));
+    state->automaticTempo = origin == TempoOrigin::Estimated;
+    if (origin == TempoOrigin::Estimated && valid)
+        std::snprintf(state->tempoText, sizeof(state->tempoText), "BPM %.2f AUTO / %d%%", estimate, confidence);
+    else if (origin == TempoOrigin::Suggested && valid)
+        std::snprintf(state->tempoText, sizeof(state->tempoText), "BPM %.2f SUGGEST / %d%%%s", estimate, confidence,
+            instance.tempoOctaveAmbiguous.load(std::memory_order_acquire) ? " ?2X" : "");
+    else std::snprintf(state->tempoText, sizeof(state->tempoText), "BPM %.2f %s",
+        paramValue(instance, kSourceTempoParamId), origin == TempoOrigin::Restored ? "RESTORED" : "MANUAL");
+    std::snprintf(state->storageText, sizeof(state->storageText), "%s", sampleStorageDisplayText(instance).c_str());
+    state->activeDecks = instance.cursorActiveMask.load(std::memory_order_relaxed);
+    state->playing = instance.playing.load(std::memory_order_relaxed);
+    state->cueMask = instance.cueValidMask.load(std::memory_order_acquire);
+    state->cues[0] = instance.cueA.load(std::memory_order_relaxed);
+    state->cues[1] = instance.cueB.load(std::memory_order_relaxed);
+    const auto now = std::chrono::steady_clock::now();
+    const uint32_t pulses = instance.actionFeedbackPulses.exchange(0u, std::memory_order_acq_rel);
+    if (pulses) {
+        instance.portableFeedbackMask |= pulses;
+        instance.portableFeedbackUntil = now + std::chrono::milliseconds(140);
+    } else if (now >= instance.portableFeedbackUntil) instance.portableFeedbackMask = 0u;
+    const uint32_t held = instance.gestureHeldMask.load(std::memory_order_acquire);
+    state->activeActions = 0u;
+    for (uint32_t action = 1u; action <= kActionTriggerCueB; action <<= 1u)
+        if (feedbackForAction(action) & instance.portableFeedbackMask) state->activeActions |= action;
+    if (held & kFeedbackPunchA) state->activeActions |= kActionPunchAOn;
+    if (held & kFeedbackPunchB) state->activeActions |= kActionPunchBOn;
+    if (held & kFeedbackDragA) state->activeActions |= kActionDragAOn;
+    if (held & kFeedbackDragB) state->activeActions |= kActionDragBOn;
+    return true;
+}
+
+void portablePlaceCue(void* context, uint32_t deck, float position)
+{
+    if (!context || deck > 1u) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    (deck == 0u ? instance.requestedCueA : instance.requestedCueB).store(
+        std::clamp(position, 0.0f, 1.0f), std::memory_order_release);
+    requestAction(instance, deck == 0u ? kActionPlaceCueA : kActionPlaceCueB);
+}
+
+bool portableLoadSample(void* context, uint32_t, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    queueSampleLoad(*static_cast<Plugin*>(context), path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool portableClearSample(void* context, uint32_t)
+{
+    return context && publishAsset(*static_cast<Plugin*>(context),
+        nullptr, "");
+}
+
+const char* portableStorageName(void* context, uint32_t)
+{
+    return context ? s3g::sample_storage::storageModeName(
+        static_cast<Plugin*>(context)->storageMode) : "PROJECT";
+}
+
+bool portableCycleStorage(void* context, uint32_t)
+{
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.storageMode = nextStorageMode(instance.storageMode);
+    if (instance.storageMode != StorageMode::Project) {
+        if (!instance.resolvedSamplePath.empty())
+            instance.samplePath = instance.resolvedSamplePath;
+        instance.projectCopyPending = false;
+        instance.projectSavePending = false;
+        instance.projectCopyInFlight = false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        instance.projectFileRegistration.clear();
+#endif
+        instance.status = instance.storageMode == StorageMode::Embed
+            ? "EMBED STORAGE / PCM SAVED IN STATE"
+            : "LINK STORAGE / ORIGINAL FILE REQUIRED";
+    } else if (instance.controlAsset) {
+        instance.projectCopyPending = true;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        (void)queueProjectStorage(instance);
+#endif
+    }
+    markStateDirty(instance);
+    return true;
+}
+
+float portableOutputPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t portableFactoryPresetCount(void*)
+{
+    return s3g::sample::kDoublesFactoryPresetCount;
+}
+
+const char* portableFactoryPresetName(void*, uint32_t index)
+{
+    if (index >= s3g::sample::kDoublesFactoryPresetCount) return nullptr;
+    return s3g::sample::doublesFactoryPresetInfo(index).name;
+}
+
+bool portableApplyFactoryPreset(void* context, uint32_t index)
+{
+    return context && queueGuiFactoryPreset(
+        *static_cast<Plugin*>(context), index);
+}
+
+uint32_t portableCursorTrajectories(void* context,
+    s3g::portable_gui::SampleCursorTrajectory* output, uint32_t capacity)
+{
+    if (!context || !output || capacity < 2u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    CursorSnapshot snapshot;
+    if (!readCursorSnapshot(instance, snapshot)) return 0u;
+    for (uint32_t deck = 0; deck < 2; ++deck) {
+        auto& t = output[deck];
+        t.asset = reinterpret_cast<uintptr_t>(snapshot.asset);
+        t.identity = deck + 1u;
+        t.discontinuity = snapshot.discontinuity;
+        t.position = deck == 0 ? snapshot.deckA : snapshot.deckB;
+        t.low = snapshot.start; t.high = snapshot.end;
+        t.rate = deck == 0 ? snapshot.rateA : snapshot.rateB;
+        t.loop = snapshot.loop;
+        t.running = snapshot.playing && (snapshot.activeMask & (1u << deck))
+            && instance.processing.load(std::memory_order_acquire);
+    }
+    return 2u;
+}
+
+uint32_t portableCursors(void* context, uint32_t, float* positions,
+    uint8_t* keys, uint32_t capacity)
+{
+    if (!context || !positions || !keys || capacity == 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    uint32_t count = 0u;
+    const float a = instance.deckAPosition.load(std::memory_order_relaxed);
+    const float b = instance.deckBPosition.load(std::memory_order_relaxed);
+    if (a >= 0.0f && a <= 1.0f && count < capacity) {
+        positions[count] = a;
+        keys[count++] = 0u;
+    }
+    if (b >= 0.0f && b <= 1.0f && count < capacity) {
+        positions[count] = b;
+        keys[count++] = 1u;
+    }
+    return count;
+}
+
+void portableAction(void* context, uint32_t action, bool pressed)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    if (!pressed) {
+        if (action == kActionPunchAOn) requestAction(instance, kActionPunchAOff);
+        else if (action == kActionPunchBOn)
+            requestAction(instance, kActionPunchBOff);
+        else if (action == kActionDragAOn)
+            requestAction(instance, kActionDragAOff);
+        else if (action == kActionDragBOn)
+            requestAction(instance, kActionDragBOff);
+        return;
+    }
+    requestAction(instance, action);
+}
+
+void portableService(void* context)
+{
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    if (context) serviceSampleLoads(*static_cast<Plugin*>(context));
+#else
+    (void)context;
+#endif
+}
+
+bool portableLoadPreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::loadStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+bool portableSavePreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::saveStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+const std::array<s3g::portable_gui::SampleFamilyWaveMarker, 2u>
+    portableMarkers {{
+        { kStartParamId, "S" },
+        { kEndParamId, "E" },
+    }};
+
+const std::array<s3g::portable_gui::SampleFamilyAction, 16u>
+    portableActions {{
+        { kActionRestart, "RESTART", false },
+        { kActionPlay, "PLAY", false },
+        { kActionStop, "STOP", false },
+        { kActionSync, "SYNC", false },
+        { kActionStepBackward, "STEP -", false },
+        { kActionStepForward, "STEP +", false },
+        { kActionToggleDeckA, "DECK A", false },
+        { kActionToggleDeckB, "DECK B", false },
+        { kActionPunchAOn, "PUNCH A", true },
+        { kActionPunchBOn, "PUNCH B", true },
+        { kActionDragAOn, "DRAG A", true },
+        { kActionDragBOn, "DRAG B", true },
+        { kActionSetCueA, "SET CUE A", false },
+        { kActionSetCueB, "SET CUE B", false },
+        { kActionTriggerCueA, "TRIGGER A", false },
+        { kActionTriggerCueB, "TRIGGER B", false },
+    }};
+
+s3g::portable_gui::SampleFamilyEditorConfig
+makeSampleFamilyEditorConfig(Plugin& instance)
+{
+    s3g::portable_gui::SampleFamilyEditorConfig config {};
+    config.callbacks.context = &instance;
+    config.callbacks.getParameterCount = portableParameterCount;
+    config.callbacks.getParameterInfo = portableParameterInfo;
+    config.callbacks.getParam = portableReadParameter;
+    config.callbacks.getParamText = portableParameterText;
+    config.callbacks.beginParamEdit = portableBeginParameter;
+    config.callbacks.setParam = portableSetParameter;
+    config.callbacks.endParamEdit = portableEndParameter;
+    config.callbacks.resetToDefaults = portableResetParameters;
+    config.callbacks.getFactoryPresetCount = portableFactoryPresetCount;
+    config.callbacks.getFactoryPresetName = portableFactoryPresetName;
+    config.callbacks.applyFactoryPreset = portableApplyFactoryPreset;
+    config.callbacks.getSampleSlotCount = portableSampleSlotCount;
+    config.callbacks.getAsset = portableAsset;
+    config.callbacks.getSamplePath = portableSamplePath;
+    config.callbacks.getSampleStatus = portableSampleStatus;
+    config.callbacks.loadSample = portableLoadSample;
+    config.callbacks.clearSample = portableClearSample;
+    config.callbacks.getStorageModeName = portableStorageName;
+    config.callbacks.cycleStorageMode = portableCycleStorage;
+    config.callbacks.getOutputPeak = portableOutputPeak;
+    config.callbacks.getCursors = portableCursors;
+    config.callbacks.getCursorTrajectories = portableCursorTrajectories;
+    config.callbacks.getDoublesState = portableDoublesState;
+    config.callbacks.placeDoublesCue = portablePlaceCue;
+    config.callbacks.applyTempoMultiplier = portableApplyTempoMultiplier;
+    config.callbacks.performAction = portableAction;
+    config.callbacks.service = portableService;
+    config.callbacks.loadPreset = portableLoadPreset;
+    config.callbacks.savePreset = portableSavePreset;
+    config.pluginName = instance.plugin.desc->name;
+    config.samplePanelName = "DOUBLES SOURCE / DECKS";
+    config.markers = portableMarkers.data();
+    config.markerCount = static_cast<uint32_t>(portableMarkers.size());
+    config.actions = portableActions.data();
+    config.actionCount = static_cast<uint32_t>(portableActions.size());
+    config.nativeWidth = kGuiWidth;
+    config.nativeHeight = kGuiHeight;
+    config.minimumColumns = 3u;
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Doubles;
+    return config;
+}
+
+#include "../common/s3g_sample_family_clap_gui.inc"
+
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (!id) return nullptr;
@@ -4662,7 +5095,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     extern const clap_plugin_gui_t gui;
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif

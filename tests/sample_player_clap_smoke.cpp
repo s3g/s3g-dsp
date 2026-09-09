@@ -301,7 +301,7 @@ bool exerciseProjectStorageHelpers()
     const auto serial = std::chrono::steady_clock::now()
         .time_since_epoch().count();
     const auto root = std::filesystem::temp_directory_path()
-        / ("s3g-player-storage-" + std::to_string(serial));
+        / std::filesystem::u8path(u8"s3g-player-storage-é-音-" + std::to_string(serial));
     const auto media = root / "Media";
     const auto source = root / "Sample Kick #1.WAV";
     std::error_code error;
@@ -313,16 +313,16 @@ bool exerciseProjectStorageHelpers()
     storage::ProjectLocation location;
     location.project = reinterpret_cast<void*>(uintptr_t { 1u });
     location.fxDsp = reinterpret_cast<void*>(uintptr_t { 2u });
-    location.projectFilePath = (root / "fixture.rpp").string();
-    location.mediaDirectory = media.string();
+    location.projectFilePath = (root / "fixture.rpp").u8string();
+    location.mediaDirectory = media.u8string();
     location.saved = true;
     const auto copied = storage::copyFileIntoProject(location,
-        source.string());
+        source.u8string());
     ok &= expect(copied.success
             && copied.contentHash
                 == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9c"
                     "b410ff61f20015ad"
-            && std::filesystem::path(copied.relativePath).filename()
+            && std::filesystem::u8path(copied.relativePath).filename()
                 == "sample-kick-1-ba7816bf8f01cfea.wav"
             && copied.byteCount == 3u,
         "project copy did not use verified readable content addressing");
@@ -332,7 +332,7 @@ bool exerciseProjectStorageHelpers()
             && resolved == copied.absolutePath,
         "project-relative sample path did not round-trip");
     const auto repeated = storage::copyFileIntoProject(location,
-        source.string());
+        source.u8string());
     ok &= expect(repeated.success
             && repeated.absolutePath == copied.absolutePath,
         "identical project copy was not stable");
@@ -362,18 +362,18 @@ bool exerciseProjectStorageHelpers()
         output.write("occupied", 8);
     }
     const auto collision = storage::copyFileIntoProject(location,
-        collisionSource.string());
+        collisionSource.u8string());
     ok &= expect(collision.success
-            && std::filesystem::path(collision.absolutePath).filename()
+            && std::filesystem::u8path(collision.absolutePath).filename()
                 == copied.contentHash + ".wav",
         "short-hash collision did not fall back to the full digest");
     {
-        std::ofstream output(collision.absolutePath,
+        std::ofstream output(std::filesystem::u8path(collision.absolutePath),
             std::ios::binary | std::ios::trunc);
         output.write("occupied", 8);
     }
     const auto occupiedFull = storage::copyFileIntoProject(location,
-        collisionSource.string());
+        collisionSource.u8string());
     ok &= expect(!occupiedFull.success,
         "mismatched full-hash destination was overwritten");
 
@@ -391,7 +391,7 @@ bool exerciseProjectStorageHelpers()
     ProjectQueryProbe queryProbe;
     queryProbe.firstProject = reinterpret_cast<void*>(uintptr_t { 3u });
     queryProbe.exactProject = context.project;
-    queryProbe.firstPath = (root / "other.rpp").string();
+    queryProbe.firstPath = (root / "other.rpp").u8string();
     queryProbe.exactPath = location.projectFilePath;
     queryProbe.mediaPath = "Media";
     activeProjectQueryProbe = &queryProbe;
@@ -400,7 +400,7 @@ bool exerciseProjectStorageHelpers()
     ok &= expect(storage::queryProjectLocation(context, queriedLocation,
             &queryError)
             && queriedLocation.projectFilePath == location.projectFilePath
-            && queriedLocation.mediaDirectory == media.string(),
+            && queriedLocation.mediaDirectory == media.u8string(),
         "REAPER project query did not pointer-match this instance or resolve "
         "its media path");
     RegistrationProbe probe;
@@ -413,7 +413,7 @@ bool exerciseProjectStorageHelpers()
             && probe.additions == 1 && probe.callback,
         "project-file registration capability was not accepted");
     const std::string movedPath = (media / "s3g Samples"
-        / "moved-sample.wav").string();
+        / "moved-sample.wav").u8string();
     if (probe.callback)
         probe.callback(probe.userData, 0,
             const_cast<char*>(movedPath.c_str()));

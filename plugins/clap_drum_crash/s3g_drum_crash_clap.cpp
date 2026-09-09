@@ -3,6 +3,12 @@
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_drum_midi_receive.h"
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_vstgui_canvas.h"
+#include <random>
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -28,7 +34,6 @@
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
-#include "../common/s3g_gui_layout.h"
 #endif
 
 namespace {
@@ -156,6 +161,11 @@ struct Plugin {
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
 #endif
 };
 
@@ -776,12 +786,18 @@ void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* output)
     p.guiRetryPending.store(false, std::memory_order_release);
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -1217,21 +1233,19 @@ uint32_t tailGet(const clap_plugin_t* plugin)
 
 const clap_plugin_tail_t tailExt { tailGet };
 
-#if defined(__APPLE__)
-
 constexpr clap_id kFactoryPresetMenuId = 0x7ffffff0u;
 
 struct ClapUiRow {
     clap_id id;
     const char* label;
-    CGFloat panelX;
-    CGFloat panelWidth;
-    CGFloat y;
+    double panelX;
+    double panelWidth;
+    double y;
 };
 
-constexpr CGFloat kLeftPanelX = 16.0;
-constexpr CGFloat kRightPanelX = 470.0;
-constexpr CGFloat kPanelWidth = 434.0;
+constexpr double kLeftPanelX = 16.0;
+constexpr double kRightPanelX = 470.0;
+constexpr double kPanelWidth = 434.0;
 
 constexpr std::array<ClapUiRow, kSavedParamCount> kUiRows {{
     { kTuneParamId, "TUNE", kLeftPanelX, kPanelWidth, 80.0 },
@@ -1386,6 +1400,48 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
     return true;
 }
 
+bool queueGuiFactoryPreset(Plugin& instance, int index)
+{
+    auto* p = &instance;
+    if (s3g::kDrumCrashFactoryPresetCount == 0u) return false;
+    index = std::clamp(index, 0,
+        static_cast<int>(s3g::kDrumCrashFactoryPresetCount - 1u));
+    const auto preset = s3g::drumCrashFactoryPreset(
+        static_cast<uint32_t>(index));
+    std::array<double, kSavedParamCount> values {};
+    const auto set = [&](clap_id id, double value) {
+        values[id - kTuneParamId] = value;
+    };
+    set(kTuneParamId, preset.tuneHz);
+    set(kNoteTrackingParamId, preset.noteTracking);
+    set(kSizeParamId, preset.size);
+    set(kAlloyParamId, preset.alloy);
+    set(kSpreadParamId, preset.spread);
+    set(kDensityParamId, preset.density);
+    set(kBrightnessParamId, preset.brightness);
+    set(kAttackParamId, preset.attack);
+    set(kDecayParamId, preset.decaySeconds);
+    set(kDampingParamId, preset.damping);
+    set(kWashParamId, preset.wash);
+    set(kWashDecayParamId, preset.washDecaySeconds);
+    set(kBellParamId, preset.bell);
+    set(kBellTuneParamId, preset.bellTuneHz);
+    set(kChokeTimeParamId, preset.chokeTimeMs);
+    set(kTextureParamId, preset.texture);
+    set(kDriveParamId, preset.character.drive);
+    set(kBiasParamId, preset.character.bias);
+    set(kCompressionParamId, preset.character.compression);
+    set(kRateReductionParamId, preset.character.sampleRateReduction);
+    set(kBitDepthParamId, preset.character.bitDepthReduction);
+    set(kReconstructionParamId, preset.character.reconstruction);
+    set(kCharacterToneParamId, preset.character.tone);
+    set(kStereoWidthParamId, preset.stereoWidth);
+    set(kVelocityParamId, preset.velocitySensitivity);
+    set(kOutputParamId, preset.outputGainDb);
+    return queueGuiParamSet(*p, values);
+}
+
+#if defined(__APPLE__)
 } // namespace
 
 @interface S3GDrumCrashView : NSView {
@@ -1468,42 +1524,7 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
 - (void)applyFactoryPreset:(int)index
 {
     auto* p = static_cast<Plugin*>(_plugin);
-    if (!p || s3g::kDrumCrashFactoryPresetCount == 0u) return;
-    index = std::clamp(index, 0,
-        static_cast<int>(s3g::kDrumCrashFactoryPresetCount - 1u));
-    const auto preset = s3g::drumCrashFactoryPreset(
-        static_cast<uint32_t>(index));
-    std::array<double, kSavedParamCount> values {};
-    const auto set = [&](clap_id id, double value) {
-        values[id - kTuneParamId] = value;
-    };
-    set(kTuneParamId, preset.tuneHz);
-    set(kNoteTrackingParamId, preset.noteTracking);
-    set(kSizeParamId, preset.size);
-    set(kAlloyParamId, preset.alloy);
-    set(kSpreadParamId, preset.spread);
-    set(kDensityParamId, preset.density);
-    set(kBrightnessParamId, preset.brightness);
-    set(kAttackParamId, preset.attack);
-    set(kDecayParamId, preset.decaySeconds);
-    set(kDampingParamId, preset.damping);
-    set(kWashParamId, preset.wash);
-    set(kWashDecayParamId, preset.washDecaySeconds);
-    set(kBellParamId, preset.bell);
-    set(kBellTuneParamId, preset.bellTuneHz);
-    set(kChokeTimeParamId, preset.chokeTimeMs);
-    set(kTextureParamId, preset.texture);
-    set(kDriveParamId, preset.character.drive);
-    set(kBiasParamId, preset.character.bias);
-    set(kCompressionParamId, preset.character.compression);
-    set(kRateReductionParamId, preset.character.sampleRateReduction);
-    set(kBitDepthParamId, preset.character.bitDepthReduction);
-    set(kReconstructionParamId, preset.character.reconstruction);
-    set(kCharacterToneParamId, preset.character.tone);
-    set(kStereoWidthParamId, preset.stereoWidth);
-    set(kVelocityParamId, preset.velocitySensitivity);
-    set(kOutputParamId, preset.outputGainDb);
-    if (!queueGuiParamSet(*p, values)) {
+    if (!p || !queueGuiFactoryPreset(*p, index)) {
         NSBeep();
         return;
     }
@@ -1521,17 +1542,47 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
 
 - (NSRect)openMenuRect
 {
-    if (_openMenu != kFactoryPresetMenuId) return NSZeroRect;
-    const auto band = s3g::clap_gui::encoderTitleBand(kGuiWidth, kGuiHeight);
-    const NSRect anchor = s3g::clap_gui::cocoaRect(band.presetMenu);
-    return NSMakeRect(anchor.origin.x, NSMaxY(anchor) + 2.0,
-        anchor.size.width, 18.0 * _menuItemCount);
+    NSRect anchor = NSZeroRect;
+    if (_openMenu == kFactoryPresetMenuId) {
+        const auto band = s3g::clap_gui::encoderTitleBand(
+            kGuiWidth, kGuiHeight);
+        anchor = s3g::clap_gui::cocoaRect(band.presetMenu);
+    } else if (_openMenu == kMidiReceiveParamId) {
+        const auto row = std::find_if(kUiRows.begin(), kUiRows.end(),
+            [](const ClapUiRow& candidate) {
+                return candidate.id == kMidiReceiveParamId;
+            });
+        if (row == kUiRows.end()) return NSZeroRect;
+        anchor = NSMakeRect(
+            s3g::gui_layout::processorControlX(row->panelX), row->y - 1.0,
+            s3g::gui_layout::processorMenuWidth(row->panelWidth), 15.0);
+    } else {
+        return NSZeroRect;
+    }
+    const uint32_t columns = _openMenu == kMidiReceiveParamId
+        ? s3g::clap_gui::kMidiChannelMenuColumns : 1u;
+    const CGFloat menuHeight = 18.0 * static_cast<CGFloat>(
+        s3g::clap_gui::multiColumnMenuRows(_menuItemCount, columns));
+    CGFloat menuY = NSMaxY(anchor) + 2.0;
+    if (menuY + menuHeight > kGuiHeight)
+        menuY = anchor.origin.y - 2.0 - menuHeight;
+    return NSMakeRect(anchor.origin.x, menuY,
+        anchor.size.width, menuHeight);
 }
 
 - (void)drawOpenMenu:(NSDictionary*)attrs
     style:(const s3g::clap_gui::Style&)style
 {
-    if (_openMenu != kFactoryPresetMenuId || _menuItemCount == 0u) return;
+    if (_openMenu == CLAP_INVALID_ID || _menuItemCount == 0u) return;
+    if (_openMenu == kMidiReceiveParamId) {
+        s3g::clap_gui::drawMidiReceiveDropdownMenu(
+            [self openMenuRect], 18.0,
+            static_cast<int>(std::lround(paramValue(
+                *static_cast<Plugin*>(_plugin), kMidiReceiveParamId))),
+            _hoverMenuItem, attrs, style);
+        return;
+    }
+    if (_openMenu != kFactoryPresetMenuId) return;
     NSString* items[64] {};
     const uint32_t count = std::min<uint32_t>(_menuItemCount, 64u);
     for (uint32_t index = 0u; index < count; ++index) {
@@ -1613,11 +1664,18 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
         const double value = paramValue(*p, row.id);
         char text[64] {};
         paramsValueToText(&p->plugin, row.id, value, text, sizeof(text));
-        s3g::clap_gui::drawProcessorSlider(
-            [NSString stringWithUTF8String:row.label],
-            [NSString stringWithUTF8String:text],
-            static_cast<CGFloat>(uiNormalizedValue(row.id, value)), row.y,
-            row.panelX, row.panelWidth, labelAttrs, valueAttrs, style);
+        if (row.id == kMidiReceiveParamId) {
+            s3g::clap_gui::drawProcessorMenu(
+                [NSString stringWithUTF8String:row.label],
+                [NSString stringWithUTF8String:text], row.y,
+                row.panelX, row.panelWidth, labelAttrs, valueAttrs, style);
+        } else {
+            s3g::clap_gui::drawProcessorSlider(
+                [NSString stringWithUTF8String:row.label],
+                [NSString stringWithUTF8String:text],
+                static_cast<CGFloat>(uiNormalizedValue(row.id, value)), row.y,
+                row.panelX, row.panelWidth, labelAttrs, valueAttrs, style);
+        }
     }
 
     const CGFloat padWidth = (kPanelWidth - 36.0) / 3.0;
@@ -1699,9 +1757,16 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
     const auto titleBand = s3g::clap_gui::encoderTitleBand(
         kGuiWidth, kGuiHeight);
     if (_openMenu != CLAP_INVALID_ID) {
-        const int hit = s3g::clap_gui::dropdownHitIndex(point,
-            [self openMenuRect], 18.0, _menuItemCount);
-        if (hit >= 0) [self applyFactoryPreset:hit];
+        const int hit = _openMenu == kMidiReceiveParamId
+            ? s3g::clap_gui::midiReceiveDropdownHitIndex(
+                point, [self openMenuRect], 18.0)
+            : s3g::clap_gui::dropdownHitIndex(
+                point, [self openMenuRect], 18.0, _menuItemCount);
+        if (hit >= 0) {
+            if (_openMenu == kMidiReceiveParamId)
+                queueGuiParamGesture(*p, kMidiReceiveParamId, hit);
+            else [self applyFactoryPreset:hit];
+        }
         _openMenu = CLAP_INVALID_ID;
         _hoverMenuItem = -1;
         _menuItemCount = 0u;
@@ -1791,6 +1856,13 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
                 - s3g::gui_layout::kStandardMetrics.hitInset * 2.0,
             s3g::gui_layout::kStandardMetrics.hitHeight);
         if (!NSPointInRect(point, hit)) continue;
+        if (row.id == kMidiReceiveParamId) {
+            _openMenu = kMidiReceiveParamId;
+            _hoverMenuItem = -1;
+            _menuItemCount = s3g::clap_gui::kMidiReceiveMenuItemCount;
+            [self setNeedsDisplay:YES];
+            return;
+        }
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
                 event, &p->plugin, row.id, &defaultValue)) {
@@ -1837,8 +1909,11 @@ bool queueGuiSafeRandomParamSet(Plugin& p,
     if (_openMenu == CLAP_INVALID_ID) return;
     const NSPoint point =
         [self convertPoint:[event locationInWindow] fromView:nil];
-    const int hover = s3g::clap_gui::dropdownHitIndex(
-        point, [self openMenuRect], 18.0, _menuItemCount);
+    const int hover = _openMenu == kMidiReceiveParamId
+        ? s3g::clap_gui::midiReceiveDropdownHitIndex(
+            point, [self openMenuRect], 18.0)
+        : s3g::clap_gui::dropdownHitIndex(
+            point, [self openMenuRect], 18.0, _menuItemCount);
     if (hover != _hoverMenuItem) {
         _hoverMenuItem = hover;
         [self setNeedsDisplay:YES];
@@ -1958,6 +2033,11 @@ const clap_plugin_gui_t guiExt {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "s3g_drum_crash_vstgui.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
     if (!id) return nullptr;
@@ -1967,7 +2047,9 @@ const void* getExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2055,7 +2137,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

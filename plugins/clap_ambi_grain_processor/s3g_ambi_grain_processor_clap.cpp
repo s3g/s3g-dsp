@@ -1,6 +1,14 @@
 #include "s3g_ambi_grain_processor.h"
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_gui_layout.h"
+#include "../common/s3g_sample_file_decode.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#include "../common/s3g_sample_storage.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_vstgui_canvas.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -14,20 +22,28 @@
 #include "../common/s3g_cocoa_gui.h"
 #endif
 
+#include "../common/s3g_audio_file_export.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <future>
+#include <chrono>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 
 namespace {
 
 constexpr uint32_t kChannelCount = s3g::kAmbiGrainChannels;
-constexpr uint32_t kStateVersion = 1;
+constexpr uint32_t kLegacyStateVersion = 1;
+constexpr uint32_t kStateVersion = 2;
+constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
+constexpr uint32_t kMaximumSamplePathBytes = 128u * 1024u;
+using s3g::sample_storage::StorageMode;
 
 constexpr clap_id kOrderParamId = 1;
 constexpr clap_id kModeParamId = 2;
@@ -47,6 +63,7 @@ constexpr clap_id kScanSpeedParamId = 15;
 
 constexpr double kGuiW = 920.0;
 constexpr double kGuiH = 640.0;
+constexpr uint32_t kGuiWidth = 920u, kGuiHeight = 640u;
 constexpr double kLegacyContentTop = 48.0;
 constexpr double kContentTranslation =
     s3g::gui_layout::kStandardMetrics.contentTop - kLegacyContentTop;
@@ -95,6 +112,22 @@ struct Targets {
     std::atomic<float> envelope { 0.0f };
 };
 
+struct SampleLoadRequest {
+    uint64_t generation = 0;
+    std::string path, projectError;
+    StorageMode mode = StorageMode::Project;
+    s3g::sample_storage::ProjectLocation project;
+    std::shared_ptr<const s3g::AmbiGrainSample> asset;
+    bool copyOnly = false, materialize = false, preserveSettings = false;
+};
+
+struct SampleLoadResult {
+    SampleLoadRequest request;
+    std::shared_ptr<const s3g::AmbiGrainSample> asset;
+    s3g::sample_storage::ProjectCopyResult copy;
+    std::string error;
+};
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -103,12 +136,32 @@ struct Plugin {
     Targets targets {};
     s3g::AmbiGrainProcessor engine;
     std::shared_ptr<const s3g::AmbiGrainSample> sample;
+    // Persistent locator: PROJECT-relative after collection, otherwise the
+    // original absolute path. The resolved path is never substituted on disk.
     std::string samplePath;
+    std::string resolvedSamplePath, sampleStatus, storageStatus;
+    StorageMode storageMode = StorageMode::Project;
+    s3g::sample_storage::ReaperContext reaperContext;
+    s3g::sample_storage::ProjectFileRegistration projectFileRegistration;
+    std::atomic<bool> projectRenamePending { false };
+    bool projectCopyPending = false, projectRecallPending = false, sampleFromEmbedded = false;
+    std::chrono::steady_clock::time_point nextProjectCopyProbe {};
+    std::future<SampleLoadResult> sampleLoad;
+    std::future<void> sampleLoadTask;
+    std::atomic<bool> sampleLoaderStopping { false };
+    std::optional<SampleLoadRequest> pendingSampleRequest, activeSampleRequest;
+    uint64_t sampleGeneration = 0;
     std::atomic<bool> playing { true };
     std::atomic<bool> resetRequested { false };
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<float> visualPhase { 0.0f };
     std::atomic<float> visualPulse { 0.0f };
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -197,18 +250,20 @@ void setParam(Plugin& p, clap_id id, double value)
     }
 }
 
-#if defined(__APPLE__)
 std::shared_ptr<s3g::AmbiGrainSample> readSampleFromPath(const std::string& path)
 {
     if (path.empty()) return nullptr;
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
+        if (!nsPath) return nullptr;
         NSURL* url = [NSURL fileURLWithPath:nsPath];
         NSError* error = nil;
         AVAudioFile* file = [[AVAudioFile alloc] initForReading:url error:&error];
         if (!file) return nullptr;
         AVAudioFormat* format = [file processingFormat];
         const AVAudioFrameCount frames = static_cast<AVAudioFrameCount>(std::min<int64_t>([file length], 0x7fffffff));
+        if (frames < 8) { [file release]; return nullptr; }
         AVAudioPCMBuffer* buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:frames];
         if (!buffer) { [file release]; return nullptr; }
         BOOL ok = [file readIntoBuffer:buffer error:&error];
@@ -235,21 +290,28 @@ std::shared_ptr<s3g::AmbiGrainSample> readSampleFromPath(const std::string& path
         [file release];
         return sample;
     }
+#elif defined(_WIN32) && defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    std::shared_ptr<const s3g::sample::SampleAsset> decoded;
+    std::string error;
+    if (!s3g::sample_file::decodeWaveFile(path, decoded, error) || !decoded || decoded->frameCount() < 8) return nullptr;
+    auto sample = std::make_shared<s3g::AmbiGrainSample>();
+    sample->frames = decoded->frameCount();
+    sample->channels = std::min<uint32_t>(s3g::kAmbiGrainChannels, decoded->channelCount);
+    sample->sampleRate = decoded->sampleRate; sample->path = path;
+    sample->audio.resize(static_cast<size_t>(sample->frames) * sample->channels);
+    for (uint32_t ch = 0; ch < sample->channels; ++ch)
+        for (uint32_t i = 0; i < sample->frames; ++i)
+            sample->audio[static_cast<size_t>(i) * sample->channels + ch] = decoded->channels[ch][i];
+    s3g::normalizeAmbiGrainSample(*sample);
+    return sample;
+#else
+    return nullptr;
+#endif
 }
 
-bool loadSampleFromPath(Plugin& p, const std::string& path)
-{
-    auto sample = readSampleFromPath(path);
-    if (!sample) return false;
-    p.samplePath = path;
-    std::shared_ptr<const s3g::AmbiGrainSample> immutable = sample;
-    std::atomic_store_explicit(&p.sample, immutable, std::memory_order_release);
-    setParam(p, kOrderParamId, s3g::ambiGrainOrderForChannels(sample->channels));
-    p.engine.reset();
-    return true;
-}
-
-void chooseSampleFromFinder(Plugin& p)
+#include "s3g_ambi_grain_storage.inc"
+#if defined(__APPLE__)
+void chooseSampleFromFinder(Plugin& p, bool relink = false)
 {
     NSOpenPanel* panel = [NSOpenPanel openPanel];
     [panel setCanChooseFiles:YES];
@@ -260,7 +322,7 @@ void chooseSampleFromFinder(Plugin& p)
         NSURL* url = [panel URL];
         char path[4096] {};
         if (url && [[url path] getFileSystemRepresentation:path maxLength:sizeof(path)]) {
-            loadSampleFromPath(p, path);
+            queuePortableSampleLoad(p, path, relink);
         }
     }
 }
@@ -268,10 +330,25 @@ void chooseSampleFromFinder(Plugin& p)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
+void serviceGuiParams(Plugin& p, const clap_output_events_t* output)
+{
+    s3g::clap_gui::serviceParamEvents(p.guiParamEvents, output,
+        [&](clap_id id, double value) { setParam(p, id, value); });
+}
+
 bool init(const clap_plugin_t*) { return true; }
 
 void destroy(const clap_plugin_t* plugin)
 {
+    self(plugin)->sampleLoaderStopping.store(true, std::memory_order_release);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+    if (self(plugin)->sampleLoadTask.valid()) self(plugin)->sampleLoadTask.wait();
+    self(plugin)->projectFileRegistration.clear();
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -309,6 +386,7 @@ void readEvents(Plugin& p, const clap_input_events_t* in)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+    serviceGuiParams(*p, proc->out_events);
     readEvents(*p, proc->in_events);
     if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& out = proc->audio_outputs[0];
@@ -357,7 +435,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin) {
+    servicePortableSampleLoad(*self(plugin));
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 0u : 1u; }
 
@@ -476,65 +556,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) { serviceGuiParams(*self(plugin), out); readEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
-bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
-{
-    if (!stream || !stream->write) return false;
-    const auto* p = self(plugin);
-    SavedState s;
-    std::memset(&s, 0, sizeof(s));
-    s.version = kStateVersion;
-    paramsGetValue(plugin, kOrderParamId, &s.order);
-    paramsGetValue(plugin, kModeParamId, &s.mode);
-    paramsGetValue(plugin, kDensityParamId, &s.density);
-    paramsGetValue(plugin, kGrainMsParamId, &s.grainMs);
-    paramsGetValue(plugin, kSourcePosParamId, &s.sourcePosition);
-    paramsGetValue(plugin, kScanSpeedParamId, &s.scanSpeed);
-    paramsGetValue(plugin, kJitterParamId, &s.positionJitter);
-    paramsGetValue(plugin, kRateParamId, &s.rate);
-    paramsGetValue(plugin, kRateJitterParamId, &s.rateJitter);
-    paramsGetValue(plugin, kReverseParamId, &s.reverse);
-    paramsGetValue(plugin, kFreezeParamId, &s.freeze);
-    paramsGetValue(plugin, kJumpStepsParamId, &s.jumpSteps);
-    paramsGetValue(plugin, kSyncParamId, &s.sync);
-    paramsGetValue(plugin, kEnvelopeParamId, &s.envelope);
-    paramsGetValue(plugin, kGainParamId, &s.gainDb);
-    s.playing = p->playing.load(std::memory_order_acquire) ? 1u : 0u;
-    std::strncpy(s.samplePath, p->samplePath.c_str(), sizeof(s.samplePath) - 1u);
-    return s3g::clap_state::writeAll(stream, &s, sizeof(s));
-}
-
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
-{
-    if (!stream || !stream->read) return false;
-    SavedState s {};
-    if (!s3g::clap_state::readAll(stream, &s, sizeof(s)) || s.version != kStateVersion) return false;
-    auto* p = self(plugin);
-    setParam(*p, kOrderParamId, s.order);
-    setParam(*p, kModeParamId, s.mode);
-    setParam(*p, kDensityParamId, s.density);
-    setParam(*p, kGrainMsParamId, s.grainMs);
-    setParam(*p, kSourcePosParamId, s.sourcePosition);
-    setParam(*p, kScanSpeedParamId, s.scanSpeed);
-    setParam(*p, kJitterParamId, s.positionJitter);
-    setParam(*p, kRateParamId, s.rate);
-    setParam(*p, kRateJitterParamId, s.rateJitter);
-    setParam(*p, kReverseParamId, s.reverse);
-    setParam(*p, kFreezeParamId, s.freeze);
-    setParam(*p, kJumpStepsParamId, s.jumpSteps);
-    setParam(*p, kSyncParamId, s.sync);
-    setParam(*p, kEnvelopeParamId, s.envelope);
-    setParam(*p, kGainParamId, s.gainDb);
-    p->playing.store(s.playing != 0u, std::memory_order_release);
-#if defined(__APPLE__)
-    if (s.samplePath[0] != '\0') loadSampleFromPath(*p, s.samplePath);
-#endif
-    return true;
-}
-const clap_plugin_state_t stateExt { stateSave, stateLoad };
-
+#include "s3g_ambi_grain_state.inc"
 } // namespace
 
 #if defined(__APPLE__)
@@ -585,7 +610,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
 - (void)dealloc { [self stopRefreshTimer]; [super dealloc]; }
 - (void)startRefreshTimer { if (!_timer) { _timer = [NSTimer timerWithTimeInterval:1.0/20.0 target:self selector:@selector(tick:) userInfo:nil repeats:YES]; [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes]; } }
 - (void)stopRefreshTimer { [_timer invalidate]; _timer = nil; }
-- (void)tick:(NSTimer*)timer { (void)timer; if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
+- (void)tick:(NSTimer*)timer { (void)timer; if (_plugin) servicePortableSampleLoad(*static_cast<Plugin*>(_plugin)); if (![self isHidden] && _plugin && s3g::clap_support::hostAppIsActive()) [self setNeedsDisplay:YES]; }
 - (void)drawButton:(NSString*)label rect:(NSRect)rect active:(BOOL)active attrs:(NSDictionary*)attrs
 {
     [c(active ? 0xd1d1d1 : 0x141414) setFill]; NSRectFill(rect);
@@ -840,6 +865,15 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     s3g::clap_gui::drawPanelHeader(@"WAVEFORM", true, 18, 92, 552, 20, text, style);
     [self drawWaveform:sample rect:NSMakeRect(28, 126, 532, 396) attrs:text];
     [@"W channel source view: cursor, jitter band, and grain window" drawAtPoint:NSMakePoint(28, 558) withAttributes:text];
+    [self drawButton:[NSString stringWithFormat:@"STORE %s", storage::storageModeName(p->storageMode)]
+        rect:NSMakeRect(28, 584, 158, 20) active:NO attrs:text];
+    [[NSString stringWithUTF8String:storage::abbreviatedPath(p->samplePath, 42).c_str()]
+        drawAtPoint:NSMakePoint(198, 587) withAttributes:small];
+    [self drawButton:@"RELINK" rect:NSMakeRect(480, 584, 80, 20) active:NO attrs:text];
+    [[NSString stringWithUTF8String:storageSummary(*p).c_str()]
+        drawAtPoint:NSMakePoint(28, 612) withAttributes:small];
+    if (!p->sampleStatus.empty())
+        [[NSString stringWithUTF8String:p->sampleStatus.c_str()] drawAtPoint:NSMakePoint(202, 74) withAttributes:small];
 
     s3g::clap_gui::drawPanelFrame(kToolboxX, 48, kToolboxW, 54, style);
     s3g::clap_gui::drawPanelHeader(@"OUTPUT", true, kToolboxX, 48, kToolboxW, 20, text, style);
@@ -874,6 +908,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
         NSString* modeItems[] = {@"SCAN", @"CLOUD", @"FREEZE", @"JUMP"};
         NSString* syncItems[] = {@"ASYNC", @"SYNC"};
         NSString* envItems[] = {@"PARZ", @"SIN", @"HANN", @"TRI", @"GAUS"};
+        NSString* storageItems[] = {@"PROJECT", @"LINK", @"EMBED"};
         NSString** items = nullptr;
         uint32_t count = 0u;
         int selected = 0;
@@ -882,6 +917,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
         else if (_openMenu == 2) { items = modeItems; count = 4u; selected = static_cast<int>(std::round(p->targets.mode.load())); menuRect.origin.y = 194; }
         else if (_openMenu == 3) { items = syncItems; count = 2u; selected = static_cast<int>(std::round(p->targets.sync.load())); menuRect.origin.y = 590; }
         else if (_openMenu == 4) { items = envItems; count = 5u; selected = static_cast<int>(std::round(p->targets.envelope.load())); menuRect.origin.y = 542; }
+        else if (_openMenu == 5) { items = storageItems; count = 3u; selected = static_cast<int>(p->storageMode); menuRect = NSMakeRect(28, 530, 158, 54); }
         menuRect.size.height = 18.0 * count;
         if (items) s3g::clap_gui::drawDropdownMenu(menuRect, 18.0, items, count, selected, _hoverMenuIndex, text, style);
     }
@@ -909,6 +945,21 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     auto* p = static_cast<Plugin*>(_plugin);
     NSPoint pt = [self convertPoint:event.locationInWindow fromView:nil];
     const auto titleBand = s3g::clap_gui::encoderTitleBand(kGuiW, kGuiH);
+    if (NSPointInRect(pt, s3g::clap_gui::cocoaRect(titleBand.saveButton))) {
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        NSString* directory = s3g::clap_gui::encoderPresetDirectory(@"Processor Ambi Grain");
+        [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
+        [panel setDirectoryURL:[NSURL fileURLWithPath:directory isDirectory:YES]];
+        [panel setNameFieldStringValue:@"Preset.s3gpreset"];
+        if ([panel runModal] == NSModalResponseOK) {
+            const char* path = [[panel URL].path fileSystemRepresentation];
+            if (path && saveAmbiPresetFile(&p->plugin, stateExt, path))
+                std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", [[[[panel URL] lastPathComponent] stringByDeletingPathExtension] UTF8String]);
+            else { p->sampleStatus = "PRESET SAVE FAILED / ORIGINAL FILE KEPT"; NSBeep(); }
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
     if (s3g::clap_gui::handleProcessorTitleClick(
             pt, &p->plugin, @"Processor Ambi Grain", titleBand,
             _titlePresetName, sizeof(_titlePresetName), kGainParamId)) {
@@ -923,6 +974,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
         else if (_openMenu == 2) { count = 4u; menuRect.origin.y = 194; }
         else if (_openMenu == 3) { count = 2u; menuRect.origin.y = 590; }
         else if (_openMenu == 4) { count = 5u; menuRect.origin.y = 542; }
+        else if (_openMenu == 5) { count = 3u; menuRect = NSMakeRect(28, 530, 158, 54); }
         menuRect.size.height = 18.0 * count;
         const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, 18.0, count);
         if (hit >= 0) {
@@ -930,6 +982,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
             else if (_openMenu == 2) setParam(*p, kModeParamId, hit);
             else if (_openMenu == 3) setParam(*p, kSyncParamId, hit);
             else if (_openMenu == 4) setParam(*p, kEnvelopeParamId, hit);
+            else if (_openMenu == 5) setStorageMode(*p, static_cast<StorageMode>(hit));
             _openMenu = 0;
             _hoverMenuIndex = -1;
             [self setNeedsDisplay:YES];
@@ -939,6 +992,8 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
         _hoverMenuIndex = -1;
     }
     if (NSPointInRect(pt, NSMakeRect(18,48,70,24))) { chooseSampleFromFinder(*p); [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(pt, NSMakeRect(28,584,158,20))) { _openMenu = 5; [self setNeedsDisplay:YES]; return; }
+    if (NSPointInRect(pt, NSMakeRect(480,584,80,20)) && !p->samplePath.empty()) { chooseSampleFromFinder(*p, true); [self setNeedsDisplay:YES]; return; }
     if (NSPointInRect(pt, NSMakeRect(96,49,26,22))) {
         p->playing.store(true, std::memory_order_release);
         [self setNeedsDisplay:YES];
@@ -999,6 +1054,7 @@ static double valueForNormalizedSlider(clap_id param, double normalized, double 
     else if (_openMenu == 2) { count = 4u; menuRect.origin.y = 194; }
     else if (_openMenu == 3) { count = 2u; menuRect.origin.y = 590; }
     else if (_openMenu == 4) { count = 5u; menuRect.origin.y = 542; }
+    else if (_openMenu == 5) { count = 3u; menuRect = NSMakeRect(28, 530, 158, 54); }
     menuRect.size.height = 18.0 * count;
     const int hit = s3g::clap_gui::dropdownHitIndex(pt, menuRect, 18.0, count);
     if (hit != _hoverMenuIndex) {
@@ -1026,6 +1082,13 @@ void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible.store(true); [static_cast<S3GAmbiGrainProcessorView*>(p->guiView) startRefreshTimer]; return true; }
 bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible.store(false); [static_cast<S3GAmbiGrainProcessorView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
+#else
+namespace {
+#endif
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "s3g_ambi_grain_processor_vstgui.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
 #endif
 
 const void* getExtension(const clap_plugin_t*, const char* id)
@@ -1033,7 +1096,9 @@ const void* getExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

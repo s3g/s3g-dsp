@@ -134,7 +134,8 @@ TrackerAssetPack makePhraseLibraryAssetPack(std::string name,
     std::vector<BurstMapEntry> burstMap;
     std::size_t destination = 0u;
     for (const auto& phrase : phrases.phrases) {
-        if (phrase.empty() && phrase.name.empty()) continue;
+        if (phrase.empty() && phrase.name.empty()
+            && !phrase.recommendedBpm.has_value()) continue;
         appendPhrase(pack, phrase, burstBanks, burstMap, destination++);
     }
     return pack;
@@ -172,7 +173,8 @@ ProjectResult importTrackerAssetPack(const TrackerAssetPack& pack,
         phraseBank.name = pack.name.empty() ? "IMPORTED PHRASES" : pack.name;
 
     for (auto& phrase : phraseBank.library.phrases) {
-        if (phrase.empty() && phrase.name.empty()) continue;
+        if (phrase.empty() && phrase.name.empty()
+            && !phrase.recommendedBpm.has_value()) continue;
         ++imported.phrasesAdded;
         for (auto& cell : phrase.notes) {
             if (cell.state != NoteCellState::Burst) continue;

@@ -1,6 +1,15 @@
 #include "s3g_breakbeat_slicer.h"
 #include "../common/s3g_sample_storage.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_sample_file_decode.h"
+#include "../common/s3g_gui_layout.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#include "../common/s3g_gui_documentation.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_vstgui_canvas.h"
+#endif
+#include "../common/s3g_audio_file_export.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -199,7 +208,7 @@ struct SavedPlaybackState {
         s3g::breakbeat::kMaximumSampleSlots> slots {};
 };
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 enum class LoadRequestKind : uint8_t {
     File = 0u,
     MutationPrint,
@@ -327,7 +336,13 @@ struct Plugin {
         s3g::breakbeat::kMaximumSampleSlots> pendingMutationSlots {};
     std::string status { "LOAD A BREAK OR ONE-SHOT" };
     bool active = false;
-#if defined(__APPLE__)
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::mutex loaderMutex;
     std::condition_variable loaderCondition;
     std::deque<LoadRequest> loadRequests;
@@ -337,6 +352,8 @@ struct Plugin {
         s3g::breakbeat::kMaximumSampleSlots> loadGenerations {};
     uint64_t exportGeneration = 0u;
     bool loaderStopping = false;
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
@@ -659,12 +676,13 @@ void initializeBank(Plugin& instance)
     publishBank(instance, std::move(bank), false);
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut,
     std::shared_ptr<const SampleAnalysis>& analysisOut,
     std::string& error)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         if (!nsPath) {
@@ -722,6 +740,20 @@ bool decodeSampleFile(const std::string& path,
         error.clear();
         return true;
     }
+#else
+    std::shared_ptr<const s3g::sample::SampleAsset> decoded;
+    if (!s3g::sample_file::decodeWaveFile(path, decoded, error)) return false;
+    auto asset = std::make_shared<SampleAsset>();
+    asset->sampleRate = decoded->sampleRate;
+    asset->channelCount = static_cast<uint8_t>(decoded->channelCount);
+    for (uint32_t channel = 0; channel < asset->channelCount; ++channel)
+        asset->channels[channel] = decoded->channels[channel];
+    if (!asset->valid()) { error = "DECODED SAMPLE DATA IS INVALID"; return false; }
+    auto analysis = std::make_shared<SampleAnalysis>(s3g::breakbeat::analyzeSample(*asset));
+    if (!analysis->validFor(*asset)) { error = "WAVEFORM ANALYSIS FAILED"; return false; }
+    assetOut = std::move(asset); analysisOut = std::move(analysis); error.clear();
+    return true;
+#endif
 }
 
 bool renderBuiltBreak(const LoadRequest& request,
@@ -1877,8 +1909,10 @@ bool pluginInit(const clap_plugin_t* plugin)
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
     }
     initializeBank(instance);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     registerBundledFonts();
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startSampleLoader(instance)) {
         instance.status = "COULD NOT START SAMPLE LOADER";
         return false;
@@ -1891,11 +1925,20 @@ bool pluginInit(const clap_plugin_t* plugin)
 void destroyGui(Plugin& instance);
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
+
 void pluginDestroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
     auto& instance = *self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(instance);
+#endif
+#if defined(__APPLE__)
     destroyGui(instance);
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
     stopSampleLoader(instance);
     for (auto& registration : instance.projectFiles)
         registration.clear();
@@ -1998,11 +2041,18 @@ void pluginReset(const clap_plugin_t* plugin)
     instance.auxGainReductionDb.store(0.0f, std::memory_order_relaxed);
 }
 
+void serviceGuiParams(Plugin& instance, const clap_output_events_t* output)
+{
+    s3g::clap_gui::serviceParamEvents(instance.guiParamEvents, output,
+        [&instance](clap_id id, double value) { setParam(instance, id, value); });
+}
+
 clap_process_status pluginProcess(const clap_plugin_t* plugin,
     const clap_process_t* process)
 {
     if (!process) return CLAP_PROCESS_ERROR;
     auto& instance = *self(plugin);
+    serviceGuiParams(instance, process->out_events);
     const uint32_t frames = process->frames_count;
     if (frames > instance.maximumFrames
         || instance.outputChannelCount == 0u
@@ -2119,7 +2169,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceSampleLoads(*self(plugin));
 #else
     (void)plugin;
@@ -2330,8 +2380,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* input, const clap_output_events_t*)
+    const clap_input_events_t* input, const clap_output_events_t* output)
 {
+    serviceGuiParams(*self(plugin), output);
     readParameterEvents(*self(plugin), input);
 }
 
@@ -2531,7 +2582,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         : saved.embedSamples != 0u
             ? s3g::sample_storage::StorageMode::Embed
             : s3g::sample_storage::StorageMode::Link;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     cancelAllSampleLoads(instance);
 #endif
     for (auto& registration : instance.projectFiles)
@@ -2663,7 +2714,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 return false;
             }
         } else {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
             if (path.empty()
                 || !decodeSampleFile(path, asset, analysis, error)) continue;
             if (asset->channelCount > instance.outputChannelCount) {
@@ -2867,7 +2918,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         : 0u;
     instance.status = std::string(s3g::sample_storage::storageModeName(
         restoredStorageMode)) + " STATE RESTORED";
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (restoredStorageMode
         == s3g::sample_storage::StorageMode::Project)
         serviceProjectStorage(instance, true);
@@ -7650,9 +7701,20 @@ const clap_plugin_gui_t gui {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "s3g_breakbeat_slicer_vstgui.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (!id) return nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const char* capture = std::getenv("S3G_GUI_DOCUMENTATION_CAPTURE");
+    if (capture && std::strcmp(capture, "1") == 0
+        && std::strcmp(id, s3g::gui_documentation::kExtension) == 0)
+        return &slicer_canvas::documentation;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG) == 0)
         return &audioPortsConfig;
@@ -7663,7 +7725,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif
     return nullptr;

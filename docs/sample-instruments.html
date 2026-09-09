@@ -72,7 +72,7 @@
 
         <p><code>LINK</code> keeps state small but requires the original path to remain valid. <code>EMBED</code> is portable, but decoded audio can be much larger than the source file and may enlarge host undo snapshots; prefer <code>PROJECT</code> for routine work. Missing paths remain available for later relinking. Generated Slicer material can be written as project media, while live captures remain embedded.</p>
 
-        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, and Rings use this three-mode policy. Sample Circulator is the exception: it always embeds its two stereo loops, with a capacity of approximately 32 seconds per loop.</p>
+        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, Rings, and <a href="processor-ambi-grain.html#sample-storage">Processor Ambi Grain</a> use this three-mode policy. Sample Circulator is the exception: it always embeds its two stereo loops, with a capacity of approximately 32 seconds per loop.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="processor-errant.html">

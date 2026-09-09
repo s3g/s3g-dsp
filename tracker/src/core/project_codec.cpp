@@ -1743,7 +1743,9 @@ JsonValue encodePhraseLibrary(const PhraseLibrary& library,
     std::size_t count = 0u;
     for (std::size_t index = 0u; index < library.phrases.size(); ++index)
         if (!library.phrases[index].empty()
-            || !library.phrases[index].name.empty()) count = index + 1u;
+            || !library.phrases[index].name.empty()
+            || library.phrases[index].recommendedBpm.has_value())
+            count = index + 1u;
     output.array.reserve(count);
     for (std::size_t index = 0u; index < count; ++index) {
         const auto& phrase = library.phrases[index];
@@ -1755,6 +1757,16 @@ JsonValue encodePhraseLibrary(const PhraseLibrary& library,
         JsonValue item = JsonValue::objectValue();
         item.object["name"] = encodeCheckedString(phrase.name,
             kMaximumPhraseNameBytes, path + ".name", result);
+        if (phrase.recommendedBpm.has_value()) {
+            const double bpm = *phrase.recommendedBpm;
+            if (!std::isfinite(bpm)
+                || bpm < kMinimumPhraseRecommendedBpm
+                || bpm > kMaximumPhraseRecommendedBpm)
+                setError(result, ProjectErrorCode::OutOfRange,
+                    path + ".recommendedBpm",
+                    "recommended BPM must be 20..400");
+            item.object["recommendedBpm"] = JsonValue::numberValue(bpm);
+        }
         item.object["length"] = number(phrase.length);
         item.object["previewMidiChannel"] = number(
             static_cast<uint32_t>(std::clamp<int>(
@@ -1807,6 +1819,7 @@ bool decodePhraseLibrary(const JsonValue& input, PhraseLibrary& destination,
                 path + ".fxPairs", "exactly two FX pairs are required");
         auto& phrase = candidate.phrases[index];
         const auto previewChannel = item.object.find("previewMidiChannel");
+        const auto recommendedBpm = item.object.find("recommendedBpm");
         if (!checkedString(*name, phrase.name, kMaximumPhraseNameBytes,
                 path + ".name", result)
             || !checkedSize(*length, phrase.length, kMaximumPhraseRows,
@@ -1834,6 +1847,14 @@ bool decodePhraseLibrary(const JsonValue& input, PhraseLibrary& destination,
                 return false;
             }
             phrase.previewMidiChannel = static_cast<uint8_t>(channel);
+        }
+        if (recommendedBpm != item.object.end()) {
+            double bpm = 0.0;
+            if (!checkedNumber(recommendedBpm->second, bpm,
+                    kMinimumPhraseRecommendedBpm,
+                    kMaximumPhraseRecommendedBpm,
+                    path + ".recommendedBpm", result)) return false;
+            phrase.recommendedBpm = bpm;
         }
         for (std::size_t pair = 0u; pair < kFxPairCount; ++pair) {
             if (!decodeFxPair(fxPairs->array[pair], phrase.fxPairs[pair],
@@ -2406,6 +2427,8 @@ JsonValue encodeSong(const SongArrangement& song, ProjectResult& result)
         encoded.object["patternId"] = encodeCheckedString(row.patternId,
             kMaximumNameBytes, path + ".patternId", result);
         encoded.object["repeats"] = number(row.repeats);
+        encoded.object["tempoMultiplier"] = JsonValue::numberValue(
+            row.tempoMultiplier);
         if (row.patternLoop) {
             JsonValue loopRange = JsonValue::objectValue();
             loopRange.object["endRow"] = number(row.patternLoop->endRow);
@@ -2501,6 +2524,16 @@ bool decodeSong(const JsonValue& input, SongArrangement& destination,
             if (!checkedNumber(energy->second, value, 0.0, 1.0,
                     path + ".energy", result)) return false;
             row.energy = static_cast<float>(value);
+        }
+        const auto tempoMultiplier = inputRow.object.find(
+            "tempoMultiplier");
+        if (tempoMultiplier != inputRow.object.end()) {
+            double value = 1.0;
+            if (!checkedNumber(tempoMultiplier->second, value,
+                    kMinimumSongTempoMultiplier,
+                    kMaximumSongTempoMultiplier,
+                    path + ".tempoMultiplier", result)) return false;
+            row.tempoMultiplier = value;
         }
         const auto swing = inputRow.object.find("swing");
         if (swing != inputRow.object.end()) {

@@ -1,0 +1,40 @@
+name: Windows CLAP GUI pilot
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-clap-pilot.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "dsp/s3g_macro_delay.h"
+      - "plugins/clap_macro_delay/**"
+      - "plugins/common/s3g_gui_layout.h"
+      - "plugins/common/s3g_macro_delay_vstgui.*"
+      - "tests/macro_delay_windows_clap_smoke.cpp"
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake --preset clap-windows-pilot
+
+      - name: Build Macro Delay CLAPs
+        run: cmake --build --preset clap-windows-pilot
+
+      - name: Exercise exported CLAP and embedded HWND GUI
+        run: >-
+          ctest --test-dir build-clap-windows -C Release
+          --output-on-failure -R s3g_macro_delay_windows_clap_smoke
+
+      - name: Publish Windows pilot binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: s3g-macro-delay-windows-clap-pilot
+          path: |
+            build-clap-windows/plugins/clap_macro_delay/Release/*.clap
+            build-clap-windows/plugins/clap_macro_delay/Release/Resources/Fonts/*
+          if-no-files-found: error

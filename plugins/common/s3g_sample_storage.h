@@ -181,16 +181,16 @@ inline bool queryProjectLocation(const ReaperContext& context,
         return false;
     }
 
-    std::filesystem::path media(mediaPath.data());
-    const std::filesystem::path projectPath(projectFile.data());
+    auto media = std::filesystem::u8path(mediaPath.data());
+    const auto projectPath = std::filesystem::u8path(projectFile.data());
     if (media.is_relative()) media = projectPath.parent_path() / media;
     media = media.lexically_normal();
     if (media.empty()) {
         setError(error, "REAPER PROJECT MEDIA PATH IS INVALID");
         return false;
     }
-    location.projectFilePath = projectPath.lexically_normal().string();
-    location.mediaDirectory = media.string();
+    location.projectFilePath = projectPath.lexically_normal().u8string();
+    location.mediaDirectory = media.u8string();
     location.saved = true;
     if (error) error->clear();
     return true;
@@ -214,13 +214,13 @@ inline bool resolveProjectRelativePath(const ProjectLocation& location,
         setError(error, "PROJECT MEDIA PATH IS NOT AVAILABLE");
         return false;
     }
-    const std::filesystem::path relativePath(relative);
+    const auto relativePath = std::filesystem::u8path(relative);
     if (!relativePathIsSafe(relativePath)) {
         setError(error, "PROJECT SAMPLE PATH IS NOT A SAFE RELATIVE PATH");
         return false;
     }
-    absolute = (std::filesystem::path(location.mediaDirectory)
-        / relativePath).lexically_normal().string();
+    absolute = (std::filesystem::u8path(location.mediaDirectory)
+        / relativePath).lexically_normal().u8string();
     if (error) error->clear();
     return true;
 }
@@ -246,18 +246,18 @@ inline bool makeProjectRelativePath(const ProjectLocation& location,
         setError(error, "PROJECT MEDIA PATH IS NOT AVAILABLE");
         return false;
     }
-    const std::filesystem::path absolutePath(absolute);
+    const auto absolutePath = std::filesystem::u8path(absolute);
     if (absolutePath.empty() || !absolutePath.is_absolute()) {
         setError(error, "PROJECT SAMPLE PATH IS NOT ABSOLUTE");
         return false;
     }
     const auto candidate = absolutePath.lexically_normal().lexically_relative(
-        std::filesystem::path(location.mediaDirectory).lexically_normal());
+        std::filesystem::u8path(location.mediaDirectory).lexically_normal());
     if (!relativePathIsSafe(candidate)) {
         setError(error, "SAMPLE IS OUTSIDE THE REAPER PROJECT MEDIA PATH");
         return false;
     }
-    relative = candidate.generic_string();
+    relative = candidate.generic_u8string();
     if (error) error->clear();
     return true;
 }
@@ -452,7 +452,7 @@ inline bool hashFile(const std::filesystem::path& path,
 
 inline std::string safeExtension(const std::filesystem::path& path)
 {
-    std::string extension = path.extension().string();
+    std::string extension = path.extension().u8string();
     if (extension.size() > 16u) return {};
     for (char& character : extension) {
         const auto value = static_cast<unsigned char>(character);
@@ -466,7 +466,7 @@ inline std::string safeExtension(const std::filesystem::path& path)
 inline std::string recognizableStem(const std::filesystem::path& path)
 {
     constexpr std::size_t kMaximumStemBytes = 40u;
-    const std::string source = path.stem().string();
+    const std::string source = path.stem().u8string();
     std::string stem;
     stem.reserve(std::min(source.size(), kMaximumStemBytes));
     bool separatorPending = false;
@@ -495,7 +495,7 @@ inline std::filesystem::path uniqueTemporaryPath(
     const uint64_t tick = static_cast<uint64_t>(
         std::chrono::high_resolution_clock::now().time_since_epoch().count());
     const uint64_t count = serial.fetch_add(1u, std::memory_order_relaxed);
-    return destination.parent_path() / ("." + destination.filename().string()
+    return destination.parent_path() / std::filesystem::u8path("." + destination.filename().u8string()
         + ".s3g-" + std::to_string(tick) + "-" + std::to_string(count)
         + ".tmp");
 }
@@ -522,7 +522,7 @@ inline ProjectCopyResult copyFileIntoProject(const ProjectLocation& location,
         result.error = "SAVE THE REAPER PROJECT BEFORE USING PROJECT STORAGE";
         return result;
     }
-    const std::filesystem::path source(sourcePath);
+    const auto source = std::filesystem::u8path(sourcePath);
     std::error_code filesystemError;
     if (source.empty() || !std::filesystem::is_regular_file(
             source, filesystemError)) {
@@ -533,7 +533,7 @@ inline ProjectCopyResult copyFileIntoProject(const ProjectLocation& location,
             result.error)) return result;
 
     const std::filesystem::path directory
-        = std::filesystem::path(location.mediaDirectory) / "s3g Samples";
+        = std::filesystem::u8path(location.mediaDirectory) / "s3g Samples";
     std::filesystem::create_directories(directory, filesystemError);
     if (filesystemError) {
         result.error = "COULD NOT CREATE THE PROJECT SAMPLE DIRECTORY";
@@ -545,7 +545,7 @@ inline ProjectCopyResult copyFileIntoProject(const ProjectLocation& location,
     // content-addressed filename back through the naming step and creating a
     // second, nested hash-suffixed copy.
     std::string existingRelative;
-    const std::string normalizedSource = source.lexically_normal().string();
+    const std::string normalizedSource = source.lexically_normal().u8string();
     if (makeProjectRelativePath(location, normalizedSource,
             existingRelative, nullptr)) {
         result.absolutePath = normalizedSource;
@@ -558,7 +558,7 @@ inline ProjectCopyResult copyFileIntoProject(const ProjectLocation& location,
     const std::string extension = detail::safeExtension(source);
     const std::string readableName = detail::recognizableStem(source) + "-"
         + result.contentHash.substr(0u, 16u) + extension;
-    std::filesystem::path destination = directory / readableName;
+    std::filesystem::path destination = directory / std::filesystem::u8path(readableName);
 
     const auto pathMatches = [&](const std::filesystem::path& candidate) {
         filesystemError.clear();
@@ -630,7 +630,7 @@ inline ProjectCopyResult copyFileIntoProject(const ProjectLocation& location,
         }
     }
 
-    result.absolutePath = destination.lexically_normal().string();
+    result.absolutePath = destination.lexically_normal().u8string();
     if (!makeProjectRelativePath(location, result.absolutePath,
             result.relativePath, &result.error)) return result;
     result.success = true;
@@ -662,12 +662,12 @@ inline std::string abbreviatedPath(const std::string& path,
 {
     if (path.size() <= maximumCharacters || maximumCharacters < 8u)
         return path;
-    const std::filesystem::path filesystemPath(path);
-    std::string tail = filesystemPath.filename().string();
-    const std::string parent = filesystemPath.parent_path().filename().string();
+    const auto filesystemPath = std::filesystem::u8path(path);
+    std::string tail = filesystemPath.filename().u8string();
+    const std::string parent = filesystemPath.parent_path().filename().u8string();
     if (!parent.empty()) tail = parent + "/" + tail;
     if (tail.size() + 4u <= maximumCharacters) return ".../" + tail;
-    const std::string filename = filesystemPath.filename().string();
+    const std::string filename = filesystemPath.filename().u8string();
     if (filename.size() + 4u <= maximumCharacters) return ".../" + filename;
     const std::size_t prefix = utf8PrefixBytes(filename,
         maximumCharacters > 7u ? maximumCharacters - 7u : 1u);

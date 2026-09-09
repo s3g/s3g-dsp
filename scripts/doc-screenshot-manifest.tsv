@@ -65,6 +65,7 @@ feedback-shift	feedback-shift
 formant-matrix	formant-matrix
 processor-fissure	processor-fissure
 low-frequency-synth	processor-lf-synth
+processor-lowform	processor-lowform
 processor-stack	processor-stack
 processor-conduit	processor-conduit
 processor-errant	processor-errant

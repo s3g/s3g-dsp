@@ -1,3 +1,4 @@
+#include "../common/s3g_sample_file_decode.h"
 #include "s3g_crcltr.h"
 
 #include <clap/clap.h>
@@ -5,8 +6,14 @@
 #include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include <clap/ext/gui.h>
 
 #include "../common/s3g_clap_gui_param_queue.h"
+
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_family_vstgui.h"
+#endif
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
@@ -219,7 +226,7 @@ struct LoopImportCommand {
     bool committed = false;
 };
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoopLoadRequest {
     uint32_t loop = 0u;
     uint64_t generation = 0u;
@@ -293,21 +300,30 @@ struct Plugin {
     std::array<LoopImportCommand*, 2u> activeLoopImports {};
     std::array<std::shared_ptr<const ImportedLoopAudio>, 2u>
         controlLoadedAudio {};
+    std::array<std::string, 2u> loopSourcePaths {};
+    std::array<std::string, 2u> loopLoadStatuses {{ "EMPTY", "EMPTY" }};
     bool prepared = false;
     double pendingAudioSampleRate = 0.0;
     std::array<uint32_t, 2u> pendingLoopFrames {};
     std::array<std::vector<float>, 4u> pendingLoopAudio;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::mutex loaderMutex;
     std::condition_variable loaderCondition;
     std::deque<LoopLoadRequest> loadRequests;
     std::deque<LoopLoadResult> loadResults;
     std::thread loaderThread;
     bool loaderStopping = false;
-    std::array<std::string, 2u> loopLoadStatuses {{ "EMPTY", "EMPTY" }};
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    s3g::portable_gui::SampleFamilyEditor* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth;
+    uint32_t portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
 #endif
 };
 
@@ -786,7 +802,6 @@ void serviceRetiredLoopImports(Plugin& plugin)
 {
     LoopImportCommand* command = nullptr;
     while (plugin.retiredLoopImportQueue.peek(command)) {
-#if defined(__APPLE__)
         if (command && command->loop < 2u
             && command->generation == plugin.loopImportGenerations[
                 command->loop].load(std::memory_order_acquire)) {
@@ -806,7 +821,6 @@ void serviceRetiredLoopImports(Plugin& plugin)
                     std::memory_order_acq_rel);
             }
         }
-#endif
         delete command;
         plugin.retiredLoopImportQueue.pop();
     }
@@ -826,7 +840,7 @@ void discardLoopImports(Plugin& plugin)
     }
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool startLoopLoader(Plugin& plugin);
 void stopLoopLoader(Plugin& plugin);
 void serviceLoopLoadResults(Plugin& plugin);
@@ -841,7 +855,7 @@ bool init(const clap_plugin_t* plugin)
         p->hostState = static_cast<const clap_host_state_t*>(
             p->host->get_extension(p->host, CLAP_EXT_STATE));
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     return startLoopLoader(*p);
 #else
     return true;
@@ -851,11 +865,19 @@ bool init(const clap_plugin_t* plugin)
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
 #if defined(__APPLE__)
     guiDestroy(plugin);
+#endif
     stopLoopLoader(*self(plugin));
 #endif
     discardLoopImports(*self(plugin));
@@ -1129,7 +1151,7 @@ clap_process_status process(const clap_plugin_t* plugin,
 void onMainThread(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceLoopLoadResults(*p);
 #endif
     serviceRetiredLoopImports(*p);
@@ -1583,9 +1605,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             static_cast<uint8_t>(LoopSourceKind::Empty),
             std::memory_order_release);
         p->controlLoadedAudio[loop].reset();
-#if defined(__APPLE__)
         p->loopLoadStatuses[loop] = "EMPTY";
-#endif
     }
     uint32_t version = 0u;
     if (!readAll(stream, &version, sizeof(version))) return false;
@@ -1691,9 +1711,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 p->loopSourceKinds[loop].store(
                     static_cast<uint8_t>(LoopSourceKind::Embedded),
                     std::memory_order_release);
-#if defined(__APPLE__)
                 p->loopLoadStatuses[loop] = "PROJECT LOOP";
-#endif
             }
         }
     } catch (...) {
@@ -1710,11 +1728,11 @@ const clap_plugin_state_t stateExtension {
     stateLoad,
 };
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 
 std::string loopSourceName(const std::string& path)
 {
-    const std::string name = std::filesystem::path(path).filename().string();
+    const std::string name = std::filesystem::u8path(path).filename().u8string();
     return name.empty() ? "SAMPLE" : name;
 }
 
@@ -1722,6 +1740,7 @@ bool decodeLoopSample(const LoopLoadRequest& request,
                       std::shared_ptr<const ImportedLoopAudio>& audioOut,
                       std::string& error)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* path = [NSString stringWithUTF8String:request.path.c_str()];
         NSError* nsError = nil;
@@ -1819,8 +1838,43 @@ bool decodeLoopSample(const LoopLoadRequest& request,
         error.clear();
         return true;
     }
-}
 
+#else
+
+    std::shared_ptr<const s3g::sample::SampleAsset> source;
+    if (!s3g::sample_file::decodeWaveFile(request.path, source, error)
+        || !source || source->channelCount > 2u
+        || request.destinationSampleRate <= 1.0 || request.destinationCapacity < 2u) {
+        if (error.empty()) error = "USE A VALID MONO OR STEREO SAMPLE";
+        return false;
+    }
+    const double scale = request.destinationSampleRate / source->sampleRate;
+    const uint64_t desired = std::max<uint64_t>(2u,
+        static_cast<uint64_t>(std::llround(source->frameCount() * scale)));
+    const uint32_t frames = static_cast<uint32_t>(
+        std::min<uint64_t>(request.destinationCapacity, desired));
+    auto audio = std::make_shared<ImportedLoopAudio>();
+    audio->sampleRate = request.destinationSampleRate;
+    audio->name = loopSourceName(request.path);
+    audio->truncated = desired > request.destinationCapacity;
+    audio->left.resize(frames);
+    audio->right.resize(frames);
+    const auto& left = source->channels[0u];
+    const auto& right = source->channels[source->channelCount > 1u ? 1u : 0u];
+    for (uint32_t frame = 0u; frame < frames; ++frame) {
+        const double position = std::min<double>(source->frameCount() - 1u, frame / scale);
+        const uint32_t first = static_cast<uint32_t>(position);
+        const uint32_t second = std::min(source->frameCount() - 1u, first + 1u);
+        const float mix = static_cast<float>(position - first);
+        const float l = left[first] + (left[second] - left[first]) * mix;
+        const float r = right[first] + (right[second] - right[first]) * mix;
+        audio->left[frame] = std::isfinite(l) ? l : 0.0f;
+        audio->right[frame] = std::isfinite(r) ? r : 0.0f;
+    }
+    audioOut = std::move(audio);
+    return true;
+#endif
+}
 bool startLoopLoader(Plugin& plugin)
 {
     try {
@@ -3292,6 +3346,325 @@ const clap_plugin_gui_t guiExtension {
 namespace {
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+
+uint32_t portableParameterCount(void*) { return kParamCount; }
+
+bool portableParameterInfo(void*, uint32_t index,
+    s3g::portable_gui::SampleFamilyParameterInfo* info)
+{
+    if (!info || index >= kParamCount) return false;
+    const auto& def = kParamDefs[index];
+    *info = {};
+    info->id = def.id;
+    std::snprintf(info->name, sizeof(info->name), "%s", def.name);
+    std::snprintf(info->module, sizeof(info->module), "%s", def.module);
+    info->minimum = def.minimum;
+    info->maximum = def.maximum;
+    info->defaultValue = def.defaultValue;
+    info->stepped = def.stepped;
+    info->readOnly = !def.automatable;
+    return true;
+}
+
+double portableReadParameter(void* context, uint32_t id)
+{
+    double value = 0.0;
+    if (context)
+        (void)paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+            id, &value);
+    return value;
+}
+
+bool portableParameterText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin, id, value, text, capacity);
+}
+
+void portableBeginParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamGestureBegin(*static_cast<Plugin*>(context), id);
+}
+
+void portableSetParameter(void* context, uint32_t id, double value)
+{
+    if (context) {
+        auto& instance = *static_cast<Plugin*>(context);
+        queueGuiParamValue(instance, id, value);
+        markStateDirty(instance);
+    }
+}
+
+void portableEndParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamGestureEnd(*static_cast<Plugin*>(context), id);
+}
+
+void portableResetParameters(void* context)
+{
+    if (!context) return;
+    for (const auto& def : kParamDefs) {
+        if (!def.automatable) continue;
+        portableBeginParameter(context, def.id);
+        portableSetParameter(context, def.id, def.defaultValue);
+        portableEndParameter(context, def.id);
+    }
+}
+
+uint32_t portableSampleSlotCount(void*) { return 2u; }
+
+const s3g::sample::SampleAsset* portableAsset(void*, uint32_t)
+{
+    return nullptr;
+}
+
+const char* portableSamplePath(void* context, uint32_t slot)
+{
+    if (!context || slot >= 2u) return "";
+    return static_cast<Plugin*>(context)->loopSourcePaths[slot].c_str();
+}
+
+const char* portableSampleStatus(void* context, uint32_t slot)
+{
+    if (!context || slot >= 2u) return "";
+    auto& instance = *static_cast<Plugin*>(context);
+    thread_local char status[64] {};
+    const auto& waveform = instance.loopWaveforms[slot];
+    const uint32_t frames = waveform.frames.load(std::memory_order_relaxed);
+    const bool recording = instance.params.record
+        && (instance.params.recordTarget == s3g::CrcltrRecordTarget::Both
+            || (slot == 0u && instance.params.recordTarget == s3g::CrcltrRecordTarget::Loop1)
+            || (slot == 1u && instance.params.recordTarget == s3g::CrcltrRecordTarget::Loop2));
+    const auto kind = static_cast<LoopSourceKind>(instance.loopSourceKinds[slot].load(std::memory_order_acquire));
+    if (recording) return "RECORDING";
+    if ((instance.loopLoadPendingMask.load(std::memory_order_acquire) & (1u << slot))
+        || kind == LoopSourceKind::Loading) return "LOADING";
+    if (instance.loopLoadErrorMask.load(std::memory_order_acquire) & (1u << slot)) return "LOAD ERROR";
+    if (frames == 0u) return "EMPTY";
+    if (instance.loopWindowPending[slot].load(std::memory_order_relaxed)) return "NEXT WRAP";
+    if (waveform.validBins.load(std::memory_order_acquire) < waveform.bins.load(std::memory_order_acquire)) return "ANALYZING";
+    const double seconds = instance.sampleRate > 1.0 ? frames / instance.sampleRate : 0.0;
+    if (kind == LoopSourceKind::File) std::snprintf(status, sizeof(status), "FILE %.2fS", seconds);
+    else {
+        const float fade = instance.params.crossfadeMode == s3g::CrcltrCrossfadeMode::Manual
+            ? instance.params.crossfade : instance.currentCrossfade.load(std::memory_order_relaxed);
+        const auto gains = s3g::crcltrCrossfadeGains(instance.params.crossfadeShape, fade);
+        std::snprintf(status, sizeof(status), "%.0f%% %.2fS", (slot == 0u ? gains.a : gains.b) * 100.0f, seconds);
+    }
+    return status;
+}
+
+bool portableLoadSample(void* context, uint32_t loop, const char* path)
+{
+    if (!context || loop >= 2u || !path || !path[0]) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.loopSourcePaths[loop] = path;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    queueLoopLoad(instance, loop, path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool portableClearSample(void* context, uint32_t loop)
+{
+    if (!context || loop >= 2u) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const clap_id id = loop == 0u ? kClearLoopAParamId : kClearLoopBParamId;
+    portableBeginParameter(context, id);
+    portableSetParameter(context, id, 1.0);
+    portableEndParameter(context, id);
+    instance.loopSourcePaths[loop].clear();
+    instance.loopLoadStatuses[loop] = "EMPTY";
+    if (!instance.processing.load(std::memory_order_acquire))
+        serviceLoopClearRequests(instance);
+    markStateDirty(instance);
+    return true;
+}
+
+const char* portableStorageName(void*, uint32_t) { return "EMBED"; }
+bool portableCycleStorage(void*, uint32_t) { return false; }
+
+float portableOutputPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t portableVisualizationPoints(void* context, uint32_t series,
+    s3g::portable_gui::SampleFamilyVisualPoint* output, uint32_t capacity)
+{
+    if (!context || !output || capacity == 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    if (series >= 10u && series < 14u) {
+        const uint32_t loop = (series - 10u) / 2u;
+        const uint32_t channel = (series - 10u) % 2u;
+        const auto& waveform = instance.loopWaveforms[loop];
+        const uint32_t bins = waveform.bins.load(std::memory_order_acquire);
+        const uint32_t valid = std::min(bins, waveform.validBins.load(std::memory_order_acquire));
+        const uint32_t count = std::min(capacity, valid);
+        float peak = 0.02f;
+        for (uint32_t c = 0u; c < 2u; ++c)
+            for (uint32_t bin = 0u; bin < valid; ++bin) {
+                peak = std::max(peak, std::abs(waveform.minimum[c][bin].load(std::memory_order_relaxed)));
+                peak = std::max(peak, std::abs(waveform.maximum[c][bin].load(std::memory_order_relaxed)));
+            }
+        const float gain = 0.92f / peak;
+        for (uint32_t index = 0u; index < count; ++index) {
+            output[index].x = (static_cast<float>(index) + 0.5f) / std::max(1u, bins);
+            output[index].y = std::clamp(waveform.minimum[channel][index].load(std::memory_order_relaxed) * gain, -1.0f, 1.0f);
+            output[index].width = std::clamp(waveform.maximum[channel][index].load(std::memory_order_relaxed) * gain, -1.0f, 1.0f);
+        }
+        return count;
+    }
+    if (series < 2u) {
+        const auto& waveform = instance.loopWaveforms[series];
+        const uint32_t count = std::min<uint32_t>(capacity,
+            waveform.validBins.load(std::memory_order_acquire));
+        for (uint32_t index = 0u; index < count; ++index) {
+            output[index].x = count > 1u
+                ? static_cast<float>(index) / (count - 1u) : 0.0f;
+            output[index].y = 0.5f * (waveform.minimum[0u][index].load(
+                    std::memory_order_relaxed)
+                + waveform.minimum[1u][index].load(
+                    std::memory_order_relaxed));
+            output[index].width = 0.5f * (waveform.maximum[0u][index].load(
+                    std::memory_order_relaxed)
+                + waveform.maximum[1u][index].load(
+                    std::memory_order_relaxed));
+        }
+        return count;
+    }
+    if (series == 2u) {
+        output[0u].x = instance.params.crossfadeMode == s3g::CrcltrCrossfadeMode::Manual
+            ? instance.params.crossfade : instance.currentCrossfade.load(std::memory_order_relaxed);
+        output[0u].y = instance.crossfadeDirection.load(
+            std::memory_order_relaxed);
+        return 1u;
+    }
+    if (series == 3u || series == 4u) {
+        const uint32_t loop = series - 3u;
+        const std::array<float, 3u> positions {{
+            instance.activeLoopStart[loop].load(std::memory_order_relaxed),
+            instance.activeLoopEnd[loop].load(std::memory_order_relaxed),
+            instance.loopPosition[loop].load(std::memory_order_relaxed),
+        }};
+        const uint32_t count = std::min<uint32_t>(capacity, 3u);
+        for (uint32_t index = 0u; index < count; ++index) {
+            const float scale = loop == 0u && instance.params.playbackModel
+                == s3g::CrcltrPlaybackModel::Classic ? 0.5f : 1.0f;
+            output[index].x = positions[index] * (index < 2u ? scale : 1.0f);
+            output[index].kind = index;
+            output[index].intensity = index == 2u
+                ? (instance.loopWaveforms[loop].frames.load(std::memory_order_relaxed) > 0u ? 1.0f : 0.0f)
+                : (instance.loopWindowPending[loop].load(std::memory_order_relaxed) ? 1.0f : 0.0f);
+        }
+        return count;
+    }
+    return 0u;
+}
+
+void portableAction(void* context, uint32_t action, bool pressed)
+{
+    if (!context) return;
+    if (action == 1u) {
+        portableBeginParameter(context, kRecordParamId);
+        portableSetParameter(context, kRecordParamId, pressed ? 1.0 : 0.0);
+        portableEndParameter(context, kRecordParamId);
+        return;
+    }
+    if (!pressed) return;
+    if (action == 2u) {
+        portableClearSample(context, 0u);
+        return;
+    }
+    if (action == 3u) {
+        portableClearSample(context, 1u);
+        return;
+    }
+    const clap_id id = kPlayingParamId;
+    const double next = portableReadParameter(context, id) >= 0.5 ? 0.0 : 1.0;
+    portableBeginParameter(context, id);
+    portableSetParameter(context, id, next);
+    portableEndParameter(context, id);
+}
+
+void portableService(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    serviceLoopLoadResults(instance);
+#endif
+    serviceRetiredLoopImports(instance);
+}
+
+bool portableLoadPreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::loadStateFile(
+        &static_cast<Plugin*>(context)->plugin, stateExtension, path);
+}
+
+bool portableSavePreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::saveStateFile(
+        &static_cast<Plugin*>(context)->plugin, stateExtension, path);
+}
+
+const std::array<s3g::portable_gui::SampleFamilyAction, 4u>
+    portableActions {{
+        { 0u, "PLAY / PAUSE", false },
+        { 1u, "RECORD", true },
+        { 2u, "CLEAR LOOP A", false },
+        { 3u, "CLEAR LOOP B", false },
+    }};
+
+s3g::portable_gui::SampleFamilyEditorConfig
+makeSampleFamilyEditorConfig(Plugin& instance)
+{
+    s3g::portable_gui::SampleFamilyEditorConfig config {};
+    config.callbacks.context = &instance;
+    config.callbacks.getParameterCount = portableParameterCount;
+    config.callbacks.getParameterInfo = portableParameterInfo;
+    config.callbacks.getParam = portableReadParameter;
+    config.callbacks.getParamText = portableParameterText;
+    config.callbacks.beginParamEdit = portableBeginParameter;
+    config.callbacks.setParam = portableSetParameter;
+    config.callbacks.endParamEdit = portableEndParameter;
+    config.callbacks.resetToDefaults = portableResetParameters;
+    config.callbacks.getSampleSlotCount = portableSampleSlotCount;
+    config.callbacks.getAsset = portableAsset;
+    config.callbacks.getSamplePath = portableSamplePath;
+    config.callbacks.getSampleStatus = portableSampleStatus;
+    config.callbacks.loadSample = portableLoadSample;
+    config.callbacks.clearSample = portableClearSample;
+    config.callbacks.getStorageModeName = portableStorageName;
+    config.callbacks.cycleStorageMode = portableCycleStorage;
+    config.callbacks.getOutputPeak = portableOutputPeak;
+    config.callbacks.getVisualizationPoints = portableVisualizationPoints;
+    config.callbacks.performAction = portableAction;
+    config.callbacks.service = portableService;
+    config.callbacks.loadPreset = portableLoadPreset;
+    config.callbacks.savePreset = portableSavePreset;
+    config.pluginName = "s3g SAMPLE CIRCULATOR";
+    config.samplePanelName = "DUAL LOOP CIRCULATOR";
+    config.actions = portableActions.data();
+    config.actionCount = static_cast<uint32_t>(portableActions.size());
+    config.nativeWidth = kGuiWidth;
+    config.nativeHeight = kGuiHeight;
+    config.minimumColumns = 3u;
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Circulator;
+    return config;
+}
+
+#include "../common/s3g_sample_family_clap_gui.inc"
+
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
@@ -3299,7 +3672,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;

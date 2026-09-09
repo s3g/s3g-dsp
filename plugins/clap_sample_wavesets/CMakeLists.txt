@@ -10,6 +10,13 @@ target_include_directories(s3g_sample_wavesets_clap PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 target_compile_features(s3g_sample_wavesets_clap PRIVATE cxx_std_17)
 
+if(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_sample_wavesets_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_sample_family_vstgui.cpp"
+    S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+  s3g_enable_windows_sample_decode(s3g_sample_wavesets_clap)
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_wavesets_clap PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
@@ -38,4 +45,6 @@ if(APPLE)
     COMMAND ${CMAKE_COMMAND} -E touch
       "$<TARGET_BUNDLE_DIR:s3g_sample_wavesets_clap>"
     VERBATIM)
+elseif(WIN32)
+  set_target_properties(s3g_sample_wavesets_clap PROPERTIES SUFFIX ".clap")
 endif()

@@ -360,6 +360,8 @@ int main()
             valueForKey:@"patternPrimaryControls"];
         NSStackView* transportPrimaryControls = [controller
             valueForKey:@"transportPrimaryControls"];
+        NSScrollView* transportPrimaryScroll = [controller
+            valueForKey:@"transportPrimaryScroll"];
         NSStackView* inputPrimaryControls = [controller
             valueForKey:@"inputPrimaryControls"];
         NSPopUpButton* patternPopup = [controller valueForKey:@"patternPopup"];
@@ -424,6 +426,12 @@ int main()
             valueForKey:@"libraryPopup"];
         S3GTrackerPopupButton* phrasePreviewChannel = [phraseController
             valueForKey:@"previewChannelPopup"];
+        NSTextField* phraseNameField = [phraseController
+            valueForKey:@"nameField"];
+        NSTextField* phraseBpmField = [phraseController
+            valueForKey:@"recommendedBpmField"];
+        NSTextField* phraseBpmLabel = [phraseController
+            valueForKey:@"recommendedBpmLabel"];
         NSView* phraseGrid = [phraseController valueForKey:@"grid"];
         NSPopUpButton* geometryViewMode = [geometryPage
             valueForKey:@"viewModePopup"];
@@ -560,6 +568,22 @@ int main()
                 && std::abs(NSMidY(exportBankFrame)
                     - NSMidY(copyToLaneFrame)) >= 20.0,
             "Phrase and Burst libraries should share the same three-button primary row and paired pack/bank action grid");
+        check(phraseNameField && phraseBpmField && phraseBpmLabel
+                && NSMaxX(phraseBpmLabel.frame) < NSMinX(phraseBpmField.frame)
+                && near(NSMidY(phraseBpmLabel.frame),
+                    NSMidY(phraseBpmField.frame), 4.0),
+            "Phrase recommended BPM should use an aligned, non-overlapping label and text entry");
+        phraseBpmField.stringValue = @"118.5";
+        [phraseSave performClick:nil];
+        check(state.phraseLibrary.phrases[0u].recommendedBpm == 118.5
+                && [phraseBpmField.stringValue isEqualToString:@"118.5"],
+            "Phrase SAVE should edit and retain optional recommended BPM metadata");
+        phraseBpmField.stringValue = @"";
+        [phraseSave performClick:nil];
+        check(!state.phraseLibrary.phrases[0u].recommendedBpm.has_value(),
+            "clearing the Phrase BPM text entry should remove the optional metadata");
+        phraseBpmField.stringValue = @"118.5";
+        [phraseSave performClick:nil];
         check(phraseLibrary.numberOfItems == 64u
                 && phraseLength.numberOfItems == 63u
                 && phrasePreviewChannel.numberOfItems == 16u
@@ -662,6 +686,7 @@ int main()
                 && state.phraseLibrary.phrases[1u].name == "PHRASE COPY"
                 && state.phraseLibrary.phrases[1u].notes[0u].note == 60u
                 && state.phraseLibrary.phrases[1u].notes[1u].note == 64u
+                && state.phraseLibrary.phrases[1u].recommendedBpm == 118.5
                 && state.phraseLibrary.phrases[1u].previewMidiChannel == 10u
                 && patternChangeRequests == phraseChangesBeforeDuplicate + 1,
             "Phrase DUP should copy the complete selected Phrase into the first empty slot and select it");
@@ -2089,6 +2114,46 @@ int main()
         const CGFloat initialRemoveTrackX = NSMinX(trackRemoveButton.frame);
         NSStackView* toolboxStack = static_cast<NSStackView*>(
             transport.documentView);
+        NSMutableSet<NSString*>* transportLabels = [NSMutableSet set];
+        NSUInteger transportSeparatorCount = 0u;
+        bool transportFieldGeometry = true;
+        CGFloat transportValueRowY = NAN;
+        for (NSView* view in transportPrimaryControls.arrangedSubviews) {
+            if ([view isKindOfClass:NSBox.class]) {
+                ++transportSeparatorCount;
+                continue;
+            }
+            if (![view isKindOfClass:NSClassFromString(
+                    @"S3GTrackerTransportFieldGroup")]) continue;
+            NSTextField* label = nil;
+            NSControl* fieldControl = nil;
+            for (NSView* child in view.subviews) {
+                if ([child isKindOfClass:NSTextField.class]) {
+                    label = static_cast<NSTextField*>(child);
+                    [transportLabels addObject:label.stringValue];
+                } else if ([child isKindOfClass:NSControl.class]) {
+                    fieldControl = static_cast<NSControl*>(child);
+                }
+            }
+            transportFieldGeometry = transportFieldGeometry
+                && label && fieldControl
+                && NSMaxY(label.frame) < NSMinY(fieldControl.frame)
+                && near(NSMidX(label.frame),
+                    NSMidX(fieldControl.frame), 0.01)
+                && near(NSWidth(label.frame),
+                    NSWidth(fieldControl.frame), 0.01);
+            if (fieldControl) {
+                const NSRect valueFrame = [fieldControl
+                    convertRect:fieldControl.bounds
+                    toView:transportPrimaryControls];
+                if (std::isnan(transportValueRowY))
+                    transportValueRowY = NSMinY(valueFrame);
+                else
+                    transportFieldGeometry = transportFieldGeometry
+                        && near(NSMinY(valueFrame),
+                            transportValueRowY, 0.01);
+            }
+        }
         check(transportPanel.toolboxIndex == 0
                 && [transportPanel.toolboxTitle isEqualToString:@"TRANSPORT"]
                 && near(NSMinX(transportPanel.frame), 18.0)
@@ -2134,31 +2199,42 @@ int main()
                     containsObject:zoomInButton]
                 && ![inputPrimaryControls.arrangedSubviews
                     containsObject:midiStepRecordPopup]
-                && transportPrimaryControls.arrangedSubviews.count == 12u
+                && transportPrimaryControls.arrangedSubviews.count == 15u
                 && [transportPrimaryControls.arrangedSubviews
                     containsObject:fillButton]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:tempoScalePopup]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:swingField]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:gateField]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:loopStartField]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:loopEndField]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:midiStepRecordPopup]
-                && [transportPrimaryControls.arrangedSubviews
-                    containsObject:midiRecordTrackPopup],
+                && [tempoScalePopup isDescendantOf:transportPrimaryControls]
+                && [swingField isDescendantOf:transportPrimaryControls]
+                && [gateField isDescendantOf:transportPrimaryControls]
+                && [loopStartField isDescendantOf:transportPrimaryControls]
+                && [loopEndField isDescendantOf:transportPrimaryControls]
+                && [midiStepRecordPopup
+                    isDescendantOf:transportPrimaryControls]
+                && [midiRecordTrackPopup
+                    isDescendantOf:transportPrimaryControls],
             "Pattern should lead with a wide long-name menu, while View and bottom Transport controls each occupy one compact row");
+        check(transportSeparatorCount == 3u
+                && transportFieldGeometry
+                && [transportLabels containsObject:@"BPM"]
+                && [transportLabels containsObject:@"SWING"]
+                && [transportLabels containsObject:@"GATE"]
+                && [transportLabels containsObject:@"LOOP IN"]
+                && [transportLabels containsObject:@"LOOP OUT"]
+                && [transportLabels containsObject:@"RECORD"]
+                && [transportLabels containsObject:@"LANE"]
+                && near(NSMinY(playButton.frame), transportValueRowY, 0.01)
+                && near(NSMinY(fillButton.frame), transportValueRowY, 0.01)
+                && near(NSMinY(restartButton.frame),
+                    transportValueRowY, 0.01)
+                && transportPrimaryScroll.documentView
+                    == transportPrimaryControls,
+            "Transport menus should have aligned visible labels, semantic separators, and a compact-width scrolling container");
         fillButton.state = NSControlStateValueOn;
         [fillButton sendAction:fillButton.action to:fillButton.target];
         check(state.fillActive && fillChangeRequests == 1
                 && fillButton.tag == 3,
             "Transport FILL should publish transient active state and use the green performance status rule");
         check([swingField isKindOfClass:S3GTrackerSwingSlider.class]
-                && [swingField.s3gLabel isEqualToString:@"SW"]
+                && [swingField.s3gLabel isEqualToString:@""]
                 && [(S3GTrackerPopupButton*)gateField s3gUsesCanvasMenu]
                 && [(S3GTrackerPopupButton*)loopStartField s3gUsesCanvasMenu]
                 && [(S3GTrackerPopupButton*)loopEndField s3gUsesCanvasMenu]
@@ -2175,8 +2251,14 @@ int main()
         for (NSView* control in transportPrimaryControls.arrangedSubviews) {
             const NSPoint center = [control convertPoint:NSMakePoint(
                 NSMidX(control.bounds), NSMidY(control.bounds)) toView:nil];
+            const NSPoint scrollPoint = [transportPrimaryScroll.contentView
+                convertPoint:center fromView:nil];
+            if (!NSPointInRect(scrollPoint,
+                    transportPrimaryScroll.contentView.bounds)) continue;
             NSView* hit = [window.contentView hitTest:center];
-            if (hit != control) {
+            NSView* owner = hit;
+            while (owner && owner != control) owner = owner.superview;
+            if (owner != control) {
                 everyTransportControlHit = false;
                 std::cerr << "transport hit miss: "
                     << NSStringFromClass(control.class).UTF8String << ' '

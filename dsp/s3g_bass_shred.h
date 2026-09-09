@@ -412,27 +412,21 @@ public:
 
     void setParams(BassShredParams params)
     {
-        params.shred = clamp(std::isfinite(params.shred)
-            ? params.shred : 0.0f, 0.0f, 1.0f);
-        params.feedback = clamp(std::isfinite(params.feedback)
-            ? params.feedback : 0.0f, 0.0f, 1.0f);
-        params.feedbackToneLevel = clamp(
-            std::isfinite(params.feedbackToneLevel)
-                ? params.feedbackToneLevel : 1.0f,
-            0.0f, 1.0f);
-        params.color = clamp(std::isfinite(params.color)
-            ? params.color : 0.55f, 0.0f, 1.0f);
-        params.mix = clamp(std::isfinite(params.mix)
-            ? params.mix : 0.0f, 0.0f, 1.0f);
-        params.circuit = static_cast<BassShredCircuit>(
-            std::min<uint32_t>(static_cast<uint32_t>(params.circuit),
-                kBassShredCircuitCount - 1u));
+        params = sanitizeParams(params);
         const bool feedbackInterrupted =
             params.feedback + 1.0e-5f < params_.feedback
             || params.feedbackToneLevel + 1.0e-5f
                 < params_.feedbackToneLevel;
         params_ = params;
         if (feedbackInterrupted) interruptFeedback();
+    }
+
+    // Sample-continuous modulation must not invoke the feedback interruption
+    // used for abrupt host or preset reductions. The regular parameter
+    // smoothing below remains active for these targets.
+    void setModulatedParams(BassShredParams params)
+    {
+        params_ = sanitizeParams(params);
     }
 
     BassShredParams params() const { return params_; }
@@ -514,6 +508,26 @@ public:
     }
 
 private:
+    static BassShredParams sanitizeParams(BassShredParams params)
+    {
+        params.shred = clamp(std::isfinite(params.shred)
+            ? params.shred : 0.0f, 0.0f, 1.0f);
+        params.feedback = clamp(std::isfinite(params.feedback)
+            ? params.feedback : 0.0f, 0.0f, 1.0f);
+        params.feedbackToneLevel = clamp(
+            std::isfinite(params.feedbackToneLevel)
+                ? params.feedbackToneLevel : 1.0f,
+            0.0f, 1.0f);
+        params.color = clamp(std::isfinite(params.color)
+            ? params.color : 0.55f, 0.0f, 1.0f);
+        params.mix = clamp(std::isfinite(params.mix)
+            ? params.mix : 0.0f, 0.0f, 1.0f);
+        params.circuit = static_cast<BassShredCircuit>(
+            std::min<uint32_t>(static_cast<uint32_t>(params.circuit),
+                kBassShredCircuitCount - 1u));
+        return params;
+    }
+
     float onePole(float frequency) const
     {
         const float sr = static_cast<float>(sampleRate_);

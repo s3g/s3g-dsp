@@ -227,7 +227,10 @@ bool validateStarterContent(const TrackerAssetPack& pack)
     std::size_t polyphonicMicroTimeRows = 0u;
     for (const auto& value : pack.phraseBank.library.phrases) {
         if (value.previewMidiChannel != 1u || value.empty()
-            || value.name.empty()) return false;
+            || value.name.empty() || !value.recommendedBpm.has_value()
+            || *value.recommendedBpm < kMinimumPhraseRecommendedBpm
+            || *value.recommendedBpm > kMaximumPhraseRecommendedBpm)
+            return false;
         bool hasPolyphonicRow = false;
         for (const auto& cell : value.notes) {
             hasPolyphonicRow |= cell.noteVoiceCount() > 1u;
@@ -604,6 +607,17 @@ int main(int argc, char** argv)
         2u, {6u}, {{10u,.58f}}, {{11u,.70f},{13u,.84f}});
     useBurst(p64, 14u, 12u); useBurst(p64, 15u, 5u);
     store(pack, 63u, std::move(p64));
+
+    constexpr std::array<double, 8u> recommendedBpmByFamily {{
+        92.0, 108.0, 72.0, 86.0, 174.0, 118.0, 126.0, 112.0,
+    }};
+    constexpr std::array<double, 8u> recommendedBpmVariation {{
+        0.0, 4.0, -2.0, 2.0, -4.0, 6.0, 0.0, 2.0,
+    }};
+    for (std::size_t slot = 0u; slot < kPhraseLibrarySlots; ++slot)
+        pack.phraseBank.library.phrases[slot].recommendedBpm
+            = recommendedBpmByFamily[slot / 8u]
+            + recommendedBpmVariation[slot % 8u];
 
     if (!validateStarterContent(pack)) {
         std::cerr << "generated starter content failed coverage validation\n";

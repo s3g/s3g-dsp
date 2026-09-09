@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Processor Lowform 2 - s3g-dsp</title>
+    <meta name="description" content="User guide for s3g Processor Lowform 2, an eight-voice bass instrument with explicit expression routing, a multi-lane scale arpeggiator, eight directly editable body engines, dual-destination modulation, and low-safe finishing.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="apps.html">Apps</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Processor Lowform 2</h1>
+
+        <p>Processor Lowform is an eight-voice stereo instrument that separates low-frequency weight from harmonic identity and surface detail. A phase-stable Foundation stays centered; a selectable Pressure, Swarm, Modal, Acid, Rave, Phase, Throat, or Sync engine builds the Harmonic Body; and a generated Texture layer adds noise, corrosion, ring modulation, or cross-wired upper detail. MIDI transpose and a Stack-derived scale arpeggiator precede the voice layer. The three sound layers have independent level and filter-routing controls before a common performance and finish path.</p>
+
+        <p>The instrument fills the broad bass-design role without changing the narrower identities of <a href="low-frequency-synth.html">Processor LF Synth</a> or <a href="processor-errant.html">Processor Errant</a>. LF Synth remains the detailed monophonic membrane instrument, and Errant remains the genealogical glitch-bass system. Processor Lowform instead prioritizes fast layered sound construction, polyphonic performance, assignable motion, and a compact low-safe mastering chain.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/processor-lowform.png" aria-label="Open the high-resolution Processor Lowform interface screenshot">
+              <img src="assets/plugin-guis/processor-lowform.png" alt="Processor Lowform Build page showing Output and Routing, Foundation, Envelope, the selected body engine's direct controls, Texture, Shape, and workspace tabs" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>BUILD uses all three columns for direct construction and finishing: Output, Foundation, and Envelope at left; the selected body engine, Texture, and Dynamics in the center; and Shape, Amplifier, and Stereo Shred at right. The body panel title, labels, menus, units, and host parameter names follow the selected engine.</figcaption>
+        </figure>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Processor Lowform 2</code> on a stereo instrument track and send it MIDI notes.</li>
+          <li>Route its stereo output to the intended speakers or headphones, monitor the track, and begin with <code>OUTPUT</code> at a conservative level.</li>
+          <li>Set <code>TRANSPOSE</code> from -24 to +24 semitones when the incoming keyboard range needs moving. Keep <code>EXPRESSION MODE</code> on STANDARD MPE for ordinary controllers. For a first-generation QuNexus using factory Preset C, select QUNEXUS GEN 1 and leave <code>MIDI RECEIVE</code> on OMNI.</li>
+          <li>On <code>BUILD</code>, choose MONO or POLY 8, then set the Foundation wave, octave, and level. Foundation Return restores the centered band below approximately 118 Hz after nonlinear finishing.</li>
+          <li>Select PRESSURE for a driven morphing oscillator, SWARM for a detuned stereo bank, MODAL for a driven membrane, ACID for a saw/pulse ladder, RAVE for an octave-divider bassline voice, PHASE for feedback phase modulation and folding, THROAT for vowel resonators, or SYNC for a swept hard-synchronized oscillator. Edit the controls named for that engine; Width remains common, and Modal adds its own Drive control.</li>
+          <li>Choose a Texture mode only when the patch needs additional surface. Color changes its spectrum or internal ratio; Pitch Track controls how closely Corrode follows the played note, and Width sets the texture layer's stereo extent directly.</li>
+          <li>Set one common filter type and cutoff, then decide independently how much Foundation, Body, and Texture enter it. Key Track and the bipolar filter envelope keep the shape playable across the keyboard.</li>
+          <li>On <code>MOTION</code>, set each modulator's Shape, Rate/Division, bipolar Depth, and primary Target, then use Secondary Mod Routes when the same motion should address another destination. The live bipolar marks in the modulator headers show the current source values.</li>
+          <li>Use Expression Routing to choose independent Velocity, Pressure, and Timbre targets and bipolar depths. Shape Body Decay, Texture Attack, and Texture Decay in Layer Envelopes. Leave the arpeggiator Pattern OFF for direct playing, or use its Pitch, Accent, Gate/Tie, and Octave lanes to articulate up to eight steps.</li>
+          <li>Back on <code>BUILD</code>, add Tube and Stereo Shred first, then use Dynamics, Bite, Saturation, Clip, Tilt, and Maximizer conservatively. Set Output last.</li>
+        </ol>
+
+        <h2 id="signal-flow">Signal Flow</h2>
+
+        <ol>
+          <li>The received note is transposed before direct playback or arpeggiation. The resulting note, velocity, glide, pitch punch, MIDI bend, and per-note tuning establish one pitch trajectory per voice. A tied arp step retunes that trajectory without restarting its main or layer envelopes.</li>
+          <li>Foundation generates Sine, Triangle, or Rounded low-frequency energy at the played octave or one octave below. It remains mono even when the upper layers are widened.</li>
+          <li>Harmonic Body runs one of eight engines. Pressure combines band-limited saw, pulse, triangle, cross-products, and bounded drive. Swarm sums seven independently phased band-limited saws with controlled detuning and pan. Modal uses twelve continuously present membrane modes with velocity-shaped force packets, optional sustained excitation, smoothed material and damping, bounded per-mode energy, normalized virtual pickups, and low-cut stereo side energy. Acid adapts Ambi Encoder Acid's anti-aliased saw/pulse oscillator and smoothed nonlinear four-pole ladder. Rave combines a triangle/saw/pulse core, saturated octave divider, pre-filter noise, parallel overdrive, and dual modulated short-delay taps. Phase is a bounded two-operator phase-modulation voice with feedback and continuous wavefolding. Throat passes a glottal saw/pulse source through six interpolated vowel resonators. Sync resets a ratio-controlled slave oscillator from the played-pitch master while an independent transient sweep and ring mix shape its harmonics.</li>
+          <li>Texture generates a separate stereo upper layer. Noise is uncorrelated broadband excitation; Corrode is pitch-aware sample-and-hold; Ring multiplies the body by a tracked oscillator; Wire uses noisy, cross-related upper oscillation. Body has its own decay contour, while Texture has independent attack and decay; the HOLD endpoint preserves the former sustained behavior.</li>
+          <li>The three layers enter discrete filter states. One Type, Cutoff, Resonance, Drive, key tracking, filter envelope, and modulation result is shared, while Foundation Route, Body Route, and Texture Route crossfade each layer independently between dry and filtered paths.</li>
+          <li>All voices sum before the coordinated bass-amplifier circuit, selectable Stereo Shred circuit, and linked Break Bus dynamics/saturation/clip/tilt stage.</li>
+          <li>Foundation Return compares clean and processed low-pass anchors and replaces nonlinear low-band residue with the clean centered Foundation by the selected amount. Maximizer and Output follow this reconstruction.</li>
+        </ol>
+
+        <h2 id="layers">Layer Engines</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Layer or mode</th><th>Structure</th><th>Best use</th></tr></thead>
+          <tbody>
+            <tr><td>Foundation</td><td>Phase-stable Sine, Triangle, or softly rounded oscillator with octave, pitch punch, and protected low return.</td><td>Reliable pitch evidence and low-frequency weight.</td></tr>
+            <tr><td>Pressure</td><td>Band-limited waveform interpolation with direct Shape, Pressure, Pulse Width, Cross, and Drive controls.</td><td>Focused modern bass, moving growl, and mono glide lines.</td></tr>
+            <tr><td>Swarm</td><td>A selectable one-to-seven voice bank with direct Drive, Detune, Voices, Drift, and Tone controls.</td><td>Wide sustained bass while the Foundation remains centered.</td></tr>
+            <tr><td>Modal</td><td>A twelve-mode driven membrane with direct Material, Position, Decay, Sustain, Damping, and Drive controls.</td><td>Organic plucks, resonant mass, and stable held physical bodies.</td></tr>
+            <tr><td>Acid</td><td>Anti-aliased saw/pulse blend and nonlinear ladder with direct Wave, Resonance, Pulse Width, Drive, and Cutoff Offset controls.</td><td>Resonant bass lines, slides, and animated filter-envelope phrases.</td></tr>
+            <tr><td>Rave</td><td>Triangle/saw/pulse core with direct Wave, Sub, Smear, Noise, and Drive controls; Smear uses two modulated short-delay taps whose side component follows Width.</td><td>Weighty bassline sequences, animated unison color, and driven mono or stereo riffs.</td></tr>
+            <tr><td>Phase</td><td>Two-operator phase modulation with direct Carrier, Ratio, Index, Feedback, and Fold controls.</td><td>Clean digital subs, rubbery movement, metallic bass, and pressure-controlled growls.</td></tr>
+            <tr><td>Throat</td><td>Six smoothly interpolated vowel resonators with direct Vowel, Shift, Focus, Source, and Drive controls.</td><td>Talking bass, spectral sweeps, and expressive formant motion.</td></tr>
+            <tr><td>Sync</td><td>Played-pitch master and hard-reset slave with direct Wave, Ratio, Sweep, Decay, and Ring controls.</td><td>Tearing attacks, electro bass, and sharply articulated sequencer lines.</td></tr>
+            <tr><td>Texture</td><td>Generated Noise, Corrode, Ring, or Wire processes with independent level, color, pitch tracking, width, and filter route.</td><td>Audible upper detail on small speakers without contaminating the protected low path.</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="motion">Motion and Performance</h2>
+
+        <p>Each of the three modulators has seven Shapes: Off, Sine, Triangle, Ramp, Square, Random, and eight Steps. Its source is shown by a live bipolar header meter and can drive a primary and secondary target at independent bipolar depths. The two-column Target menus are ordered by category and every name includes its scope: Voice Amplitude and Pitch; Foundation Level; Body Level, Width, and all five engine-specific controls; Texture Level, Color, Pitch Track, and Width; Filter Cutoff, Resonance, Drive, and Key Track; Amplifier Tube; Shred Amount, Feedback, Color, and Mix; and Dynamics Amount, Bite, Saturation, and Tilt. The discrete Shred Circuit and Clip mode selectors are intentionally not modulation destinations. The original combined-width destination remains available as <code>BODY + TEXTURE / WIDTH</code> for linked motion and compatibility with existing projects, while <code>BODY / WIDTH</code> and <code>TEXTURE / WIDTH</code> address the two parameters independently. Engine-control target names follow the selected engine—for example <code>BODY / DETUNE</code>, <code>BODY / INDEX</code>, <code>BODY / VOWEL</code>, or <code>BODY / SWEEP</code>. In FREE clock mode, Rate spans approximately 0.03–24 Hz logarithmically. In TRANSPORT mode, the same control selects a period from eight bars through 1/64 triplets and follows host beat position sample by sample.</p>
+
+        <p>Motion and expression are entirely explicit. Each modulator's two Depth controls set its base influences, and <code>MOD WHEEL AMOUNT</code> sets how far MIDI CC1 can increase all six modulation routes. Velocity, per-note Pressure, and Timbre each have their own Target and bipolar Depth; the defaults send Velocity to Voice Amplitude, Pressure to Body Control B, and Timbre to Body Control A. Set a target to OFF to disconnect it. Layer balance comes directly from Foundation Level and Body Level. Body Width and Texture Width are independent, while Shape Drive, Modal Drive, Shred, and Bite expose the nonlinear stages that the former Edge macro combined.</p>
+
+        <p>The arpeggiator carries Processor Stack's deterministic OFF, UP, DOWN, PENDULUM, PEDAL, SCRAMBLE, and CUSTOM patterns and its fourteen scale rules. A non-OFF direction arms the arpeggiator, but it only runs while at least one MIDI note is physically held; releasing the final note closes the generated gate and stops further steps. Rates run from 1/8 through 1/64 with triplets plus 1/4, 1/2, and 1/1. FREE starts immediately from the latest held input note; HOST SYNC waits for the next host grid boundary while transport is running and falls back to FREE when no playing timeline is available. OCTAVES spans one to four and GATE controls generated note length.</p>
+
+        <p>The eight-cell editor has four lanes. PITCH sets the signed CUSTOM scale degree, ACCENT scales that step's note velocity, GATE selects a normal gate or a tie into the next step, and OCT adds -2 to +2 octaves per step. Octave cells show only their signed number so all eight labels remain clear. Drag within a cell to set a value, drag across cells to paint a contour, and double-click a cell to restore that lane's default. Right-click always mutes the cell's Pitch as REST, regardless of the visible lane. A tie retunes the active voice without retriggering its main, Body, or Texture envelope; a REST closes it. LENGTH selects how many cells are read, and articulation lanes affect both traversal patterns and CUSTOM.</p>
+
+        <h2 id="finish">Low-Safe Finish</h2>
+
+        <p><code>TUBE</code> coordinates asymmetric preamplification, push-pull power transfer, sag, and cabinet contour through the shared bass-amplifier circuit. Stereo Shred offers SHRED, WOOL, RAT, ZONE A, ZONE B, FUZZ I, FUZZ II, and DIODE circuits. Its distortion and governed pitch-related feedback operate above an internally protected low branch.</p>
+
+        <p><code>DYNAMICS</code>, <code>BITE</code>, <code>SATURATION</code>, <code>CLIP</code>, and <code>TILT</code> use the shared linked stereo Break Bus processor. Bite directly controls its transient emphasis. The final Maximizer is a bounded soft ceiling rather than a look-ahead loudness processor. Set levels by ear and meter; Foundation Return protects low-band identity, not excessive gain staging.</p>
+
+        <h2 id="performance">MIDI and Expression</h2>
+
+        <p>POLY 8 uses eight voices with quietest/oldest stealing and releases only the addressed voice. MONO uses conventional last-note priority: new keys move the legato voice through Glide, and releasing the newest key falls back to the most recently held earlier key. Processor Lowform advertises CLAP note expression, MIDI, and MIDI MPE input. CLAP Pressure and Brightness feed the explicit Pressure and Timbre routes, while Tuning offsets the addressed note in semitones. Raw MPE member-channel pitch bend, channel pressure, and CC74 timbre stay attached to the originating note; polyphonic aftertouch targets its key on that channel. Pitch-bend sensitivity defaults to two semitones and follows MIDI RPN 0,0 Data Entry, including wider ranges sent by MPE controllers. Expression changes use short internal slews to avoid zippering without making bends sluggish.</p>
+
+        <p><code>EXPRESSION MODE</code> defaults to STANDARD MPE, where CC1 scales global motion. QUNEXUS GEN 1 supports the original QuNexus factory Preset C convention: channel-rotated pitch bend continues to tune its matching voice, while channel-rotated CC1 is consumed as that voice's pressure instead of moving global modulation. Channel pressure, polyphonic aftertouch, CC74, CC120, CC121, and CC123 retain their normal behavior. Leave <code>MIDI RECEIVE</code> at OMNI so every rotated channel reaches the instrument.</p>
+
+        <p><code>TRANSPOSE</code> changes incoming CLAP and raw MIDI note pitches before the arpeggiator, so the arpeggiator's scale degrees remain relative to the shifted root. Note-off and per-note expression identities follow the generated voice; MPE channel pressure, bend, and timbre remain attached to the source channel through every generated step.</p>
+
+        <h2 id="controls">Controls</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Page</th><th>Panel</th><th>Controls</th></tr></thead>
+          <tbody>
+            <tr><td>Build</td><td>Output + Routing</td><td>Output / MIDI Receive / Transpose / Expression Mode</td></tr>
+            <tr><td>Build</td><td>Foundation</td><td>Voice Mode / Glide / Wave / Octave / Level / Pitch Punch / Punch Time / Low Return</td></tr>
+            <tr><td>Build</td><td>Envelope</td><td>Attack / Decay / Sustain / Release / Filter Env / Filter Decay</td></tr>
+            <tr><td>Build</td><td>Selected Body Engine</td><td>Engine / Level / five engine-specific direct controls / conditional Modal Drive / Width</td></tr>
+            <tr><td>Build</td><td>Texture</td><td>Mode / Level / Color / Pitch Track / Width</td></tr>
+            <tr><td>Build</td><td>Shape</td><td>Type / Cutoff / Resonance / Drive / Key Track / three layer routes</td></tr>
+            <tr><td>Build</td><td>Amplifier and Stereo Shred</td><td>Tube / Circuit / Shred / Feedback / Color / Mix</td></tr>
+            <tr><td>Build</td><td>Dynamics + Ceiling</td><td>Dynamics / Bite / Saturation / Clip / Tilt / Maximizer</td></tr>
+            <tr><td>Motion</td><td>Clock and Modulators</td><td>Clock plus Shape / Rate or Division / Depth / Target for each of three modulators</td></tr>
+            <tr><td>Motion</td><td>Performance</td><td>Mod Wheel Amount</td></tr>
+            <tr><td>Motion</td><td>Expression Routing</td><td>Velocity / Pressure / Timbre Target and bipolar Depth</td></tr>
+            <tr><td>Motion</td><td>Secondary Mod Routes</td><td>Target B / Depth B for Modulators 1–3</td></tr>
+            <tr><td>Motion</td><td>Layer Envelopes</td><td>Body Decay / Texture Attack / Texture Decay, with HOLD endpoints</td></tr>
+            <tr><td>Motion</td><td>Arpeggiator</td><td>Pattern / Scale Rule / Sync / Rate / Octaves / Gate / Length / eight-cell Pitch, Accent, Gate/Tie, and Octave editor (right-click REST)</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="presets">Factory Presets and State</h2>
+
+        <p>The twenty-one factory presets are Init Lowform, Pure Foundation, Modal Mass, Swarm Floor, Pressure Line, Corroded Sub, Wire Teeth, Ring Current, Slow Current, Locked Eighth, Tube Column, Parallel Shred, Rat Pressure, Soft Max, Short Pluck, Deep Space, Acid Burrow, Rave Divide, Phase Metal, Throat Shift, and Sync Tear. Factory selection and randomization leave MIDI Receive, Expression Mode, Transpose, the three expression routes, and the complete arpeggiator setup unchanged. Randomization also preserves Output and the FREE or TRANSPORT Motion Clock choice, so a sound-design roll cannot change the user's timing reference. Sound presets can set secondary modulation routes and layer envelopes.</p>
+
+        <p>Project state version 9 stores all 120 automatable parameters and adds Phase, Throat, and Sync as Body Engine values 5–7; version 8 introduced Rave as value 4. Earlier numeric Lowform state versions still load; version 6 projects receive neutral secondary routes, the documented expression defaults, HOLD layer contours, full accents, normal gates, and zero per-step octave offsets. Older migrations still default Transpose and arpeggiator settings to direct untransposed playback, default pre-expression versions to STANDARD MPE, supply safe values for the original 61-parameter format, translate former Modal Modes / Strike values to Position / Sustain, and bake former Weight, Motion, Edge, and Space macro results into their replacement direct controls. Host-facing Body control names and modules follow the active engine; the retired REESE text alias is no longer accepted for SWARM. Preset load preserves Output as well as controller and arpeggiator configuration. The editor is resizable and uses the standard s3g-dsp title actions, custom dropdowns, double-click reset, 30 Hz visible-only refresh, and responsive viewport behavior.</p>
+
+        <h2 id="limits">Limits</h2>
+
+        <p>The body engines are compact musical models rather than component-level simulations or finite-element physical models. Modal borrows LF Synth's stable oscillator-modal principles but uses a smaller fixed pickup model, fewer controls, and Lowform's shared envelope and finish path. Acid borrows the oscillator, ladder topology, and coefficient smoothing of Ambi Encoder Acid, not its sequencer, drive-circuit bank, or ambisonic path. Rave is an original Lowform engine informed by the <a href="https://www.ericasynths.lv/desktop-bassline-db-01-906/" target="_blank" rel="noopener noreferrer">Erica Synths DB-01</a> feature combination. Phase is informed by operator feedback and folding concepts documented for <a href="https://www.korg.com/us/products/synthesizers/opsix/" target="_blank" rel="noopener noreferrer">Korg opsix</a>; Throat uses original resonator code informed by the movable filter-bank concept described for <a href="https://moogmusic-help.freshdesk.com/en/support/solutions/articles/69000877951-moog-spectravox-utilizing-the-spectral-shift" target="_blank" rel="noopener noreferrer">Moog Spectravox</a>; and Sync follows the general hard-sync relationship documented for <a href="https://userguides.novationmusic.com/hc/en-gb/articles/25494313827986-Bass-Station-II-in-detail" target="_blank" rel="noopener noreferrer">Novation Bass Station II</a>. None reproduces those products' component circuits, presets, or sequencers. Pressure and Wire do not reproduce Errant's archive or genealogical mutations. The Maximizer has no look-ahead, oversampling, loudness target, or inter-sample peak guarantee.</p>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="low-frequency-synth.html"><span>Previous</span>Processor LF Synth</a>
+          <a class="page-nav-link next" href="processor-stack.html"><span>Next</span>Processor Stack</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Generative Instruments</h2>
+          <a href="generative-instruments.html">Overview</a>
+          <a href="low-frequency-synth.html">Processor LF Synth</a>
+          <a href="processor-lowform.html">Processor Lowform</a>
+          <a href="processor-stack.html">Processor Stack</a>
+          <a href="processor-conduit.html">Processor Conduit</a>
+          <a href="processor-feedback-shift.html">Processor Feedback Shift</a>
+          <a href="processor-fissure.html">Processor Fissure</a>
+          <a href="processor-no-input-mixer.html">Processor No Input Mixer</a>
+          <a href="processor-fault.html">Processor Fault</a>
+          <a href="processor-errant.html">Processor Errant</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#signal-flow">Signal Flow</a>
+          <a href="#layers">Layer Engines</a>
+          <a href="#motion">Motion and Performance</a>
+          <a href="#finish">Low-Safe Finish</a>
+          <a href="#performance">MIDI and Expression</a>
+          <a href="#controls">Controls</a>
+          <a href="#presets">Factory Presets and State</a>
+          <a href="#limits">Limits</a>
+        </div>
+      </aside>
+    </div>
+    <script src="lightbox.js"></script>
+  </body>
+</html>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <clap/clap.h>
+#include <clap/ext/params.h>
 
 #include <array>
 #include <atomic>
@@ -20,7 +21,7 @@ struct ParamEvent {
     double value = 0.0;
 };
 
-// Single producer (the Cocoa main thread), single consumer (process/flush).
+// Single producer (the platform GUI thread), single consumer (process/flush).
 // One slot remains empty so equal indices always mean an empty queue.
 // Batch publication advances the write index only after every element has
 // been copied, so compound commands cannot become partially visible.
@@ -82,5 +83,67 @@ private:
 
 template <uint32_t Capacity = 512u>
 class ParamEventQueue final : public SpscEventQueue<ParamEvent, Capacity> {};
+
+inline void requestParamEventService(const clap_host_t* host,
+    const clap_host_params_t* hostParams)
+{
+    if (host && hostParams && hostParams->request_flush)
+        hostParams->request_flush(host);
+    else if (host && host->request_process)
+        host->request_process(host);
+}
+
+template <typename Queue>
+bool enqueueParamEvent(Queue& queue, const clap_host_t* host,
+    const clap_host_params_t* hostParams, ParamEventKind kind,
+    clap_id parameterId, double value = 0.0)
+{
+    if (!queue.push({ kind, parameterId, value })) return false;
+    requestParamEventService(host, hostParams);
+    return true;
+}
+
+inline bool pushParamEvent(const clap_output_events_t* output,
+    const ParamEvent& pending)
+{
+    if (!output || !output->try_push) return false;
+    if (pending.kind == ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return output->try_push(output, &event.header);
+    }
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind == ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return output->try_push(output, &event.header);
+}
+
+template <typename Queue, typename ApplyValue>
+void serviceParamEvents(Queue& queue, const clap_output_events_t* output,
+    ApplyValue&& applyValue)
+{
+    ParamEvent pending {};
+    while (queue.peek(pending)) {
+        if (!pushParamEvent(output, pending)) break;
+        if (pending.kind == ParamEventKind::Value)
+            applyValue(pending.paramId, pending.value);
+        queue.pop();
+    }
+}
 
 } // namespace s3g::clap_gui

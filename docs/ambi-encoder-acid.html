@@ -55,7 +55,7 @@
 
         <ol>
           <li>The internal or host-synchronized clock selects one of the active steps. Its note offset, gate, accent, and slide state become the current performance gesture.</li>
-          <li>A band-limited saw-to-pulse oscillator and parallel 0, -1, or -2 octave sine sub follow the root note and scale-quantized step offset. A tied slide moves continuously to the next gated step instead of retriggering the complete envelope.</li>
+          <li>A band-limited saw-to-pulse oscillator and parallel 0, -1, or -2 octave sine sub follow the root note and scale-quantized step offset. Fresh gates open through a short raised-cosine onset guard, while a tied slide moves continuously to the next gated step instead of retriggering the complete envelope.</li>
           <li>The main oscillator passes through the driven resonant filter and selected drive circuit. Its filtered body and brighter resonant edge remain separate spatial components.</li>
           <li>The clean sub rejoins the body after distortion, so changing <code>DRIVE</code>, <code>CIRCUIT</code>, or <code>DRY/WET</code> does not add upper harmonics to the sub or feed it into the resonant edge and wake.</li>
           <li>The step index maps to a path around the selected azimuth and elevation range. The body and clean sub follow that point while <code>EDGE</code> advances or trails the resonant component.</li>

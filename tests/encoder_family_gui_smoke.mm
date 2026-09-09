@@ -9,6 +9,7 @@
 #include <clap/ext/tail.h>
 
 #include "../plugins/common/s3g_cocoa_gui.h"
+#include "../plugins/common/s3g_gui_documentation.h"
 #include "../dsp/s3g_ambi_cryosphere_encoder.h"
 #include "../dsp/s3g_ambi_insect_encoder.h"
 #include "../dsp/s3g_ambi_pyrosphere_encoder.h"
@@ -78,6 +79,8 @@
 - (double)visualDeckAPositionValue;
 - (double)visualDeckBPositionValue;
 - (void)updateVisualCursors;
+- (NSUInteger)animationInstallCount;
+- (NSUInteger)motionAnimationCount;
 @end
 
 @interface S3GSmokeScrollEvent : NSEvent {
@@ -919,7 +922,7 @@ int main(int argc, char** argv)
         std::cerr
             << "usage: s3g_encoder_family_gui_smoke <plugin binary> <plugin id>"
             << " <native width> <native height>"
-            << " [host-name prefix responsive|responsive-wide|dynamic|fixed]\n";
+            << " [host-name prefix proportional|responsive|responsive-wide|dynamic|fixed]\n";
         return 2;
     }
 
@@ -930,9 +933,11 @@ int main(int argc, char** argv)
         argc == 7 ? argv[5] : "s3g Ambi Encoder ";
     const bool responsiveWide =
         argc == 7 && std::strcmp(argv[6], "responsive-wide") == 0;
+    const bool proportional =
+        argc == 7 && std::strcmp(argv[6], "proportional") == 0;
     const bool responsive = argc != 7
         || std::strcmp(argv[6], "responsive") == 0
-        || responsiveWide;
+        || responsiveWide || proportional;
     const bool dynamic = argc == 7 && std::strcmp(argv[6], "dynamic") == 0;
     const bool fixed = argc == 7 && std::strcmp(argv[6], "fixed") == 0;
     const char* documentationCaptureValue = std::getenv(
@@ -1480,7 +1485,41 @@ int main(int argc, char** argv)
         uint32_t width = 0u;
         uint32_t height = 0u;
         if (ok) failureStage = "resize contract";
-        if (responsive || dynamic) {
+        if (proportional) {
+            const uint32_t expectedMinimumWidth = static_cast<uint32_t>(
+                std::lround(static_cast<double>(nativeWidth) * 0.65));
+            const uint32_t expectedMinimumHeight = static_cast<uint32_t>(
+                std::lround(static_cast<double>(nativeHeight) * 0.65));
+            clap_gui_resize_hints_t hints {};
+            ok = ok && gui->can_resize(plugin)
+                && gui->get_resize_hints(plugin, &hints)
+                && hints.can_resize_horizontally
+                && hints.can_resize_vertically
+                && hints.preserve_aspect_ratio
+                && hints.aspect_ratio_width == nativeWidth
+                && hints.aspect_ratio_height == nativeHeight
+                && gui->get_size(plugin, &width, &height)
+                && width == nativeWidth && height == nativeHeight;
+            uint32_t minimumWidth = 1u;
+            uint32_t minimumHeight = 1u;
+            uint32_t maximumWidth = nativeWidth * 4u;
+            uint32_t maximumHeight = nativeHeight * 4u;
+            ok = ok && gui->adjust_size(plugin,
+                    &minimumWidth, &minimumHeight)
+                && minimumWidth == expectedMinimumWidth
+                && minimumHeight == expectedMinimumHeight
+                && gui->adjust_size(plugin,
+                    &maximumWidth, &maximumHeight)
+                && maximumWidth == nativeWidth * 2u
+                && maximumHeight == nativeHeight * 2u;
+            if (!ok) {
+                std::cerr << "Proportional resize details: size="
+                    << width << "x" << height
+                    << " minimum=" << minimumWidth << "x" << minimumHeight
+                    << " maximum=" << maximumWidth << "x" << maximumHeight
+                    << "\n";
+            }
+        } else if (responsive || dynamic) {
             const uint32_t expectedMinimumWidth = breakbeatSlicer
                 ? 620u
                 : responsiveWide
@@ -1516,16 +1555,23 @@ int main(int argc, char** argv)
         if (ok) failureStage = "GUI create";
         ok = ok && gui->create(plugin, CLAP_WINDOW_API_COCOA, false);
 
-        const uint32_t testWidth = documentationCapture && dynamic
+        uint32_t testWidth = documentationCapture && dynamic
             ? nativeWidth
+            : proportional
+            ? nativeWidth * 5u / 4u
             : responsiveWide
             ? nativeWidth
             : ((responsive || dynamic)
                 ? std::min(720u, nativeWidth) : nativeWidth);
-        const uint32_t testHeight = documentationCapture && dynamic
+        uint32_t testHeight = documentationCapture && dynamic
             ? nativeHeight
+            : proportional
+            ? nativeHeight * 5u / 4u
             : ((responsive || dynamic)
                 ? std::min(540u, nativeHeight) : nativeHeight);
+        if (ok && proportional) {
+            ok = gui->adjust_size(plugin, &testWidth, &testHeight);
+        }
         if (ok) failureStage = "GUI resize";
         if (responsive || dynamic) {
             ok = ok && gui->set_size(plugin, testWidth, testHeight)
@@ -1542,15 +1588,25 @@ int main(int argc, char** argv)
         NSView* root = ok ? [[parent subviews] objectAtIndex:0u] : nil;
         NSScrollView* scroll = nil;
         NSView* document = root;
+        const bool portableVstguiRoot = root
+            && [NSStringFromClass([root class]) isEqualToString:@"VSTGUI_NSView"];
         if (ok) failureStage = "responsive document";
         if (responsive) {
-            ok = ok && [root isKindOfClass:[NSScrollView class]];
-            scroll = ok ? static_cast<NSScrollView*>(root) : nil;
-            document = scroll ? [scroll documentView] : nil;
-            ok = ok && [scroll hasHorizontalScroller] && [scroll hasVerticalScroller]
-                && document
-                && closeEnough([document frame].size.width, nativeWidth)
-                && closeEnough([document frame].size.height, nativeHeight);
+            if (portableVstguiRoot) {
+                // The portable CFrame scales inside its single native
+                // embedding view, so no AppKit NSScrollView appears in the
+                // host hierarchy.
+                ok = ok && closeEnough([root frame].size.width, testWidth)
+                    && closeEnough([root frame].size.height, testHeight);
+            } else {
+                ok = ok && [root isKindOfClass:[NSScrollView class]];
+                scroll = ok ? static_cast<NSScrollView*>(root) : nil;
+                document = scroll ? [scroll documentView] : nil;
+                ok = ok && [scroll hasHorizontalScroller] && [scroll hasVerticalScroller]
+                    && document
+                    && closeEnough([document frame].size.width, nativeWidth)
+                    && closeEnough([document frame].size.height, nativeHeight);
+            }
         } else if (dynamic) {
             ok = ok && document
                 && ![root isKindOfClass:[NSScrollView class]]
@@ -1560,6 +1616,13 @@ int main(int argc, char** argv)
             ok = ok && document
                 && closeEnough([document frame].size.width, nativeWidth)
                 && closeEnough([document frame].size.height, nativeHeight);
+        }
+        if (ok && portableVstguiRoot && documentationCapture) {
+            ok = gui->set_size(plugin, nativeWidth, nativeHeight);
+            [parent setFrameSize:NSMakeSize(nativeWidth, nativeHeight)];
+            [parent layoutSubtreeIfNeeded];
+            ok = ok && closeEnough([root frame].size.width, nativeWidth)
+                && closeEnough([root frame].size.height, nativeHeight);
         }
         const bool ambiEncoder = requestedDescriptor->name
             && std::strncmp(requestedDescriptor->name,
@@ -1773,7 +1836,7 @@ int main(int argc, char** argv)
                     [document displayIfNeeded];
                 }
             }
-            if (ok && !documentationCapture) {
+            if (ok && !documentationCapture && !portableVstguiRoot) {
                 failureStage = "Sample Lanes breakpoint editor";
                 const auto lanesMouseEvent = [&](NSEventType type,
                                                   NSPoint documentPoint) {
@@ -1917,7 +1980,8 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (ok && sampleWavesets && !documentationCapture) {
+        if (ok && sampleWavesets && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Wavesets compositor cursor contract";
             const bool wavesetsActivated = plugin->activate(
                 plugin, 48000.0, 1u, 128u);
@@ -2031,17 +2095,33 @@ int main(int argc, char** argv)
             "org.s3g.s3g-dsp.formant-matrix") == 0;
         const bool documentationBreakbeatSlicer = documentationCapture
             && breakbeatSlicer;
+        const auto* portableSlicerDocs = documentationBreakbeatSlicer && portableVstguiRoot
+            ? static_cast<const s3g::gui_documentation::Extension*>(
+                plugin->get_extension(plugin, s3g::gui_documentation::kExtension)) : nullptr;
+        const auto selectSlicerPage = [&](uint32_t page) {
+            if (portableSlicerDocs) {
+                if (!portableSlicerDocs->selectPage(plugin, page)) return false;
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+            } else {
+                [document setDocumentationPage:page];
+            }
+            return true;
+        };
         if (ok && documentationBreakbeatSlicer) {
             failureStage = "documentation Slicer break bank";
             @try {
-                ok = [document respondsToSelector:
+                ok = portableSlicerDocs ? portableSlicerDocs->loadFixtures(plugin)
+                    : [document respondsToSelector:
                         @selector(loadDocumentationBreaks)]
                     && [document loadDocumentationBreaks];
             } @catch (NSException*) {
                 ok = false;
             }
         }
-        if (ok && breakbeatSlicer && !documentationCapture) {
+        // Portable Slicer interactions are covered by s3g_slicer_canvas_smoke;
+        // these checks specifically inspect the retained Cocoa fields/selectors.
+        if (ok && breakbeatSlicer && !documentationCapture && !portableVstguiRoot) {
             failureStage = "Sample Slicer Break Edit controls";
             @try {
                 const auto slicerMouseEvent = [&](NSEventType type,
@@ -3405,6 +3485,11 @@ int main(int argc, char** argv)
         const bool errantProcessor = std::strcmp(
                 pluginId,
                 "org.s3g.s3g-dsp.processor-errant") == 0;
+        const bool lowform = std::strcmp(
+                pluginId,
+                "org.s3g.s3g-dsp.processor-lowform") == 0
+            || std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.lowform") == 0;
         const bool noInputMixer = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.no-input-mixer-8ch") == 0;
@@ -3487,6 +3572,8 @@ int main(int argc, char** argv)
         const bool drumInstrument = std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.drum-kick") == 0
             || std::strcmp(
+                pluginId, "org.s3g.s3g-dsp.drum-hi-hat") == 0
+            || std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.drum-snare") == 0
             || std::strcmp(
                 pluginId, "org.s3g.s3g-dsp.drum-floor-tom") == 0
@@ -3509,12 +3596,75 @@ int main(int argc, char** argv)
                 : sampleDoubles ? "Sample Doubles documentation sample"
                                 : "Sample Player documentation sample";
             @try {
-                ok = [document respondsToSelector:
-                        @selector(loadDocumentationSample)]
-                    && [document loadDocumentationSample];
+                if ([document respondsToSelector:
+                        @selector(loadDocumentationSample)]) {
+                    ok = [document loadDocumentationSample];
+                } else {
+                    // Portable editors queue the documentation import while
+                    // constructing their CFrame; await publication below.
+                    ok = [[NSStringFromClass([document class]) lowercaseString]
+                        containsString:@"vstgui"];
+                }
             } @catch (NSException*) {
                 ok = false;
             }
+        }
+        if (ok && portableVstguiRoot && documentationCapture
+            && (samplePlayer || sampleDoubles || sampleCirculator
+                || std::strstr(pluginId, "sample-rings")
+                || std::strstr(pluginId, "sample-cutups"))) {
+            failureStage = "Portable documentation sample publication";
+            const auto* state = static_cast<const clap_plugin_state_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_STATE));
+            std::vector<std::string> expectedPaths;
+            for (uint32_t slot = 0; slot < 4; ++slot) {
+                char variable[64] {};
+                std::snprintf(variable, sizeof(variable), slot == 0
+                    ? "S3G_GUI_DOCUMENTATION_SAMPLE_PATH"
+                    : "S3G_GUI_DOCUMENTATION_SAMPLE_PATH_%u", slot + 1);
+                const char* path = std::getenv(variable);
+                if (path && path[0]) expectedPaths.emplace_back(path);
+            }
+            ok = state && state->save && !expectedPaths.empty()
+                && gui->show(plugin);
+            bool published = false;
+            NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:8.0];
+            while (ok && !published && [deadline timeIntervalSinceNow] > 0) {
+                if (plugin->on_main_thread) plugin->on_main_thread(plugin);
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.01]];
+                MemoryPluginState memory;
+                clap_ostream_t stream { &memory, stateWriteWhole };
+                ok = state->save(plugin, &stream);
+                // File locators enter these states only after the loader
+                // publishes its asset. Circulator embeds loop audio instead.
+                if (sampleCirculator) {
+                    // Version 3 ends its header with two loop frame counts.
+                    uint32_t version = 0, headerBytes = 0;
+                    std::array<uint32_t, 2> frames {};
+                    if (memory.bytes.size() >= 8) {
+                        std::memcpy(&version, memory.bytes.data(), 4);
+                        std::memcpy(&headerBytes, memory.bytes.data() + 4, 4);
+                    }
+                    if (version == 3 && headerBytes >= 16
+                        && headerBytes <= memory.bytes.size())
+                        std::memcpy(frames.data(), memory.bytes.data()
+                            + headerBytes - sizeof(frames), sizeof(frames));
+                    published = frames[0] > 0
+                        && (expectedPaths.size() < 2 || frames[1] > 0);
+                } else {
+                    published = std::all_of(expectedPaths.begin(), expectedPaths.end(),
+                        [&](const std::string& path) {
+                            return std::search(memory.bytes.begin(), memory.bytes.end(),
+                                path.begin(), path.end()) != memory.bytes.end();
+                        });
+                }
+            }
+            ok = ok && published;
+            if (!ok) std::cerr << "Documentation import did not publish for "
+                << pluginId << "\n";
+            [document setNeedsDisplay:YES];
+            [document displayIfNeeded];
         }
         NSPanel* parameterSurfacePanel = nil;
         auto mouseEvent = [&](NSEventType type, NSPoint documentPoint) {
@@ -3529,7 +3679,419 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
-        if (ok && sampleCirculator && !documentationCapture) {
+        if (ok && portableVstguiRoot && !documentationCapture
+            && (sampleDoubles || sampleWavesets || sampleMotion || sampleLanes || sampleCirculator
+                || std::strstr(pluginId, "sample-rings")
+                || std::strstr(pluginId, "sample-cutups"))) {
+            failureStage = "Portable Sample-family refinement interactions";
+            ok = gui->show(plugin);
+            const double scale = std::min(static_cast<double>(testWidth) / nativeWidth,
+                static_cast<double>(testHeight) / nativeHeight);
+            const auto eventAt = [&](NSEventType type, double x, double y) {
+                return mouseEvent(type, NSMakePoint(x * scale, y * scale));
+            };
+            const auto clickAt = [&](double x, double y) {
+                [document mouseDown:eventAt(NSEventTypeLeftMouseDown, x, y)];
+                [document mouseUp:eventAt(NSEventTypeLeftMouseUp, x, y)];
+            };
+            const auto parameterId = [&](const char* name) {
+                for (uint32_t index = 0u; index < params->count(plugin); ++index) {
+                    clap_param_info_t info {};
+                    if (params->get_info(plugin, index, &info) && std::strcmp(info.name, name) == 0)
+                        return info.id;
+                }
+                return CLAP_INVALID_ID;
+            };
+            const auto valueOf = [&](const char* name) {
+                double value = -999.0;
+                params->get_value(plugin, parameterId(name), &value);
+                return value;
+            };
+            const auto setValue = [&](const char* name, double value) {
+                SingleParamEventInput input {};
+                setSingleParamEvent(input, parameterId(name), value);
+                params->flush(plugin, &input.events, nullptr);
+            };
+            // Render the actual portable canvas. Comparing pixels avoids counting
+            // PDF timestamps/objects as changes to an otherwise frozen display.
+            const auto pixels = [&](NSRect region) {
+                region.origin.x *= scale; region.origin.y *= scale;
+                region.size.width *= scale; region.size.height *= scale;
+                NSData* pdf = [document dataWithPDFInsideRect:region];
+                NSImage* image = [[NSImage alloc] initWithData:pdf];
+                NSBitmapImageRep* bitmap = [NSBitmapImageRep imageRepWithData:[image TIFFRepresentation]];
+                std::vector<uint8_t> result;
+                if (bitmap) {
+                    for (NSInteger y = 0; y < [bitmap pixelsHigh]; ++y)
+                        for (NSInteger x = 0; x < [bitmap pixelsWide]; ++x) {
+                            NSColor* c = [[bitmap colorAtX:x y:y] colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+                            result.push_back(static_cast<uint8_t>(std::lround([c redComponent] * 255.0)));
+                            result.push_back(static_cast<uint8_t>(std::lround([c greenComponent] * 255.0)));
+                            result.push_back(static_cast<uint8_t>(std::lround([c blueComponent] * 255.0)));
+                        }
+                }
+                [image release];
+                return result;
+            };
+            const auto compositor = [&](auto&& self, NSView* root) -> NSView* {
+                if ([root respondsToSelector:@selector(motionAnimationCount)]
+                    && [root respondsToSelector:@selector(animationInstallCount)]) return root;
+                for (NSView* child in [root subviews])
+                    if (NSView* found = self(self, child)) return found;
+                return nil;
+            };
+            const auto flushPresentation = [&] {
+                [document setNeedsDisplay:YES];
+                [document displayIfNeeded];
+                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            };
+            if (std::strstr(pluginId, "sample-rings")) {
+                failureStage = "Portable Rings selected slot, mute/solo, and polar gestures";
+                struct RingsState {
+                    uint32_t magic, version;
+                    std::array<double, 35> globals;
+                    std::array<std::array<double, 8>, 4> slots;
+                    std::array<double, 8> manualRings, manualPhases, manualRates;
+                    std::array<std::array<char, 1024>, 4> paths;
+                    std::array<uint8_t, 4> embedded, channels;
+                    std::array<double, 4> sampleRates;
+                    std::array<uint32_t, 4> frames;
+                    uint8_t storageMode;
+                    std::array<uint8_t, 7> reserved;
+                } fixture {};
+                const auto* state = static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin, CLAP_EXT_STATE));
+                MemoryPluginState memory;
+                clap_ostream_t save { &memory, stateWriteWhole };
+                ok = state && state->save(plugin, &save) && memory.bytes.size() >= sizeof(fixture);
+                if (ok) {
+                    std::memcpy(&fixture, memory.bytes.data(), sizeof(fixture));
+                    fixture.storageMode = 2; // Test-owned embedded sources, never user files.
+                    for (uint32_t slot = 0; slot < 4; ++slot) {
+                        fixture.embedded[slot] = 1; fixture.channels[slot] = 1;
+                        fixture.frames[slot] = 128; fixture.sampleRates[slot] = 48000;
+                    }
+                    memory.bytes.assign(sizeof(fixture) + 4 * 128 * sizeof(float), 0);
+                    std::memcpy(memory.bytes.data(), &fixture, sizeof(fixture));
+                    for (uint32_t i = 0; i < 4 * 128; ++i) {
+                        const float value = static_cast<float>(.5 * std::sin(i * .2));
+                        std::memcpy(memory.bytes.data() + sizeof(fixture) + i * sizeof(float), &value, sizeof(value));
+                    }
+                    memory.offset = 0;
+                    clap_istream_t load { &memory, stateReadWhole };
+                    ok = state->load(plugin, &load);
+                }
+                setValue("Selected Slot", 2);
+                flushPresentation();
+                clickAt(1210, 639); // Shared CLEAR must act on C, not A.
+                MemoryPluginState cleared;
+                clap_ostream_t saveCleared { &cleared, stateWriteWhole };
+                ok = ok && state->save(plugin, &saveCleared) && cleared.bytes.size() >= sizeof(fixture);
+                if (ok) {
+                    std::memcpy(&fixture, cleared.bytes.data(), sizeof(fixture));
+                    ok = fixture.frames[0] == 128 && fixture.frames[1] == 128
+                        && fixture.frames[2] == 0 && fixture.frames[3] == 128;
+                    if (!ok) std::cerr << "Rings clear frames=" << fixture.frames[0] << "," << fixture.frames[1]
+                        << "," << fixture.frames[2] << "," << fixture.frames[3] << "\n";
+                }
+                setValue("Head Mask", 255);
+                const NSPoint altPoint = [eventAt(NSEventTypeLeftMouseDown, 928, 494) locationInWindow];
+                NSEvent* alt = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:altPoint
+                    modifierFlags:NSEventModifierFlagOption timestamp:0
+                    windowNumber:[[document window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+                [document mouseDown:alt];
+                [document mouseUp:eventAt(NSEventTypeLeftMouseUp, 928, 494)];
+                ok = ok && valueOf("Head Mask") == 253;
+                if (!ok) std::cerr << "Rings Alt mask=" << valueOf("Head Mask") << "\n";
+                clickAt(1290, 463); // solo H2
+                clickAt(1002, 494); // select H3
+                clickAt(1290, 463); // transfer solo without losing original mute mask
+                clickAt(1290, 463); // restore
+                ok = ok && valueOf("Head Mask") == 253;
+                if (!ok) std::cerr << "Rings restored mask=" << valueOf("Head Mask") << "\n";
+                const uint32_t begins = hostContext.guiGestureBeginCount.load();
+                const uint32_t ends = hostContext.guiGestureEndCount.load();
+                [document mouseDown:eventAt(NSEventTypeLeftMouseDown, 628, 378)];
+                [document mouseDragged:eventAt(NSEventTypeLeftMouseDragged, 428, 580)];
+                [document mouseUp:eventAt(NSEventTypeLeftMouseUp, 428, 580)];
+                ok = ok && valueOf("Radial Path") == 7 && valueOf("Head Relationship") == 7
+                    && hostContext.guiGestureBeginCount.load() > begins
+                    && hostContext.guiGestureBeginCount.load() - begins
+                        == hostContext.guiGestureEndCount.load() - ends;
+                if (!ok) std::cerr << "Rings drag path=" << valueOf("Radial Path") << " angular=" << valueOf("Head Relationship")
+                    << " gestures=" << hostContext.guiGestureBeginCount.load() - begins << "/"
+                    << hostContext.guiGestureEndCount.load() - ends << "\n";
+            }
+            if (sampleWavesets) {
+                failureStage = "Portable Wavesets persistent source-transport cursors";
+                const bool activated = plugin->activate(plugin, 48000, 1, 512);
+                const bool processing = activated && plugin->start_processing(plugin);
+                ok = processing;
+                std::array<std::array<float, 512>, 32> audio {};
+                std::array<float*, 32> channels {};
+                for (uint32_t c = 0; c < 32; ++c) channels[c] = audio[c].data();
+                clap_audio_buffer_t output {}; output.data32 = channels.data();
+                output.channel_count = sampleWavesets32 ? 32 : 2;
+                SingleNoteEventInput note {}; setSingleNoteOnEvent(note, 60);
+                clap_process_t process {}; process.steady_time = -1; process.frames_count = 512;
+                process.audio_outputs = &output; process.audio_outputs_count = 1; process.in_events = &note.events;
+                if (ok) ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                flushPresentation();
+                NSView* overlay = compositor(compositor, document);
+                const NSUInteger installs = overlay ? [overlay animationInstallCount] : 0;
+                ok = ok && overlay && installs > 0 && [overlay motionAnimationCount] > 0;
+                for (uint32_t redraw = 0; redraw < 3; ++redraw) flushPresentation();
+                ok = ok && [overlay animationInstallCount] == installs;
+                if (!ok) std::cerr << "Wavesets overlay=" << overlay << " installs=" << installs << "/"
+                    << [overlay animationInstallCount] << " motions=" << [overlay motionAnimationCount]
+                    << " children=" << [[document subviews] count] << "\n";
+                if (processing) plugin->stop_processing(plugin);
+                if (activated) plugin->deactivate(plugin);
+            }
+            if (std::strstr(pluginId, "sample-cutups")) {
+                failureStage = "Portable Cutups Repeat bidirectional drag";
+                const uint32_t begins = hostContext.guiGestureBeginCount.load();
+                const uint32_t ends = hostContext.guiGestureEndCount.load();
+                [document mouseDown:eventAt(NSEventTypeLeftMouseDown, 1000.0, 525.0)];
+                [document mouseDragged:eventAt(NSEventTypeLeftMouseDragged, 1180.0, 525.0)];
+                const double high = valueOf("Repeat");
+                [document mouseDragged:eventAt(NSEventTypeLeftMouseDragged, 1020.0, 525.0)];
+                const double low = valueOf("Repeat");
+                [document mouseUp:eventAt(NSEventTypeLeftMouseUp, 1020.0, 525.0)];
+                ok = high >= 13.0 && low <= 4.0 && low == std::round(low)
+                    && hostContext.guiGestureBeginCount.load() == begins + 1u
+                    && hostContext.guiGestureEndCount.load() == ends + 1u;
+                if (!ok) std::cerr << "Repeat drag high=" << high << " low=" << low << "\n";
+            }
+            if (sampleDoubles) {
+                failureStage = "Portable Doubles LINK and BPM buttons";
+                setValue("Link Decks", 1.0);
+                clickAt(594.0, 572.0);
+                ok = valueOf("Link Decks") == 0.0;
+                clickAt(594.0, 572.0);
+                ok = ok && valueOf("Link Decks") == 1.0;
+                setValue("Sample BPM", 120.0);
+                clickAt(692.0, 271.0);
+                ok = ok && std::abs(valueOf("Sample BPM") - 240.0) < 0.001;
+                clickAt(590.0, 271.0);
+                ok = ok && std::abs(valueOf("Sample BPM") - 120.0) < 0.001;
+                if (ok) {
+                    failureStage = "Portable Doubles AUTO re-analysis and retained tempo";
+                    DocumentationSampleDoublesState fixture;
+                    fixture.sampleRate = 4000.0;
+                    fixture.frameCount = 96000u;
+                    MemoryPluginState memory;
+                    memory.bytes.resize(sizeof(fixture) + fixture.frameCount * sizeof(float));
+                    std::memcpy(memory.bytes.data(), &fixture, sizeof(fixture));
+                    for (uint32_t frame = 0u; frame < fixture.frameCount; ++frame) {
+                        const uint32_t phase = frame % 2000u;
+                        const float sample = phase < 12u
+                            ? static_cast<float>(0.85 * std::exp(-static_cast<double>(phase) * 0.55)) : 0.0f;
+                        std::memcpy(memory.bytes.data() + sizeof(fixture) + frame * sizeof(float),
+                            &sample, sizeof(sample));
+                    }
+                    clap_istream_t stream { &memory, stateReadWhole };
+                    const auto* state = static_cast<const clap_plugin_state_t*>(
+                        plugin->get_extension(plugin, CLAP_EXT_STATE));
+                    ok = state && state->load(plugin, &stream);
+                    setValue("Sample BPM", 173.0);
+                    clickAt(640.0, 271.0);
+                    NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:4.0];
+                    while (ok && std::abs(valueOf("Sample BPM") - 173.0) < 0.01
+                        && [deadline timeIntervalSinceNow] > 0.0) {
+                        plugin->on_main_thread(plugin);
+                        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                    }
+                    const double estimate = valueOf("Sample BPM");
+                    ok = ok && estimate > 115.0 && estimate < 125.0;
+                    setValue("Sample BPM", 177.0);
+                    clickAt(640.0, 271.0);
+                    ok = ok && std::abs(valueOf("Sample BPM") - estimate) < 0.01;
+                    if (!ok) std::cerr << "Portable AUTO BPM=" << valueOf("Sample BPM") << " estimate=" << estimate << "\n";
+                }
+                if (ok) {
+                    failureStage = "Portable Doubles unlinked A pause leaves B playing";
+                    setValue("Link Decks", 0.0);
+                    const bool activated = plugin->activate(plugin, 48000.0, 1u, 512u);
+                    const bool processing = activated && plugin->start_processing(plugin);
+                    ok = processing;
+                    std::array<std::array<float, 512u>, 2u> audio {};
+                    float* channels[] {audio[0u].data(), audio[1u].data()};
+                    clap_audio_buffer_t output {}; output.data32 = channels; output.channel_count = 2u;
+                    clap_process_t process {}; process.steady_time = -1; process.frames_count = 512u;
+                    process.audio_outputs = &output; process.audio_outputs_count = 1u;
+                    clickAt(80.0, 572.0); // Restart both decks.
+                    for (uint32_t block = 0u; ok && block < 12u; ++block)
+                        ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    flushPresentation();
+                    NSView* overlay = compositor(compositor, document);
+                    const NSUInteger installs = overlay ? [overlay animationInstallCount] : 0;
+                    ok = ok && overlay && installs > 0 && [overlay motionAnimationCount] == 2;
+                    // No DSP publication during these UI turns; unchanged redraws
+                    // must leave the WindowServer's installed trajectories alone.
+                    for (uint32_t redraw = 0; redraw < 3; ++redraw) flushPresentation();
+                    ok = ok && [overlay animationInstallCount] == installs;
+                    if (!ok) std::cerr << "Doubles overlay=" << overlay << " installs=" << installs << "/"
+                        << [overlay animationInstallCount] << " motions=" << [overlay motionAnimationCount]
+                        << " children=" << [[document subviews] count] << "\n";
+                    clickAt(380.0, 572.0); // A P/P, with LINK off.
+                    if (ok) ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    const auto deckA = pixels(NSMakeRect(31.0, 88.0, 978.0, 68.0));
+                    const auto deckB = pixels(NSMakeRect(31.0, 180.0, 978.0, 68.0));
+                    for (uint32_t block = 0u; ok && block < 64u; ++block)
+                        ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    ok = ok && !deckA.empty() && !deckB.empty()
+                        && deckA == pixels(NSMakeRect(31.0, 88.0, 978.0, 68.0))
+                        && deckB != pixels(NSMakeRect(31.0, 180.0, 978.0, 68.0));
+                    if (processing) plugin->stop_processing(plugin);
+                    if (activated) plugin->deactivate(plugin);
+                }
+            }
+            if (sampleCirculator) {
+                failureStage = "Portable Circulator manual field and gain-law gradient";
+                setValue("Crossfade Motion", 0.0);
+                [document mouseDown:eventAt(NSEventTypeLeftMouseDown, 52.0, 78.0)];
+                [document mouseDragged:eventAt(NSEventTypeLeftMouseDragged, 52.0, 151.0)];
+                [document mouseUp:eventAt(NSEventTypeLeftMouseUp, 52.0, 151.0)];
+                ok = valueOf("Position / Rate") > 0.7;
+                setValue("Fade Shape", 0.0);
+                const auto power = pixels(NSMakeRect(36.0, 70.0, 30.0, 94.0));
+                setValue("Fade Shape", 8.0);
+                const auto cut = pixels(NSMakeRect(36.0, 70.0, 30.0, 94.0));
+                ok = ok && !power.empty() && power != cut;
+                setValue("Fade Shape", 0.0);
+                if (ok) {
+                    failureStage = "Portable Circulator stereo capture displays both channels";
+                    const auto emptyLeft = pixels(NSMakeRect(124.0, 68.0, 516.0, 8.0));
+                    const auto emptyRight = pixels(NSMakeRect(124.0, 106.0, 516.0, 8.0));
+                    const bool activated = plugin->activate(plugin, 48000.0, 1u, 512u);
+                    const bool processing = activated && plugin->start_processing(plugin);
+                    ok = processing;
+                    std::array<std::array<float, 512u>, 2u> input {};
+                    std::array<std::array<float, 512u>, 2u> output {};
+                    for (uint32_t frame = 0u; frame < 512u; ++frame) {
+                        input[0u][frame] = static_cast<float>(0.25
+                            * std::sin(6.283185307179586 * frame / 128.0));
+                        input[1u][frame] = -input[0u][frame];
+                    }
+                    float* inChannels[] {input[0u].data(), input[1u].data()};
+                    float* outChannels[] {output[0u].data(), output[1u].data()};
+                    clap_audio_buffer_t inBuffer {}; inBuffer.data32 = inChannels; inBuffer.channel_count = 2u;
+                    clap_audio_buffer_t outBuffer {}; outBuffer.data32 = outChannels; outBuffer.channel_count = 2u;
+                    clap_process_t process {}; process.steady_time = -1; process.frames_count = 512u;
+                    process.audio_inputs = &inBuffer; process.audio_inputs_count = 1u;
+                    process.audio_outputs = &outBuffer; process.audio_outputs_count = 1u;
+                    setValue("Record", 1.0);
+                    for (uint32_t block = 0u; ok && block < 48u; ++block)
+                        ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    setValue("Record", 0.0);
+                    for (uint32_t block = 0u; ok && block < 16u; ++block)
+                        ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    plugin->on_main_thread(plugin);
+                    params->flush(plugin, nullptr, nullptr);
+                    const auto changedComponents = [](const std::vector<uint8_t>& before,
+                                                       const std::vector<uint8_t>& after) {
+                        size_t changed = 0u;
+                        if (before.size() == after.size())
+                            for (size_t index = 0u; index < before.size(); ++index)
+                                if (std::abs(int(before[index]) - int(after[index])) > 12) ++changed;
+                        return changed;
+                    };
+                    // The old averaged trace sat at the center; both channel
+                    // bands away from that center must now contain a waveform.
+                    const size_t left = changedComponents(emptyLeft,
+                        pixels(NSMakeRect(124.0, 68.0, 516.0, 8.0)));
+                    const size_t right = changedComponents(emptyRight,
+                        pixels(NSMakeRect(124.0, 106.0, 516.0, 8.0)));
+                    ok = ok && left > 600u && right > 600u;
+                    if (!ok) std::cerr << "Circulator capture changed L=" << left << " R=" << right
+                        << " components; processing=" << processing << "\n";
+                    if (processing) plugin->stop_processing(plugin);
+                    if (!ok) {
+                        MemoryPluginState capturedState;
+                        clap_ostream_t stream { &capturedState, stateWriteWhole };
+                        const auto* state = static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin, CLAP_EXT_STATE));
+                        if (state) state->save(plugin, &stream);
+                        std::cerr << "Captured state bytes=" << capturedState.bytes.size()
+                            << " Record=" << valueOf("Record") << " Input=" << valueOf("Input Gain") << "\n";
+                        const char* folder = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+                        if (folder) {
+                            NSString* filename = [[NSString stringWithUTF8String:folder] stringByAppendingPathComponent:@"circulator-capture-diagnostic.pdf"];
+                            [[document dataWithPDFInsideRect:[document bounds]] writeToFile:filename atomically:YES];
+                        }
+                    }
+                    if (activated) plugin->deactivate(plugin);
+                }
+                if (ok) {
+                    failureStage = "Portable Circulator per-loop S/E marker drag";
+                    setValue("Loop Model", 1.0);
+                    setValue("Loop 1 Start", 0.0);
+                    [document mouseDown:eventAt(NSEventTypeLeftMouseDown, 120.0, 88.0)];
+                    [document mouseDragged:eventAt(NSEventTypeLeftMouseDragged, 252.0, 88.0)];
+                    [document mouseUp:eventAt(NSEventTypeLeftMouseUp, 252.0, 88.0)];
+                    ok = std::abs(valueOf("Loop 1 Start") - 0.25) < 0.001;
+                    setValue("Loop 2 End", 1.0);
+                    [document mouseDown:eventAt(NSEventTypeLeftMouseDown, 647.0, 142.0)];
+                    [document mouseDragged:eventAt(NSEventTypeLeftMouseDragged, 516.0, 142.0)];
+                    [document mouseUp:eventAt(NSEventTypeLeftMouseUp, 516.0, 142.0)];
+                    ok = ok && std::abs(valueOf("Loop 2 End") - 0.75) < 0.001;
+                }
+            }
+            if (sampleLanes && !sampleLanes32) {
+                failureStage = "Portable Lanes wrap-nudged waveform follows cursor mapping";
+                setValue("Start", 0.0);
+                setValue("End", 1.0);
+                setValue("Lane 1 Nudge", 0.0);
+                const auto straight = pixels(NSMakeRect(120.0, 91.0, 330.0, 41.0));
+                setValue("Lane 1 Nudge", 0.25);
+                const auto nudged = pixels(NSMakeRect(120.0, 91.0, 330.0, 41.0));
+                size_t changed = 0u;
+                if (straight.size() == nudged.size())
+                    for (size_t index = 0u; index < straight.size(); ++index)
+                        if (std::abs(int(straight[index]) - int(nudged[index])) > 12) ++changed;
+                // The wrap seam is at 75%, outside this left-half crop.
+                // Only rotated sample content can change these pixels.
+                ok = !straight.empty() && changed > 100u;
+                if (!ok) std::cerr << "Wrap nudge changed " << changed << "/" << straight.size() << " components\n";
+            }
+            if (sampleMotion) {
+                failureStage = "Portable Motion live source description";
+                setValue("Segment Model", 0.0);
+                const auto direct = pixels(NSMakeRect(28.0, 334.0, 196.0, 76.0));
+                setValue("Segment Model", 1.0);
+                const auto freeze = pixels(NSMakeRect(28.0, 334.0, 196.0, 76.0));
+                ok = !direct.empty() && direct != freeze;
+                setValue("Segment Model", 0.0);
+                setValue("Articulation", 0.0);
+                setValue("Motion", 7.0);
+                if (ok) {
+                    failureStage = "Portable Motion scope cursor advances during playback";
+                    const bool activated = plugin->activate(plugin, 48000.0, 1u, 512u);
+                    const bool processing = activated && plugin->start_processing(plugin);
+                    ok = processing;
+                    std::array<std::array<float, 512u>, 32u> audio {};
+                    std::array<float*, 32u> channels {};
+                    for (size_t c = 0u; c < channels.size(); ++c) channels[c] = audio[c].data();
+                    clap_audio_buffer_t output {};
+                    output.data32 = channels.data(); output.channel_count = sampleMotion32 ? 32u : 2u;
+                    SingleNoteEventInput note {}; setSingleNoteOnEvent(note, 60);
+                    clap_process_t process {};
+                    process.steady_time = -1; process.frames_count = 512u;
+                    process.audio_outputs = &output; process.audio_outputs_count = 1u;
+                    process.in_events = &note.events;
+                    if (processing) ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    const auto phaseA = pixels(NSMakeRect(230.0, 338.0, 718.0, 76.0));
+                    process.in_events = nullptr;
+                    for (uint32_t block = 0u; ok && block < 29u; ++block)
+                        ok = plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE;
+                    const auto phaseB = pixels(NSMakeRect(230.0, 338.0, 718.0, 76.0));
+                    ok = ok && !phaseA.empty() && phaseA != phaseB;
+                    if (processing) plugin->stop_processing(plugin);
+                    if (activated) plugin->deactivate(plugin);
+                }
+            }
+        }
+        if (ok && sampleCirculator && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Circulator waveform marker drag";
             hostContext.deferParamFlush = true;
             hostContext.paramFlushRequested = false;
@@ -3687,7 +4249,7 @@ int main(int argc, char** argv)
                     && !hasOutputMode));
         }
         if (ok && sampleGrains && !sampleGrains32
-            && !documentationCapture) {
+            && !documentationCapture && !portableVstguiRoot) {
             failureStage = "Sample Grains mono spread slider target";
             double spreadBefore = 0.0;
             ok = params->get_value(plugin, 62u, &spreadBefore);
@@ -3704,7 +4266,8 @@ int main(int argc, char** argv)
                     && !params->get_value(plugin, 40u, &hiddenRouting);
             }
         }
-        if (ok && sampleGrains && !documentationCapture) {
+        if (ok && sampleGrains && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Grains visible slider targets";
             double rateBefore = 0.0;
             ok = params->get_value(plugin, 4u, &rateBefore)
@@ -3720,7 +4283,8 @@ int main(int argc, char** argv)
                     && std::abs(rateAfter - rateBefore) > 0.000001;
             }
         }
-        if (ok && sampleGrains && !documentationCapture) {
+        if (ok && sampleGrains && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Grains Amount/Regions slider geometry";
             double amountBefore = 0.0;
             double regionsBefore = 0.0;
@@ -3785,7 +4349,8 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (ok && sampleGrains && !documentationCapture) {
+        if (ok && sampleGrains && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Grains pitch shift slider target";
             double pitchBefore = 0.0;
             ok = params->get_value(plugin, 69u, &pitchBefore);
@@ -3803,7 +4368,7 @@ int main(int argc, char** argv)
             }
         }
         if (ok && (sampleLanes || sampleGrains)
-            && !documentationCapture) {
+            && !documentationCapture && !portableVstguiRoot) {
             failureStage = "Sample Lanes/Grains 32 routing page";
             const NSPoint pageButton = sampleGrains
                 ? NSMakePoint(900.0, 752.0)
@@ -3897,7 +4462,8 @@ int main(int argc, char** argv)
             }
         }
         const auto guideCameraTarget = projectedGuideCameraDragTarget(pluginId);
-        if (ok && guideCameraTarget.enabled && !documentationCapture) {
+        if (ok && guideCameraTarget.enabled && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "projected green-guide direct camera drag";
             @try {
                 if (guideCameraTarget.fieldPage >= 0) {
@@ -4022,7 +4588,8 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && stochasticEncoder && !documentationCapture) {
+        if (ok && stochasticEncoder && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Stochastic topology camera convention";
             @try {
                 ok = [document respondsToSelector:
@@ -4134,7 +4701,8 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && pointEncoder && !documentationCapture) {
+        if (ok && pointEncoder && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Ambi Point projected orientation guides";
             @try {
                 ok = [document respondsToSelector:
@@ -4198,7 +4766,8 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && sampleWavesets && !documentationCapture) {
+        if (ok && sampleWavesets && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Wavesets custom categorical menus";
             @try {
                 const NSPoint presetMenu = NSMakePoint(374.0, 20.0);
@@ -4406,7 +4975,8 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && sampleMotion && !documentationCapture) {
+        if (ok && sampleMotion && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Motion Sample-family GUI contract";
             @try {
                 hostContext.guiParamValueCount.store(0u,
@@ -4826,7 +5396,84 @@ int main(int argc, char** argv)
         }
         if (ok && samplePlayer && !documentationCapture) {
             failureStage = "Sample Player menu hover";
-            @try {
+            const bool portableSamplePlayer =
+                [[NSStringFromClass([document class]) lowercaseString]
+                    containsString:@"vstgui"];
+            if (portableSamplePlayer) @try {
+                const double portableScale = std::min(
+                    static_cast<double>(testWidth) / nativeWidth,
+                    static_cast<double>(testHeight) / nativeHeight);
+                const auto portableEvent = [&](NSEventType type,
+                                               NSPoint nativePoint) {
+                    return mouseEvent(type, NSMakePoint(
+                        nativePoint.x * portableScale,
+                        nativePoint.y * portableScale));
+                };
+                const auto chooseMenuItem = [&](NSPoint menuPoint,
+                                                NSPoint itemPoint,
+                                                clap_id parameter,
+                                                double expected) {
+                    [document mouseDown:portableEvent(
+                        NSEventTypeLeftMouseDown, menuPoint)];
+                    [document mouseMoved:portableEvent(
+                        NSEventTypeMouseMoved, itemPoint)];
+                    [document mouseDown:portableEvent(
+                        NSEventTypeLeftMouseDown, itemPoint)];
+                    double value = -1.0;
+                    const bool matched = params->get_value(
+                            plugin, parameter, &value)
+                        && std::fabs(value - expected) < 0.000001;
+                    if (!matched) {
+                        std::cerr << "Portable Sample Player menu param "
+                            << parameter << " expected " << expected
+                            << " got " << value << "\n";
+                    }
+                    return matched;
+                };
+                failureStage = "Portable Sample Player menu selection";
+                ok = chooseMenuItem(NSMakePoint(200.0, 378.0),
+                        NSMakePoint(200.0, 437.0), 1u, 2.0)
+                    && chooseMenuItem(NSMakePoint(700.0, 518.0),
+                        NSMakePoint(700.0, 577.0), 17u, 2.0)
+                    && chooseMenuItem(NSMakePoint(200.0, 683.0),
+                        NSMakePoint(200.0, 742.0), 21u, 2.0)
+                    && chooseMenuItem(NSMakePoint(200.0, 404.0),
+                        NSMakePoint(200.0, 443.0), 24u, 1.0)
+                    && chooseMenuItem(NSMakePoint(200.0, 430.0),
+                        NSMakePoint(200.0, 489.0), 25u, 2.0)
+                    && chooseMenuItem(NSMakePoint(200.0, 456.0),
+                        NSMakePoint(200.0, 495.0), 22u, 1.0)
+                    && chooseMenuItem(NSMakePoint(200.0, 709.0),
+                        NSMakePoint(200.0, 768.0), 26u, 2.0)
+                    && chooseMenuItem(NSMakePoint(700.0, 430.0),
+                        NSMakePoint(700.0, 132.0), 28u, 2.0);
+                if (ok) {
+                    [document mouseDown:portableEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(915.0, 346.0))];
+                }
+                if (ok) {
+                    failureStage = "Portable Sample Player slider drag";
+                    double gainBefore = 0.0;
+                    ok = params->get_value(plugin, 13u, &gainBefore);
+                    const NSPoint gainPoint = NSMakePoint(650.0, 378.0);
+                    [document mouseDown:portableEvent(
+                        NSEventTypeLeftMouseDown, gainPoint)];
+                    [document mouseUp:portableEvent(
+                        NSEventTypeLeftMouseUp, gainPoint)];
+                    double gainAfter = 0.0;
+                    ok = ok && params->get_value(plugin, 13u, &gainAfter)
+                        && std::fabs(gainAfter - gainBefore) > 0.01;
+                    if (!ok) {
+                        std::cerr << "Portable Sample Player gain before "
+                            << gainBefore << " after " << gainAfter << "\n";
+                    }
+                }
+            } @catch (NSException* exception) {
+                std::cerr << "Portable Sample Player menu exception: "
+                    << [[exception reason] UTF8String] << "\n";
+                ok = false;
+            } else @try {
                 const NSPoint playModeMenu = NSMakePoint(200.0, 378.0);
                 const NSPoint reverseItem = NSMakePoint(200.0, 437.0);
                 [document mouseDown:mouseEvent(
@@ -5036,7 +5683,8 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && sampleDoubles && !documentationCapture) {
+        if (ok && sampleDoubles && !documentationCapture
+            && !portableVstguiRoot) {
             failureStage = "Sample Doubles interaction and redraw stress";
             bool doublesGuiShown = false;
             bool doublesActivated = false;
@@ -6115,29 +6763,44 @@ int main(int argc, char** argv)
         }
         if (ok && drumOverload && !documentationCapture) {
             failureStage = "Drum Overload dropdown and DRIVE hit map";
+            if (portableVstguiRoot) ok = gui->show(plugin);
+            CapturedOutputEvents effectEvents {};
+            effectEvents.events.ctx = &effectEvents;
+            effectEvents.events.try_push = captureOutputEvent;
+            if (portableVstguiRoot) hostContext.deferParamFlush = true;
+            const auto effectEvent = [&](NSEventType type, NSPoint point) {
+                if (portableVstguiRoot) {
+                    const double scale = std::min(
+                        static_cast<double>(testWidth) / nativeWidth,
+                        static_cast<double>(testHeight) / nativeHeight);
+                    point.x *= scale; point.y *= scale;
+                    (void)[document dataWithPDFInsideRect:[document bounds]];
+                }
+                return mouseEvent(type, point);
+            };
             @try {
                 // The compact-effect DRIVE panel begins below the three-row
                 // OUTPUT panel. Its first control is the CIRCUIT menu.
                 const NSPoint circuitMenu = NSMakePoint(235.0, 202.0);
                 const NSPoint transformerItem = NSMakePoint(235.0, 312.0);
-                [document mouseDown:mouseEvent(
+                [document mouseDown:effectEvent(
                     NSEventTypeLeftMouseDown, circuitMenu)];
-                ok = [[document valueForKey:@"openMenu"] intValue] == 1;
+                ok = portableVstguiRoot || [[document valueForKey:@"openMenu"] intValue] == 1;
                 if (ok) {
-                    [document mouseMoved:mouseEvent(
+                    [document mouseMoved:effectEvent(
                         NSEventTypeMouseMoved, transformerItem)];
-                    ok = [[document valueForKey:@"hoverMenuItem"] intValue]
-                        == 5;
+                    ok = portableVstguiRoot || [[document valueForKey:@"hoverMenuItem"] intValue] == 5;
                 }
                 if (ok) {
-                    [document mouseDown:mouseEvent(
+                    [document mouseDown:effectEvent(
                         NSEventTypeLeftMouseDown, transformerItem)];
                 }
+                if (portableVstguiRoot) params->flush(plugin, nullptr, &effectEvents.events);
                 double circuit = -1.0;
                 ok = ok && params->get_value(plugin, 1u, &circuit)
                     && std::fabs(circuit - 5.0) < 0.000001
-                    && [[document valueForKey:@"openMenu"] intValue] == 0;
-                if (!ok) {
+                    && (portableVstguiRoot || [[document valueForKey:@"openMenu"] intValue] == 0);
+                if (!ok && !portableVstguiRoot) {
                     std::cerr << "Drum Overload dropdown details: open="
                         << [[document valueForKey:@"openMenu"] intValue]
                         << " hover="
@@ -6153,11 +6816,12 @@ int main(int argc, char** argv)
                 const NSPoint inputSlider = NSMakePoint(275.0, 222.0);
                 const NSPoint punchSlider = NSMakePoint(275.0, 300.0);
                 if (ok) {
-                    [document mouseDown:mouseEvent(
+                    [document mouseDown:effectEvent(
                         NSEventTypeLeftMouseDown, inputSlider)];
-                    [document mouseUp:mouseEvent(
+                    [document mouseUp:effectEvent(
                         NSEventTypeLeftMouseUp, inputSlider)];
                 }
+                if (portableVstguiRoot) params->flush(plugin, nullptr, &effectEvents.events);
                 double driveInput = 0.0;
                 double overload = 0.0;
                 ok = ok && params->get_value(plugin, 2u, &driveInput)
@@ -6165,11 +6829,12 @@ int main(int argc, char** argv)
                     && driveInput > 23.0
                     && std::fabs(overload - 0.62) < 0.000001;
                 if (ok) {
-                    [document mouseDown:mouseEvent(
+                    [document mouseDown:effectEvent(
                         NSEventTypeLeftMouseDown, punchSlider)];
-                    [document mouseUp:mouseEvent(
+                    [document mouseUp:effectEvent(
                         NSEventTypeLeftMouseUp, punchSlider)];
                 }
+                if (portableVstguiRoot) params->flush(plugin, nullptr, &effectEvents.events);
                 double punch = 0.0;
                 ok = ok && params->get_value(plugin, 5u, &punch)
                     && punch > 0.95;
@@ -6177,6 +6842,15 @@ int main(int argc, char** argv)
                     std::cerr << "Drum Overload DRIVE details: input="
                         << driveInput << " overload=" << overload
                         << " punch=" << punch << "\n";
+                }
+                if (portableVstguiRoot) {
+                    ok = ok && effectEvents.values.size() == 9u;
+                    if (!ok) std::cerr << "Drum Overload captured " << effectEvents.values.size() << " GUI events (expected 9)\n";
+                    for (uint32_t i = 0; ok && i < 9u; ++i) {
+                        const auto expected = i % 3u == 0u ? CLAP_EVENT_PARAM_GESTURE_BEGIN
+                            : i % 3u == 1u ? CLAP_EVENT_PARAM_VALUE : CLAP_EVENT_PARAM_GESTURE_END;
+                        ok = effectEvents.values[i].type == expected;
+                    }
                 }
                 SingleParamEventInput restoreDrive {};
                 setSingleParamEvent(restoreDrive, 2u, 0.0);
@@ -6188,9 +6862,14 @@ int main(int argc, char** argv)
                     << [[exception reason] UTF8String] << "\n";
                 ok = false;
             }
+            if (portableVstguiRoot) {
+                hostContext.deferParamFlush = false;
+                hostContext.paramFlushRequested = false;
+            }
         }
         if (ok && drumInstrument && !documentationCapture) {
             failureStage = "drum RANDOM safe parameter ownership";
+            if (portableVstguiRoot) ok = gui->show(plugin);
             constexpr clap_id kNoteTrackingId = 2u;
             constexpr clap_id kStereoWidthId = 24u;
             constexpr clap_id kVelocityId = 25u;
@@ -6230,11 +6909,24 @@ int main(int argc, char** argv)
             if (ok) {
                 const auto titleBand = s3g::clap_gui::encoderTitleBand(
                     nativeWidth, nativeHeight);
-                const NSPoint randomPoint = NSMakePoint(
+                NSPoint randomPoint = NSMakePoint(
                     titleBand.randomButton.x
                         + titleBand.randomButton.width * 0.5,
                     titleBand.randomButton.y
                         + titleBand.randomButton.height * 0.5);
+                if (portableVstguiRoot) {
+                    const double scale = std::min(
+                        static_cast<double>(testWidth) / nativeWidth,
+                        static_cast<double>(testHeight) / nativeHeight);
+                    randomPoint.x *= scale;
+                    randomPoint.y *= scale;
+                    [document setNeedsDisplay:YES];
+                    [document displayIfNeeded];
+                    // A canvas registers its hit regions while painting. The
+                    // offscreen harness has no compositor to guarantee that a
+                    // requested display has occurred before synthetic input.
+                    (void)[document dataWithPDFInsideRect:[document bounds]];
+                }
                 [document mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, randomPoint)];
                 [document mouseUp:mouseEvent(
@@ -8548,7 +9240,131 @@ int main(int argc, char** argv)
                     && [[document valueForKey:@"fieldPage"] intValue] == 0;
             }
         }
-        if (ok && parameterSurfaceEncoder) {
+        if (ok && parameterSurfaceEncoder && portableVstguiRoot
+            && stochasticEncoder) {
+            failureStage = "portable Stochastic Parameter Surface";
+            const double portableScale = documentationCapture ? 1.0
+                : std::min(static_cast<double>(testWidth) / nativeWidth,
+                    static_cast<double>(testHeight) / nativeHeight);
+            const auto portablePoint = [&](NSPoint nativePoint) {
+                return NSMakePoint(nativePoint.x * portableScale,
+                    nativePoint.y * portableScale);
+            };
+            const auto clickPortable = [&](NSPoint nativePoint) {
+                const NSPoint point = portablePoint(nativePoint);
+                NSView* hit = [parent hitTest:
+                    [parent convertPoint:point fromView:document]];
+                if (hit != document) return false;
+                [hit mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, point)];
+                return true;
+            };
+            const auto dragPortable = [&](NSPoint nativeStart,
+                                          NSPoint nativeEnd) {
+                const NSPoint start = portablePoint(nativeStart);
+                const NSPoint end = portablePoint(nativeEnd);
+                NSView* hit = [parent hitTest:
+                    [parent convertPoint:start fromView:document]];
+                if (hit != document) return false;
+                [hit mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, start)];
+                [hit mouseDragged:mouseEvent(
+                    NSEventTypeLeftMouseDragged, end)];
+                [hit mouseUp:mouseEvent(NSEventTypeLeftMouseUp, end)];
+                return true;
+            };
+            const NSPoint surfaceTab = NSMakePoint(299.0, 52.5);
+            const NSPoint fieldTab = NSMakePoint(151.0, 52.5);
+            const NSPoint addButton = NSMakePoint(171.0, 91.0);
+            const NSPoint enableButton = NSMakePoint(122.0, 91.0);
+            const NSPoint editPlayButton = NSMakePoint(69.0, 91.0);
+            @try {
+                ok = gui->show(plugin) && clickPortable(surfaceTab)
+                    && clickPortable(addButton);
+                const uint32_t cellCount = documentationCapture ? 6u : 2u;
+                for (uint32_t cell = 1u; ok && cell < cellCount; ++cell) {
+                    const NSRect randomRect =
+                        s3g::clap_gui::encoderTitleActionRect(
+                            nativeWidth, nativeHeight,
+                            s3g::gui_layout::EncoderTitleAction::Random);
+                    ok = clickPortable(NSMakePoint(
+                            NSMidX(randomRect), NSMidY(randomRect)))
+                        && clickPortable(addButton);
+                }
+                if (ok && documentationCapture) {
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        defaults {{
+                            {{ 0.18, 0.18 }}, {{ 0.82, 0.18 }},
+                            {{ 0.82, 0.82 }}, {{ 0.18, 0.82 }},
+                            {{ 0.50, 0.18 }}, {{ 0.82, 0.50 }},
+                        }};
+                    constexpr std::array<std::array<double, 2>, 6u>
+                        positions {{
+                            {{ 0.12, 0.12 }}, {{ 0.36, 0.22 }},
+                            {{ 0.76, 0.10 }}, {{ 0.18, 0.72 }},
+                            {{ 0.58, 0.54 }}, {{ 0.88, 0.82 }},
+                        }};
+                    const NSRect plot = NSMakeRect(44.0, 140.0,
+                        544.0, 374.0);
+                    const auto plotPoint = [&](const auto& position) {
+                        return NSMakePoint(plot.origin.x
+                                + position[0] * plot.size.width,
+                            NSMaxY(plot)
+                                - position[1] * plot.size.height);
+                    };
+                    for (uint32_t cell = 0u; ok && cell < 6u; ++cell)
+                        ok = dragPortable(plotPoint(defaults[cell]),
+                            plotPoint(positions[cell]));
+                }
+                ok = ok && clickPortable(enableButton)
+                    && clickPortable(editPlayButton);
+
+                const auto* pluginState =
+                    static_cast<const clap_plugin_state_t*>(
+                        plugin->get_extension(plugin, CLAP_EXT_STATE));
+                MemoryPluginState memory;
+                clap_ostream_t output { &memory, stateWriteWhole };
+                StochasticSavedState decoded {};
+                ok = ok && pluginState && pluginState->save
+                    && pluginState->save(plugin, &output)
+                    && decodeStochasticState(memory, decoded)
+                    && decoded.surface.enabled == 1u
+                    && decoded.surface.cellCount == cellCount;
+
+                if (ok && !documentationCapture) {
+                    const NSRect randomRect =
+                        s3g::clap_gui::encoderTitleActionRect(
+                            nativeWidth, nativeHeight,
+                            s3g::gui_layout::EncoderTitleAction::Random);
+                    ok = clickPortable(NSMakePoint(
+                        NSMidX(randomRect), NSMidY(randomRect)));
+                    MemoryPluginState bypassed;
+                    clap_ostream_t bypassedOutput {
+                        &bypassed, stateWriteWhole };
+                    StochasticSavedState afterRandom {};
+                    ok = ok && pluginState->save(
+                            plugin, &bypassedOutput)
+                        && decodeStochasticState(
+                            bypassed, afterRandom)
+                        && afterRandom.surface.enabled == 0u
+                        && afterRandom.surface.cellCount == cellCount
+                        && std::memcmp(decoded.surface.cells.data(),
+                            afterRandom.surface.cells.data(),
+                            sizeof(decoded.surface.cells)) == 0
+                        && clickPortable(enableButton);
+                } else if (ok) {
+                    // Keep the staged cells but bypass interpolation before
+                    // the documentation FIELD scene is applied below.
+                    ok = clickPortable(editPlayButton)
+                        && clickPortable(enableButton);
+                }
+                ok = ok && clickPortable(fieldTab);
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
+        if (ok && parameterSurfaceEncoder && !portableVstguiRoot) {
             failureStage = "Parameter Surface POP window";
             const bool wrangler = std::strcmp(
                 pluginId,
@@ -10775,6 +11591,164 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
+        if (ok && lowform) {
+            failureStage = "Lowform workspace pages";
+            auto selectBassWorkspacePage = [&](NSPoint point, int expected) {
+                [document mouseDown:mouseEvent(
+                    NSEventTypeLeftMouseDown, point)];
+                [document mouseUp:mouseEvent(
+                    NSEventTypeLeftMouseUp, point)];
+                return [[document valueForKey:@"workspacePage"] intValue]
+                    == expected;
+            };
+            @try {
+                ok = selectBassWorkspacePage(NSMakePoint(1023.0, 52.5), 1);
+                if (ok) {
+                    failureStage = "Lowform random preserves Motion clock";
+                    SingleParamEventInput clockEvent {};
+                    setSingleParamEvent(clockEvent, 33u, 1.0);
+                    params->flush(plugin, &clockEvent.events, nullptr);
+                    const auto titleBand = s3g::clap_gui::encoderTitleBand(
+                        nativeWidth, nativeHeight);
+                    const NSRect randomButton = s3g::clap_gui::cocoaRect(
+                        titleBand.randomButton);
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(NSMidX(randomButton),
+                            NSMidY(randomButton)))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(NSMidX(randomButton),
+                            NSMidY(randomButton)))];
+                    double clock = -1.0;
+                    ok = params->get_value(plugin, 33u, &clock)
+                        && clock == 1.0;
+                }
+                if (ok) {
+                    failureStage = "Lowform expanded modulation target menu";
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(600.0, 333.0))];
+                    ok = [[document valueForKey:@"openMenu"] intValue] == 41
+                        && [[document valueForKey:@"menuItemCount"] intValue]
+                            == 29;
+                    if (ok) {
+                        // Index 7 sits within the contiguous Body block and
+                        // maps to the stable BODY CONTROL C value (12).
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(600.0, 484.0))];
+                        double bodyTarget = -1.0;
+                        ok = params->get_value(plugin, 41u, &bodyTarget)
+                            && bodyTarget == 12.0;
+                    }
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(600.0, 333.0))];
+                        // The second modulator's two-column menu remains
+                        // inside the fixed-height editor. Its final item is
+                        // the right column's DYNAMICS / TILT destination.
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(820.0, 592.0))];
+                        double target = -1.0;
+                        ok = params->get_value(plugin, 41u, &target)
+                            && target == 28.0;
+                    }
+                }
+                if (ok) {
+                    failureStage = "Lowform arp articulation lanes";
+                    // Select Accent, Gate, then Octave and write step one
+                    // through the same graphic editor.
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(938.0, 308.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(772.0, 350.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(772.0, 350.0))];
+                    double accent = 0.0;
+                    ok = params->get_value(plugin, 97u, &accent)
+                        && accent > 0.60 && accent < 0.80;
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(990.0, 308.0))];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(772.0, 340.0))];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp,
+                            NSMakePoint(772.0, 340.0))];
+                        double tie = 0.0;
+                        ok = params->get_value(plugin, 105u, &tie)
+                            && tie == 1.0;
+                    }
+                    if (ok) {
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(1042.0, 308.0))];
+                        [document mouseDown:mouseEvent(
+                            NSEventTypeLeftMouseDown,
+                            NSMakePoint(772.0, 340.0))];
+                        [document mouseUp:mouseEvent(
+                            NSEventTypeLeftMouseUp,
+                            NSMakePoint(772.0, 340.0))];
+                        double octave = 0.0;
+                        ok = params->get_value(plugin, 113u, &octave)
+                            && octave == 1.0;
+                    }
+                }
+                if (ok) {
+                    // Lowform inherits Stack's eight-cell arp editor. The
+                    // first cell's center is inside the right-column pattern
+                    // field; right-click mutes pitch even while another lane
+                    // is selected.
+                    [document rightMouseDown:mouseEvent(
+                        NSEventTypeRightMouseDown,
+                        NSMakePoint(772.0, 364.0))];
+                    double mutedStep = 0.0;
+                    ok = params->get_value(plugin, 74u, &mutedStep)
+                        && mutedStep == -9.0;
+                    if (!ok) failureStage =
+                        "Lowform arp pattern right-click REST";
+                }
+                NSData* motionPage = ok
+                    ? [document dataWithPDFInsideRect:[document bounds]] : nil;
+                ok = ok && motionPage && [motionPage length] > 0u
+                    && selectBassWorkspacePage(
+                        NSMakePoint(941.0, 52.5), 0);
+                if (ok) {
+                    failureStage = "Lowform engine menu parameter handoff";
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(600.0, 111.0))];
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(600.0, 154.0))];
+                    double engineValue = -1.0;
+                    ok = params->get_value(plugin, 10u, &engineValue)
+                        && engineValue == 1.0;
+                }
+                if (ok) {
+                    failureStage = "Lowform continuous parameter handoff";
+                    [document mouseDown:mouseEvent(
+                        NSEventTypeLeftMouseDown,
+                        NSMakePoint(604.0, 137.0))];
+                    [document mouseUp:mouseEvent(
+                        NSEventTypeLeftMouseUp,
+                        NSMakePoint(604.0, 137.0))];
+                    double bodyLevel = -1.0;
+                    ok = params->get_value(plugin, 11u, &bodyLevel)
+                        && bodyLevel > 0.88 && bodyLevel < 0.96;
+                }
+            } @catch (NSException*) {
+                ok = false;
+            }
+        }
         if (ok && topologyProcessor) {
             failureStage = "topology field interaction";
             const NSRect fieldPanel = s3g::clap_gui::cocoaRect(
@@ -11159,7 +12133,7 @@ int main(int argc, char** argv)
                 // default.
                 ok = setDocumentationParam("Input Count", 64.0)
                     && setDocumentationParam("Motion Style", 4.0)
-                    && setDocumentationParam("Motion", 4.0)
+                    && setDocumentationParam("Motion", 5.0)
                     && setDocumentationParam("Amount", 0.88)
                     && setDocumentationParam("Rate", 0.18)
                     && setDocumentationParam("Attract", 0.14)
@@ -11168,6 +12142,11 @@ int main(int argc, char** argv)
                     && setDocumentationParam("Brownian", 0.08)
                     && setDocumentationParam("Collision", 0.76)
                     && setDocumentationParam("Impact", 0.62)
+                    && setDocumentationParam("Poltergeist", 0.72)
+                    && setDocumentationParam("Poltergeist Rate", 1.35)
+                    && setDocumentationParam("Poltergeist Reach", 0.74)
+                    && setDocumentationParam("Poltergeist Radius", 0.42)
+                    && setDocumentationParam("Poltergeist Chaos", 0.36)
                     && setDocumentationParam("Doppler", 0.48);
             } else if (std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.ambi-terrain-navigator-64") == 0) {
@@ -11605,11 +12584,19 @@ int main(int argc, char** argv)
                 @try {
                     if (std::strcmp(pluginId,
                             "org.s3g.s3g-dsp.ambi-point-encoder-64") == 0) {
-                        ok = captureDocumentationPage(
-                                NSMakePoint(199.0, 52.5), @"leftPage", 1,
-                                "mixer")
-                            && selectDocumentationPage(
-                                NSMakePoint(146.0, 52.5), @"leftPage", 0);
+                        if (portableVstguiRoot) {
+                            ok = clickDocumentationPoint(
+                                    NSMakePoint(199.0, 52.5))
+                                && writeDocumentationVariant("mixer")
+                                && clickDocumentationPoint(
+                                    NSMakePoint(146.0, 52.5));
+                        } else {
+                            ok = captureDocumentationPage(
+                                    NSMakePoint(199.0, 52.5), @"leftPage", 1,
+                                    "mixer")
+                                && selectDocumentationPage(
+                                    NSMakePoint(146.0, 52.5), @"leftPage", 0);
+                        }
                     } else if (std::strcmp(pluginId,
                             "org.s3g.s3g-dsp.ambi-vot-encoder-64") == 0) {
                         ok = captureDocumentationPage(
@@ -11660,11 +12647,30 @@ int main(int argc, char** argv)
                         }
                     } else if (std::strcmp(pluginId,
                             "org.s3g.s3g-dsp.ambi-stochastic-encoder-64") == 0) {
-                        ok = captureDocumentationPage(
-                                NSMakePoint(225.0, 52.5), @"fieldPage", 1,
-                                "listen")
-                            && selectDocumentationPage(
-                                NSMakePoint(151.0, 52.5), @"fieldPage", 0);
+                        if (portableVstguiRoot) {
+                            ok = clickDocumentationPoint(
+                                    NSMakePoint(225.0, 52.5))
+                                && writeDocumentationVariant("listen")
+                                && clickDocumentationPoint(
+                                    NSMakePoint(299.0, 52.5))
+                                && clickDocumentationPoint(
+                                    NSMakePoint(122.0, 91.0))
+                                && clickDocumentationPoint(
+                                    NSMakePoint(69.0, 91.0))
+                                && writeDocumentationVariant("surf")
+                                && clickDocumentationPoint(
+                                    NSMakePoint(69.0, 91.0))
+                                && clickDocumentationPoint(
+                                    NSMakePoint(122.0, 91.0))
+                                && clickDocumentationPoint(
+                                    NSMakePoint(151.0, 52.5));
+                        } else {
+                            ok = captureDocumentationPage(
+                                    NSMakePoint(225.0, 52.5), @"fieldPage", 1,
+                                    "listen")
+                                && selectDocumentationPage(
+                                    NSMakePoint(151.0, 52.5), @"fieldPage", 0);
+                        }
                     } else if (std::strcmp(pluginId,
                             "org.s3g.s3g-dsp.ambi-wrangler-encoder-64") == 0) {
                         ok = captureDocumentationPage(
@@ -12369,6 +13375,7 @@ int main(int argc, char** argv)
             && (formantMatrix
                 || std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.low-frequency-synth") == 0
+                || lowform
                 || std::strcmp(pluginId,
                     "org.s3g.s3g-dsp.processor-stack") == 0
                 || std::strcmp(pluginId,
@@ -12544,7 +13551,7 @@ int main(int argc, char** argv)
                     std::strcmp(pluginId,
                         "org.s3g.s3g-dsp.sample-wavesets") == 0;
                 setSingleNoteOnEvent(documentationNote,
-                    documentationLowFrequencySynth ? 36
+                    (documentationLowFrequencySynth || lowform) ? 36
                         : documentationWavesets ? 60 : 48);
             }
             uint64_t sampleCursor = 0u;
@@ -12617,7 +13624,8 @@ int main(int argc, char** argv)
             }
             if (processing) plugin->stop_processing(plugin);
             if (activated) plugin->deactivate(plugin);
-            if (ok && (sampleWavesets || sampleMotion)) {
+            if (ok && (sampleWavesets || sampleMotion)
+                && !portableVstguiRoot) {
                 failureStage = sampleMotion
                     ? "Sample Motion documentation playheads"
                     : "Sample Wavesets documentation playheads";
@@ -12760,7 +13768,7 @@ int main(int argc, char** argv)
         if (ok && documentationBreakbeatSlicer) {
             failureStage = "documentation Slicer Break Edit page";
             @try {
-                [document setDocumentationPage:1u];
+                ok = selectSlicerPage(1u);
                 NSData* breakEdit = [document dataWithPDFInsideRect:
                     [document bounds]];
                 ok = breakEdit && [breakEdit length] > 0u;
@@ -12782,7 +13790,7 @@ int main(int argc, char** argv)
                 }
                 if (ok) {
                     failureStage = "documentation Slicer Mixer page";
-                    [document setDocumentationPage:2u];
+                    ok = selectSlicerPage(2u);
                     NSData* mixer = [document dataWithPDFInsideRect:
                         [document bounds]];
                     ok = mixer && [mixer length] > 0u;
@@ -12803,7 +13811,7 @@ int main(int argc, char** argv)
                 }
                 if (ok) {
                     failureStage = "documentation Slicer Mutate page";
-                    [document setDocumentationPage:3u];
+                    ok = selectSlicerPage(3u);
                     NSData* mutate = [document dataWithPDFInsideRect:
                         [document bounds]];
                     ok = mutate && [mutate length] > 0u;
@@ -12824,12 +13832,13 @@ int main(int argc, char** argv)
                     if (ok) {
                         failureStage
                             = "documentation Slicer structural mutation fill";
-                        ok = [document respondsToSelector:
+                        ok = portableSlicerDocs ? portableSlicerDocs->exerciseMutation(plugin)
+                            : [document respondsToSelector:
                                 @selector(runDocumentationMutationFill)]
                             && [document runDocumentationMutationFill];
                     }
                 }
-                [document setDocumentationPage:0u];
+                ok = selectSlicerPage(0u) && ok;
             } @catch (NSException*) {
                 ok = false;
             }
@@ -13746,7 +14755,7 @@ int main(int argc, char** argv)
         if (documentationGrainsProcessing)
             plugin->stop_processing(plugin);
         if (documentationGrainsActivated) plugin->deactivate(plugin);
-        if (ok && responsive
+        if (ok && responsive && !portableVstguiRoot
             && (testWidth < nativeWidth || testHeight < nativeHeight)) {
             [[scroll contentView] scrollToPoint:NSMakePoint(
                 testWidth < nativeWidth ? 120.0 : 0.0,
@@ -13809,14 +14818,14 @@ int main(int argc, char** argv)
         // process lifetime, which mirrors production plug-in hosts.
 
         if (!ok) {
-            std::cerr << (responsive
-                    ? "Responsive" : (dynamic ? "Dynamic" : "Fixed"))
+            std::cerr << (proportional ? "Proportional" : (responsive
+                    ? "Responsive" : (dynamic ? "Dynamic" : "Fixed")))
                 << " GUI smoke failed for " << pluginId
                 << " at " << failureStage << "\n";
             return 1;
         }
-        std::cout << (responsive
-                ? "Responsive" : (dynamic ? "Dynamic" : "Fixed"))
+        std::cout << (proportional ? "Proportional" : (responsive
+                ? "Responsive" : (dynamic ? "Dynamic" : "Fixed")))
             << " GUI smoke passed for " << pluginId << "\n";
     }
     return 0;

@@ -12,6 +12,15 @@ set_target_properties(s3g_drum_clap_clap PROPERTIES
   OUTPUT_NAME "s3g_drum_clap"
 )
 
+if(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_drum_clap_clap
+    "${CMAKE_CURRENT_SOURCE_DIR}/s3g_drum_clap_vstgui.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_drum_clap_clap PROPERTIES SUFFIX ".clap")
+endif()
+
 if(APPLE)
   set_source_files_properties(s3g_drum_clap_clap.cpp
     PROPERTIES LANGUAGE OBJCXX)

@@ -131,7 +131,7 @@ void testEmptyArrangementRemainsEmpty(
 void testSharedToolboxLayout(
     S3GTrackerSongWindowController* controller)
 {
-    controller.window.contentView.frame = NSMakeRect(0.0, 0.0, 1080.0, 610.0);
+    controller.window.contentView.frame = NSMakeRect(0.0, 0.0, 1160.0, 610.0);
     [controller.window.contentView layoutSubtreeIfNeeded];
     NSView* project = [controller valueForKey:@"projectPanel"];
     NSView* transport = [controller valueForKey:@"transportPanel"];
@@ -201,7 +201,7 @@ void testSharedToolboxLayout(
             && [[launchMenu itemAtIndex:3u].title
                 isEqualToString:@"END OF ROW"]
             && launchMenu.indexOfSelectedItem == 3u
-            && NSMaxX([table rectOfColumn:9])
+            && NSMaxX([table rectOfColumn:10])
                 <= NSWidth(tableScroll.contentView.bounds) + 1.0
             && queueStatus.font.pointSize <= 10.0
             && [project isKindOfClass:
@@ -257,17 +257,20 @@ void testHostTempoAndOptionalSwing(
     inherited.patternId = "A01";
     inherited.durationTicks = 16u;
     inherited.repeats = 2u;
+    inherited.tempoMultiplier = 0.5;
     input.rows.push_back(inherited);
     s3g::tracker::SongRow bpmOnly;
     bpmOnly.patternId = "A02";
     bpmOnly.durationTicks = 12u;
     bpmOnly.repeats = 1u;
     bpmOnly.bpm = 143.0;
+    bpmOnly.tempoMultiplier = 2.0;
     input.rows.push_back(bpmOnly);
     s3g::tracker::SongRow swingOnly;
     swingOnly.patternId = "A03";
     swingOnly.durationTicks = 9u;
     swingOnly.repeats = 3u;
+    swingOnly.tempoMultiplier = 1.5;
     swingOnly.swing = 0.625;
     input.rows.push_back(swingOnly);
 
@@ -277,12 +280,15 @@ void testHostTempoAndOptionalSwing(
         "song adapter should preserve row count");
     if (output.rows.size() != 3u) return;
     check(!output.rows[0u].bpm.has_value()
+            && output.rows[0u].tempoMultiplier == 0.5
             && !output.rows[0u].swing.has_value(),
         "fully inherited host tempo and swing should remain optional");
     check(!output.rows[1u].bpm.has_value()
+            && output.rows[1u].tempoMultiplier == 2.0
             && !output.rows[1u].swing.has_value(),
         "Song UI should discard hidden BPM overrides because REAPER owns tempo");
     check(!output.rows[2u].bpm.has_value()
+            && output.rows[2u].tempoMultiplier == 1.5
             && output.rows[2u].swing == 0.625,
         "swing-only override should survive without manufacturing a BPM");
 
@@ -344,24 +350,31 @@ void testArrangementEditingRemainsAvailableDuringPlayback(
     NSPopUpButton* ticks = popupWithAction(
         [table viewAtColumn:5 row:0 makeIfNecessary:YES],
         NSSelectorFromString(@"ticksPopupChanged:"));
+    NSPopUpButton* multiplier = popupWithAction(
+        [table viewAtColumn:6 row:0 makeIfNecessary:YES],
+        NSSelectorFromString(@"tempoMultiplierPopupChanged:"));
     NSControl* swing = firstSwingControl(
-        [table viewAtColumn:6 row:0 makeIfNecessary:YES]);
+        [table viewAtColumn:7 row:0 makeIfNecessary:YES]);
     NSControl* deleteRow = controlWithAction(
-        [table viewAtColumn:9 row:0 makeIfNecessary:YES],
+        [table viewAtColumn:10 row:0 makeIfNecessary:YES],
         NSSelectorFromString(@"deleteRowButton:"));
     NSButton* add = [controller valueForKey:@"addButton"];
     NSButton* duplicate = [controller valueForKey:@"duplicateButton"];
     NSButton* songMode = [controller valueForKey:@"songModeButton"];
     NSButton* songLoop = [controller valueForKey:@"songLoopButton"];
-    check(pattern.enabled && ticks.enabled && swing.enabled
+    check(pattern.enabled && ticks.enabled && multiplier.enabled && swing.enabled
             && deleteRow.enabled && add.enabled && duplicate.enabled
             && songLoop.enabled && songMode.enabled,
         "Song rows, arrangement loop, and the Song-mode escape switch should remain editable while playback is running");
 
     [ticks selectItemAtIndex:[ticks indexOfItemWithRepresentedObject:@8]];
     [ticks sendAction:ticks.action to:ticks.target];
-    check([controller songArrangement].rows[0u].durationTicks == 8u,
-        "an enabled Song menu must publish edits while playback is running");
+    [multiplier selectItemAtIndex:[multiplier
+        indexOfItemWithRepresentedObject:@2.0]];
+    [multiplier sendAction:multiplier.action to:multiplier.target];
+    check([controller songArrangement].rows[0u].durationTicks == 8u
+            && [controller songArrangement].rows[0u].tempoMultiplier == 2.0,
+        "enabled Song timing menus must publish edits while playback is running");
     [controller setPlaybackLocked:NO];
 }
 
@@ -532,7 +545,7 @@ void testMuteMatrixMatchesEachPatternLaneCount(
     [controller showWindow:nil];
     [controller.window.contentView layoutSubtreeIfNeeded];
     NSTableView* table = [controller valueForKey:@"tableView"];
-    NSView* muteCell = [table viewAtColumn:8 row:0 makeIfNecessary:YES];
+    NSView* muteCell = [table viewAtColumn:9 row:0 makeIfNecessary:YES];
     NSButton* lane4 = muteButtonForLane(muteCell, 0, 3);
     NSButton* lane5 = muteButtonForLane(muteCell, 0, 4);
     NSButton* lane7 = muteButtonForLane(muteCell, 0, 6);
@@ -552,7 +565,7 @@ void testMuteMatrixMatchesEachPatternLaneCount(
         NSSelectorFromString(@"patternPopupChanged:"));
     [pattern selectItemAtIndex:[pattern indexOfItemWithRepresentedObject:@"A02"]];
     [pattern sendAction:pattern.action to:pattern.target];
-    muteCell = [table viewAtColumn:8 row:0 makeIfNecessary:YES];
+    muteCell = [table viewAtColumn:9 row:0 makeIfNecessary:YES];
     lane7 = muteButtonForLane(muteCell, 0, 6);
     NSButton* lane8 = muteButtonForLane(muteCell, 0, 7);
     check(lane7.enabled && !lane8.enabled,
@@ -748,7 +761,7 @@ void testPatternLoopColumnAndRoundTrip(
     NSPopUpButton* loopTicks = popupWithAction(
         [table viewAtColumn:5 row:1 makeIfNecessary:YES],
         NSSelectorFromString(@"ticksPopupChanged:"));
-    check(table.tableColumns.count == 10u
+    check(table.tableColumns.count == 11u
             && [table.tableColumns[3u].title isEqualToString:@"LOOP IN–OUT"]
             && offIn.numberOfItems == 17u
             && [offIn.titleOfSelectedItem isEqualToString:@"OFF"]
@@ -805,6 +818,7 @@ void testMenuTimingAndScrollableSwing(
     row.durationTicks = 8u;
     row.repeats = 1u;
     row.swing = 0.56;
+    row.tempoMultiplier = 0.5;
     row.energy = 0.65f;
     arrangement.rows.push_back(row);
     [controller setSongArrangement:arrangement];
@@ -817,10 +831,13 @@ void testMenuTimingAndScrollableSwing(
     NSPopUpButton* ticks = popupWithAction(
         [table viewAtColumn:5 row:0 makeIfNecessary:YES],
         NSSelectorFromString(@"ticksPopupChanged:"));
+    NSPopUpButton* multiplier = popupWithAction(
+        [table viewAtColumn:6 row:0 makeIfNecessary:YES],
+        NSSelectorFromString(@"tempoMultiplierPopupChanged:"));
     NSControl* swing = firstSwingControl(
-        [table viewAtColumn:6 row:0 makeIfNecessary:YES]);
+        [table viewAtColumn:7 row:0 makeIfNecessary:YES]);
     NSPopUpButton* energy = popupWithAction(
-        [table viewAtColumn:7 row:0 makeIfNecessary:YES],
+        [table viewAtColumn:8 row:0 makeIfNecessary:YES],
         NSSelectorFromString(@"energyPopupChanged:"));
     check(repeats.numberOfItems == 64u
             && repeats.indexOfSelectedItem == 0
@@ -834,6 +851,9 @@ void testMenuTimingAndScrollableSwing(
             && [ticks indexOfItemWithRepresentedObject:@192] >= 0
             && [ticks indexOfItemWithRepresentedObject:@256] >= 0
             && [ticks.titleOfSelectedItem containsString:@"50%"]
+            && multiplier.numberOfItems == 7u
+            && [multiplier.titleOfSelectedItem isEqualToString:@"1/2×"]
+            && [multiplier indexOfItemWithRepresentedObject:@2.0] >= 0
             && [[ticks itemAtIndex:[ticks
                 indexOfItemWithRepresentedObject:@16]].title
                     containsString:@"FULL"]
@@ -846,7 +866,13 @@ void testMenuTimingAndScrollableSwing(
             && [energy isKindOfClass:S3GTrackerPopupButton.class]
             && static_cast<S3GTrackerPopupButton*>(energy).s3gUsesCanvasMenu
             && [[energy selectedItem].representedObject isEqualToNumber:@65],
-        "REP, TICKS, and EN should be suite menus while SWING uses a non-editing suite slider with a persistent value readout");
+        "REP, TICKS, BPM multiplier, and EN should be suite menus while SWING uses a non-editing suite slider with a persistent value readout");
+
+    [multiplier selectItemAtIndex:[multiplier
+        indexOfItemWithRepresentedObject:@2.0]];
+    [multiplier sendAction:multiplier.action to:multiplier.target];
+    check([controller songArrangement].rows[0u].tempoMultiplier == 2.0,
+        "the Song BPM multiplier menu should publish its exact host-tempo ratio");
 
     [energy selectItemAtIndex:[energy
         indexOfItemWithRepresentedObject:@40]];
@@ -894,7 +920,7 @@ void testMenuTimingAndScrollableSwing(
             && near(*draggedArrangement.rows[0u].swing, 0.70, 0.001),
         "hosted Swing dragging should commit once after the complete gesture");
     swing = firstSwingControl(
-        [table viewAtColumn:6 row:0 makeIfNecessary:YES]);
+        [table viewAtColumn:7 row:0 makeIfNecessary:YES]);
     [swing mouseDown:songMouseEvent(controller.window,
         NSEventTypeLeftMouseDown, dragEnd, NSEventModifierFlagOption)];
     check(![controller songArrangement].rows[0u].swing,
@@ -916,6 +942,7 @@ void testMenuTimingAndScrollableSwing(
     auto output = [controller songArrangement];
     check(output.rows[0u].repeats == 64u
             && output.rows[0u].durationTicks == 16u
+            && output.rows[0u].tempoMultiplier == 2.0
             && output.rows[0u].swing == 0.625,
         "Song timing menus and swing adjustment should publish their exact selected values");
 

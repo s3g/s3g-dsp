@@ -13,6 +13,16 @@ target_include_directories(s3g_breakbeat_slicer_clap PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 target_compile_features(s3g_breakbeat_slicer_clap PRIVATE cxx_std_17)
 
+if(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_breakbeat_slicer_clap
+    "${CMAKE_CURRENT_SOURCE_DIR}/s3g_breakbeat_slicer_vstgui.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  s3g_enable_windows_sample_decode(s3g_breakbeat_slicer_clap)
+endif()
+if(WIN32)
+  set_target_properties(s3g_breakbeat_slicer_clap PROPERTIES SUFFIX ".clap")
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_breakbeat_slicer_clap PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)

@@ -420,6 +420,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, strong) S3GTrackerPopupButton* libraryPopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* bankPopup;
 @property(nonatomic, strong) NSTextField* nameField;
+@property(nonatomic, strong) NSTextField* recommendedBpmField;
 @property(nonatomic, strong) S3GTrackerPopupButton* lengthPopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* previewChannelPopup;
 @property(nonatomic, strong) S3GTrackerPopupButton* modePopup;
@@ -432,6 +433,7 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 @property(nonatomic, strong) NSTextField* phraseLabel;
 @property(nonatomic, strong) NSTextField* bankLabel;
 @property(nonatomic, strong) NSTextField* nameLabel;
+@property(nonatomic, strong) NSTextField* recommendedBpmLabel;
 @property(nonatomic, strong) NSTextField* lengthLabel;
 @property(nonatomic, strong) NSTextField* previewChannelLabel;
 @property(nonatomic, strong) NSTextField* placementModeLabel;
@@ -1754,11 +1756,13 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     layoutLabel(self.bankLabel, 0u);
     layoutLabel(self.phraseLabel, 1u);
     layoutLabel(self.nameLabel, 2u);
-    layoutLabel(self.lengthLabel, 3u);
+    layoutLabel(self.recommendedBpmLabel, 3u);
+    layoutLabel(self.lengthLabel, 4u);
     self.bankPopup.frame = controlFrame(self.libraryPanel, 0u);
     self.libraryPopup.frame = controlFrame(self.libraryPanel, 1u);
     self.nameField.frame = textFrame(self.libraryPanel, 2u);
-    self.lengthPopup.frame = controlFrame(self.libraryPanel, 3u);
+    self.recommendedBpmField.frame = textFrame(self.libraryPanel, 3u);
+    self.lengthPopup.frame = controlFrame(self.libraryPanel, 4u);
     layoutButtons(@[ self.saveButton, self.duplicateButton,
         self.deleteButton ], self.libraryPanel, 5u);
     layoutButtons(@[ self.importPackButton, self.exportPackButton ],
@@ -1836,6 +1840,15 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     S3GTrackerStyleSuiteTextField(self.nameField, NSTextAlignmentLeft);
     self.nameField.delegate = self;
     [self.libraryPanel addSubview:self.nameField];
+    self.recommendedBpmField = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    S3GTrackerStyleSuiteTextField(
+        self.recommendedBpmField, NSTextAlignmentLeft);
+    self.recommendedBpmField.delegate = self;
+    self.recommendedBpmField.placeholderString = @"OPTIONAL · 20–400";
+    self.recommendedBpmField.toolTip =
+        @"Recommended authoring tempo; playback remains synchronized to the host";
+    self.recommendedBpmField.accessibilityLabel = @"Recommended phrase BPM";
+    [self.libraryPanel addSubview:self.recommendedBpmField];
     self.lengthPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.lengthPopup.s3gUsesCanvasMenu = YES;
@@ -1884,6 +1897,8 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     self.bankLabel = [self suiteLabel:@"BANK" panel:self.libraryPanel];
     self.phraseLabel = [self suiteLabel:@"PHRASE" panel:self.libraryPanel];
     self.nameLabel = [self suiteLabel:@"NAME" panel:self.libraryPanel];
+    self.recommendedBpmLabel = [self suiteLabel:@"BPM" panel:self.libraryPanel];
+    self.recommendedBpmLabel.toolTip = @"Recommended phrase tempo";
     self.lengthLabel = [self suiteLabel:@"LENGTH" panel:self.libraryPanel];
     self.previewChannelLabel = [self suiteLabel:@"MIDI CH"
         panel:self.auditionPanel];
@@ -2014,7 +2029,8 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
 {
     (void)sender;
     const PhraseDefinition* phrase = [self selectedPhrase];
-    if (phrase && (!phrase->empty() || !phrase->name.empty())
+    if (phrase && (!phrase->empty() || !phrase->name.empty()
+            || phrase->recommendedBpm.has_value())
         && self.trackerCallbacks
         && self.trackerCallbacks->exportPhraseAssetPack)
         self.trackerCallbacks->exportPhraseAssetPack(
@@ -2029,7 +2045,8 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     bool hasPhrases = false;
     if (self.trackerState)
         for (const auto& phrase : self.trackerState->phraseLibrary.phrases)
-            hasPhrases |= !phrase.empty() || !phrase.name.empty();
+            hasPhrases |= !phrase.empty() || !phrase.name.empty()
+                || phrase.recommendedBpm.has_value();
     if (hasPhrases && self.trackerCallbacks
         && self.trackerCallbacks->exportPhraseLibraryAssetPack)
         self.trackerCallbacks->exportPhraseLibraryAssetPack();
@@ -2063,6 +2080,9 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
         self.trackerState->selectedPhrase)];
     PhraseDefinition* phrase = [self selectedPhrase];
     self.nameField.stringValue = phraseString(phrase->name);
+    self.recommendedBpmField.stringValue = phrase->recommendedBpm.has_value()
+        ? [NSString stringWithFormat:@"%.15g", *phrase->recommendedBpm]
+        : @"";
     [self.lengthPopup selectItemWithTitle:[NSString stringWithFormat:
         @"%lu ROWS", static_cast<unsigned long>(phrase->length)]];
     [self.previewChannelPopup selectItemAtIndex:static_cast<NSInteger>(
@@ -2150,8 +2170,25 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     if (!phrase) return;
     NSData* utf8 = [self.nameField.stringValue dataUsingEncoding:NSUTF8StringEncoding];
     if (utf8.length > s3g::tracker::kMaximumPhraseNameBytes) { NSBeep(); return; }
+    NSString* bpmText = [self.recommendedBpmField.stringValue
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    std::optional<double> recommendedBpm;
+    if (bpmText.length != 0u) {
+        NSScanner* scanner = [NSScanner scannerWithString:bpmText];
+        double bpm = 0.0;
+        if (![scanner scanDouble:&bpm] || !scanner.isAtEnd
+            || !std::isfinite(bpm)
+            || bpm < s3g::tracker::kMinimumPhraseRecommendedBpm
+            || bpm > s3g::tracker::kMaximumPhraseRecommendedBpm) {
+            self.statusLabel.stringValue = @"BPM MUST BE 20–400 OR BLANK";
+            NSBeep();
+            return;
+        }
+        recommendedBpm = bpm;
+    }
     const char* utf8Name = self.nameField.stringValue.UTF8String;
     phrase->name = utf8Name ? utf8Name : "";
+    phrase->recommendedBpm = recommendedBpm;
     [self phraseEdited];
     [self reloadModel];
 }
@@ -2165,10 +2202,12 @@ bool applyPhraseCellText(NSString* source, PhraseDefinition& phrase,
     const auto sourceSlot = std::min<std::size_t>(
         self.trackerState->selectedPhrase, phrases.size() - 1u);
     const auto& source = phrases[sourceSlot];
-    if (source.empty() && source.name.empty()) { NSBeep(); return; }
+    if (source.empty() && source.name.empty()
+        && !source.recommendedBpm.has_value()) { NSBeep(); return; }
     const auto available = std::find_if(phrases.begin(), phrases.end(),
         [](const PhraseDefinition& phrase) {
-            return phrase.empty() && phrase.name.empty();
+            return phrase.empty() && phrase.name.empty()
+                && !phrase.recommendedBpm.has_value();
         });
     if (available == phrases.end()) { NSBeep(); return; }
     const auto destination = static_cast<std::size_t>(

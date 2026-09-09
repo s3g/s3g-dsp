@@ -962,12 +962,15 @@ double uiValueFromNormalized(clap_id id, double normalized)
 @interface S3GProcessorErrantView : NSView {
     void* _plugin;
     int _dragParam;
+    BOOL _midiReceiveMenuOpen;
+    int _midiReceiveMenuHover;
     NSTimer* _timer;
     char _presetName[64];
 }
 - (id)initWithPlugin:(void*)plugin;
 - (void)startRefreshTimer;
 - (void)stopRefreshTimer;
+- (NSRect)midiReceiveMenuRect;
 - (void)updateDraggedParam:(NSPoint)point;
 @end
 
@@ -979,6 +982,8 @@ double uiValueFromNormalized(clap_id id, double normalized)
     if (self) {
         _plugin = plugin;
         _dragParam = -1;
+        _midiReceiveMenuOpen = NO;
+        _midiReceiveMenuHover = -1;
         _timer = nil;
         std::snprintf(_presetName, sizeof(_presetName), "%s", "INIT");
     }
@@ -1010,6 +1015,23 @@ double uiValueFromNormalized(clap_id id, double normalized)
     if (![self isHidden] && p && s3g::clap_support::hostAppIsActive()) {
         [self setNeedsDisplay:YES];
     }
+}
+
+- (NSRect)midiReceiveMenuRect
+{
+    const CGFloat rowY = s3g::gui_layout::rowY(kPerformancePanel, 3u);
+    const NSRect anchor = NSMakeRect(
+        s3g::gui_layout::processorControlX(kPerformancePanel.frame.x),
+        rowY - 1.0,
+        s3g::gui_layout::processorMenuWidth(kPerformancePanel.frame.width),
+        15.0);
+    const CGFloat height = 18.0 * static_cast<CGFloat>(
+        s3g::clap_gui::multiColumnMenuRows(
+            s3g::clap_gui::kMidiReceiveMenuItemCount,
+            s3g::clap_gui::kMidiChannelMenuColumns));
+    CGFloat y = NSMaxY(anchor) + 2.0;
+    if (y + height > kGuiHeight) y = anchor.origin.y - 2.0 - height;
+    return NSMakeRect(anchor.origin.x, y, anchor.size.width, height);
 }
 
 - (void)drawRect:(NSRect)dirty
@@ -1054,13 +1076,22 @@ double uiValueFromNormalized(clap_id id, double normalized)
         const double value = paramValue(*p, row.id);
         char text[64] {};
         paramsValueToText(&p->plugin, row.id, value, text, sizeof(text));
-        s3g::clap_gui::drawProcessorSlider(
-            [NSString stringWithUTF8String:row.label],
-            [NSString stringWithUTF8String:text],
-            uiNormalizedValue(row.id, value),
-            s3g::gui_layout::rowY(*row.panel, row.row),
-            row.panel->frame.x, row.panel->frame.width,
-            labels, values, style);
+        if (row.id == kMidiReceiveParamId) {
+            s3g::clap_gui::drawProcessorMenu(
+                [NSString stringWithUTF8String:row.label],
+                [NSString stringWithUTF8String:text],
+                s3g::gui_layout::rowY(*row.panel, row.row),
+                row.panel->frame.x, row.panel->frame.width,
+                labels, values, style);
+        } else {
+            s3g::clap_gui::drawProcessorSlider(
+                [NSString stringWithUTF8String:row.label],
+                [NSString stringWithUTF8String:text],
+                uiNormalizedValue(row.id, value),
+                s3g::gui_layout::rowY(*row.panel, row.row),
+                row.panel->frame.x, row.panel->frame.width,
+                labels, values, style);
+        }
     }
 
     const NSRect trigger = NSMakeRect(
@@ -1134,6 +1165,13 @@ double uiValueFromNormalized(clap_id id, double normalized)
     [@"FAMILY ARCHIVE → CROSSWIRE → UPPER BODY"
         drawAtPoint:NSMakePoint(kAncestryFrame.x + 24.0,
             kAncestryFrame.y + 141.0) withAttributes:labels];
+    if (_midiReceiveMenuOpen) {
+        s3g::clap_gui::drawMidiReceiveDropdownMenu(
+            [self midiReceiveMenuRect], 18.0,
+            static_cast<int>(std::lround(
+                paramValue(*p, kMidiReceiveParamId))),
+            _midiReceiveMenuHover, values, style);
+    }
 }
 
 - (void)updateDraggedParam:(NSPoint)point
@@ -1161,6 +1199,16 @@ double uiValueFromNormalized(clap_id id, double normalized)
         [event locationInWindow] fromView:nil];
     auto* p = static_cast<Plugin*>(_plugin);
     if (!p) return;
+    if (_midiReceiveMenuOpen) {
+        const int hit = s3g::clap_gui::midiReceiveDropdownHitIndex(
+            point, [self midiReceiveMenuRect], 18.0);
+        if (hit >= 0)
+            queueGuiParamGesture(*p, kMidiReceiveParamId, hit);
+        _midiReceiveMenuOpen = NO;
+        _midiReceiveMenuHover = -1;
+        [self setNeedsDisplay:YES];
+        return;
+    }
     const auto titleBand = s3g::clap_gui::encoderTitleBand(
         kGuiWidth, kGuiHeight);
     if (s3g::clap_gui::handleProcessorTitleClick(point, &p->plugin,
@@ -1181,6 +1229,12 @@ double uiValueFromNormalized(clap_id id, double normalized)
         if (!NSPointInRect(point, s3g::clap_gui::cocoaRect(
                 s3g::gui_layout::sliderHitRect(*row.panel, row.row)))) {
             continue;
+        }
+        if (row.id == kMidiReceiveParamId) {
+            _midiReceiveMenuOpen = YES;
+            _midiReceiveMenuHover = -1;
+            [self setNeedsDisplay:YES];
+            return;
         }
         double defaultValue = 0.0;
         if (s3g::clap_gui::sliderDoubleClickDefault(
@@ -1215,6 +1269,25 @@ double uiValueFromNormalized(clap_id id, double normalized)
             static_cast<clap_id>(_dragParam));
     }
     _dragParam = -1;
+}
+
+- (void)viewDidMoveToWindow
+{
+    [super viewDidMoveToWindow];
+    [[self window] setAcceptsMouseMovedEvents:YES];
+}
+
+- (void)mouseMoved:(NSEvent*)event
+{
+    if (!_midiReceiveMenuOpen) return;
+    const NSPoint point = [self convertPoint:
+        [event locationInWindow] fromView:nil];
+    const int hover = s3g::clap_gui::midiReceiveDropdownHitIndex(
+        point, [self midiReceiveMenuRect], 18.0);
+    if (hover != _midiReceiveMenuHover) {
+        _midiReceiveMenuHover = hover;
+        [self setNeedsDisplay:YES];
+    }
 }
 
 @end

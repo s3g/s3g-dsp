@@ -56,6 +56,11 @@ SongValidationResult validateSongArrangement(
                 || *row.bpm > kMaximumSongBpm)) {
             return { SongValidationCode::InvalidBpm, index };
         }
+        if (!std::isfinite(row.tempoMultiplier)
+            || row.tempoMultiplier < kMinimumSongTempoMultiplier
+            || row.tempoMultiplier > kMaximumSongTempoMultiplier) {
+            return { SongValidationCode::InvalidTempoMultiplier, index };
+        }
         if (row.swing && (!std::isfinite(*row.swing)
                 || *row.swing < kMinimumSongSwing
                 || *row.swing > kMaximumSongSwing)) {

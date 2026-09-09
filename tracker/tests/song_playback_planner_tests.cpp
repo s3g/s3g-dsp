@@ -33,6 +33,7 @@ SongArrangement arrangement(bool loop = false)
     a.repeats = 2u;
     a.energy = 0.65f;
     a.bpm = 132.0;
+    a.tempoMultiplier = 1.5;
     a.swing = 0.57;
     a.mutedTracks = 1u << 3u;
     song.rows.push_back(a);
@@ -68,6 +69,7 @@ void testValidationAndTransactionalInstall()
         "a valid arrangement should install at row zero in stopped state");
     check(planner.currentRow() && planner.currentRow()->patternId == "A01"
             && planner.currentRow()->bpm == 132.0
+            && planner.currentRow()->tempoMultiplier == 1.5
             && planner.currentRow()->energy == 0.65f
             && planner.currentRow()->mutedTracks == (1u << 3u),
         "native song rows should retain pattern and performance metadata");
@@ -111,6 +113,11 @@ void testValidationAndTransactionalInstall()
     check(validateSongArrangement(invalidBpm).code
             == SongValidationCode::InvalidBpm,
         "non-finite row tempo overrides should be rejected");
+    auto invalidTempoMultiplier = song;
+    invalidTempoMultiplier.rows[0].tempoMultiplier = 0.0;
+    check(validateSongArrangement(invalidTempoMultiplier).code
+            == SongValidationCode::InvalidTempoMultiplier,
+        "Song tempo multipliers should remain inside the supported ratio menu");
     auto invalidEnergy = song;
     invalidEnergy.rows[0].energy = 1.01f;
     check(validateSongArrangement(invalidEnergy).code

@@ -86,6 +86,7 @@ struct SongSchedulerRuntime {
         result.timingWarp.clear();
         result.timingWarpEnabled = false;
         if (row.bpm) result.bpm = *row.bpm;
+        result.bpm *= row.tempoMultiplier;
         if (row.swing) result.swing = *row.swing;
         if (row.patternLoop) {
             result.loopEnabled = true;
@@ -190,6 +191,21 @@ void testNaturalRowsApplyTempoMuteAndRelaunch()
         "the final Song row should stop exactly after its final logical tick");
     check(count != 0u && laneOne.back().absoluteSampleTime == 32000u,
         "StopAfterBoundary must preserve the final row's admitted output");
+}
+
+void testTempoMultipliersResolveFromTheBaseClock()
+{
+    TimingPlaybackScheduler scheduler;
+    SongSchedulerRuntime runtime;
+    runtime.scheduler = &scheduler;
+    runtime.base = baseTransport();
+    SongRow doubleTime;
+    doubleTime.tempoMultiplier = 2.0;
+    SongRow halfTime;
+    halfTime.tempoMultiplier = 0.5;
+    check(runtime.rowTransport(doubleTime).bpm == 120.0
+            && runtime.rowTransport(halfTime).bpm == 30.0,
+        "each Song row multiplier should resolve independently from the base clock");
 }
 
 void testQuantizedLaunchUsesPatternBoundary()
@@ -348,6 +364,7 @@ void testFinalStutterTailDrainsAfterStopBoundary()
 int main()
 {
     testNaturalRowsApplyTempoMuteAndRelaunch();
+    testTempoMultipliersResolveFromTheBaseClock();
     testQuantizedLaunchUsesPatternBoundary();
     testSongRowPatternLoopStartsAtInPointAndWraps();
     testSongRowsRecallSavedWarpAndOffRestoresIdentity();

@@ -1,9 +1,15 @@
+#include "../common/s3g_sample_file_decode.h"
 #include "s3g_realtime.h"
 #include "s3g_ring_output_mixdown.h"
 #include "s3g_sample_asset.h"
 #include "s3g_sample_rings.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
+
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_family_vstgui.h"
+#endif
 #include "../common/s3g_sample_storage.h"
 
 #include <clap/clap.h>
@@ -223,7 +229,7 @@ struct CaptureBuffer {
     std::atomic<uint32_t> readyChannels { 0u };
 };
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     uint8_t slot = 0u;
@@ -308,7 +314,7 @@ struct Plugin {
     std::atomic<bool> processing { false };
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic_flag guiParamConsumer = ATOMIC_FLAG_INIT;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::mutex loaderMutex;
     std::condition_variable loaderCondition;
     std::deque<LoadRequest> loadRequests;
@@ -316,9 +322,17 @@ struct Plugin {
     std::thread loaderThread;
     std::array<uint64_t, kSourceCount> loadGenerations {};
     bool loaderStopping = false;
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
+#endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    s3g::portable_gui::SampleFamilyEditor* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiW;
+    uint32_t portableGuiHeight = kGuiH;
+    bool portableGuiVisible = false;
 #endif
 };
 
@@ -693,16 +707,16 @@ double paramValue(const Plugin& plugin, clap_id id)
 uint64_t regularFileByteCount(const std::string& path) noexcept
 {
     std::error_code error;
-    if (path.empty() || !std::filesystem::is_regular_file(path, error))
+    if (path.empty() || !std::filesystem::is_regular_file(std::filesystem::u8path(path), error))
         return 0u;
-    const auto bytes = std::filesystem::file_size(path, error);
+    const auto bytes = std::filesystem::file_size(std::filesystem::u8path(path), error);
     return error ? 0u : static_cast<uint64_t>(bytes);
 }
 
 std::string sourceDisplayName(const std::string& path)
 {
     if (path.empty()) return "NO SOURCE";
-    const std::string name = std::filesystem::path(path).filename().string();
+    const std::string name = std::filesystem::u8path(path).filename().u8string();
     return name.empty() ? s3g::sample_storage::abbreviatedPath(path) : name;
 }
 
@@ -745,7 +759,7 @@ void publishSource(Plugin& plugin, uint32_t slot,
 void clearSource(Plugin& plugin, uint32_t slot)
 {
     if (slot >= kSourceCount) return;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     ++plugin.loadGenerations[slot];
     {
         std::lock_guard<std::mutex> lock(plugin.loaderMutex);
@@ -774,10 +788,11 @@ void clearSource(Plugin& plugin, uint32_t slot)
     markDirty(plugin);
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 std::shared_ptr<const SampleAsset> readSampleFromPath(
     const std::string& path)
 {
+#if defined(__APPLE__)
     if (path.empty()) return nullptr;
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
@@ -811,15 +826,20 @@ std::shared_ptr<const SampleAsset> readSampleFromPath(
         [file release];
         return asset->valid() ? asset : nullptr;
     }
-}
 
+#else
+    std::shared_ptr<const SampleAsset> asset;
+    std::string error;
+    return s3g::sample_file::decodeWaveFile(path, asset, error)
+        ? asset : nullptr;
+#endif
+}
 bool loadSourceFromPath(Plugin& plugin, uint32_t slot,
     const std::string& path)
 {
     auto asset = readSampleFromPath(path);
     if (!asset) return false;
-    NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
-    const char* last = [[nsPath lastPathComponent] UTF8String];
+    const std::string name = sourceDisplayName(path);
     plugin.projectFileRegistrations[slot].clear();
     plugin.linkSourcePaths[slot] = path;
     plugin.projectRelativePaths[slot].clear();
@@ -827,12 +847,13 @@ bool loadSourceFromPath(Plugin& plugin, uint32_t slot,
     plugin.projectStoragePending[slot]
         = plugin.storageMode == StorageMode::Project;
     plugin.projectCopyInFlight[slot] = false;
-    publishSource(plugin, slot, asset, path, last ? last : "LOADED");
+    publishSource(plugin, slot, asset, path, name);
     if (plugin.storageMode == StorageMode::Project)
         plugin.sourceStatuses[slot] = "PROJECT PENDING / SAVE PROJECT";
     return true;
 }
 
+#if defined(__APPLE__)
 bool isSupportedAudioURL(NSURL* url)
 {
     if (!url || !url.isFileURL) return false;
@@ -841,6 +862,7 @@ bool isSupportedAudioURL(NSURL* url)
         containsObject:extension];
 }
 
+#endif
 void loaderMain(Plugin* plugin)
 {
     for (;;) {
@@ -960,7 +982,7 @@ void queueProjectCopy(Plugin& plugin, uint32_t slot)
         return;
     }
     std::string absolute = path;
-    if (!std::filesystem::path(absolute).is_absolute()
+    if (!std::filesystem::u8path(absolute).is_absolute()
         && !s3g::sample_storage::resolveProjectRelativePath(location, path,
             absolute, &error)) return;
     std::string relative;
@@ -1344,7 +1366,7 @@ void finalizeCaptures(Plugin& plugin)
                     static_cast<std::size_t>(frame) * channels + channel];
         }
         if (asset->valid()) {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
             ++plugin.loadGenerations[slot];
             {
                 std::lock_guard<std::mutex> lock(plugin.loaderMutex);
@@ -1421,7 +1443,7 @@ bool init(const clap_plugin_t* plugin)
     if (instance.host && instance.host->get_extension)
         instance.hostParams = static_cast<const clap_host_params_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_PARAMS));
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startLoader(instance)) return false;
 #endif
     return true;
@@ -1430,13 +1452,21 @@ bool init(const clap_plugin_t* plugin)
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 
 void destroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
     if (!instance) return;
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    destroyPortableGui(*instance);
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
 #if defined(__APPLE__)
     guiDestroy(plugin);
+#endif
     stopLoader(*instance);
 #endif
     for (auto& registration : instance->projectFileRegistrations)
@@ -1656,7 +1686,7 @@ void onMainThread(const clap_plugin_t* plugin)
     auto& instance = *self(plugin);
     if (instance.captureCallbackPending.load(std::memory_order_acquire))
         finalizeCaptures(instance);
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceLoads(instance);
 #endif
 }
@@ -2279,7 +2309,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             ? StorageMode::Link : StorageMode::Project);
     }
     auto& instance = *self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     for (auto& generation : instance.loadGenerations) ++generation;
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -2313,7 +2343,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             saved.paths[slot].data(), saved.paths[slot].size()));
         std::string path = locator;
         if (instance.storageMode == StorageMode::Project && !path.empty()
-            && !std::filesystem::path(path).is_absolute()) {
+            && !std::filesystem::u8path(path).is_absolute()) {
             std::string resolved;
             std::string error;
             const ReaperContext context
@@ -2322,7 +2352,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                     path, resolved, &error)) path = std::move(resolved);
             else path.clear();
         }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
         if (!path.empty() && saved.embedded[slot] == 0u)
             asset = readSampleFromPath(path);
 #endif
@@ -2346,13 +2376,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         }
         instance.linkSourcePaths[slot]
             = instance.storageMode == StorageMode::Project
-            ? (std::filesystem::path(locator).is_absolute()
+            ? (std::filesystem::u8path(locator).is_absolute()
                     ? locator : std::string())
             : path;
         instance.projectRelativePaths[slot]
             = instance.storageMode == StorageMode::Project
                 && !locator.empty()
-                && !std::filesystem::path(locator).is_absolute()
+                && !std::filesystem::u8path(locator).is_absolute()
             ? locator : std::string();
         instance.sourceFileBytes[slot] = regularFileByteCount(path);
         instance.projectStoragePending[slot] = false;
@@ -2419,13 +2449,559 @@ const clap_plugin_state_t stateExtension { stateSave, stateLoad };
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+
+constexpr uint32_t kGuiWidth = kGuiW;
+constexpr uint32_t kGuiHeight = kGuiH;
+
+uint32_t portableParameterCount(void* context)
+{
+    return context ? paramsCount(&static_cast<Plugin*>(context)->plugin) : 0u;
+}
+
+bool portableParameterInfo(void* context, uint32_t index,
+    s3g::portable_gui::SampleFamilyParameterInfo* result)
+{
+    if (!context || !result) return false;
+    clap_param_info_t info {};
+    if (!paramsGetInfo(&static_cast<Plugin*>(context)->plugin, index, &info))
+        return false;
+    result->id = info.id;
+    std::snprintf(result->name, sizeof(result->name), "%s", info.name);
+    std::snprintf(result->module, sizeof(result->module), "%s", info.module);
+    result->minimum = info.min_value;
+    result->maximum = info.max_value;
+    result->defaultValue = info.default_value;
+    result->stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+    result->readOnly = (info.flags & CLAP_PARAM_IS_READONLY) != 0u;
+    return true;
+}
+
+double portableReadParameter(void* context, uint32_t id)
+{
+    if (!context) return 0.0;
+    double value = 0.0;
+    (void)paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), &value);
+    return value;
+}
+
+bool portableParameterText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, capacity);
+}
+
+// Literal Cocoa polar-preview routing, including updates while transport is paused.
+void portablePreviewRingsHead(void* context, uint32_t selected, float radial, float phase)
+{
+    if (!context || selected >= kHeadCount) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.headPhases[selected].store(phase);
+    instance.headPhaseTargets[selected].store(phase);
+    struct Ring { uint8_t slot, channel; };
+    std::array<Ring, 32> rings {};
+    std::array<uint8_t, 4> slots {};
+    std::array<uint32_t, 4> bases {};
+    uint32_t count = 0, active = 0;
+    for (uint8_t slot = 0; slot < kSourceCount; ++slot) {
+        if (!instance.sources[slot]) continue;
+        slots[active++] = slot;
+        bases[slot] = count;
+        for (uint8_t channel = 0; channel < std::min<uint8_t>(8, instance.sources[slot]->channelCount); ++channel)
+            rings[count++] = {slot, channel};
+    }
+    if (!count) return;
+    const uint32_t size = 1u << std::min(instance.targets.formation.load(), 3u);
+    const uint32_t leader = selected - selected % size;
+    const double position = std::clamp(radial, 0.f, 1.f)
+        * (size == 1 ? count - 1 : std::max(1u, active - 1));
+    const uint32_t first = std::min(size == 1 ? count - 1 : active - 1,
+        static_cast<uint32_t>(std::floor(position)));
+    const uint32_t second = std::min(size == 1 ? count - 1 : active - 1, first + 1);
+    const float mix = static_cast<float>(position - std::floor(position));
+    for (uint32_t head = leader; head < leader + size; ++head) {
+        uint32_t a = first, b = second;
+        if (size != 1) {
+            a = bases[slots[first]] + head % std::min<uint8_t>(8, instance.sources[slots[first]]->channelCount);
+            b = bases[slots[second]] + head % std::min<uint8_t>(8, instance.sources[slots[second]]->channelCount);
+        }
+        instance.headRings[head].store(a);
+        instance.headRingTargets[head].store(b);
+        instance.headSlots[head].store(rings[a].slot);
+        instance.headSlotTargets[head].store(rings[b].slot);
+        instance.headChannels[head].store(rings[a].channel);
+        instance.headChannelTargets[head].store(rings[b].channel);
+        instance.headRingMixes[head].store(mix);
+        instance.headRadialPositions[head].store(radial);
+        instance.headFormationLeaders[head].store(leader);
+    }
+}
+
+void portableBeginParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamBegin(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableSetParameter(void* context, uint32_t id, double value)
+{
+    if (context) queueGuiParamValue(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id), value);
+    if (context && id == kCaptureTargetParamId) {
+        auto& instance = *static_cast<Plugin*>(context);
+        queueGuiParamBegin(instance, kSelectedSlotParamId);
+        queueGuiParamValue(instance, kSelectedSlotParamId, value);
+        queueGuiParamEnd(instance, kSelectedSlotParamId);
+    }
+}
+
+void portableEndParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamEnd(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableResetParameters(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : paramDefs())
+        queueGuiParamValue(instance, definition.id, definition.defaultValue);
+}
+
+constexpr std::array<const char*, 11u> portableFactoryPresetNames {{
+    "INIT FIELD", "SLOW FIELD", "FOUR LOOP PAIRS", "QUAD BREATHING",
+    "OUTWARD CANON", "COUNTER SPIRAL", "STEPPED RELAY",
+    "RANDOM CONSTELLATION", "ORBITAL DRIFT", "REVERSE BLOOM",
+    "STEREO FOLD",
+}};
+
+uint32_t portableFactoryPresetCount(void*)
+{
+    return static_cast<uint32_t>(portableFactoryPresetNames.size());
+}
+
+const char* portableFactoryPresetName(void*, uint32_t index)
+{
+    return index < portableFactoryPresetNames.size()
+        ? portableFactoryPresetNames[index] : nullptr;
+}
+
+bool portableApplyFactoryPreset(void* context, uint32_t index)
+{
+    if (!context || index >= portableFactoryPresetNames.size()) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto& definitions = paramDefs();
+    std::vector<std::pair<clap_id, double>> values;
+    values.reserve(definitions.size());
+    for (const auto& definition : definitions)
+        values.emplace_back(definition.id, definition.defaultValue);
+    const auto set = [&](clap_id id, double value) {
+        const auto found = std::find_if(values.begin(), values.end(),
+            [id](const auto& item) { return item.first == id; });
+        if (found != values.end()) found->second = value;
+    };
+
+    // Match the Cocoa recipes: motion changes preserve output gain.
+    set(kOutputGainParamId, instance.targets.outputGain.load());
+    switch (index) {
+    case 0u: break;
+    case 1u:
+        set(kRingPathParamId, 4.0); set(kFormationParamId, 3.0);
+        set(kRadialRatioParamId, 0.35); set(kPathDepthParamId, 0.82);
+        set(kRelationshipParamId, 1.0); set(kRelationshipAmountParamId, 0.25);
+        set(kPlaybackRateParamId, 0.8); set(kPathSlewParamId, 220.0); break;
+    case 2u:
+        set(kRingPathParamId, 7.0); set(kFormationParamId, 1.0);
+        set(kRelationshipParamId, 7.0); set(kRingBlendParamId, 0.72);
+        set(kLoopJoinParamId, 0.06);
+        for (uint32_t pair = 0u; pair < 4u; ++pair) {
+            const double ring = static_cast<double>(pair) / 3.0;
+            set(kManualRingParamBase + pair * 2u, ring);
+            set(kManualRingParamBase + pair * 2u + 1u, ring);
+        }
+        for (uint32_t head = 0u; head < kHeadCount; ++head) {
+            set(kManualPhaseParamBase + head,
+                static_cast<double>(head) / kHeadCount);
+            set(kManualRateParamBase + head, 1.0);
+        }
+        break;
+    case 3u:
+        set(kRingPathParamId, 4.0); set(kFormationParamId, 2.0);
+        set(kRadialRatioParamId, 0.45); set(kPathDepthParamId, 0.84);
+        set(kPathSpreadParamId, 0.55); set(kRelationshipParamId, 2.0);
+        set(kRelationshipAmountParamId, 0.35); set(kGlideParamId, 350.0);
+        set(kRingBlendParamId, 0.85); break;
+    case 4u:
+        set(kRingPathParamId, 1.0); set(kFormationParamId, 0.0);
+        set(kRadialRatioParamId, 0.75); set(kPathSpreadParamId, 0.45);
+        set(kRelationshipParamId, 1.0); set(kRelationshipAmountParamId, 0.88);
+        set(kRingBlendParamId, 0.65); set(kPathSlewParamId, 70.0); break;
+    case 5u:
+        set(kRingPathParamId, 2.0); set(kFormationParamId, 0.0);
+        set(kRadialRatioParamId, 0.60); set(kPathSpreadParamId, 0.62);
+        set(kRelationshipParamId, 2.0); set(kRelationshipAmountParamId, -0.85);
+        set(kAngularReverseParamId, 1.0); set(kRingBlendParamId, 0.78); break;
+    case 6u:
+        set(kRingPathParamId, 5.0); set(kFormationParamId, 1.0);
+        set(kRadialRatioParamId, 0.75); set(kPathSpreadParamId, 0.40);
+        set(kRelationshipParamId, 4.0); set(kRelationshipAmountParamId, 0.65);
+        set(kPathSlewParamId, 25.0); set(kRingBlendParamId, 0.25); break;
+    case 7u:
+        set(kRingPathParamId, 6.0); set(kFormationParamId, 0.0);
+        set(kRadialRatioParamId, 0.55); set(kPathDepthParamId, 0.90);
+        set(kPathSpreadParamId, 0.70); set(kPathSlewParamId, 320.0);
+        set(kRelationshipParamId, 6.0); set(kRelationshipAmountParamId, 0.65);
+        set(kDriftParamId, 0.35); set(kSeedParamId, 8249.0); break;
+    case 8u:
+        set(kRingPathParamId, 4.0); set(kFormationParamId, 0.0);
+        set(kRadialRatioParamId, 0.28); set(kPathDepthParamId, 0.75);
+        set(kPathSpreadParamId, 0.85); set(kRelationshipParamId, 5.0);
+        set(kRelationshipAmountParamId, 0.80); set(kDriftParamId, 0.20);
+        set(kGlideParamId, 600.0); break;
+    case 9u:
+        set(kRingPathParamId, 3.0); set(kFormationParamId, 2.0);
+        set(kRadialRatioParamId, 0.42); set(kPathDepthParamId, 0.80);
+        set(kPathSpreadParamId, 0.70); set(kRelationshipParamId, 1.0);
+        set(kRelationshipAmountParamId, -0.75);
+        set(kAngularReverseParamId, 1.0); break;
+    case 10u:
+        set(kRingPathParamId, 3.0); set(kFormationParamId, 1.0);
+        set(kRadialRatioParamId, 0.50); set(kRelationshipParamId, 5.0);
+        set(kRelationshipAmountParamId, 0.55); set(kOutputFormatParamId, 2.0);
+        set(kOutputRotationParamId, 22.5); break;
+    default: break;
+    }
+    for (const auto& value : values) {
+        queueGuiParamBegin(instance, value.first);
+        queueGuiParamValue(instance, value.first, value.second);
+        queueGuiParamEnd(instance, value.first);
+    }
+    markDirty(instance);
+    return true;
+}
+
+uint32_t portableSampleSlotCount(void*) { return kSourceCount; }
+
+const SampleAsset* portableAsset(void* context, uint32_t slot)
+{
+    if (!context || slot >= kSourceCount) return nullptr;
+    return static_cast<Plugin*>(context)->sources[slot].get();
+}
+
+const char* portableSamplePath(void* context, uint32_t slot)
+{
+    return context && slot < kSourceCount
+        ? static_cast<Plugin*>(context)->sourcePaths[slot].c_str() : "";
+}
+
+const char* portableSampleStatus(void* context, uint32_t slot)
+{
+    return context && slot < kSourceCount
+        ? static_cast<Plugin*>(context)->sourceStatuses[slot].c_str() : "";
+}
+
+bool portableLoadSample(void* context, uint32_t slot, const char* path)
+{
+    if (!context || !path || !path[0] || slot >= kSourceCount) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    queueSourceLoad(*static_cast<Plugin*>(context), slot, path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool portableClearSample(void* context, uint32_t slot)
+{
+    if (!context || slot >= kSourceCount) return false;
+    clearSource(*static_cast<Plugin*>(context), slot);
+    return true;
+}
+
+const char* portableStorageName(void* context, uint32_t)
+{
+    return context ? s3g::sample_storage::storageModeName(
+        static_cast<Plugin*>(context)->storageMode) : "PROJECT";
+}
+
+bool portableCycleStorage(void* context, uint32_t)
+{
+    if (!context) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    auto& instance = *static_cast<Plugin*>(context);
+    const StorageMode next = instance.storageMode == StorageMode::Project
+        ? StorageMode::Link : (instance.storageMode == StorageMode::Link
+            ? StorageMode::Embed : StorageMode::Project);
+    setStorageMode(instance, next);
+    return true;
+#else
+    return false;
+#endif
+}
+
+float portableOutputPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t portableCursors(void* context, uint32_t slot, float* positions,
+    uint8_t* keys, uint32_t capacity)
+{
+    if (!context || !positions || !keys || slot >= kSourceCount) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    uint32_t count = 0u;
+    for (uint32_t head = 0u; head < kHeadCount && count < capacity; ++head) {
+        if (instance.headSlots[head].load(std::memory_order_relaxed) != slot)
+            continue;
+        positions[count] = instance.headPhases[head].load(
+            std::memory_order_relaxed);
+        keys[count++] = static_cast<uint8_t>(head);
+    }
+    return count;
+}
+
+uint32_t portableVisualizationPoints(void* context, uint32_t series,
+    s3g::portable_gui::SampleFamilyVisualPoint* output, uint32_t capacity)
+{
+    if (!context || !output || series != 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity, kHeadCount);
+    for (uint32_t head = 0u; head < count; ++head) {
+        output[head].x = instance.headPhases[head].load(
+            std::memory_order_relaxed);
+        output[head].y = instance.headRadialPositions[head].load(
+            std::memory_order_relaxed);
+        output[head].width = instance.headRingMixes[head].load(
+            std::memory_order_relaxed);
+        output[head].intensity = 1.0f;
+        output[head].kind = instance.headFormationLeaders[head].load(
+            std::memory_order_relaxed);
+    }
+    return count;
+}
+
+s3g::portable_gui::SampleFamilyTransportState portableTransportState(
+    void* context)
+{
+    if (!context)
+        return s3g::portable_gui::SampleFamilyTransportState::Paused;
+    auto& instance = *static_cast<Plugin*>(context);
+    if (instance.targets.playing.load(std::memory_order_relaxed) != 0u)
+        return s3g::portable_gui::SampleFamilyTransportState::Playing;
+    return instance.transportStopped.load(std::memory_order_relaxed)
+        ? s3g::portable_gui::SampleFamilyTransportState::Stopped
+        : s3g::portable_gui::SampleFamilyTransportState::Paused;
+}
+
+bool portableRingsHeadState(void* context, uint32_t head,
+    s3g::portable_gui::SampleFamilyRingsHeadState* result)
+{
+    if (!context || !result || head >= kHeadCount) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const float mix = std::clamp(instance.headRingMixes[head].load(
+        std::memory_order_relaxed), 0.0f, 1.0f);
+    float phase = instance.headPhases[head].load(std::memory_order_relaxed);
+    phase += (instance.headPhaseTargets[head].load(
+        std::memory_order_relaxed) - phase) * mix;
+    phase -= std::floor(phase);
+    const uint32_t formation = std::min<uint32_t>(3u,
+        instance.targets.formation.load(std::memory_order_relaxed));
+    const uint32_t groupSize = formation == 1u ? 2u
+        : formation == 2u ? 4u : formation == 3u ? 8u : 1u;
+    const uint32_t leader = head - head % groupSize;
+    bool hasSource = false;
+    for (uint32_t slot = 0u; slot < kSourceCount; ++slot) {
+        const auto& source = instance.sources[slot];
+        if (source && source->valid()) {
+            hasSource = true;
+            break;
+        }
+    }
+    result->ringA = instance.headRings[head].load(
+        std::memory_order_relaxed);
+    result->ringB = instance.headRingTargets[head].load(
+        std::memory_order_relaxed);
+    result->sourceSlotA = std::min<uint32_t>(kSourceCount - 1u,
+        instance.headSlots[head].load(std::memory_order_relaxed));
+    result->sourceSlotB = std::min<uint32_t>(kSourceCount - 1u,
+        instance.headSlotTargets[head].load(std::memory_order_relaxed));
+    result->sourceChannelA = instance.headChannels[head].load(
+        std::memory_order_relaxed);
+    result->sourceChannelB = instance.headChannelTargets[head].load(
+        std::memory_order_relaxed);
+    result->groupLeader = leader;
+    result->groupSize = groupSize;
+    result->manualRingParameterId = kManualRingParamBase + leader;
+    result->manualPhaseParameterId = kManualPhaseParamBase + head;
+    result->manualRateParameterId = kManualRateParamBase + head;
+    result->phase = phase;
+    result->phaseA = instance.headPhases[head].load(std::memory_order_relaxed);
+    result->phaseB = instance.headPhaseTargets[head].load(std::memory_order_relaxed);
+    result->rate = instance.headRates[head].load(std::memory_order_relaxed);
+    result->mix = mix;
+    result->hasSource = hasSource;
+    return true;
+}
+
+void portableAction(void* context, uint32_t action, bool pressed)
+{
+    if (!context || !pressed) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto set = [&](clap_id id, double value) {
+        portableBeginParameter(context, id);
+        portableSetParameter(context, id, value);
+        portableEndParameter(context, id);
+    };
+    switch (action) {
+    case 0u:
+        instance.transportStopped.store(false);
+        set(kPlayingParamId, 1.0);
+        break;
+    case 1u:
+        instance.transportStopped.store(false);
+        set(kPlayingParamId, 0.0);
+        break;
+    case 2u:
+        instance.transportStopped.store(true);
+        set(kPlayingParamId, 0.0);
+        requestTransportCommand(instance, TransportCommand::Stop);
+        break;
+    case 3u:
+        requestTransportCommand(instance, TransportCommand::Relaunch);
+        break;
+    case 4u: {
+        const bool recording = portableReadParameter(context,
+            kCaptureGateParamId) >= 0.5;
+        if (!recording) prepareCaptureOnMainThread(instance);
+        set(kCaptureGateParamId, recording ? 0.0 : 1.0);
+        break;
+    }
+    case 5u:
+        set(kRadialReverseParamId, portableReadParameter(context,
+            kRadialReverseParamId) >= 0.5 ? 0.0 : 1.0);
+        break;
+    case 6u:
+        set(kAngularReverseParamId, portableReadParameter(context,
+            kAngularReverseParamId) >= 0.5 ? 0.0 : 1.0);
+        break;
+    case 7u: {
+        const uint32_t slot = std::min<uint32_t>(3u,
+            static_cast<uint32_t>(std::lround(portableReadParameter(
+                context, kSelectedSlotParamId))));
+        const clap_id reverse = slotParamId(slot, kSlotReverse);
+        set(reverse, portableReadParameter(context, reverse) >= 0.5
+            ? 0.0 : 1.0);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void portableService(void* context)
+{
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    if (context) serviceLoads(*static_cast<Plugin*>(context));
+#else
+    (void)context;
+#endif
+}
+
+bool portableLoadPreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::loadStateFile(
+        &static_cast<Plugin*>(context)->plugin, stateExtension, path);
+}
+
+bool portableSavePreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::saveStateFile(
+        &static_cast<Plugin*>(context)->plugin, stateExtension, path);
+}
+
+const std::array<s3g::portable_gui::SampleFamilyWaveMarker, 1u>
+    portableMarkers {{
+        { kRingPositionParamId, "R" },
+    }};
+
+const std::array<s3g::portable_gui::SampleFamilyAction, 8u>
+    portableActions {{
+        { 0u, "PLAY", false },
+        { 1u, "PAUSE", false },
+        { 2u, "STOP", false },
+        { 3u, "SYNC", false },
+        { 4u, "CAPTURE", false },
+        { 5u, "RADIAL REVERSE", false },
+        { 6u, "ANGULAR REVERSE", false },
+        { 7u, "SLOT REVERSE", false },
+    }};
+
+s3g::portable_gui::SampleFamilyEditorConfig
+makeSampleFamilyEditorConfig(Plugin& instance)
+{
+    s3g::portable_gui::SampleFamilyEditorConfig config {};
+    config.callbacks.context = &instance;
+    config.callbacks.getParameterCount = portableParameterCount;
+    config.callbacks.getParameterInfo = portableParameterInfo;
+    config.callbacks.getParam = portableReadParameter;
+    config.callbacks.getParamText = portableParameterText;
+    config.callbacks.beginParamEdit = portableBeginParameter;
+    config.callbacks.setParam = portableSetParameter;
+    config.callbacks.endParamEdit = portableEndParameter;
+    config.callbacks.resetToDefaults = portableResetParameters;
+    config.callbacks.getFactoryPresetCount = portableFactoryPresetCount;
+    config.callbacks.getFactoryPresetName = portableFactoryPresetName;
+    config.callbacks.applyFactoryPreset = portableApplyFactoryPreset;
+    config.callbacks.getSampleSlotCount = portableSampleSlotCount;
+    config.callbacks.getAsset = portableAsset;
+    config.callbacks.getSamplePath = portableSamplePath;
+    config.callbacks.getSampleStatus = portableSampleStatus;
+    config.callbacks.loadSample = portableLoadSample;
+    config.callbacks.clearSample = portableClearSample;
+    config.callbacks.getStorageModeName = portableStorageName;
+    config.callbacks.cycleStorageMode = portableCycleStorage;
+    config.callbacks.getOutputPeak = portableOutputPeak;
+    config.callbacks.getCursors = portableCursors;
+    config.callbacks.getVisualizationPoints = portableVisualizationPoints;
+    config.callbacks.getTransportState = portableTransportState;
+    config.callbacks.getRingsHeadState = portableRingsHeadState;
+    config.callbacks.previewRingsHead = portablePreviewRingsHead;
+    config.callbacks.performAction = portableAction;
+    config.callbacks.service = portableService;
+    config.callbacks.loadPreset = portableLoadPreset;
+    config.callbacks.savePreset = portableSavePreset;
+    config.pluginName = instance.plugin.desc->name;
+    config.samplePanelName = "RING SOURCES / CAPTURE SLOTS";
+    config.markers = portableMarkers.data();
+    config.markerCount = static_cast<uint32_t>(portableMarkers.size());
+    config.actions = portableActions.data();
+    config.actionCount = static_cast<uint32_t>(portableActions.size());
+    config.nativeWidth = kGuiWidth;
+    config.nativeHeight = kGuiHeight;
+    config.minimumColumns = 5u;
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Rings;
+    return config;
+}
+
+#include "../common/s3g_sample_family_clap_gui.inc"
+
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;

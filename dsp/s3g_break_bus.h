@@ -75,6 +75,11 @@ public:
         tiltLow_.fill(0.0f);
         activity_ = 0.0f;
         gainReductionDb_ = 0.0f;
+        pressModulation_ = 0.0f;
+        snapModulation_ = 0.0f;
+        biteModulation_ = 0.0f;
+        saturationModulation_ = 0.0f;
+        tiltModulation_ = 0.0f;
     }
 
     bool setParams(const BreakBusParams& params) noexcept
@@ -86,6 +91,16 @@ public:
     }
 
     const BreakBusParams& params() const noexcept { return params_; }
+
+    void setModulation(float press, float snap, float bite,
+        float saturation, float tilt) noexcept
+    {
+        pressModulation_ = finiteOffset(press);
+        snapModulation_ = finiteOffset(snap);
+        biteModulation_ = finiteOffset(bite);
+        saturationModulation_ = finiteOffset(saturation);
+        tiltModulation_ = finiteOffset(tilt);
+    }
     float activity() const noexcept { return activity_; }
     float gainReductionDb() const noexcept { return gainReductionDb_; }
 
@@ -132,7 +147,9 @@ public:
                 ? compressorAttackCoefficient_ : adaptiveRelease;
             compressorGain_[group] = finite(compressorGain_[group]
                 + (target - compressorGain_[group]) * gainCoefficient);
-            const float snapGain = dbGain(params_.snap * transient * 12.0f);
+            const float snap = std::clamp(
+                params_.snap + snapModulation_, -1.0f, 1.0f);
+            const float snapGain = dbGain(snap * transient * 12.0f);
             dynamicGain[group] = compressorGain_[group] * snapGain;
             gainReductionDb_ = std::min(gainReductionDb_,
                 gainToDb(compressorGain_[group]));
@@ -208,8 +225,10 @@ private:
     float compressorGainDb(float level) const noexcept
     {
         const float inputDb = gainToDb(level);
-        const float thresholdDb = -3.0f - params_.press * 27.0f;
-        const float ratio = 1.0f + params_.press * 19.0f;
+        const float press = std::clamp(
+            params_.press + pressModulation_, 0.0f, 1.0f);
+        const float thresholdDb = -3.0f - press * 27.0f;
+        const float ratio = 1.0f + press * 19.0f;
         constexpr float kneeDb = 6.0f;
         const float over = inputDb - thresholdDb;
         const float slope = 1.0f / ratio - 1.0f;
@@ -283,7 +302,8 @@ private:
 
     float processSaturation(uint32_t channel, float input) noexcept
     {
-        const float amount = params_.saturation;
+        const float amount = std::clamp(
+            params_.saturation + saturationModulation_, 0.0f, 1.0f);
         if (!(amount > 0.0f)) {
             previousSatInput_[channel] = input;
             return input;
@@ -297,7 +317,8 @@ private:
 
     float processBite(uint32_t channel, float input) noexcept
     {
-        const float amount = params_.bite;
+        const float amount = std::clamp(
+            params_.bite + biteModulation_, 0.0f, 1.0f);
         if (!(amount > 0.0f)) {
             previousBiteInput_[channel] = input;
             biteDcInput_[channel] = input;
@@ -338,8 +359,10 @@ private:
             * (input - tiltLow_[channel]);
         const float low = tiltLow_[channel];
         const float high = input - low;
-        const float lowGain = dbGain(-params_.tilt * 6.0f);
-        const float highGain = dbGain(params_.tilt * 6.0f);
+        const float tilt = std::clamp(
+            params_.tilt + tiltModulation_, -1.0f, 1.0f);
+        const float lowGain = dbGain(-tilt * 6.0f);
+        const float highGain = dbGain(tilt * 6.0f);
         return finite(low * lowGain + high * highGain);
     }
 
@@ -359,7 +382,18 @@ private:
         tiltCoefficient_ = 1.0f - std::exp(-kTwoPi * 900.0f / sampleRate_);
     }
 
+    static float finiteOffset(float value) noexcept
+    {
+        return std::clamp(std::isfinite(value) ? value : 0.0f,
+            -1.0f, 1.0f);
+    }
+
     BreakBusParams params_ {};
+    float pressModulation_ = 0.0f;
+    float snapModulation_ = 0.0f;
+    float biteModulation_ = 0.0f;
+    float saturationModulation_ = 0.0f;
+    float tiltModulation_ = 0.0f;
     std::array<float, kBreakBusMaximumChannels> detectorLow_ {};
     std::array<float, kBreakBusMaximumChannels> fastEnvelope_ {};
     std::array<float, kBreakBusMaximumChannels> slowEnvelope_ {};

@@ -1,3 +1,4 @@
+#include "../common/s3g_sample_file_decode.h"
 #if defined(S3G_SAMPLE_CUTUPS_VARIANT)
 #include "s3g_sample_cutups.h"
 #include "s3g_sample_cutups_analysis.h"
@@ -12,6 +13,11 @@
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_sample_storage.h"
+
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_family_vstgui.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -915,6 +921,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             return false;
         embeddedBytes += bytes;
     }
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    // An earlier asynchronous import must never replace a recalled state.
+    for (auto& generation : instance.loadGenerations) ++generation;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.clear();
+    }
+#endif
     for (std::size_t lane = 0u; lane < saved.lanes.size(); ++lane) {
         instance.projectFileRegistrations[lane].clear();
         const auto& state = saved.lanes[lane];
@@ -938,14 +952,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             asset = std::move(decoded);
         } else if (!locator.empty()) {
             if (mode == StorageMode::Project
-                && !std::filesystem::path(locator).is_absolute()) {
+                && !std::filesystem::u8path(locator).is_absolute()) {
                 std::string error;
                 const ReaperContext context
                     = s3g::sample_storage::reaperContext(instance.host);
                 (void)s3g::sample_storage::resolveProjectRelativePath(
                     context, locator, runtimePath, &error);
             }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
             std::string error;
             if (!runtimePath.empty())
                 (void)decodeSampleFile(runtimePath, asset, error,
@@ -1091,13 +1105,16 @@ bool pluginInit(const clap_plugin_t* plugin)
         instance.hostState = static_cast<const clap_host_state_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startLoader(instance)) return false;
 #endif
     return true;
 }
 
 void destroyGui(Plugin& instance);
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 
 void pluginDestroy(const clap_plugin_t* plugin)
 {
@@ -1105,8 +1122,13 @@ void pluginDestroy(const clap_plugin_t* plugin)
     if (!instance) return;
     for (auto& registration : instance->projectFileRegistrations)
         registration.clear();
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    destroyPortableGui(*instance);
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
 #if defined(__APPLE__)
     destroyGui(*instance);
+#endif
     stopLoader(*instance);
 #endif
     delete instance;
@@ -1322,7 +1344,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceLoads(*self(plugin));
 #else
     (void)plugin;
@@ -1548,6 +1570,877 @@ void destroyGui(Plugin&) {}
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+
+uint32_t portableParameterCount(void* context)
+{
+    return context ? paramsCount(&static_cast<Plugin*>(context)->plugin) : 0u;
+}
+
+bool portableParameterInfo(void* context, uint32_t index,
+    s3g::portable_gui::SampleFamilyParameterInfo* result)
+{
+    if (!context || !result) return false;
+    clap_param_info_t info {};
+    if (!paramsGetInfo(&static_cast<Plugin*>(context)->plugin, index, &info))
+        return false;
+    result->id = info.id;
+    std::snprintf(result->name, sizeof(result->name), "%s", info.name);
+    std::snprintf(result->module, sizeof(result->module), "%s", info.module);
+    result->minimum = info.min_value;
+    result->maximum = info.max_value;
+    result->defaultValue = info.default_value;
+    result->stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+    result->readOnly = (info.flags & CLAP_PARAM_IS_READONLY) != 0u;
+    return true;
+}
+
+double portableReadParameter(void* context, uint32_t id)
+{
+    if (!context) return 0.0;
+    double value = 0.0;
+    (void)paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), &value);
+    return value;
+}
+
+bool portableParameterText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, capacity);
+}
+
+void portableBeginParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamBegin(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableSetParameter(void* context, uint32_t id, double value)
+{
+    if (context) queueGuiParamValue(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id), value);
+}
+
+void portableEndParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamEnd(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+bool portableUsesLogarithmicSlider(uint32_t id) noexcept
+{
+    return id == kRateParamId || id == kCyclesParamId
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        || (id >= kLane1SpeedParamId && id <= kLane2SpeedParamId)
+#else
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        || id == kGrainDensityParamId || id == kGrainSizeParamId
+#endif
+        || (id >= kLane1SpeedParamId && id <= kLane4StretchParamId
+            && (id - kLane1SpeedParamId) % 3u < 2u)
+#endif
+        ;
+}
+
+double portableParameterToNormalized(void*, uint32_t id, double value)
+{
+    const auto* definition = paramDef(static_cast<clap_id>(id));
+    if (!definition || !(definition->maximum > definition->minimum))
+        return 0.0;
+    if (portableUsesLogarithmicSlider(id) && definition->minimum > 0.0)
+        return std::clamp(std::log(std::max(value, definition->minimum)
+                / definition->minimum)
+                / std::log(definition->maximum / definition->minimum),
+            0.0, 1.0);
+    double normalized = std::clamp((value - definition->minimum)
+        / (definition->maximum - definition->minimum), 0.0, 1.0);
+    if (id == kAttackParamId || id == kReleaseParamId
+        || id == kLaneSlewParamId)
+        normalized = std::sqrt(normalized);
+    return normalized;
+}
+
+double portableParameterFromNormalized(void*, uint32_t id,
+    double normalized)
+{
+    const auto* definition = paramDef(static_cast<clap_id>(id));
+    if (!definition) return 0.0;
+    normalized = std::clamp(normalized, 0.0, 1.0);
+    if (portableUsesLogarithmicSlider(id) && definition->minimum > 0.0)
+        return definition->minimum * std::pow(
+            definition->maximum / definition->minimum, normalized);
+    if (id == kAttackParamId || id == kReleaseParamId
+        || id == kLaneSlewParamId)
+        normalized *= normalized;
+    return definition->minimum
+        + normalized * (definition->maximum - definition->minimum);
+}
+
+void portableResetParameters(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : kParamDefs) {
+        if (parameterAvailableForPlugin(instance, definition.id))
+            queueGuiParamValue(instance, definition.id,
+                definition.defaultValue);
+    }
+}
+
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+constexpr std::array<const char*, 8u> portableFactoryPresetNames {{
+    "INIT", "Tight Sixteenths", "Transient Relay", "Tape Mosaic",
+    "Four File Walk", "Reverse Stutter", "Wide Cuts", "Manual Pattern",
+}};
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
+constexpr std::array<const char*, 8u> portableFactoryPresetNames {{
+    "INIT", "Soft Cloud", "Frozen Halo", "Loudness Sort",
+    "Stutter Field", "Shrinking Rain", "Doublet Scatter", "Manual Path",
+}};
+#else
+constexpr std::array<const char*, 8u> portableFactoryPresetNames {{
+    "INIT", "Diagonal Blend", "Diagonal Jumps", "Staircase",
+    "Sine Weave", "Random Cuts", "Ping Pong", "Manual Path",
+}};
+#endif
+
+uint32_t portableFactoryPresetCount(void*)
+{
+    return static_cast<uint32_t>(portableFactoryPresetNames.size());
+}
+
+const char* portableFactoryPresetName(void*, uint32_t index)
+{
+    return index < portableFactoryPresetNames.size()
+        ? portableFactoryPresetNames[index] : nullptr;
+}
+
+bool portableApplyFactoryPreset(void* context, uint32_t index)
+{
+    if (!context || index >= portableFactoryPresetNames.size()) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto set = [&](clap_id id, double value) {
+        if (parameterAvailableForPlugin(instance, id))
+            queueGuiParamGesture(instance, id, value);
+    };
+    for (const auto& definition : kParamDefs)
+        set(definition.id, definition.defaultValue);
+    std::array<LanePathPoint, kMaximumManualPathPoints> manualPoints {};
+    uint32_t manualPointCount = 0u;
+    switch (index) {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    case 1u:
+        set(kTransportParamId, 1.0); set(kRateBasisParamId, 4.0);
+        set(kPathParamId, 0.0); set(kBlendParamId, 1.0);
+        set(kLoopCrossfadeParamId, 3.0); break;
+    case 2u:
+        set(kShapeParamId, 1.0); set(kPathParamId, 4.0);
+        set(kBlendParamId, 3.0); set(kSkewParamId, 2.0);
+        set(kLoopCrossfadeParamId, 8.0); break;
+    case 3u:
+        set(kTransportParamId, 0.0); set(kRateParamId, 7.0);
+        set(kPathParamId, 3.0); set(kBlendParamId, 4.0);
+        set(kCurveParamId, 0.18); set(kCutPitchVariationParamId, 3.0);
+        set(kCutLevelVariationParamId, 0.20); break;
+    case 4u:
+        set(kPathParamId, 2.0); set(kBlendParamId, 5.0);
+        set(kShapeParamId, 1.0); set(kLaneSlewParamId, 0.16);
+        set(kSkewParamId, 2.0); break;
+    case 5u:
+        set(kRateBasisParamId, 5.0); set(kPathParamId, 0.0);
+        set(kBlendParamId, 2.0); set(kCutReverseChanceParamId, 0.72);
+        set(kManualLaneParamId, 0.62); break;
+    case 6u:
+        set(kShapeParamId, 1.0); set(kPathParamId, 4.0);
+        set(kOutputModeParamId, 1.0); set(kAllocationCadenceParamId, 1.0);
+        set(kTraversalParamId, 4.0); set(kOutputWidthParamId, 1.0); break;
+    case 7u: {
+        set(kPathParamId, 5.0); set(kBlendParamId, 6.0);
+        manualPointCount = static_cast<uint32_t>(manualPoints.size());
+        constexpr std::array<uint8_t, 8u> lanes {{
+            0u, 2u, 1u, 3u, 1u, 0u, 3u, 2u,
+        }};
+        for (uint32_t step = 0u; step < manualPointCount; ++step) {
+            manualPoints[step].phase = static_cast<float>(
+                (step * 5u) % manualPointCount)
+                / static_cast<float>(manualPointCount);
+            manualPoints[step].lane = static_cast<float>(
+                lanes[step % lanes.size()]) / 3.0f;
+        }
+        break;
+    }
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
+    case 1u:
+        set(kGrainSourceModeParamId, 2.0); set(kGrainDensityParamId, 32.0);
+        set(kGrainSizeParamId, 180.0); set(kPositionSprayParamId, 0.22);
+        set(kGrainEnvelopeParamId, 4.0);
+        set(kGrainSizeVariationParamId, 0.28);
+        set(kGrainLevelVariationParamId, 0.16);
+        set(kPositionBiasParamId, 1.0); break;
+    case 2u:
+        set(kGrainSourceModeParamId, 1.0); set(kSourcePositionParamId, 0.5);
+        set(kGrainSizeParamId, 300.0); set(kPitchSprayParamId, 0.16);
+        set(kEnvelopeSkewParamId, -0.24);
+        set(kPathParamId, 3.0); set(kCyclesParamId, 0.25); break;
+    case 3u:
+        set(kGrainSourceModeParamId, 3.0); set(kGrainMutateParamId, 1.0);
+        set(kMutateAmountParamId, 1.0); set(kRegionCountParamId, 16.0);
+        set(kPathParamId, 0.0); break;
+    case 4u:
+        set(kGrainMutateParamId, 2.0); set(kMutateAmountParamId, 0.72);
+        set(kGrainDensityParamId, 18.0); set(kPathParamId, 4.0);
+        set(kSourceAdvanceParamId, 1.0); set(kCyclesParamId, 2.0); break;
+    case 5u:
+        set(kGrainMutateParamId, 3.0); set(kMutateAmountParamId, 0.68);
+        set(kGrainSizeParamId, 140.0); set(kPathParamId, 6.0);
+        set(kGrainSizeVariationParamId, 0.42);
+        set(kSourceAdvanceParamId, 1.0); break;
+    case 6u:
+        set(kGrainMutateParamId, 4.0); set(kGrainTimingParamId, 1.0);
+        set(kTimingScatterParamId, 0.72); set(kMutateAmountParamId, 1.0);
+        set(kSourceTimeSyncParamId, 1.0); set(kTraversalParamId, 4.0);
+        set(kOutputModeParamId, 1.0); break;
+    case 7u:
+        set(kPathParamId, 7.0); set(kSourceAdvanceParamId, 1.0);
+        manualPoints[0u] = { 0.0f, 0.5f };
+        manualPoints[1u] = { 0.28f, 0.08f };
+        manualPoints[2u] = { 0.62f, 0.92f };
+        manualPoints[3u] = { 1.0f, 0.5f };
+        manualPointCount = 4u; break;
+#else
+    case 1u: break;
+    case 2u:
+        set(kBlendParamId, 1.0); set(kLaneSlewParamId, 0.008); break;
+    case 3u:
+        set(kPathParamId, 4.0); set(kBlendParamId, 1.0);
+        set(kLaneSlewParamId, 0.004); break;
+    case 4u:
+        set(kPathParamId, 3.0); set(kShapeParamId, 1.0);
+        set(kCyclesParamId, 2.0); break;
+    case 5u:
+        set(kPathParamId, 6.0); set(kBlendParamId, 1.0);
+        set(kCyclesParamId, 4.0); set(kLaneSlewParamId, 0.003);
+        set(kSeedParamId, 4312.0); break;
+    case 6u:
+        set(kTransportParamId, 2.0); set(kPathParamId, 2.0);
+        set(kShapeParamId, 1.0); break;
+    case 7u:
+        set(kPathParamId, 7.0); set(kManualLaneParamId, 0.5);
+        manualPoints[0u] = { 0.0f, 0.5f };
+        manualPoints[1u] = { 0.28f, 0.08f };
+        manualPoints[2u] = { 0.62f, 0.92f };
+        manualPoints[3u] = { 1.0f, 0.5f };
+        manualPointCount = 4u; break;
+#endif
+    default: break;
+    }
+    publishManualPath(instance, manualPoints, manualPointCount, true);
+    markStateDirty(instance);
+    return true;
+}
+
+uint32_t portableSampleSlotCount(void*)
+{
+    return static_cast<uint32_t>(s3g::sample::kSampleLaneCount);
+}
+
+const SampleAsset* portableAsset(void* context, uint32_t slot)
+{
+    if (!context || slot >= s3g::sample::kSampleLaneCount) return nullptr;
+    return static_cast<Plugin*>(context)->controlAssets[slot].get();
+}
+
+const char* portableSamplePath(void* context, uint32_t slot)
+{
+    static thread_local std::string path;
+    if (!context || slot >= s3g::sample::kSampleLaneCount) return "";
+    auto& instance = *static_cast<Plugin*>(context);
+    std::lock_guard<std::mutex> lock(instance.statusMutex);
+    path = instance.samplePaths[slot];
+    return path.c_str();
+}
+
+const char* portableSampleStatus(void* context, uint32_t slot)
+{
+    static thread_local std::string status;
+    if (!context || slot >= s3g::sample::kSampleLaneCount) return "";
+    auto& instance = *static_cast<Plugin*>(context);
+    std::lock_guard<std::mutex> lock(instance.statusMutex);
+    status = instance.statuses[slot];
+    return status.c_str();
+}
+
+bool portableLoadSample(void* context, uint32_t slot, const char* path)
+{
+    if (!context || !path || !path[0]
+        || slot >= s3g::sample::kSampleLaneCount) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    queueSampleLoad(*static_cast<Plugin*>(context), slot, path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool portableClearSample(void* context, uint32_t slot)
+{
+    if (!context || slot >= s3g::sample::kSampleLaneCount) return false;
+    clearLane(*static_cast<Plugin*>(context), slot);
+    return true;
+}
+
+const char* portableStorageName(void* context, uint32_t)
+{
+    return context ? s3g::sample_storage::storageModeName(
+        static_cast<Plugin*>(context)->storageMode) : "PROJECT";
+}
+
+bool portableCycleStorage(void* context, uint32_t)
+{
+    if (!context) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    auto& instance = *static_cast<Plugin*>(context);
+    const StorageMode next = instance.storageMode == StorageMode::Project
+        ? StorageMode::Link : (instance.storageMode == StorageMode::Link
+            ? StorageMode::Embed : StorageMode::Project);
+    setStorageMode(instance, next);
+    return true;
+#else
+    return false;
+#endif
+}
+
+float portableOutputPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t portableOutputChannelCount(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputChannelCount : 2u;
+}
+
+uint32_t portableCursors(void* context, uint32_t slot, float* positions,
+    uint8_t* keys, uint32_t capacity)
+{
+    if (!context || !positions || !keys
+        || slot >= s3g::sample::kSampleLaneCount) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.cursorCount.load(
+            std::memory_order_acquire),
+            static_cast<uint32_t>(instance.cursorKeys.size())));
+    for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+        positions[cursor] = instance.cursorLaneSourcePositions[cursor][slot]
+            .load(std::memory_order_relaxed);
+        keys[cursor] = instance.cursorKeys[cursor].load(
+            std::memory_order_relaxed);
+    }
+    return count;
+}
+
+uint32_t portableVisualizationPoints(void* context, uint32_t series,
+    s3g::portable_gui::SampleFamilyVisualPoint* output, uint32_t capacity)
+{
+    if (!context || !output || capacity == 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    if (series == 0u) {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        const InstrumentSettings settings = settingsSnapshot(instance);
+        const uint32_t count = std::min<uint32_t>(
+            std::min<uint32_t>(settings.patternLength,
+                static_cast<uint32_t>(settings.manualPattern.size())),
+            capacity);
+        for (uint32_t index = 0u; index < count; ++index) {
+            output[index].x = (static_cast<float>(index) + 0.05f)
+                / static_cast<float>(std::max(1u, count));
+            output[index].y = static_cast<float>(
+                settings.manualPattern[index].lane) / 3.0f;
+            output[index].width = 0.9f
+                / static_cast<float>(std::max(1u, count));
+            output[index].intensity = 1.0f;
+            output[index].kind = index;
+        }
+        return count;
+#else
+        const InstrumentSettings settings = settingsSnapshot(instance);
+        const uint32_t count = std::min<uint32_t>(capacity, 240u);
+        for (uint32_t index = 0u; index < count; ++index) {
+            const double horizontal = count > 1u
+                ? static_cast<double>(index) / (count - 1u) : 0.0;
+            const double phase = settings.path == LanePath::Manual
+                ? horizontal
+                : horizontal * settings.pathCycles + settings.pathOffset;
+            output[index].x = static_cast<float>(horizontal);
+            output[index].y = static_cast<float>(
+                s3g::sample::sampleLanePathUnit(phase, settings));
+        }
+        return count;
+#endif
+    }
+    if (series == 1u) {
+        std::array<LanePathPoint, kMaximumManualPathPoints> points {};
+        uint32_t count = manualPathSnapshot(instance, points);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+        const InstrumentSettings settings = settingsSnapshot(instance);
+        const uint32_t displayCount = std::min<uint32_t>(
+            settings.patternLength,
+            static_cast<uint32_t>(points.size()));
+        for (uint32_t index = count; index < displayCount; ++index) {
+            points[index].phase = settings.manualPattern[index].source;
+            points[index].lane = static_cast<float>(
+                settings.manualPattern[index].lane) / 3.0f;
+        }
+        count = displayCount;
+#else
+        const InstrumentSettings settings = settingsSnapshot(instance);
+        if (settings.path != LanePath::Manual) return 0u;
+        if (count < 2u) {
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+            constexpr float defaultLane = 0.5f;
+#else
+            const float defaultLane = static_cast<float>(paramValue(
+                instance, kManualLaneParamId));
+#endif
+            points[0u] = { 0.0f, defaultLane };
+            points[1u] = { 1.0f, defaultLane };
+            count = 2u;
+        }
+#endif
+        count = std::min<uint32_t>(count, capacity);
+        for (uint32_t index = 0u; index < count; ++index) {
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+            output[index].x = (static_cast<float>(index) + 0.5f)
+                / static_cast<float>(std::max(1u, count));
+            output[index].width = points[index].phase;
+#else
+            output[index].x = points[index].phase;
+#endif
+            output[index].y = points[index].lane;
+            output[index].kind = index;
+        }
+        return count;
+    }
+    if (series == 2u) {
+        const uint32_t count = std::min<uint32_t>(capacity,
+            std::min<uint32_t>(instance.cursorCount.load(
+                std::memory_order_acquire),
+                static_cast<uint32_t>(instance.cursorPathPhases.size())));
+        for (uint32_t index = 0u; index < count; ++index) {
+            output[index].x = instance.cursorPathPhases[index].load(
+                std::memory_order_relaxed);
+            output[index].y = instance.cursorLanePositions[index].load(
+                std::memory_order_relaxed);
+            output[index].kind = instance.cursorKeys[index].load(
+                std::memory_order_relaxed);
+        }
+        return count;
+    }
+    if (series >= 30u && series < 34u) {
+        const uint32_t lane = series - 30u;
+        const uint32_t count = std::min<uint32_t>(capacity,
+            std::min<uint32_t>(instance.cursorCount.load(
+                std::memory_order_acquire),
+                static_cast<uint32_t>(instance.cursorKeys.size())));
+        uint32_t written = 0u;
+        for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+            const float weight = instance.cursorLaneWeights[cursor][lane]
+                .load(std::memory_order_relaxed);
+            const float position
+                = instance.cursorLaneSourcePositions[cursor][lane].load(
+                    std::memory_order_relaxed);
+            if (!(weight > 0.01f) || position < 0.0f) continue;
+            auto& point = output[written++];
+            point.x = position;
+            point.y = 0.5f;
+            point.intensity = weight;
+            point.kind = instance.cursorKeys[cursor].load(
+                std::memory_order_relaxed);
+        }
+        return written;
+    }
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+    if (series == 3u) {
+        const uint32_t count = std::min<uint32_t>(capacity,
+            std::min<uint32_t>(instance.grainCursorCount.load(
+                std::memory_order_acquire),
+                static_cast<uint32_t>(
+                    instance.grainCursorPathClockPhases.size())));
+        for (uint32_t index = 0u; index < count; ++index) {
+            output[index].x = instance.grainCursorPathClockPhases[index].load(
+                std::memory_order_relaxed);
+            output[index].y = instance.grainCursorLanePositions[index].load(
+                std::memory_order_relaxed);
+            output[index].width = 0.008f + 0.022f
+                * instance.grainCursorPhases[index].load(
+                    std::memory_order_relaxed);
+            output[index].intensity = instance.grainCursorGains[index].load(
+                std::memory_order_relaxed);
+        }
+        return count;
+    }
+    if (series >= 10u && series < 14u) {
+        const uint32_t lane = series - 10u;
+        const uint32_t count = std::min<uint32_t>(capacity,
+            std::min<uint32_t>(instance.grainCursorCount.load(
+                std::memory_order_acquire),
+                static_cast<uint32_t>(
+                    instance.grainCursorPhases.size())));
+        uint32_t written = 0u;
+        for (uint32_t index = 0u; index < count && written < capacity;
+             ++index) {
+            const float weight = instance.grainCursorLaneWeights[index][lane]
+                .load(std::memory_order_relaxed);
+            const float start = instance
+                .grainCursorLaneSourcePositions[index][lane].load(
+                    std::memory_order_relaxed);
+            if (!(weight > 0.01f) || start < 0.0f) continue;
+            auto& point = output[written++];
+            point.x = start;
+            point.y = instance.grainCursorPhases[index].load(
+                std::memory_order_relaxed);
+            point.width = instance.grainCursorLaneSourceSpans[index][lane]
+                .load(std::memory_order_relaxed);
+            point.intensity = instance.grainCursorGains[index].load(
+                std::memory_order_relaxed);
+            point.kind = static_cast<uint32_t>(std::lround(
+                std::clamp(weight, 0.0f, 1.0f) * 65535.0f));
+        }
+        return written;
+    }
+#elif defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (series >= 20u && series < 24u) {
+        const uint32_t lane = series - 20u;
+        std::shared_ptr<const CutupsLaneMetadata> metadata;
+        {
+            std::lock_guard<std::mutex> lock(instance.statusMutex);
+            metadata = instance.controlMetadata[lane];
+        }
+        if (!metadata || !metadata->transientRegions.valid()) return 0u;
+        const uint32_t count = std::min<uint32_t>(capacity,
+            metadata->transientRegions.count);
+        for (uint32_t index = 0u; index < count; ++index)
+            output[index].x = metadata->transientRegions.starts[index];
+        return count;
+    }
+#endif
+    return 0u;
+}
+
+bool portableSetVisualizationPoint(void* context, uint32_t index,
+    float x, float y)
+{
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
+    uint32_t count = manualPathSnapshot(instance, points);
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    const InstrumentSettings settings = settingsSnapshot(instance);
+    const uint32_t editableCount = std::min<uint32_t>(
+        settings.patternLength, static_cast<uint32_t>(points.size()));
+    for (uint32_t fill = count; fill < editableCount; ++fill) {
+        points[fill].phase = settings.manualPattern[fill].source;
+        points[fill].lane = static_cast<float>(
+            settings.manualPattern[fill].lane) / 3.0f;
+    }
+    count = editableCount;
+#endif
+#if !defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (count < 2u) {
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        constexpr float defaultLane = 0.5f;
+#else
+        const float defaultLane = static_cast<float>(paramValue(
+            instance, kManualLaneParamId));
+#endif
+        points[0u] = { 0.0f, defaultLane };
+        points[1u] = { 1.0f, defaultLane };
+        count = 2u;
+    }
+#endif
+    if (index >= count) return false;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    (void)x;
+    points[index].lane = std::round(std::clamp(y, 0.0f, 1.0f)
+        * 3.0f) / 3.0f;
+    portableBeginParameter(context, kPathParamId);
+    portableSetParameter(context, kPathParamId,
+        static_cast<double>(CutFileOrder::Manual));
+    portableEndParameter(context, kPathParamId);
+#else
+    points[index].lane = std::clamp(y, 0.0f, 1.0f);
+    if (index != 0u && index + 1u != count)
+        points[index].phase = std::clamp(x,
+            points[index - 1u].phase + 0.002f,
+            points[index + 1u].phase - 0.002f);
+    portableBeginParameter(context, kPathParamId);
+    portableSetParameter(context, kPathParamId,
+        static_cast<double>(LanePath::Manual));
+    portableEndParameter(context, kPathParamId);
+#endif
+    publishManualPath(instance, points, count, true);
+    return true;
+}
+
+bool portableSetVisualizationPointWithAlternate(void* context,
+    uint32_t index, float x, float y, bool alternate)
+{
+#if !defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    (void)alternate;
+    return portableSetVisualizationPoint(context, index, x, y);
+#else
+    if (!context) return false;
+    (void)x;
+    auto& instance = *static_cast<Plugin*>(context);
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
+    uint32_t count = manualPathSnapshot(instance, points);
+    const InstrumentSettings settings = settingsSnapshot(instance);
+    const uint32_t editableCount = std::min<uint32_t>(
+        settings.patternLength, static_cast<uint32_t>(points.size()));
+    for (uint32_t fill = count; fill < editableCount; ++fill) {
+        points[fill].phase = settings.manualPattern[fill].source;
+        points[fill].lane = static_cast<float>(
+            settings.manualPattern[fill].lane) / 3.0f;
+    }
+    count = editableCount;
+    if (index >= count) return false;
+    if (alternate) {
+        points[index].phase = std::clamp(y, 0.0f, 1.0f);
+        portableBeginParameter(context, kBlendParamId);
+        portableSetParameter(context, kBlendParamId,
+            static_cast<double>(CutSourceOrder::Manual));
+        portableEndParameter(context, kBlendParamId);
+    } else {
+        points[index].lane = std::round(std::clamp(y, 0.0f, 1.0f)
+            * 3.0f) / 3.0f;
+    }
+    portableBeginParameter(context, kPathParamId);
+    portableSetParameter(context, kPathParamId,
+        static_cast<double>(CutFileOrder::Manual));
+    portableEndParameter(context, kPathParamId);
+    publishManualPath(instance, points, count, true);
+    return true;
+#endif
+}
+
+bool portableAddVisualizationPoint(void* context, float x, float y)
+{
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    (void)context; (void)x; (void)y;
+    return false;
+#else
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
+    uint32_t count = manualPathSnapshot(instance, points);
+    if (count < 2u) {
+#if defined(S3G_SAMPLE_GRAINS_VARIANT)
+        constexpr float defaultLane = 0.5f;
+#else
+        const float defaultLane = static_cast<float>(paramValue(
+            instance, kManualLaneParamId));
+#endif
+        points[0u] = { 0.0f, defaultLane };
+        points[1u] = { 1.0f, defaultLane };
+        count = 2u;
+    }
+    if (count >= points.size()) return false;
+    x = std::clamp(x, 0.0f, 1.0f);
+    y = std::clamp(y, 0.0f, 1.0f);
+    constexpr float endpointRadius = 10.0f / 632.0f;
+    if (x <= endpointRadius || x >= 1.0f - endpointRadius) {
+        const uint32_t endpoint = x <= endpointRadius ? 0u : count - 1u;
+        points[endpoint].lane = y;
+        portableBeginParameter(context, kPathParamId);
+        portableSetParameter(context, kPathParamId,
+            static_cast<double>(LanePath::Manual));
+        portableEndParameter(context, kPathParamId);
+        publishManualPath(instance, points, count, true);
+        return true;
+    }
+    uint32_t insert = 1u;
+    while (insert < count && points[insert].phase < x) ++insert;
+    for (uint32_t index = count; index > insert; --index)
+        points[index] = points[index - 1u];
+    points[insert] = { x, y };
+    portableBeginParameter(context, kPathParamId);
+    portableSetParameter(context, kPathParamId,
+        static_cast<double>(LanePath::Manual));
+    portableEndParameter(context, kPathParamId);
+    publishManualPath(instance, points, count + 1u, true);
+    return true;
+#endif
+}
+
+bool portableRemoveVisualizationPoint(void* context, uint32_t remove)
+{
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    (void)context; (void)remove;
+    return false;
+#else
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    if (static_cast<LanePath>(static_cast<uint8_t>(std::lround(
+            paramValue(instance, kPathParamId)))) != LanePath::Manual)
+        return false;
+    std::array<LanePathPoint, kMaximumManualPathPoints> points {};
+    uint32_t count = manualPathSnapshot(instance, points);
+    if (count <= 2u || remove == 0u || remove + 1u >= count) return false;
+    for (uint32_t index = remove; index + 1u < count; ++index)
+        points[index] = points[index + 1u];
+    portableBeginParameter(context, kPathParamId);
+    portableSetParameter(context, kPathParamId,
+        static_cast<double>(LanePath::Manual));
+    portableEndParameter(context, kPathParamId);
+    publishManualPath(instance, points, count - 1u, true);
+    return true;
+#endif
+}
+
+void portableRecalculate(void* context, uint32_t slot)
+{
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT) && defined(S3G_SAMPLE_FILE_WORKER)
+    if (context && slot < s3g::sample::kSampleLaneCount) {
+        auto& instance = *static_cast<Plugin*>(context);
+        instance.actionFeedback.fetch_or(kActionRecalculate, std::memory_order_release);
+        queueCutupsReanalysis(instance, slot);
+    }
+#else
+    (void)context;
+    (void)slot;
+#endif
+}
+
+void portableAction(void* context, uint32_t action, bool pressed)
+{
+    if (!context || !pressed) return;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    if (action == kActionRecalculate) return; // Slot-scoped editor callback.
+#endif
+    requestAction(*static_cast<Plugin*>(context), action);
+}
+void portableService(void* context)
+{
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    if (context) serviceLoads(*static_cast<Plugin*>(context));
+#else
+    (void)context;
+#endif
+}
+
+bool portableLoadPreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::loadStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+bool portableSavePreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::saveStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+const std::array<s3g::portable_gui::SampleFamilyWaveMarker, 2u>
+    portableMarkers {{
+        { kStartParamId, "S" },
+        { kEndParamId, "E" },
+    }};
+
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+const std::array<s3g::portable_gui::SampleFamilyAction, 3u>
+    portableActions {{
+        { kActionPreview, "PREVIEW", false },
+        { kActionStopAll, "STOP / KILL ALL", false },
+        { kActionRecalculate, "RECALCULATE", false },
+    }};
+#else
+const std::array<s3g::portable_gui::SampleFamilyAction, 2u>
+    portableActions {{
+        { kActionPreview, "PREVIEW", false },
+        { kActionStopAll, "STOP / KILL ALL", false },
+    }};
+#endif
+
+s3g::portable_gui::SampleFamilyEditorConfig
+makeSampleFamilyEditorConfig(Plugin& instance)
+{
+    s3g::portable_gui::SampleFamilyEditorConfig config {};
+    config.callbacks.context = &instance;
+    config.callbacks.getParameterCount = portableParameterCount;
+    config.callbacks.getParameterInfo = portableParameterInfo;
+    config.callbacks.getParam = portableReadParameter;
+    config.callbacks.getParamText = portableParameterText;
+    config.callbacks.beginParamEdit = portableBeginParameter;
+    config.callbacks.setParam = portableSetParameter;
+    config.callbacks.endParamEdit = portableEndParameter;
+    config.callbacks.parameterToNormalized = portableParameterToNormalized;
+    config.callbacks.parameterFromNormalized
+        = portableParameterFromNormalized;
+    config.callbacks.resetToDefaults = portableResetParameters;
+    config.callbacks.getFactoryPresetCount = portableFactoryPresetCount;
+    config.callbacks.getFactoryPresetName = portableFactoryPresetName;
+    config.callbacks.applyFactoryPreset = portableApplyFactoryPreset;
+    config.callbacks.getSampleSlotCount = portableSampleSlotCount;
+    config.callbacks.getAsset = portableAsset;
+    config.callbacks.getSamplePath = portableSamplePath;
+    config.callbacks.getSampleStatus = portableSampleStatus;
+    config.callbacks.loadSample = portableLoadSample;
+    config.callbacks.clearSample = portableClearSample;
+    config.callbacks.getStorageModeName = portableStorageName;
+    config.callbacks.cycleStorageMode = portableCycleStorage;
+    config.callbacks.getOutputPeak = portableOutputPeak;
+    config.callbacks.getOutputChannelCount = portableOutputChannelCount;
+    config.callbacks.getCursors = portableCursors;
+    config.callbacks.getVisualizationPoints = portableVisualizationPoints;
+    config.callbacks.setVisualizationPoint = portableSetVisualizationPoint;
+    config.callbacks.setVisualizationPointWithAlternate
+        = portableSetVisualizationPointWithAlternate;
+#if !defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    config.callbacks.addVisualizationPoint = portableAddVisualizationPoint;
+    config.callbacks.removeVisualizationPoint
+        = portableRemoveVisualizationPoint;
+#endif
+    config.callbacks.performAction = portableAction;
+    config.callbacks.recalculateSample = portableRecalculate;
+    config.callbacks.service = portableService;
+    config.callbacks.loadPreset = portableLoadPreset;
+    config.callbacks.savePreset = portableSavePreset;
+    config.pluginName = instance.plugin.desc->name;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    config.samplePanelName = "CUTUP SOURCES";
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
+    config.samplePanelName = "GRAIN SOURCES";
+#else
+    config.samplePanelName = "LANE SOURCES";
+#endif
+    config.markers = portableMarkers.data();
+    config.markerCount = static_cast<uint32_t>(portableMarkers.size());
+    config.actions = portableActions.data();
+    config.actionCount = static_cast<uint32_t>(portableActions.size());
+    config.nativeWidth = kGuiWidth;
+    config.nativeHeight = kGuiHeight;
+    config.minimumColumns = 4u;
+#if defined(S3G_SAMPLE_CUTUPS_VARIANT)
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Cutups;
+#elif defined(S3G_SAMPLE_GRAINS_VARIANT)
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Grains;
+#else
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Lanes;
+#endif
+    return config;
+}
+
+#include "../common/s3g_sample_family_clap_gui.inc"
+
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (!id) return nullptr;
@@ -1558,7 +2451,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif
     return nullptr;
@@ -2144,16 +3039,16 @@ void requestGuiParamService(Plugin& instance) noexcept
 uint64_t regularFileByteCount(const std::string& path) noexcept
 {
     std::error_code error;
-    if (path.empty() || !std::filesystem::is_regular_file(path, error))
+    if (path.empty() || !std::filesystem::is_regular_file(std::filesystem::u8path(path), error))
         return 0u;
-    const auto bytes = std::filesystem::file_size(path, error);
+    const auto bytes = std::filesystem::file_size(std::filesystem::u8path(path), error);
     return error ? 0u : static_cast<uint64_t>(bytes);
 }
 
 std::string sampleDisplayName(const std::string& path)
 {
     if (path.empty()) return "NO SAMPLE";
-    const std::string name = std::filesystem::path(path).filename().string();
+    const std::string name = std::filesystem::u8path(path).filename().u8string();
     return name.empty() ? s3g::sample_storage::abbreviatedPath(path) : name;
 }
 
@@ -2219,7 +3114,7 @@ bool publishMetadata(Plugin& instance, std::size_t lane,
 void clearLane(Plugin& instance, std::size_t lane)
 {
     if (lane >= s3g::sample::kSampleLaneCount) return;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     ++instance.loadGenerations[lane];
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -2260,11 +3155,12 @@ std::shared_ptr<const CutupsLaneMetadata> analyzeCutupsLane(
 }
 #endif
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error,
     uint32_t maximumChannels)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         NSError* nsError = nil;
@@ -2312,8 +3208,17 @@ bool decodeSampleFile(const std::string& path,
         error.clear();
         return true;
     }
-}
 
+#else
+    if (!s3g::sample_file::decodeWaveFile(path, assetOut, error)) return false;
+    if (assetOut->channelCount > std::min<uint32_t>(maximumChannels, s3g::sample::kMaximumAudioChannels)) {
+        assetOut.reset();
+        error = "CHANNEL COUNT NOT SUPPORTED";
+        return false;
+    }
+    return true;
+#endif
+}
 void loaderMain(Plugin* instance)
 {
     for (;;) {
@@ -2519,7 +3424,7 @@ void queueProjectCopy(Plugin& instance, std::size_t lane)
         return;
     }
     std::string absolute = path;
-    if (!std::filesystem::path(absolute).is_absolute()) {
+    if (!std::filesystem::u8path(absolute).is_absolute()) {
         if (!s3g::sample_storage::resolveProjectRelativePath(location, path,
                 absolute, &error)) return;
     }

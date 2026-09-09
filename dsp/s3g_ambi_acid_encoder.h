@@ -326,6 +326,7 @@ public:
         slideActive_ = false;
         gateOpen_ = false;
         amplitudeEnvelope_ = 0.0f;
+        gateOnsetPhase_ = 1.0f;
         filterEnvelope_ = 0.0f;
         accentEnvelope_ = 0.0f;
         oscillatorDc_ = 0.0f;
@@ -610,8 +611,11 @@ private:
         // nonlinear ladder drive and the selected post-filter circuit, then
         // rejoins only the body signal. This keeps its fundamental clean and
         // prevents distortion products from entering the spatial edge/wake.
-        body = (body + oscillator.cleanSub) * amplitudeEnvelope_;
-        edge *= amplitudeEnvelope_;
+        const float onsetGain = gateOnsetPhase_ < 1.0f
+            ? 0.5f - 0.5f * std::cos(kPi * gateOnsetPhase_) : 1.0f;
+        body = (body + oscillator.cleanSub)
+            * amplitudeEnvelope_ * onsetGain;
+        edge *= amplitudeEnvelope_ * onsetGain;
 
         wakeBuffer_[wakeWritePosition_] = flushDenormal(edge);
         wakeWritePosition_ =
@@ -805,8 +809,14 @@ private:
         if (current.gate) {
             gateOpen_ = true;
             if (!tied) {
-                amplitudeEnvelope_ = std::max(
-                    amplitudeEnvelope_, 0.015f);
+                // A fresh gate from silence previously forced the VCA to a
+                // non-zero floor in one sample. After nonlinear drive that
+                // small discontinuity could read as a click. Preserve a
+                // continuous envelope and open quiet/fresh starts through a
+                // short C1 window; already sounding step transitions remain
+                // continuous and are not needlessly ducked.
+                gateOnsetPhase_ = amplitudeEnvelope_ < 0.002f
+                    ? 0.0f : 1.0f;
                 filterEnvelope_ = 1.0f;
                 accentEnvelope_ = current.accent ? 1.0f : 0.0f;
             } else if (current.accent) {
@@ -866,6 +876,11 @@ private:
         amplitudeEnvelope_ += (amplitudeTarget - amplitudeEnvelope_)
             * (amplitudeTarget > amplitudeEnvelope_
                 ? attackCoefficient : releaseCoefficient);
+        if (gateOpen_ && gateOnsetPhase_ < 1.0f) {
+            gateOnsetPhase_ = std::min(1.0f, gateOnsetPhase_
+                + 1.0f / std::max(1.0f,
+                    static_cast<float>(sampleRate_ * 0.003)));
+        }
 
         const float filterDecaySeconds = params_.filterDecayMs * 0.001f
             * (1.0f + params_.accentAmount * accentEnvelope_ * 0.72f);
@@ -1135,6 +1150,7 @@ private:
     bool slideActive_ = false;
     bool gateOpen_ = false;
     float amplitudeEnvelope_ = 0.0f;
+    float gateOnsetPhase_ = 1.0f;
     float filterEnvelope_ = 0.0f;
     float accentEnvelope_ = 0.0f;
     float oscillatorDc_ = 0.0f;

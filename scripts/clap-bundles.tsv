@@ -54,6 +54,7 @@ clap_sample_lanes/s3g_sample_lanes.clap	s3g_sample_lanes_2.clap	org.s3g.s3g-dsp.
 clap_sample_grains/s3g_sample_grains.clap	s3g_sample_grains_2.clap	org.s3g.s3g-dsp.sample-grains	s3g Sample Grains 2
 clap_sample_cutups/s3g_sample_cutups.clap	s3g_sample_cutups_2.clap	org.s3g.s3g-dsp.sample-cutups	s3g Sample Cutups 2
 clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth_2.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth 2
+clap_processor_lowform/s3g_processor_lowform.clap	s3g_processor_lowform_2.clap	org.s3g.s3g-dsp.processor-lowform	s3g Processor Lowform 2
 clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack_2.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack 2
 clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit_2.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit 2
 clap_drum_kick/s3g_drum_kick.clap	s3g_drum_kick_2.clap	org.s3g.s3g-dsp.drum-kick	s3g Drum Kick 2

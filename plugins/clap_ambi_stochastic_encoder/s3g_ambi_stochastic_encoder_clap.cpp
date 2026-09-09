@@ -3,6 +3,12 @@
 #include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI)
+#include "../common/s3g_clap_gui_param_queue.h"
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_ambi_stochastic_encoder_vstgui.h"
+#endif
+
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
@@ -10,7 +16,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) && defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -324,10 +330,20 @@ struct Plugin {
     std::array<float*, kOutputChannels> scratchPointers {};
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<uint32_t> lastMidiNote { 0u };
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI)
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::portable_gui::AmbiStochasticEditor* guiEditor = nullptr;
+    uint32_t guiWidth = kGuiWidth;
+    uint32_t guiHeight = kGuiHeight;
+#elif defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+    && defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     void* realtimeActivity = nullptr;
+#endif
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
     std::atomic<bool> guiVisible { false };
     std::atomic<uint32_t> guiSelectedVoice { 0u };
     std::array<std::atomic<float>, s3g::kAmbiStochasticMaxVoices> guiAzimuth {};
@@ -746,7 +762,9 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
     }
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
 void publishGuiSnapshot(Plugin& plugin)
 {
     if (!plugin.guiVisible.load(std::memory_order_relaxed)) return;
@@ -842,8 +860,12 @@ bool init(const clap_plugin_t* plugin)
 void destroy(const clap_plugin_t* plugin)
 {
     auto* state = self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
     guiDestroy(plugin);
+#endif
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) && defined(__APPLE__)
     s3g::clap_support::endRealtimeActivity(state->realtimeActivity);
 #endif
     delete state;
@@ -879,7 +901,7 @@ void deactivate(const clap_plugin_t* plugin)
 
 bool startProcessing(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) && defined(__APPLE__)
     s3g::clap_support::beginRealtimeActivity(self(plugin)->realtimeActivity);
 #else
     (void)plugin;
@@ -889,7 +911,7 @@ bool startProcessing(const clap_plugin_t* plugin)
 
 void stopProcessing(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) && defined(__APPLE__)
     s3g::clap_support::endRealtimeActivity(self(plugin)->realtimeActivity);
 #else
     (void)plugin;
@@ -913,6 +935,10 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* state = self(plugin);
     if (!processData) return CLAP_PROCESS_CONTINUE;
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI)
+    s3g::clap_gui::serviceParamEvents(state->guiParamEvents,
+        processData->out_events, [](clap_id, double) {});
+#endif
     applyPendingPreset(*state);
     readEvents(*state, processData->in_events);
     if (processData->audio_outputs_count == 0u || !processData->audio_outputs) return CLAP_PROCESS_CONTINUE;
@@ -981,7 +1007,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
     state->outputPeak.store(std::max(state->outputPeak.load(std::memory_order_relaxed) * 0.92f, blockPeak),
         std::memory_order_relaxed);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
     publishGuiSnapshot(*state);
 #endif
     return CLAP_PROCESS_CONTINUE;
@@ -1363,9 +1391,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin,
+                 const clap_input_events_t* input,
+                 const clap_output_events_t* output)
 {
     auto* state = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI)
+    s3g::clap_gui::serviceParamEvents(state->guiParamEvents, output,
+        [](clap_id, double) {});
+#endif
     applyPendingPreset(*state);
     readEvents(*state, input);
 }
@@ -1387,7 +1421,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     saved.params = state->params;
     saved.factoryPresetIndex = state->factoryPresetIndex;
     std::strncpy(saved.presetName, state->presetName, sizeof(saved.presetName) - 1u);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
     saved.guiViewMode = state->guiViewMode;
     saved.guiViewAzDeg = state->guiViewAzDeg;
     saved.guiViewElDeg = state->guiViewElDeg;
@@ -1552,7 +1588,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     std::strncpy(state->presetName, loadedPresetName, sizeof(state->presetName) - 1u);
     state->presetName[sizeof(state->presetName) - 1u] = '\0';
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
     state->guiViewMode = loadedViewMode;
     state->guiViewAzDeg = loadedViewAzDeg;
     state->guiViewElDeg = loadedViewElDeg;
@@ -1565,7 +1603,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) && defined(__APPLE__)
 
 namespace {
 
@@ -3682,6 +3720,570 @@ const clap_plugin_gui_t guiExt {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI)
+namespace {
+
+static_assert(kGuiWaveSamples
+    == s3g::portable_gui::kStochasticGuiWaveSamples);
+
+void guiGetSnapshot(void* context,
+    s3g::portable_gui::AmbiStochasticEditorSnapshot* snapshot)
+{
+    if (!context || !snapshot) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    snapshot->params = instance.params;
+    snapshot->effectiveParams = stochasticSurfaceParams(instance);
+    snapshot->surface = instance.surface;
+    for (uint32_t voice = 0u;
+         voice < s3g::kAmbiStochasticMaxVoices; ++voice) {
+        snapshot->points[voice].azimuthDeg = instance.guiAzimuth[voice].load(
+            std::memory_order_relaxed);
+        snapshot->points[voice].elevationDeg = instance.guiElevation[voice].load(
+            std::memory_order_relaxed);
+        snapshot->points[voice].distance = instance.guiDistance[voice].load(
+            std::memory_order_relaxed);
+        snapshot->topology[voice] = {
+            instance.guiTopologyX[voice].load(std::memory_order_relaxed),
+            instance.guiTopologyY[voice].load(std::memory_order_relaxed),
+            instance.guiTopologyZ[voice].load(std::memory_order_relaxed),
+        };
+        snapshot->energy[voice] = instance.guiEnergy[voice].load(
+            std::memory_order_relaxed);
+        snapshot->renderGain[voice] = instance.guiRenderGain[voice].load(
+            std::memory_order_relaxed);
+        snapshot->kinetic[voice] = instance.guiKinetic[voice].load(
+            std::memory_order_relaxed);
+        snapshot->neighborInfluence[voice] =
+            instance.guiNeighborInfluence[voice].load(
+                std::memory_order_relaxed);
+        snapshot->selectionPulse[voice] =
+            instance.guiSelectionPulse[voice].load(
+                std::memory_order_relaxed);
+        snapshot->neighbor[voice] = instance.guiNeighbor[voice].load(
+            std::memory_order_relaxed);
+        snapshot->secondaryNeighbor[voice] =
+            instance.guiSecondaryNeighbor[voice].load(
+                std::memory_order_relaxed);
+        snapshot->currentGenerator[voice] =
+            instance.guiCurrentGenerator[voice].load(
+                std::memory_order_relaxed);
+        snapshot->nextGenerator[voice] =
+            instance.guiNextGenerator[voice].load(
+                std::memory_order_relaxed);
+        snapshot->fieldActive[voice] = instance.guiFieldActive[voice].load(
+            std::memory_order_relaxed);
+        snapshot->frequency[voice] = instance.guiFrequency[voice].load(
+            std::memory_order_relaxed);
+        snapshot->listenerPickup[voice] =
+            instance.guiListenerPickup[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerSecondaryPickup[voice] =
+            instance.guiListenerSecondaryPickup[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerPickupMix[voice] =
+            instance.guiListenerPickupMix[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerResponse[voice] =
+            instance.guiListenerResponse[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerEnergy[voice] =
+            instance.guiListenerEnergy[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerSignal[voice] =
+            instance.guiListenerSignal[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerCapture[voice] =
+            instance.guiListenerCapture[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerMutationRate[voice] =
+            instance.guiListenerMutationRate[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerEvolutionRate[voice] =
+            instance.guiListenerEvolutionRate[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerFieldClockRate[voice] =
+            instance.guiListenerFieldClockRate[voice].load(
+                std::memory_order_relaxed);
+        snapshot->listenerCascadeRate[voice] =
+            instance.guiListenerCascadeRate[voice].load(
+                std::memory_order_relaxed);
+    }
+    for (uint32_t ear = 0u; ear < s3g::kAmbiFieldListenerMaxLobes; ++ear)
+        snapshot->listenerEnvelope[ear] =
+            instance.guiListenerEnvelope[ear].load(
+                std::memory_order_relaxed);
+    for (uint32_t sample = 0u; sample < kGuiWaveSamples; ++sample) {
+        snapshot->currentWaveform[sample] =
+            instance.guiCurrentWaveform[sample].load(
+                std::memory_order_relaxed);
+        snapshot->nextWaveform[sample] =
+            instance.guiNextWaveform[sample].load(
+                std::memory_order_relaxed);
+    }
+    for (uint32_t point = 0u;
+         point < s3g::kAmbiStochasticMaxBreakpoints; ++point) {
+        snapshot->breakpointPosition[point] =
+            instance.guiBreakpointPosition[point].load(
+                std::memory_order_relaxed);
+        snapshot->breakpointAmplitude[point] =
+            instance.guiBreakpointAmplitude[point].load(
+                std::memory_order_relaxed);
+    }
+    for (uint32_t item = 0u;
+         item < s3g::kAmbiStochasticHistorySize; ++item)
+        snapshot->history[item] = instance.guiHistory[item].load(
+            std::memory_order_relaxed);
+    snapshot->voiceCount = instance.guiVoiceCount.load(
+        std::memory_order_relaxed);
+    snapshot->breakpointCount = instance.guiBreakpointCount.load(
+        std::memory_order_acquire);
+    snapshot->historyCursor = instance.guiHistoryCursor.load(
+        std::memory_order_relaxed);
+    snapshot->amplitudeBarrier = instance.guiAmplitudeBarrier.load(
+        std::memory_order_relaxed);
+    snapshot->durationBarrier = instance.guiDurationBarrier.load(
+        std::memory_order_relaxed);
+    snapshot->listenerActivity = instance.guiListenerActivity.load(
+        std::memory_order_relaxed);
+    snapshot->globalEnergy = instance.guiGlobalEnergy.load(
+        std::memory_order_relaxed);
+    snapshot->globalKinetic = instance.guiGlobalKinetic.load(
+        std::memory_order_relaxed);
+    const bool active = instance.active.load(std::memory_order_acquire);
+    snapshot->effectiveSurfaceX = active
+        ? instance.effectiveSurfaceX.load(std::memory_order_relaxed)
+        : instance.params.surfaceX;
+    snapshot->effectiveSurfaceY = active
+        ? instance.effectiveSurfaceY.load(std::memory_order_relaxed)
+        : instance.params.surfaceY;
+    snapshot->outputPeak = instance.outputPeak.load(
+        std::memory_order_relaxed);
+    snapshot->factoryPresetIndex = instance.factoryPresetIndex;
+    std::snprintf(snapshot->presetName, sizeof(snapshot->presetName), "%s",
+        instance.presetName);
+    snapshot->viewMode = instance.guiViewMode;
+    snapshot->viewAzimuthDeg = instance.guiViewAzDeg;
+    snapshot->viewElevationDeg = instance.guiViewElDeg;
+    snapshot->viewZoom = instance.guiViewZoom;
+}
+
+double guiParamValue(void* context, uint32_t id, bool effective)
+{
+    if (!context) return 0.0;
+    auto& instance = *static_cast<Plugin*>(context);
+    if (!effective) {
+        double value = 0.0;
+        paramsGetValue(&instance.plugin, static_cast<clap_id>(id), &value);
+        return value;
+    }
+    double value = 0.0;
+    const auto params = stochasticSurfaceParams(instance);
+    return parameterValue(params, static_cast<clap_id>(id), &value)
+        ? value : 0.0;
+}
+
+double guiGetParam(void* context, uint32_t id)
+{
+    return guiParamValue(context, id, false);
+}
+
+double guiGetEffectiveParam(void* context, uint32_t id)
+{
+    return guiParamValue(context, id, true);
+}
+
+bool guiGetParamText(void* context, uint32_t id, double value,
+                     char* text, uint32_t size)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, size);
+}
+
+bool guiGetDefaultValue(void* context, uint32_t id, double* value)
+{
+    if (!context || !value) return false;
+    auto* plugin = &static_cast<Plugin*>(context)->plugin;
+    for (uint32_t index = 0u; index < paramsCount(plugin); ++index) {
+        clap_param_info_t info {};
+        if (paramsGetInfo(plugin, index, &info) && info.id == id) {
+            *value = info.default_value;
+            return true;
+        }
+    }
+    return false;
+}
+
+void guiMarkCustom(Plugin& instance)
+{
+    instance.factoryPresetIndex = -1;
+    std::snprintf(instance.presetName, sizeof(instance.presetName), "%s",
+        "CUSTOM");
+}
+
+void guiSetParam(void* context, uint32_t id, double value)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    guiMarkCustom(instance);
+    applyParam(instance, static_cast<clap_id>(id), value);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::Value,
+        static_cast<clap_id>(id), value);
+}
+
+void guiBeginParamEdit(void* context, uint32_t id)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureBegin,
+        static_cast<clap_id>(id));
+}
+
+void guiEndParamEdit(void* context, uint32_t id)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureEnd,
+        static_cast<clap_id>(id));
+}
+
+void guiSetSelectedVoice(void* context, uint32_t voice)
+{
+    if (!context) return;
+    static_cast<Plugin*>(context)->guiSelectedVoice.store(
+        std::min<uint32_t>(voice, s3g::kAmbiStochasticMaxVoices - 1u),
+        std::memory_order_relaxed);
+}
+
+void guiSetViewState(void* context, int32_t mode, double azimuth,
+                     double elevation, double zoom)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.guiViewMode = std::clamp<int32_t>(mode, -1, 2);
+    instance.guiViewAzDeg = static_cast<float>(
+        std::clamp(azimuth, -180.0, 180.0));
+    instance.guiViewElDeg = static_cast<float>(
+        std::clamp(elevation, -90.0, 90.0));
+    instance.guiViewZoom = static_cast<float>(
+        std::clamp(zoom, 0.55, 2.20));
+}
+
+void guiRandomize(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto params = makeSafeRandomParams(instance);
+    const uint32_t surfaceEnabled = instance.surface.enabled;
+    s3g::bypassParameterSurfaceForSceneChange(instance.surface);
+    if (!queuePreset(instance, params)) {
+        instance.surface.enabled = surfaceEnabled;
+        return;
+    }
+    requestSurfaceProcess(instance);
+    instance.factoryPresetIndex = -1;
+    std::snprintf(instance.presetName, sizeof(instance.presetName), "%s",
+        "RANDOM");
+}
+
+void guiApplyFactoryPreset(void* context, uint32_t index)
+{
+    if (!context || index >= s3g::kAmbiStochasticFactoryPresetCount) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    auto params = s3g::ambiStochasticFactoryPreset(index);
+    params.outputGainDb = instance.params.outputGainDb;
+    if (!queuePreset(instance, params)) return;
+    const auto info = s3g::ambiStochasticFactoryPresetInfo(index);
+    instance.factoryPresetIndex = static_cast<int32_t>(index);
+    std::snprintf(instance.presetName, sizeof(instance.presetName), "%s",
+        info.name);
+}
+
+bool guiSurfaceAction(void* context,
+    s3g::portable_gui::AmbiStochasticSurfaceAction action, int32_t index,
+    double first, double second)
+{
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    bool changed = false;
+    switch (action) {
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::ToggleEnabled:
+        if (instance.surface.cellCount >= 2u) {
+            instance.surface.enabled = instance.surface.enabled ? 0u : 1u;
+            changed = true;
+        }
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::Add:
+        changed = s3g::addParameterSurfaceCell(instance.surface,
+            instance.params, instance.factoryPresetIndex,
+            instance.presetName);
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::Remove:
+        changed = index >= 0 && s3g::removeParameterSurfaceCell(
+            instance.surface, static_cast<uint32_t>(index));
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::Capture:
+        if (index >= 0
+            && static_cast<uint32_t>(index) < instance.surface.cellCount) {
+            auto& cell = instance.surface.cells[static_cast<uint32_t>(index)];
+            cell.params = instance.params;
+            cell.presetIndex = instance.factoryPresetIndex;
+            std::snprintf(cell.name, sizeof(cell.name), "%s",
+                instance.presetName);
+            changed = true;
+        }
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::MoveCell:
+        if (index >= 0
+            && static_cast<uint32_t>(index) < instance.surface.cellCount) {
+            auto& cell = instance.surface.cells[static_cast<uint32_t>(index)];
+            cell.x = static_cast<float>(std::clamp(first, 0.0, 1.0));
+            cell.y = static_cast<float>(std::clamp(second, 0.0, 1.0));
+            changed = true;
+        }
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::MoveCursor:
+        applyParam(instance, kSurfaceXParamId,
+            std::clamp(first, 0.0, 1.0));
+        applyParam(instance, kSurfaceYParamId,
+            std::clamp(second, 0.0, 1.0));
+        changed = true;
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::SetFocus:
+        instance.surface.focus = static_cast<float>(
+            std::clamp(first, 0.25, 8.0));
+        changed = true;
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::SetGlide:
+        instance.surface.glideMs = static_cast<float>(
+            std::clamp(first, 0.0, 2000.0));
+        changed = true;
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::SetCurve:
+        instance.surface.curve = static_cast<s3g::ParameterSurfaceCurve>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(first), 0u,
+                s3g::kParameterSurfaceCurveCount - 1u));
+        changed = true;
+        break;
+    case s3g::portable_gui::AmbiStochasticSurfaceAction::SetCellPreset:
+        if (index >= 0
+            && static_cast<uint32_t>(index) < instance.surface.cellCount
+            && first >= 0.0
+            && static_cast<uint32_t>(first)
+                < s3g::kAmbiStochasticFactoryPresetCount) {
+            const uint32_t preset = static_cast<uint32_t>(first);
+            auto& cell = instance.surface.cells[static_cast<uint32_t>(index)];
+            cell.params = s3g::ambiStochasticFactoryPreset(preset);
+            cell.presetIndex = static_cast<int32_t>(preset);
+            const auto info = s3g::ambiStochasticFactoryPresetInfo(preset);
+            std::snprintf(cell.name, sizeof(cell.name), "%s", info.name);
+            changed = true;
+        }
+        break;
+    }
+    if (changed) {
+        applyEffectiveParams(instance);
+        requestSurfaceProcess(instance);
+    }
+    return changed;
+}
+
+struct GuiStateFileWriter {
+    clap_ostream_t stream {};
+    std::FILE* file = nullptr;
+    GuiStateFileWriter()
+    {
+        stream.ctx = this;
+        stream.write = [](const clap_ostream_t* stream, const void* data,
+                          uint64_t size) -> int64_t {
+            auto* writer = static_cast<GuiStateFileWriter*>(stream->ctx);
+            if (!writer || !writer->file) return -1;
+            return static_cast<int64_t>(std::fwrite(data, 1u,
+                static_cast<size_t>(size), writer->file));
+        };
+    }
+};
+
+struct GuiStateFileReader {
+    clap_istream_t stream {};
+    std::FILE* file = nullptr;
+    GuiStateFileReader()
+    {
+        stream.ctx = this;
+        stream.read = [](const clap_istream_t* stream, void* data,
+                         uint64_t size) -> int64_t {
+            auto* reader = static_cast<GuiStateFileReader*>(stream->ctx);
+            if (!reader || !reader->file) return -1;
+            return static_cast<int64_t>(std::fread(data, 1u,
+                static_cast<size_t>(size), reader->file));
+        };
+    }
+};
+
+bool guiSavePreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    GuiStateFileWriter writer;
+    writer.file = s3g::portable_gui::foundation::openFileUtf8(path, "wb");
+    if (!writer.file) return false;
+    const bool succeeded = stateSave(
+        &static_cast<Plugin*>(context)->plugin, &writer.stream);
+    const bool closed = std::fclose(writer.file) == 0;
+    return succeeded && closed;
+}
+
+bool guiLoadPreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    GuiStateFileReader reader;
+    reader.file = s3g::portable_gui::foundation::openFileUtf8(path, "rb");
+    if (!reader.file) return false;
+    const bool succeeded = stateLoad(
+        &static_cast<Plugin*>(context)->plugin, &reader.stream);
+    const bool closed = std::fclose(reader.file) == 0;
+    return succeeded && closed;
+}
+
+bool guiIsApiSupported(const clap_plugin_t*, const char* api,
+                       bool isFloating)
+{
+    return s3g::clap_gui::portable::isApiSupported(api, isFloating);
+}
+
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api,
+                        bool* isFloating)
+{
+    return s3g::clap_gui::portable::getPreferredApi(api, isFloating);
+}
+
+bool guiCreate(const clap_plugin_t* plugin, const char* api,
+               bool isFloating)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::create(
+        instance.guiEditor, api, isFloating, [&instance]() {
+            s3g::portable_gui::AmbiStochasticEditorConfig config {};
+            config.callbacks.context = &instance;
+            config.callbacks.getSnapshot = guiGetSnapshot;
+            config.callbacks.getParam = guiGetParam;
+            config.callbacks.getEffectiveParam = guiGetEffectiveParam;
+            config.callbacks.getParamText = guiGetParamText;
+            config.callbacks.getDefaultValue = guiGetDefaultValue;
+            config.callbacks.beginParamEdit = guiBeginParamEdit;
+            config.callbacks.setParam = guiSetParam;
+            config.callbacks.endParamEdit = guiEndParamEdit;
+            config.callbacks.setSelectedVoice = guiSetSelectedVoice;
+            config.callbacks.setViewState = guiSetViewState;
+            config.callbacks.randomize = guiRandomize;
+            config.callbacks.applyFactoryPreset = guiApplyFactoryPreset;
+            config.callbacks.surfaceAction = guiSurfaceAction;
+            config.callbacks.loadPreset = guiLoadPreset;
+            config.callbacks.savePreset = guiSavePreset;
+            config.pluginName = "s3g AMBI ENCODER STOCHASTIC";
+            config.nativeWidth = kGuiWidth;
+            config.nativeHeight = kGuiHeight;
+            return s3g::portable_gui::createAmbiStochasticEditor(
+                config, instance.guiWidth, instance.guiHeight);
+        });
+}
+
+void guiDestroy(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    instance.guiVisible.store(false, std::memory_order_relaxed);
+    s3g::clap_gui::portable::destroy(instance.guiEditor,
+        s3g::portable_gui::destroyAmbiStochasticEditor);
+}
+
+bool guiSetScale(const clap_plugin_t*, double) { return false; }
+
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width,
+                uint32_t* height)
+{
+    const auto* instance = self(plugin);
+    return s3g::clap_gui::portable::getSize(instance->guiWidth,
+        instance->guiHeight, width, height);
+}
+
+bool guiCanResize(const clap_plugin_t*) { return true; }
+
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::portable::getResizeHints(
+        kGuiWidth, kGuiHeight, hints);
+}
+
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::portable::adjustSize(
+        kGuiWidth, kGuiHeight, width, height);
+}
+
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width,
+                uint32_t height)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setSize(instance.guiEditor,
+        kGuiWidth, kGuiHeight, instance.guiWidth, instance.guiHeight,
+        width, height, s3g::portable_gui::setAmbiStochasticEditorSize);
+}
+
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
+{
+    return s3g::clap_gui::portable::setParent(self(plugin)->guiEditor,
+        window, s3g::portable_gui::setAmbiStochasticEditorParent);
+}
+
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*)
+{
+    return false;
+}
+
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+
+bool guiShow(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setVisible(instance.guiEditor,
+        instance.guiVisible, true,
+        s3g::portable_gui::setAmbiStochasticEditorVisible);
+}
+
+bool guiHide(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setVisible(instance.guiEditor,
+        instance.guiVisible, false,
+        s3g::portable_gui::setAmbiStochasticEditorVisible);
+}
+
+const clap_plugin_gui_t guiExt {
+    guiIsApiSupported,
+    guiGetPreferredApi,
+    guiCreate,
+    guiDestroy,
+    guiSetScale,
+    guiGetSize,
+    guiCanResize,
+    guiGetResizeHints,
+    guiAdjustSize,
+    guiSetSize,
+    guiSetParent,
+    guiSetTransient,
+    guiSuggestTitle,
+    guiShow,
+    guiHide,
+};
+
+} // namespace
+#endif
+
 namespace {
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
@@ -3690,7 +4292,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_STOCHASTIC_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_STOCHASTIC_GUI) \
+        && defined(__APPLE__))
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

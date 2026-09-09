@@ -94,6 +94,10 @@ s3g_ambi_terrain_encoder.clap	org.s3g.s3g-dsp.ambi-terrain-encoder-64	s3g_ambi_e
 s3g_diffusion_mesh.clap	org.s3g.s3g-dsp.diffusion-mesh	retired
 s3g_loop_field.clap	org.s3g.s3g-dsp.loop-field-8ch	s3g_sample_rings_8.clap
 s3g_low_frequency_synth.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g_processor_lf_synth_2.clap
+s3g_bass_workstation.clap	org.s3g.s3g-dsp.bass-workstation	s3g_processor_lowform_2.clap
+s3g_bass_workstation_2.clap	org.s3g.s3g-dsp.bass-workstation	s3g_processor_lowform_2.clap
+s3g_lowform.clap	org.s3g.s3g-dsp.lowform	s3g_processor_lowform_2.clap
+s3g_lowform_2.clap	org.s3g.s3g-dsp.lowform	s3g_processor_lowform_2.clap
 s3g_modal_encoder.clap	org.s3g.s3g-dsp.accelerometer-field-encoder-16	s3g_ambi_encoder_modal_16.clap
 s3g_modal_terrain.clap	org.s3g.s3g-dsp.modal-terrain-8ch	retired
 s3g_node_track_mixer.clap	org.s3g.s3g-dsp.node-track-mixer	s3g_mixer_node_bus_128.clap

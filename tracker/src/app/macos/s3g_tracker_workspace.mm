@@ -1210,6 +1210,29 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 @end
 
+@interface S3GTrackerTransportFieldGroup : NSView
+@property(nonatomic, strong) NSTextField* fieldLabel;
+@property(nonatomic, strong) NSControl* fieldControl;
+@end
+
+@implementation S3GTrackerTransportFieldGroup
+
+- (BOOL)isFlipped { return YES; }
+
+- (void)layout
+{
+    [super layout];
+    constexpr CGFloat labelHeight = 12.0;
+    constexpr CGFloat gap = 2.0;
+    constexpr CGFloat controlHeight = 22.0;
+    self.fieldLabel.frame = NSMakeRect(0.0, 0.0,
+        NSWidth(self.bounds), labelHeight);
+    self.fieldControl.frame = NSMakeRect(0.0, labelHeight + gap,
+        NSWidth(self.bounds), controlHeight);
+}
+
+@end
+
 @interface S3GTrackerWorkspaceController () <NSTextFieldDelegate>
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, assign) WorkspaceCallbacks* trackerCallbacks;
@@ -1221,6 +1244,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerToolboxView* inputViewPanel;
 @property(nonatomic, strong) NSStackView* patternPrimaryControls;
 @property(nonatomic, strong) NSStackView* transportPrimaryControls;
+@property(nonatomic, strong) NSScrollView* transportPrimaryScroll;
 @property(nonatomic, strong) NSStackView* inputPrimaryControls;
 @property(nonatomic, strong) S3GTrackerGridScrollView* gridScroll;
 @property(nonatomic, strong) S3GTrackerGridView* gridView;
@@ -13764,6 +13788,37 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     return label;
 }
 
+- (S3GTrackerTransportFieldGroup*)transportFieldGroup:(NSString*)text
+    control:(NSControl*)control width:(CGFloat)width
+{
+    NSTextField* label = [self suiteLabel:text
+        alignment:NSTextAlignmentCenter];
+    label.textColor = S3GTrackerThemeColor(S3GTrackerThemeRole::TextMuted);
+    label.accessibilityLabel = [NSString stringWithFormat:
+        @"Transport %@ label", text];
+    S3GTrackerTransportFieldGroup* group =
+        [[S3GTrackerTransportFieldGroup alloc] initWithFrame:NSZeroRect];
+    group.fieldLabel = label;
+    group.fieldControl = control;
+    group.accessibilityLabel = [NSString stringWithFormat:
+        @"Transport %@ field", text];
+    [group addSubview:label];
+    [group addSubview:control];
+    [group.widthAnchor constraintEqualToConstant:width].active = YES;
+    [group.heightAnchor constraintEqualToConstant:36.0].active = YES;
+    return group;
+}
+
+- (NSBox*)transportSeparator
+{
+    NSBox* separator = [[NSBox alloc] initWithFrame:NSZeroRect];
+    separator.boxType = NSBoxSeparator;
+    separator.accessibilityElement = NO;
+    [separator.widthAnchor constraintEqualToConstant:1.0].active = YES;
+    [separator.heightAnchor constraintEqualToConstant:36.0].active = YES;
+    return separator;
+}
+
 - (NSButton*)button:(NSString*)title action:(SEL)action
 {
     S3GTrackerActionButton* button = [[S3GTrackerActionButton alloc]
@@ -13916,15 +13971,33 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
     self.patternPrimaryControls = [self toolboxRowInPanel:self.patternPanel
         top:25.0];
-    self.transportPrimaryControls = [self toolboxRowInPanel:self.transportPanel
-        top:25.0];
+    self.transportPrimaryControls = [[S3GTrackerFocusReleaseStackView alloc]
+        initWithFrame:NSZeroRect];
+    self.transportPrimaryControls.orientation =
+        NSUserInterfaceLayoutOrientationHorizontal;
+    self.transportPrimaryControls.alignment = NSLayoutAttributeBottom;
+    self.transportPrimaryControls.spacing = 8.0;
+    self.transportPrimaryScroll = [self horizontalStripForStack:
+        self.transportPrimaryControls];
+    self.transportPrimaryScroll.accessibilityLabel =
+        @"Labeled Tracker transport controls";
+    [self.transportPanel addSubview:self.transportPrimaryScroll];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.transportPrimaryScroll.leadingAnchor constraintEqualToAnchor:
+            self.transportPanel.leadingAnchor constant:8.0],
+        [self.transportPrimaryScroll.trailingAnchor constraintEqualToAnchor:
+            self.transportPanel.trailingAnchor constant:-8.0],
+        [self.transportPrimaryScroll.topAnchor constraintEqualToAnchor:
+            self.transportPanel.topAnchor constant:25.0],
+        [self.transportPrimaryScroll.heightAnchor constraintEqualToConstant:36.0],
+    ]];
     self.inputPrimaryControls = [self toolboxRowInPanel:self.inputViewPanel
         top:25.0];
     NSStackView* patternPrimary = self.patternPrimaryControls;
     NSStackView* transportPrimary = self.transportPrimaryControls;
     NSStackView* inputPrimary = self.inputPrimaryControls;
     patternPrimary.spacing = 8.0;
-    transportPrimary.spacing = 3.0;
+    transportPrimary.spacing = 8.0;
     inputPrimary.spacing = 8.0;
 
     self.patternPopup = [[S3GTrackerPopupButton alloc]
@@ -14000,6 +14073,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     panicButton.accessibilityLabel = @"Clear active MIDI notes";
     [panicButton.widthAnchor constraintEqualToConstant:55.0].active = YES;
     [transportPrimary addArrangedSubview:panicButton];
+    [transportPrimary addArrangedSubview:[self transportSeparator]];
     self.tempoScalePopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.tempoScalePopup.s3gUsesCanvasMenu = YES;
@@ -14013,15 +14087,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             @(kTempoScales[index]);
     }
     [self.tempoScalePopup.widthAnchor constraintEqualToConstant:60.0].active = YES;
-    [transportPrimary addArrangedSubview:self.tempoScalePopup];
+    [transportPrimary addArrangedSubview:[self transportFieldGroup:@"BPM"
+        control:self.tempoScalePopup width:60.0]];
     self.swingField = [[S3GTrackerSwingSlider alloc] initWithFrame:NSZeroRect];
-    self.swingField.s3gLabel = @"SW";
+    self.swingField.s3gLabel = @"";
     self.swingField.target = self;
     self.swingField.action = @selector(transportFieldChanged:);
     self.swingField.accessibilityLabel = @"Swing percentage";
     self.swingField.toolTip = @"Drag the short slider or scroll to set global swing from 50 to 75 percent";
     [self.swingField.widthAnchor constraintEqualToConstant:90.0].active = YES;
-    [transportPrimary addArrangedSubview:self.swingField];
+    [transportPrimary addArrangedSubview:[self transportFieldGroup:@"SWING"
+        control:self.swingField width:90.0]];
     self.gateField = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.gateField.s3gUsesCanvasMenu = YES;
@@ -14029,8 +14105,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.gateField.action = @selector(gateFieldChanged:);
     self.gateField.accessibilityLabel = @"MIDI gate in milliseconds";
     [self.gateField.widthAnchor constraintEqualToConstant:62.0].active = YES;
-    [transportPrimary addArrangedSubview:self.gateField];
+    [transportPrimary addArrangedSubview:[self transportFieldGroup:@"GATE"
+        control:self.gateField width:62.0]];
 
+    [transportPrimary addArrangedSubview:[self transportSeparator]];
     self.loopStartField = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.loopStartField.s3gUsesCanvasMenu = YES;
@@ -14039,7 +14117,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.loopStartField.toolTip = @"First loop row";
     self.loopStartField.accessibilityLabel = @"First loop row";
     [self.loopStartField.widthAnchor constraintEqualToConstant:55.0].active = YES;
-    [transportPrimary addArrangedSubview:self.loopStartField];
+    [transportPrimary addArrangedSubview:[self
+        transportFieldGroup:@"LOOP IN" control:self.loopStartField
+        width:55.0]];
     self.loopEndField = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.loopEndField.s3gUsesCanvasMenu = YES;
@@ -14048,7 +14128,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.loopEndField.toolTip = @"Last loop row";
     self.loopEndField.accessibilityLabel = @"Last loop row";
     [self.loopEndField.widthAnchor constraintEqualToConstant:55.0].active = YES;
-    [transportPrimary addArrangedSubview:self.loopEndField];
+    [transportPrimary addArrangedSubview:[self
+        transportFieldGroup:@"LOOP OUT" control:self.loopEndField
+        width:55.0]];
 
     self.sequenceColumnsButton = [self button:@"EXPAND DETAIL"
         action:@selector(toggleSequenceColumns:)];
@@ -14117,7 +14199,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.midiStepRecordPopup.toolTip = @"Arm recording to the lane shown beside this menu; STEP advances by View JUMP; live modes follow the written row; LIVE MT preserves each chord voice's timing in an aligned MT stack";
     [self.midiStepRecordPopup.widthAnchor
         constraintEqualToConstant:75.0].active = YES;
-    [transportPrimary addArrangedSubview:self.midiStepRecordPopup];
+    [transportPrimary addArrangedSubview:[self transportSeparator]];
+    [transportPrimary addArrangedSubview:[self
+        transportFieldGroup:@"RECORD" control:self.midiStepRecordPopup
+        width:75.0]];
     self.midiRecordTrackPopup = [[S3GTrackerPopupButton alloc]
         initWithFrame:NSZeroRect pullsDown:NO];
     self.midiRecordTrackPopup.s3gUsesCanvasMenu = YES;
@@ -14127,7 +14212,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.midiRecordTrackPopup.toolTip = @"Choose the fixed lane that receives MIDI recording; editing selection remains independent";
     [self.midiRecordTrackPopup.widthAnchor
         constraintEqualToConstant:50.0].active = YES;
-    [transportPrimary addArrangedSubview:self.midiRecordTrackPopup];
+    [transportPrimary addArrangedSubview:[self transportFieldGroup:@"LANE"
+        control:self.midiRecordTrackPopup width:50.0]];
 
     self.zoomOutButton = [self button:@"−" action:@selector(zoomOutPressed:)];
     self.zoomOutButton.accessibilityLabel = @"Zoom Tracker out";
@@ -14145,8 +14231,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.zoomInButton.toolTip = @"Zoom the Tracker spreadsheet in";
     [self.zoomInButton.widthAnchor constraintEqualToConstant:26.0].active = YES;
     [inputPrimary addArrangedSubview:self.zoomInButton];
+    for (NSView* view in transportPrimary.arrangedSubviews) {
+        if ([view isKindOfClass:NSControl.class])
+            [view.heightAnchor constraintEqualToConstant:22.0].active = YES;
+    }
     [self constrainToolboxControlHeights:@[
-        patternPrimary, transportPrimary, inputPrimary,
+        patternPrimary, inputPrimary,
     ]];
 
     self.gridView = [[S3GTrackerGridView alloc] initWithState:self.trackerState
@@ -14324,7 +14414,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             root.trailingAnchor constant:-18.0],
         [self.transportPanel.bottomAnchor constraintEqualToAnchor:
             root.bottomAnchor constant:-12.0],
-        [self.transportPanel.heightAnchor constraintEqualToConstant:51.0],
+        [self.transportPanel.heightAnchor constraintEqualToConstant:68.0],
 
         [consoleTitle.leadingAnchor constraintEqualToAnchor:self.consolePanel.leadingAnchor constant:12.0],
         [consoleTitle.centerYAnchor constraintEqualToAnchor:self.consolePanel.centerYAnchor],
@@ -14382,6 +14472,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [super viewDidLayout];
     [self resizeHorizontalStrip:self.transportControls
         inScrollView:self.transportScroll];
+    [self resizeHorizontalStrip:self.transportPrimaryControls
+        inScrollView:self.transportPrimaryScroll];
     const auto* displayedPattern = playbackFollowPattern(self.trackerState);
     const std::size_t lanes = displayedPattern
         ? std::min<std::size_t>(s3g::tracker::kMaximumTrackCount,

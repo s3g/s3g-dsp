@@ -1,7 +1,13 @@
+#include "../common/s3g_sample_file_decode.h"
 #include "s3g_sample_wavesets.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_sample_storage.h"
 #include "../common/s3g_clap_state_stream.h"
+
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_family_vstgui.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -216,7 +222,7 @@ struct StateHeader {
 
 static_assert(sizeof(StateHeader) == 12u);
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     bool storageOnly = false;
@@ -321,7 +327,7 @@ struct Plugin {
     bool projectCopyInFlight = false;
     std::chrono::steady_clock::time_point nextProjectCopyProbe {};
     bool active = false;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::atomic<bool> projectRenamePending { false };
     s3g::sample_storage::ProjectFileRegistration projectFileRegistration;
     std::mutex loaderMutex;
@@ -331,8 +337,16 @@ struct Plugin {
     std::thread loaderThread;
     uint64_t loadGeneration = 0u;
     bool loaderStopping = false;
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    s3g::portable_gui::SampleFamilyEditor* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth;
+    uint32_t portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
 #endif
 };
 
@@ -384,7 +398,7 @@ uint64_t regularFileByteCount(const std::string& path) noexcept
 {
     if (path.empty()) return 0u;
     std::error_code error;
-    const auto bytes = std::filesystem::file_size(path, error);
+    const auto bytes = std::filesystem::file_size(std::filesystem::u8path(path), error);
     return error || bytes > std::numeric_limits<uint64_t>::max()
         ? 0u : static_cast<uint64_t>(bytes);
 }
@@ -418,7 +432,7 @@ std::string sampleStorageDisplayText(const Plugin& instance,
         instance.samplePath, maximumPathCharacters);
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 void projectSampleRenamed(void* owner, const std::string& absolutePath)
 {
     auto* instance = static_cast<Plugin*>(owner);
@@ -703,7 +717,7 @@ bool publishMap(Plugin& instance, std::shared_ptr<const WavesetMap> map,
     if (!resolvedPath.empty()) {
         instance.resolvedSamplePath = std::move(resolvedPath);
     } else if (!sameLocator) {
-        instance.resolvedSamplePath = std::filesystem::path(
+        instance.resolvedSamplePath = std::filesystem::u8path(
                 instance.samplePath).is_absolute()
             ? instance.samplePath : std::string {};
     }
@@ -716,7 +730,7 @@ bool publishMap(Plugin& instance, std::shared_ptr<const WavesetMap> map,
     if (instance.samplePath.empty()) {
         instance.projectCopyPending = false;
         instance.projectSavePending = false;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
         instance.projectFileRegistration.clear();
 #endif
     }
@@ -735,10 +749,11 @@ bool publishMap(Plugin& instance, std::shared_ptr<const WavesetMap> map,
     return true;
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         NSError* nsError = nil;
@@ -776,8 +791,17 @@ bool decodeSampleFile(const std::string& path,
         error.clear();
         return true;
     }
-}
 
+#else
+    if (!s3g::sample_file::decodeWaveFile(path, assetOut, error)) return false;
+    if (assetOut->channelCount > 2u) {
+        assetOut.reset();
+        error = "CHANNEL COUNT NOT SUPPORTED";
+        return false;
+    }
+    return true;
+#endif
+}
 void loaderMain(Plugin* instance)
 {
     for (;;) {
@@ -1149,7 +1173,7 @@ bool pluginInit(const clap_plugin_t* plugin)
         instance.hostState = static_cast<const clap_host_state_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startLoader(instance)) return false;
 #endif
     return true;
@@ -1158,12 +1182,20 @@ bool pluginInit(const clap_plugin_t* plugin)
 #if defined(__APPLE__)
 void destroyGui(Plugin& instance);
 #endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 
 void pluginDestroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
     auto& instance = *self(plugin);
+#if defined(__APPLE__)
     destroyGui(instance);
+#endif
     instance.projectFileRegistration.clear();
     instance.projectRenamePending.store(false, std::memory_order_release);
     stopLoader(instance);
@@ -1355,7 +1387,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceLoads(instance);
     if (instance.analysisDirty.exchange(false, std::memory_order_acq_rel))
         queueReanalysis(instance);
@@ -1898,13 +1930,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     bool projectLocatorPending = false;
     if (!path.empty()) {
         if (requestedStorageMode == StorageMode::Project) {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
             std::string error;
             const auto context = s3g::sample_storage::reaperContext(
                 instance.host);
             if (!s3g::sample_storage::resolveProjectRelativePath(context,
                     path, resolvedPath, &error)) {
-                if (std::filesystem::path(path).is_absolute())
+                if (std::filesystem::u8path(path).is_absolute())
                     resolvedPath = path;
                 projectLocatorPending = true;
             }
@@ -1936,7 +1968,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             asset = std::move(decoded);
         } catch (...) { return false; }
     } else if (!resolvedPath.empty()) {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
         std::string error;
         (void)decodeSampleFile(resolvedPath, asset, error);
 #endif
@@ -1945,6 +1977,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (asset) map = s3g::sample::analyzeWavesets(asset,
         crossingDetail(instance));
     if (asset && !map) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    ++instance.loadGeneration;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.clear();
+    }
+    instance.projectCopyInFlight = false;
+#endif
     publishMap(instance, std::move(map), path, false, resolvedPath,
         regularFileByteCount(resolvedPath));
     instance.storageMode = requestedStorageMode;
@@ -1952,7 +1992,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         && projectLocatorPending && instance.controlMap
         && !instance.resolvedSamplePath.empty();
     instance.projectSavePending = instance.projectCopyPending;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (requestedStorageMode == StorageMode::Project
         && instance.controlMap && !projectLocatorPending
         && !instance.resolvedSamplePath.empty()) {
@@ -1978,7 +2018,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             + (instance.controlMap
                 ? " WAVESETS RESTORED" : " RESTORED / SAMPLE OFFLINE");
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     maybeQueuePendingProjectStorage(instance);
 #endif
     return true;
@@ -5254,6 +5294,786 @@ const clap_plugin_gui_t gui {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+
+uint32_t portableParameterCount(void* context)
+{
+    return context ? paramsCount(&static_cast<Plugin*>(context)->plugin) : 0u;
+}
+
+bool portableParameterInfo(void* context, uint32_t index,
+    s3g::portable_gui::SampleFamilyParameterInfo* result)
+{
+    if (!context || !result) return false;
+    clap_param_info_t info {};
+    if (!paramsGetInfo(&static_cast<Plugin*>(context)->plugin, index, &info))
+        return false;
+    result->id = info.id;
+    std::snprintf(result->name, sizeof(result->name), "%s", info.name);
+    std::snprintf(result->module, sizeof(result->module), "%s", info.module);
+    result->minimum = info.min_value;
+    result->maximum = info.max_value;
+    result->defaultValue = info.default_value;
+    result->stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+    result->readOnly = (info.flags & CLAP_PARAM_IS_READONLY) != 0u;
+    return true;
+}
+
+double portableReadParameter(void* context, uint32_t id)
+{
+    if (!context) return 0.0;
+    double value = 0.0;
+    (void)paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), &value);
+    return value;
+}
+
+bool portableParameterText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, capacity);
+}
+
+void portableBeginParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamBegin(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableSetParameter(void* context, uint32_t id, double value)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    queueGuiParamValue(instance, static_cast<clap_id>(id), value);
+}
+void portableEndParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamEnd(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableResetParameters(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : kParamDefs)
+        queueGuiParamValue(instance, definition.id, definition.defaultValue);
+}
+
+constexpr std::array<const char*, 13u> portableFactoryPresetNames {{
+    "INIT", "Clean Forward", "Forward Loop", "Stereo Poly",
+    "Reverse Blocks", "Held Tone", "Average Group", "Interpolated Flow",
+    "Fractal Copies", "Additive Harmonics", "Group Reverse",
+    "Cycle Reverse", "Telescope",
+}};
+
+uint32_t portableFactoryPresetCount(void*)
+{
+    return static_cast<uint32_t>(portableFactoryPresetNames.size());
+}
+
+const char* portableFactoryPresetName(void*, uint32_t index)
+{
+    return index < portableFactoryPresetNames.size()
+        ? portableFactoryPresetNames[index] : nullptr;
+}
+
+bool portableApplyFactoryPreset(void* context, uint32_t index)
+{
+    if (!context || index >= portableFactoryPresetNames.size()) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : kParamDefs)
+        queueGuiParamGesture(instance, definition.id,
+            definition.defaultValue);
+    if (index != 0u) {
+        const uint32_t factory = index - 1u;
+        queueGuiParamGesture(instance, kSourceModeParamId, 3.0);
+        queueGuiParamGesture(instance, kVoiceModeParamId,
+            factory == 2u ? 0.0 : 1.0);
+        queueGuiParamGesture(instance, kRepeatParamId, 2.0);
+        const auto set = [&](clap_id id, double value) {
+            queueGuiParamGesture(instance, id, value);
+        };
+        switch (factory) {
+        case 1u: set(kPlayModeParamId, 1.0); break;
+        case 2u: set(kVoiceModeParamId, 0.0); break;
+        case 3u:
+            set(kPlayModeParamId, 3.0); set(kGroupParamId, 4.0);
+            set(kRepeatParamId, 4.0); set(kDirectionParamId, 1.0); break;
+        case 4u: set(kAdvanceParamId, 2.0); break;
+        case 5u:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 5.0);
+            set(kProcessParamId, 0.75); break;
+        case 6u:
+            set(kPlayModeParamId, 1.0); set(kGroupParamId, 2.0);
+            set(kRepeatParamId, 8.0); set(kShapeParamId, 6.0);
+            set(kProcessParamId, 1.0); break;
+        case 7u:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 7.0);
+            set(kProcessParamId, 0.70); break;
+        case 8u:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 8.0);
+            set(kProcessParamId, 0.65); break;
+        case 9u:
+            set(kPlayModeParamId, 1.0); set(kGroupParamId, 4.0);
+            set(kShapeParamId, 9.0); set(kProcessParamId, 1.0); break;
+        case 10u:
+            set(kPlayModeParamId, 1.0); set(kShapeParamId, 10.0);
+            set(kProcessParamId, 1.0); break;
+        case 11u:
+            set(kPlayModeParamId, 1.0); set(kGroupParamId, 4.0);
+            set(kRepeatParamId, 1.0); set(kShapeParamId, 11.0);
+            set(kProcessParamId, 1.0); break;
+        default: break;
+        }
+    }
+    markStateDirty(instance);
+    return true;
+}
+
+uint32_t portableSampleSlotCount(void*) { return 1u; }
+
+const SampleAsset* portableAsset(void* context, uint32_t)
+{
+    if (!context) return nullptr;
+    const auto& map = static_cast<Plugin*>(context)->controlMap;
+    return map ? map->asset.get() : nullptr;
+}
+
+const char* portableSamplePath(void* context, uint32_t)
+{
+    return context ? static_cast<Plugin*>(context)->samplePath.c_str() : "";
+}
+
+const char* portableSampleStatus(void* context, uint32_t)
+{
+    return context ? static_cast<Plugin*>(context)->status.c_str() : "";
+}
+
+bool portableLoadSample(void* context, uint32_t, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    queueSampleLoad(*static_cast<Plugin*>(context), path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool portableClearSample(void* context, uint32_t)
+{
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    ++instance.loadGeneration;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.clear();
+    }
+    instance.projectCopyInFlight = false;
+#endif
+    return publishMap(instance, nullptr, "");
+}
+
+const char* portableStorageName(void* context, uint32_t)
+{
+    return context ? s3g::sample_storage::storageModeName(
+        static_cast<Plugin*>(context)->storageMode) : "PROJECT";
+}
+
+bool portableCycleStorage(void* context, uint32_t)
+{
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.storageMode = nextStorageMode(instance.storageMode);
+    if (instance.storageMode != StorageMode::Project) {
+        if (!instance.resolvedSamplePath.empty())
+            instance.samplePath = instance.resolvedSamplePath;
+        instance.projectCopyPending = false;
+        instance.projectSavePending = false;
+        instance.projectCopyInFlight = false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        instance.projectFileRegistration.clear();
+#endif
+        instance.status = instance.storageMode == StorageMode::Embed
+            ? "EMBED STORAGE / PCM SAVED IN STATE"
+            : "LINK STORAGE / ORIGINAL FILE REQUIRED";
+    } else if (instance.controlMap) {
+        instance.projectCopyPending = true;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        (void)queueProjectStorage(instance);
+#endif
+    }
+    markStateDirty(instance);
+    return true;
+}
+
+float portableOutputPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t portableOutputChannelCount(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputChannelCount : 2u;
+}
+
+uint32_t portableCursorTrajectories(void* context,
+    s3g::portable_gui::SampleCursorTrajectory* output, uint32_t capacity)
+{
+    if (!context || !output) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const WavesetMap* map = instance.publishedMap.load(std::memory_order_acquire);
+    if (!map || !map->asset || map->asset->frameCount() == 0) return 0u;
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.voiceCursorCount.load(std::memory_order_acquire),
+            static_cast<uint32_t>(instance.voiceCursorTransportPositions.size())));
+    const auto playMode = static_cast<WavesetPlayMode>(
+        std::lround(paramValue(instance, kPlayModeParamId)));
+    const bool looping = playMode != WavesetPlayMode::Forward
+        && playMode != WavesetPlayMode::Reverse;
+    const bool pingPong = playMode == WavesetPlayMode::ForwardPingPong
+        || playMode == WavesetPlayMode::ReversePingPong;
+    const auto advance = static_cast<WavesetAdvanceMode>(
+        std::lround(paramValue(instance, kAdvanceParamId)));
+    double traversal = paramValue(instance, kStrideParamId);
+    if (advance == WavesetAdvanceMode::Hold) traversal = 0;
+    else if (advance == WavesetAdvanceMode::Stretch)
+        traversal /= std::max(1.0, paramValue(instance, kRepeatParamId));
+    if (static_cast<WavesetShape>(std::lround(paramValue(instance, kShapeParamId)))
+        == WavesetShape::Telescope) {
+        const uint32_t group = kGroupSizes[static_cast<std::size_t>(std::clamp(
+            static_cast<int>(std::lround(paramValue(instance, kGroupParamId))), 0, 5))];
+        const uint32_t advanceCycles = 1u + static_cast<uint32_t>(std::lround(
+            std::clamp(paramValue(instance, kProcessParamId), 0.0, 1.0) * (group - 1u)));
+        const uint32_t outputCycles = (group + advanceCycles - 1u) / advanceCycles;
+        traversal *= static_cast<double>(group) / std::max(1u, outputCycles);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        auto& t = output[i];
+        t.asset = reinterpret_cast<uintptr_t>(map);
+        t.identity = instance.voiceCursorIdentities[i].load(std::memory_order_relaxed);
+        t.discontinuity = instance.cursorRevision.load(std::memory_order_acquire);
+        t.position = instance.voiceCursorTransportPositions[i].load(std::memory_order_relaxed);
+        const bool forward = instance.voiceCursorDirections[i].load(std::memory_order_relaxed);
+        const double start = paramValue(instance, kStartParamId);
+        const double end = paramValue(instance, kEndParamId);
+        const double loopStart = paramValue(instance, kLoopStartParamId);
+        const double loopEnd = paramValue(instance, kLoopEndParamId);
+        bool inLoop = looping && instance.voiceCursorEnteredLoops[i].load(std::memory_order_relaxed);
+        if (looping && !inLoop)
+            inLoop = std::abs((forward ? loopStart : loopEnd) - (forward ? start : end)) < 1e-9;
+        t.low = inLoop ? loopStart : start;
+        t.high = inLoop ? loopEnd : end;
+        if (looping && !inLoop) {
+            if (forward) t.high = loopStart;
+            else t.low = loopEnd;
+        }
+        t.low = std::clamp(t.low, 0.0, 1.0);
+        t.high = std::clamp(t.high, t.low, 1.0);
+        const double key = instance.voiceCursorKeys[i].load(std::memory_order_relaxed);
+        const double pitch = std::pow(2.0, (key - paramValue(instance, kRootNoteParamId)
+            + paramValue(instance, kTuneParamId) + paramValue(instance, kFineTuneParamId) * 0.01) / 12.0);
+        // Ping-pong direction is encoded in the identity of the initial anchor,
+        // not reapplied at every DSP turn (which would restart the animation).
+        const bool reverseOrigin = playMode == WavesetPlayMode::ReversePingPong;
+        const double sign = pingPong && inLoop ? (reverseOrigin ? -1.0 : 1.0)
+            : (forward ? 1.0 : -1.0);
+        t.rate = map->asset->sampleRate / map->asset->frameCount() * pitch * traversal * sign;
+        t.loop = looping && inLoop;
+        t.pingPong = pingPong;
+        t.running = instance.processing.load(std::memory_order_acquire);
+    }
+    return count;
+}
+
+uint32_t portableCursors(void* context, uint32_t, float* positions,
+    uint8_t* keys, uint32_t capacity)
+{
+    if (!context || !positions || !keys) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.voiceCursorCount.load(
+            std::memory_order_acquire),
+            static_cast<uint32_t>(
+                instance.voiceCursorTransportPositions.size())));
+    for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+        positions[cursor]
+            = instance.voiceCursorTransportPositions[cursor].load(
+                std::memory_order_relaxed);
+        keys[cursor] = instance.voiceCursorKeys[cursor].load(
+            std::memory_order_relaxed);
+    }
+    return count;
+}
+
+uint32_t portableCursorStates(void* context, uint32_t,
+    s3g::portable_gui::SampleFamilyCursorState* output, uint32_t capacity)
+{
+    if (!context || !output) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.voiceCursorCount.load(
+            std::memory_order_acquire),
+            static_cast<uint32_t>(
+                instance.voiceCursorTransportPositions.size())));
+    for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+        auto& cursorState = output[cursor];
+        cursorState.position
+            = instance.voiceCursorTransportPositions[cursor].load(
+                std::memory_order_relaxed);
+        cursorState.key = instance.voiceCursorKeys[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.outputFirst = instance.voiceCursorOutputFirst[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.outputSecond = instance.voiceCursorOutputSecond[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.outputWidth = instance.voiceCursorOutputWidths[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.hasOutputRouting = isMultichannel(instance);
+    }
+    return count;
+}
+
+struct PortableWavesetsScopeFocus {
+    uint32_t slot = std::numeric_limits<uint32_t>::max();
+    float groupPosition = 0.0f;
+    uint32_t cycleOffset = 0u;
+    uint32_t repeatIndex = 0u;
+    uint32_t randomState = 0x12345678u;
+    bool pendulumForward = true;
+    bool progressionForward = true;
+    double oscillatorPhase = 0.0;
+};
+
+PortableWavesetsScopeFocus portableWavesetsScopeFocus(
+    const Plugin& instance, const WavesetSettings& settings) noexcept
+{
+    PortableWavesetsScopeFocus focus {};
+    const uint32_t count = std::min<uint32_t>(
+        instance.voiceCursorCount.load(std::memory_order_acquire),
+        static_cast<uint32_t>(instance.voiceCursorIdentities.size()));
+    uint64_t newestIdentity = 0u;
+    for (uint32_t slot = 0u; slot < count; ++slot) {
+        const uint64_t identity = instance.voiceCursorIdentities[slot].load(
+            std::memory_order_relaxed);
+        if (focus.slot == std::numeric_limits<uint32_t>::max()
+            || identity > newestIdentity) {
+            focus.slot = slot;
+            newestIdentity = identity;
+        }
+    }
+    if (focus.slot == std::numeric_limits<uint32_t>::max()) {
+        focus.groupPosition = static_cast<float>(settings.start);
+        return focus;
+    }
+    focus.groupPosition = instance.voiceCursorGroupPositions[focus.slot].load(
+        std::memory_order_relaxed);
+    if (focus.groupPosition < 0.0f)
+        focus.groupPosition = static_cast<float>(settings.start);
+    focus.cycleOffset = instance.voiceCursorCycleOffsets[focus.slot].load(
+        std::memory_order_relaxed) % std::max(1u, settings.groupSize);
+    focus.repeatIndex = instance.voiceCursorRepeatIndices[focus.slot].load(
+        std::memory_order_relaxed) % std::max(1u, settings.repeats);
+    focus.randomState = instance.voiceCursorRandomStates[focus.slot].load(
+        std::memory_order_relaxed);
+    focus.pendulumForward
+        = instance.voiceCursorPendulumForwards[focus.slot].load(
+            std::memory_order_relaxed);
+    focus.progressionForward
+        = instance.voiceCursorDirections[focus.slot].load(
+            std::memory_order_relaxed);
+    focus.oscillatorPhase = std::clamp(static_cast<double>(
+        instance.voiceCursorOscillatorPhases[focus.slot].load(
+            std::memory_order_relaxed)), 0.0, 1.0);
+    return focus;
+}
+
+bool portableWavesetsScopeState(void* context,
+    s3g::portable_gui::SampleFamilyWavesetsScopeState* output)
+{
+    if (!context || !output) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const WavesetMap* map = instance.publishedMap.load(
+        std::memory_order_acquire);
+    if (!map || !map->valid() || !map->asset || !map->asset->valid())
+        return false;
+    const WavesetSettings settings = settingsSnapshot(instance);
+    const auto focus = portableWavesetsScopeFocus(instance, settings);
+    output->channelCount = map->asset->channelCount;
+    output->groupSize = std::max(1u, settings.groupSize);
+    output->cycleOffset = focus.cycleOffset;
+    output->repeatIndex = focus.repeatIndex;
+    output->repeats = std::max(1u, settings.repeats);
+    output->processAmount = settings.processAmount;
+    output->hasFocusedVoice
+        = focus.slot != std::numeric_limits<uint32_t>::max();
+    output->hasOutputRouting = isMultichannel(instance);
+    if (output->hasFocusedVoice) {
+        output->key = instance.voiceCursorKeys[focus.slot].load(
+            std::memory_order_relaxed);
+        output->outputFirst = instance.voiceCursorOutputFirst[focus.slot].load(
+            std::memory_order_relaxed);
+        output->outputSecond
+            = instance.voiceCursorOutputSecond[focus.slot].load(
+                std::memory_order_relaxed);
+        output->outputWidth
+            = instance.voiceCursorOutputWidths[focus.slot].load(
+                std::memory_order_relaxed);
+    }
+    std::snprintf(output->processName, sizeof(output->processName), "%s",
+        shapeName(static_cast<int>(settings.shape)));
+    return true;
+}
+
+std::size_t portableWavesetsNearestUnit(
+    const std::vector<WavesetUnit>& units, double normalized,
+    uint32_t frameCount) noexcept
+{
+    const double position = std::clamp(normalized, 0.0, 1.0)
+        * static_cast<double>(frameCount);
+    auto found = std::lower_bound(units.begin(), units.end(), position,
+        [](const WavesetUnit& unit, double target) {
+            return unit.startPosition < target;
+        });
+    if (found == units.end()) return units.size() - 1u;
+    if (found != units.begin()) {
+        const auto prior = found - 1;
+        if (std::abs(prior->startPosition - position)
+            <= std::abs(found->startPosition - position))
+            return static_cast<std::size_t>(prior - units.begin());
+    }
+    return static_cast<std::size_t>(found - units.begin());
+}
+
+std::size_t portableWavesetsResolvedUnit(std::size_t base, uint32_t offset,
+    const WavesetSettings& settings, uint32_t randomState,
+    bool pendulumForward, std::size_t unitCount) noexcept
+{
+    uint32_t ordered = offset % settings.groupSize;
+    if (settings.direction == WavesetDirection::Reverse)
+        ordered = settings.groupSize - 1u - ordered;
+    else if (settings.direction == WavesetDirection::Pendulum
+        && !pendulumForward)
+        ordered = settings.groupSize - 1u - ordered;
+    else if (settings.direction == WavesetDirection::Shuffle) {
+        uint32_t mixed = randomState
+            ^ (offset * 0x9e3779b9u + 0x7f4a7c15u);
+        mixed ^= mixed >> 16u;
+        ordered = mixed % settings.groupSize;
+    }
+    return (base + ordered) % unitCount;
+}
+
+float portableWavesetsSampleAt(const std::vector<float>& samples,
+    double position) noexcept
+{
+    position = std::clamp(position, 0.0,
+        static_cast<double>(samples.size() - 1u));
+    const uint32_t frame = static_cast<uint32_t>(position);
+    const uint32_t next = std::min<uint32_t>(frame + 1u,
+        static_cast<uint32_t>(samples.size() - 1u));
+    const float fraction = static_cast<float>(position - frame);
+    return samples[frame] + (samples[next] - samples[frame]) * fraction;
+}
+
+float portableWavesetsUnitSample(const std::vector<float>& samples,
+    const WavesetUnit& unit, double phase, float join) noexcept
+{
+    phase -= std::floor(phase);
+    const double position = unit.startPosition + phase * unit.sampleLength();
+    const float raw = portableWavesetsSampleAt(samples, position);
+    const float start = portableWavesetsSampleAt(samples, unit.startPosition);
+    const float end = portableWavesetsSampleAt(samples, unit.endPosition);
+    const float corrected = raw
+        - (start + (end - start) * static_cast<float>(phase));
+    return raw + (corrected - raw) * std::clamp(join, 0.0f, 1.0f);
+}
+
+float portableWavesetsProcessedSample(
+    const std::vector<WavesetUnit>& units,
+    const std::vector<float>& samples, std::size_t base, uint32_t offset,
+    uint32_t repeatIndex, uint32_t randomState, bool pendulumForward,
+    bool progressionForward, const WavesetSettings& settings,
+    double phase) noexcept
+{
+    const auto resolved = [&](uint32_t groupOffset) {
+        return portableWavesetsResolvedUnit(base, groupOffset, settings,
+            randomState, pendulumForward, units.size());
+    };
+    const std::size_t current = resolved(offset);
+    const float raw = portableWavesetsUnitSample(samples, units[current],
+        phase, settings.joinAmount);
+    const float amount = std::clamp(settings.processAmount, 0.0f, 1.0f);
+    const auto blend = [raw, amount](float wet) {
+        return raw + (wet - raw) * amount;
+    };
+    const auto groupAverage = [&] {
+        double sum = 0.0;
+        for (uint32_t member = 0u; member < settings.groupSize; ++member)
+            sum += portableWavesetsUnitSample(samples,
+                units[resolved(member)], phase, settings.joinAmount);
+        return static_cast<float>(sum / std::max(1u, settings.groupSize));
+    };
+    switch (settings.shape) {
+    case WavesetShape::Omit: {
+        uint32_t hash = static_cast<uint32_t>(base) * 747796405u
+            + 2891336453u;
+        hash = ((hash >> ((hash >> 28u) + 4u)) ^ hash) * 277803737u;
+        hash = (hash >> 22u) ^ hash;
+        return static_cast<float>(hash & 0xffffu) / 65535.0f < amount
+            ? raw * (1.0f - amount) : raw;
+    }
+    case WavesetShape::Replace: {
+        std::size_t strongest = resolved(0u);
+        for (uint32_t member = 1u; member < settings.groupSize; ++member) {
+            const std::size_t candidate = resolved(member);
+            if (units[candidate].peak > units[strongest].peak)
+                strongest = candidate;
+        }
+        return blend(portableWavesetsUnitSample(samples, units[strongest],
+            phase, settings.joinAmount));
+    }
+    case WavesetShape::Envelope: {
+        const double sine = std::sin(3.14159265358979323846 * phase);
+        return blend(raw * static_cast<float>(sine * sine));
+    }
+    case WavesetShape::Multiply:
+        return blend(portableWavesetsUnitSample(samples, units[current],
+            phase * (2.0 + std::lround(amount * 6.0f)),
+            settings.joinAmount));
+    case WavesetShape::Average:
+        return blend(groupAverage());
+    case WavesetShape::Interpolate: {
+        const std::size_t adjacent = progressionForward
+            ? (current + 1u) % units.size()
+            : (current + units.size() - 1u) % units.size();
+        const float target = portableWavesetsUnitSample(samples,
+            units[adjacent], phase, settings.joinAmount);
+        const double morph = (static_cast<double>(repeatIndex) + phase)
+            / static_cast<double>(std::max(1u, settings.repeats));
+        return blend(raw + (target - raw)
+            * static_cast<float>(std::clamp(morph, 0.0, 1.0)));
+    }
+    case WavesetShape::Fractal: {
+        double sum = raw;
+        double normalization = 1.0;
+        for (uint32_t level = 1u; level <= 4u; ++level) {
+            const double weight = std::ldexp(1.0, -static_cast<int>(level));
+            sum += portableWavesetsUnitSample(samples, units[current],
+                phase * static_cast<double>(1u << level),
+                settings.joinAmount) * weight;
+            normalization += weight;
+        }
+        return blend(static_cast<float>(sum / normalization));
+    }
+    case WavesetShape::AdditiveHarmonic: {
+        const uint32_t highest = 2u + static_cast<uint32_t>(
+            std::lround(amount * 6.0f));
+        double sum = raw;
+        double normalization = 1.0;
+        for (uint32_t harmonic = 2u; harmonic <= highest; ++harmonic) {
+            const double weight = 1.0 / static_cast<double>(harmonic);
+            sum += portableWavesetsUnitSample(samples, units[current],
+                phase * harmonic, settings.joinAmount) * weight;
+            normalization += weight;
+        }
+        return blend(static_cast<float>(sum / normalization));
+    }
+    case WavesetShape::GroupReverse: {
+        const std::size_t reversed = resolved(settings.groupSize - 1u
+            - (offset % settings.groupSize));
+        return blend(portableWavesetsUnitSample(samples, units[reversed],
+            1.0 - phase, settings.joinAmount));
+    }
+    case WavesetShape::CycleReverse:
+        return blend(portableWavesetsUnitSample(samples, units[current],
+            1.0 - phase, settings.joinAmount));
+    case WavesetShape::Telescope: {
+        double sum = 0.0;
+        for (uint32_t member = 0u; member < settings.groupSize; ++member)
+            sum += portableWavesetsUnitSample(samples, units[resolved(member)],
+                phase, settings.joinAmount);
+        return blend(static_cast<float>(std::tanh(sum
+            / std::sqrt(static_cast<double>(
+                std::max(1u, settings.groupSize))))));
+    }
+    case WavesetShape::Repeat:
+    default: return raw;
+    }
+}
+
+uint32_t portableVisualizationPoints(void* context, uint32_t series,
+    s3g::portable_gui::SampleFamilyVisualPoint* output, uint32_t capacity)
+{
+    if (!context || !output || capacity == 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const WavesetMap* map = instance.publishedMap.load(
+        std::memory_order_acquire);
+    if (!map || !map->valid() || !map->asset || !map->asset->valid())
+        return 0u;
+    const uint32_t channel = series / 4u;
+    const uint32_t laneSeries = series % 4u;
+    if (channel >= map->asset->channelCount
+        || channel >= map->channelUnits.size()) return 0u;
+    const WavesetSettings settings = settingsSnapshot(instance);
+    const auto focus = portableWavesetsScopeFocus(instance, settings);
+    const auto& units = map->channelUnits[channel];
+    const auto& samples = map->asset->channels[channel];
+    if (units.empty() || samples.empty()) return 0u;
+    const std::size_t base = portableWavesetsNearestUnit(units,
+        focus.groupPosition, map->asset->frameCount());
+    const uint32_t group = std::max(1u, settings.groupSize);
+    std::array<std::size_t, 32u> groupUnits {};
+    std::array<double, 33u> boundaries {};
+    for (uint32_t offset = 0u; offset < group; ++offset) {
+        groupUnits[offset] = portableWavesetsResolvedUnit(base, offset,
+            settings, focus.randomState, focus.pendulumForward,
+            units.size());
+        boundaries[offset + 1u] = boundaries[offset]
+            + std::max(1.0, units[groupUnits[offset]].sampleLength());
+    }
+    const double groupFrames = std::max(1.0, boundaries[group]);
+    if (laneSeries == 2u) {
+        const uint32_t count = std::min<uint32_t>(capacity, group + 1u);
+        for (uint32_t index = 0u; index < count; ++index)
+            output[index].x = static_cast<float>(
+                boundaries[index] / groupFrames);
+        return count;
+    }
+    if (laneSeries == 3u) {
+        const uint32_t cycle = std::min(group - 1u, focus.cycleOffset);
+        const double frame = boundaries[cycle] + focus.oscillatorPhase
+            * std::max(1.0, units[groupUnits[cycle]].sampleLength());
+        output[0u].x = static_cast<float>(frame / groupFrames);
+        return 1u;
+    }
+    const uint32_t perUnitCapacity = std::max(1u, capacity / group);
+    const uint32_t steps = std::max(1u,
+        std::min(96u, perUnitCapacity > 1u ? perUnitCapacity - 1u : 1u));
+    uint32_t written = 0u;
+    for (uint32_t offset = 0u; offset < group && written < capacity;
+         ++offset) {
+        const WavesetUnit& unit = units[groupUnits[offset]];
+        const double unitFrames = std::max(1.0, unit.sampleLength());
+        for (uint32_t sample = 0u; sample <= steps && written < capacity;
+             ++sample) {
+            const double phase = static_cast<double>(sample) / steps;
+            const float value = laneSeries == 0u
+                ? portableWavesetsUnitSample(samples, unit, phase,
+                    settings.joinAmount)
+                : portableWavesetsProcessedSample(units, samples, base,
+                    offset, focus.repeatIndex, focus.randomState,
+                    focus.pendulumForward, focus.progressionForward,
+                    settings, phase);
+            output[written].x = static_cast<float>((boundaries[offset]
+                + phase * unitFrames) / groupFrames);
+            output[written].y = std::clamp(0.5f - value
+                * (laneSeries == 0u ? 0.34f : 0.43f), 0.0f, 1.0f);
+            ++written;
+        }
+    }
+    return written;
+}
+
+void portableAction(void* context, uint32_t action, bool pressed)
+{
+    if (context && pressed)
+        requestAction(*static_cast<Plugin*>(context), action);
+}
+
+void portableService(void* context)
+{
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    if (context) serviceLoads(*static_cast<Plugin*>(context));
+#else
+    (void)context;
+#endif
+}
+
+bool portableLoadPreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::loadStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+bool portableSavePreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::saveStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+const std::array<s3g::portable_gui::SampleFamilyWaveMarker, 4u>
+    portableMarkers {{
+        { kStartParamId, "S" },
+        { kEndParamId, "E" },
+        { kLoopStartParamId, "LS" },
+        { kLoopEndParamId, "LE" },
+    }};
+
+const std::array<s3g::portable_gui::SampleFamilyAction, 2u>
+    portableActions {{
+        { kActionPreview, "PREVIEW", false },
+        { kActionStopAll, "STOP / KILL ALL", false },
+    }};
+
+s3g::portable_gui::SampleFamilyEditorConfig
+makeSampleFamilyEditorConfig(Plugin& instance)
+{
+    s3g::portable_gui::SampleFamilyEditorConfig config {};
+    config.callbacks.context = &instance;
+    config.callbacks.getParameterCount = portableParameterCount;
+    config.callbacks.getParameterInfo = portableParameterInfo;
+    config.callbacks.getParam = portableReadParameter;
+    config.callbacks.getParamText = portableParameterText;
+    config.callbacks.beginParamEdit = portableBeginParameter;
+    config.callbacks.setParam = portableSetParameter;
+    config.callbacks.endParamEdit = portableEndParameter;
+    config.callbacks.resetToDefaults = portableResetParameters;
+    config.callbacks.getFactoryPresetCount = portableFactoryPresetCount;
+    config.callbacks.getFactoryPresetName = portableFactoryPresetName;
+    config.callbacks.applyFactoryPreset = portableApplyFactoryPreset;
+    config.callbacks.getSampleSlotCount = portableSampleSlotCount;
+    config.callbacks.getAsset = portableAsset;
+    config.callbacks.getSamplePath = portableSamplePath;
+    config.callbacks.getSampleStatus = portableSampleStatus;
+    config.callbacks.loadSample = portableLoadSample;
+    config.callbacks.clearSample = portableClearSample;
+    config.callbacks.getStorageModeName = portableStorageName;
+    config.callbacks.cycleStorageMode = portableCycleStorage;
+    config.callbacks.getOutputPeak = portableOutputPeak;
+    config.callbacks.getOutputChannelCount = portableOutputChannelCount;
+    config.callbacks.getCursors = portableCursors;
+    config.callbacks.getCursorTrajectories = portableCursorTrajectories;
+    config.callbacks.getCursorStates = portableCursorStates;
+    config.callbacks.getWavesetsScopeState = portableWavesetsScopeState;
+    config.callbacks.getVisualizationPoints = portableVisualizationPoints;
+    config.callbacks.performAction = portableAction;
+    config.callbacks.service = portableService;
+    config.callbacks.loadPreset = portableLoadPreset;
+    config.callbacks.savePreset = portableSavePreset;
+    config.pluginName = instance.plugin.desc->name;
+    config.samplePanelName = "WAVESET SOURCE";
+    config.markers = portableMarkers.data();
+    config.markerCount = static_cast<uint32_t>(portableMarkers.size());
+    config.actions = portableActions.data();
+    config.actionCount = static_cast<uint32_t>(portableActions.size());
+    config.nativeWidth = kGuiWidth;
+    config.nativeHeight = kGuiHeight;
+    config.minimumColumns = 3u;
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Wavesets;
+    return config;
+}
+
+#include "../common/s3g_sample_family_clap_gui.inc"
+
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (!id) return nullptr;
@@ -5267,7 +6087,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif
     return nullptr;

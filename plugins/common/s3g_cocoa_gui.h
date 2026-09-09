@@ -1134,6 +1134,61 @@ inline void drawMultiColumnDropdownMenu(
     }
 }
 
+inline constexpr uint32_t kMidiChannelMenuColumns = 2u;
+inline constexpr uint32_t kMidiReceiveMenuItemCount = 17u;
+inline constexpr uint32_t kMidiChannelMenuItemCount = 16u;
+
+inline int midiReceiveDropdownHitIndex(NSPoint point, NSRect menuRect,
+                                       CGFloat itemH)
+{
+    return multiColumnDropdownHitIndex(point, menuRect, itemH,
+        kMidiReceiveMenuItemCount, kMidiChannelMenuColumns);
+}
+
+inline int midiChannelDropdownHitIndex(NSPoint point, NSRect menuRect,
+                                       CGFloat itemH)
+{
+    return multiColumnDropdownHitIndex(point, menuRect, itemH,
+        kMidiChannelMenuItemCount, kMidiChannelMenuColumns);
+}
+
+inline void drawMidiReceiveDropdownMenu(NSRect menuRect,
+                                        CGFloat itemH,
+                                        int selectedIndex,
+                                        int hoverIndex,
+                                        NSDictionary* attrs,
+                                        const Style& style)
+{
+    static NSString* const items[kMidiReceiveMenuItemCount] = {
+        @"OMNI", @"CHANNEL 1", @"CHANNEL 2", @"CHANNEL 3",
+        @"CHANNEL 4", @"CHANNEL 5", @"CHANNEL 6", @"CHANNEL 7",
+        @"CHANNEL 8", @"CHANNEL 9", @"CHANNEL 10", @"CHANNEL 11",
+        @"CHANNEL 12", @"CHANNEL 13", @"CHANNEL 14", @"CHANNEL 15",
+        @"CHANNEL 16",
+    };
+    drawMultiColumnDropdownMenu(menuRect, itemH, items,
+        kMidiReceiveMenuItemCount, kMidiChannelMenuColumns,
+        selectedIndex, hoverIndex, attrs, style);
+}
+
+inline void drawMidiChannelDropdownMenu(NSRect menuRect,
+                                        CGFloat itemH,
+                                        int selectedIndex,
+                                        int hoverIndex,
+                                        NSDictionary* attrs,
+                                        const Style& style)
+{
+    static NSString* const items[kMidiChannelMenuItemCount] = {
+        @"CHANNEL 1", @"CHANNEL 2", @"CHANNEL 3", @"CHANNEL 4",
+        @"CHANNEL 5", @"CHANNEL 6", @"CHANNEL 7", @"CHANNEL 8",
+        @"CHANNEL 9", @"CHANNEL 10", @"CHANNEL 11", @"CHANNEL 12",
+        @"CHANNEL 13", @"CHANNEL 14", @"CHANNEL 15", @"CHANNEL 16",
+    };
+    drawMultiColumnDropdownMenu(menuRect, itemH, items,
+        kMidiChannelMenuItemCount, kMidiChannelMenuColumns,
+        selectedIndex, hoverIndex, attrs, style);
+}
+
 inline void drawHeaderButton(NSRect button,
                              NSRect headerRect,
                              NSString* label,

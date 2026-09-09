@@ -645,6 +645,8 @@ struct Runtime {
     std::vector<std::size_t> songPatternIndices;
     double gateMilliseconds = 90.0;
     double tempoScale = 1.0;
+    double latestHostTempo = 120.0;
+    double latestSampleRate = 48000.0;
     bool songEnabled = false;
     bool valid = false;
     PatternLaunchMailbox* patternLaunch = nullptr;
@@ -662,6 +664,7 @@ struct Runtime {
         : projectTransport(document.transport)
         , gateMilliseconds(document.session.gateMilliseconds)
         , tempoScale(std::clamp(document.session.tempoScale, 0.25, 4.0))
+        , latestSampleRate(sampleRate)
         , patternLaunch(launchMailbox)
         , visualNoteHits(hitMailboxes)
         , midiStepClock(stepClock)
@@ -703,12 +706,33 @@ struct Runtime {
         return result;
     }
 
+    double currentSongTempoMultiplier() const noexcept
+    {
+        const auto* row = songEnabled ? songPlanner.currentRow() : nullptr;
+        if (!row || !std::isfinite(row->tempoMultiplier)) return 1.0;
+        return std::clamp(row->tempoMultiplier,
+            s3g::tracker::kMinimumSongTempoMultiplier,
+            s3g::tracker::kMaximumSongTempoMultiplier);
+    }
+
+    double effectiveBpm(double hostTempo) const noexcept
+    {
+        const auto clock = hostClock(hostTempo, latestSampleRate);
+        return std::clamp(clock.bpm * currentSongTempoMultiplier(),
+            5.0, 1600.0);
+    }
+
     TransportSettings songRowClock(const s3g::tracker::SongRow* row,
         const TransportSettings& host) const noexcept
     {
         auto result = projectTransport;
         result.sampleRate = host.sampleRate;
-        result.bpm = host.bpm;
+        result.bpm = std::clamp(host.bpm * (row
+                ? std::clamp(row->tempoMultiplier,
+                    s3g::tracker::kMinimumSongTempoMultiplier,
+                    s3g::tracker::kMaximumSongTempoMultiplier)
+                : 1.0),
+            5.0, 1600.0);
         result.timingWarp.clear();
         result.timingWarpEnabled = false;
         result.loopEnabled = false;
@@ -763,6 +787,8 @@ struct Runtime {
     {
         if (!valid) return false;
         absoluteFrameOrigin = absoluteStartFrame;
+        latestHostTempo = tempo;
+        latestSampleRate = sampleRate;
         if (midiStepClock) midiStepClock->clear();
         auto clock = hostClock(tempo, sampleRate);
         if (songEnabled) {
@@ -799,9 +825,10 @@ struct Runtime {
         // Host clock refreshes happen every process segment. Preserve the
         // current Song-row warp and update only fields owned by the host.
         auto current = scheduler.transport();
+        latestHostTempo = tempo;
+        latestSampleRate = sampleRate;
         current.sampleRate = sampleRate;
-        if (std::isfinite(tempo) && tempo > 0.0)
-            current.bpm = tempo * tempoScale;
+        current.bpm = effectiveBpm(tempo);
         scheduler.setTransport(std::move(current));
     }
 
@@ -904,7 +931,8 @@ struct Runtime {
                     row ? row->mutedTracks : 0u);
                 runtime.scheduler.setTransportAtTickBoundary(
                     runtime.songRowClock(row,
-                        runtime.scheduler.transport()));
+                        runtime.hostClock(runtime.latestHostTempo,
+                            runtime.latestSampleRate)));
             }
         }
         if (result.finished) {
@@ -2136,7 +2164,7 @@ void renderSegment(Plugin& plugin, const clap_output_events_t* output,
             && std::abs(transport.beat - plugin.expectedBeat) > 0.01;
         const bool tempoChanged = plugin.runtimeArmed
             && std::abs(runtime->scheduler.transport().bpm
-                - transport.tempo * runtime->tempoScale) > 1.0e-7;
+                - runtime->effectiveBpm(transport.tempo)) > 1.0e-7;
         if (restartRequested) {
             releaseActiveNotes(plugin, output, blockOffset);
             plugin.runtimeArmed = runtime->arm(

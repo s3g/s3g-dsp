@@ -1,7 +1,13 @@
+#include "../common/s3g_sample_file_decode.h"
 #include "s3g_sample_motion.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_sample_storage.h"
 #include "../common/s3g_clap_state_stream.h"
+
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_family_vstgui.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -257,7 +263,7 @@ struct StateHeader {
 
 static_assert(sizeof(StateHeader) == 16u);
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     std::string path;
@@ -342,7 +348,7 @@ struct Plugin {
     ReaperContext reaperContext;
     ProjectFileRegistration projectFileRegistration;
     bool active = false;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::mutex loaderMutex;
     std::condition_variable loaderCondition;
     std::deque<LoadRequest> loadRequests;
@@ -350,8 +356,16 @@ struct Plugin {
     std::thread loaderThread;
     uint64_t loadGeneration = 0u;
     bool loaderStopping = false;
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    s3g::portable_gui::SampleFamilyEditor* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth;
+    uint32_t portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
 #endif
 };
 
@@ -578,7 +592,7 @@ uint64_t regularFileByteCount(const std::string& path) noexcept
 {
     if (path.empty()) return 0u;
     std::error_code error;
-    const auto bytes = std::filesystem::file_size(path, error);
+    const auto bytes = std::filesystem::file_size(std::filesystem::u8path(path), error);
     return error || bytes > std::numeric_limits<uint64_t>::max()
         ? 0u : static_cast<uint64_t>(bytes);
 }
@@ -689,10 +703,11 @@ bool publishAsset(Plugin& instance, std::shared_ptr<const SampleAsset> asset,
 
 void queueGuiParamGesture(Plugin& instance, clap_id id, double value);
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         NSError* nsError = nil;
@@ -736,8 +751,17 @@ bool decodeSampleFile(const std::string& path,
         error.clear();
         return true;
     }
-}
 
+#else
+    if (!s3g::sample_file::decodeWaveFile(path, assetOut, error)) return false;
+    if (assetOut->channelCount > 2u) {
+        assetOut.reset();
+        error = "CHANNEL COUNT NOT SUPPORTED";
+        return false;
+    }
+    return true;
+#endif
+}
 void loaderMain(Plugin* instance)
 {
     for (;;) {
@@ -1100,7 +1124,7 @@ void setStorageMode(Plugin& instance, StorageMode mode)
             projectRelativePath = instance.projectRelativePath;
         }
         if (!externalPath.empty()
-            && !std::filesystem::path(externalPath).is_absolute()) {
+            && !std::filesystem::u8path(externalPath).is_absolute()) {
             const ReaperContext context
                 = s3g::sample_storage::reaperContext(instance.host);
             ProjectLocation location;
@@ -1349,21 +1373,29 @@ bool pluginInit(const clap_plugin_t* plugin)
         instance.hostState = static_cast<const clap_host_state_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startLoader(instance)) return false;
 #endif
     return true;
 }
 
 void destroyGui(Plugin& instance);
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+void destroyPortableGui(Plugin& instance);
+#endif
 
 void pluginDestroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
     if (!instance) return;
     instance->projectFileRegistration.clear();
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    destroyPortableGui(*instance);
+#endif
+#if defined(S3G_SAMPLE_FILE_WORKER)
 #if defined(__APPLE__)
     destroyGui(*instance);
+#endif
     stopLoader(*instance);
 #endif
     delete instance;
@@ -1504,7 +1536,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     serviceLoads(*self(plugin));
 #else
     (void)plugin;
@@ -2089,7 +2121,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     bool projectPending = storageMode == StorageMode::Project;
     bool projectContextPending = storageMode == StorageMode::Project;
     if (storageMode == StorageMode::Project && !path.empty()) {
-        if (!std::filesystem::path(path).is_absolute())
+        if (!std::filesystem::u8path(path).is_absolute())
             projectRelativePath = path;
         reaperContext = s3g::sample_storage::reaperContext(instance.host);
         std::string projectError;
@@ -2133,8 +2165,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         } catch (...) { return false; }
     } else if (!runtimePath.empty()
         && (storageMode != StorageMode::Project
-            || std::filesystem::path(runtimePath).is_absolute())) {
-#if defined(__APPLE__)
+            || std::filesystem::u8path(runtimePath).is_absolute())) {
+#if defined(S3G_SAMPLE_FILE_WORKER)
         try {
             if (!decodeSampleFile(runtimePath, asset, loadError)) asset.reset();
         } catch (...) {
@@ -2143,7 +2175,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         }
 #endif
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     cancelSampleLoads(instance);
 #endif
     instance.projectFileRegistration.clear();
@@ -2157,7 +2189,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance.linkSourcePath = runtimePath;
         instance.projectRelativePath = projectRelativePath;
         instance.sourceFileBytes = storageMode == StorageMode::Project
-                && !std::filesystem::path(runtimePath).is_absolute()
+                && !std::filesystem::u8path(runtimePath).is_absolute()
             ? 0u : regularFileByteCount(runtimePath);
         if (storageMode == StorageMode::Project
             && instance.sourceFileBytes == 0u) projectPending = true;
@@ -2184,7 +2216,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             instance.status = "PROJECT READY/REGISTRATION UNAVAILABLE";
         }
     }
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     // A PROJECT state saved before its source was collected may contain the
     // original absolute locator. Start that pending copy immediately when the
     // restored project is available; the editor service retains the retry for
@@ -2344,6 +2376,713 @@ void destroyGui(Plugin&) {}
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+
+uint32_t portableParameterCount(void* context)
+{
+    return context ? paramsCount(&static_cast<Plugin*>(context)->plugin) : 0u;
+}
+
+bool portableParameterInfo(void* context, uint32_t index,
+    s3g::portable_gui::SampleFamilyParameterInfo* result)
+{
+    if (!context || !result) return false;
+    clap_param_info_t info {};
+    if (!paramsGetInfo(&static_cast<Plugin*>(context)->plugin, index, &info))
+        return false;
+    result->id = info.id;
+    std::snprintf(result->name, sizeof(result->name), "%s", info.name);
+    std::snprintf(result->module, sizeof(result->module), "%s", info.module);
+    result->minimum = info.min_value;
+    result->maximum = info.max_value;
+    result->defaultValue = info.default_value;
+    result->stepped = (info.flags & CLAP_PARAM_IS_STEPPED) != 0u;
+    result->readOnly = (info.flags & CLAP_PARAM_IS_READONLY) != 0u;
+    return true;
+}
+
+double portableReadParameter(void* context, uint32_t id)
+{
+    if (!context) return 0.0;
+    double value = 0.0;
+    (void)paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), &value);
+    return value;
+}
+
+bool portableParameterText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, capacity);
+}
+
+void portableBeginParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamBegin(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void portableSetParameter(void* context, uint32_t id, double value)
+{
+    if (context) queueGuiParamValue(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id), value);
+}
+
+void portableEndParameter(void* context, uint32_t id)
+{
+    if (context) queueGuiParamEnd(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+bool portableUsesLogarithmicSlider(uint32_t id) noexcept
+{
+    return id == kMotionRateParamId || id == kInnerRateParamId
+        || id == kOuterRateParamId || id == kEventRateParamId;
+}
+
+double portableParameterToNormalized(void*, uint32_t id, double value)
+{
+    const auto* definition = paramDef(static_cast<clap_id>(id));
+    if (!definition || !(definition->maximum > definition->minimum))
+        return 0.0;
+    if (portableUsesLogarithmicSlider(id))
+        return std::clamp(std::log(std::max(value, definition->minimum)
+                / definition->minimum)
+                / std::log(definition->maximum / definition->minimum),
+            0.0, 1.0);
+    return std::clamp((value - definition->minimum)
+        / (definition->maximum - definition->minimum), 0.0, 1.0);
+}
+
+double portableParameterFromNormalized(void*, uint32_t id,
+    double normalized)
+{
+    const auto* definition = paramDef(static_cast<clap_id>(id));
+    if (!definition) return 0.0;
+    normalized = std::clamp(normalized, 0.0, 1.0);
+    if (portableUsesLogarithmicSlider(id))
+        return definition->minimum * std::pow(
+            definition->maximum / definition->minimum, normalized);
+    return definition->minimum
+        + normalized * (definition->maximum - definition->minimum);
+}
+
+void portableResetParameters(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : kParamDefs)
+        queueGuiParamValue(instance, definition.id, definition.defaultValue);
+}
+
+constexpr std::array<const char*, 22u> portableFactoryPresetNames {{
+    "INIT", "Hover Field", "Mirror Flip", "Drunk Walk", "Zigzag Cuts",
+    "Forward Tape", "Reverse Tape", "Packets", "Motor Hover",
+    "Motor Mirror", "Motor Drunk", "Rounded Motor", "Wide Swarm",
+    "Moving Loop", "Round Trip", "Routed Zigzag", "Freeze", "Iterate",
+    "Pulser", "Doublets", "Bounce", "Routed Iterate",
+}};
+
+uint32_t portableFactoryPresetCount(void*)
+{
+    return static_cast<uint32_t>(portableFactoryPresetNames.size());
+}
+
+const char* portableFactoryPresetName(void*, uint32_t index)
+{
+    return index < portableFactoryPresetNames.size()
+        ? portableFactoryPresetNames[index] : nullptr;
+}
+
+bool portableApplyFactoryPreset(void* context, uint32_t index)
+{
+    if (!context || index >= portableFactoryPresetNames.size()) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto set = [&](clap_id id, double value) {
+        queueGuiParamGesture(instance, id, value);
+    };
+    for (const auto& definition : kParamDefs)
+        set(definition.id, definition.defaultValue);
+    switch (index) {
+    case 1u: set(kFieldParamId, 0.32); set(kMotionRateParamId, 0.55); break;
+    case 2u:
+        set(kMotionParamId, 1.0); set(kFieldParamId, 0.46);
+        set(kMotionRateParamId, 0.80); set(kJoinParamId, 0.72); break;
+    case 3u:
+        set(kMotionParamId, 2.0); set(kFieldParamId, 0.55);
+        set(kMotionRateParamId, 0.65); set(kTravelParamId, 0.62);
+        set(kJitterParamId, 0.38); set(kSeedParamId, 4312.0); break;
+    case 4u:
+        set(kMotionParamId, 3.0); set(kFieldParamId, 0.72);
+        set(kMotionRateParamId, 1.0); set(kTravelParamId, 0.48);
+        set(kJitterParamId, 0.35); set(kJoinParamId, 0.78);
+        set(kSeedParamId, 4312.0); break;
+    case 5u:
+        set(kMotionParamId, 4.0); set(kFieldParamId, 0.76);
+        set(kMotionRateParamId, 1.0); set(kJoinParamId, 0.86); break;
+    case 6u:
+        set(kMotionParamId, 5.0); set(kFieldParamId, 0.76);
+        set(kMotionRateParamId, 1.0); set(kJoinParamId, 0.86); break;
+    case 7u:
+        set(kMotionParamId, 3.0); set(kArticulationParamId, 2.0);
+        set(kMotionRateParamId, 0.75); set(kTravelParamId, 0.40);
+        set(kInnerRateParamId, 9.0); set(kPacketDutyParamId, 0.52);
+        set(kJitterParamId, 0.25); break;
+    case 8u:
+        set(kArticulationParamId, 1.0); set(kMotionRateParamId, 0.50);
+        set(kInnerRateParamId, 18.0); set(kOuterRateParamId, 0.7);
+        set(kMotorEnvelopeParamId, 1.0); break;
+    case 9u:
+        set(kMotionParamId, 1.0); set(kArticulationParamId, 1.0);
+        set(kMotionRateParamId, 0.70); set(kInnerRateParamId, 24.0);
+        set(kOuterRateParamId, 1.2); set(kSymmetryParamId, 0.38);
+        set(kMotorEnvelopeParamId, 2.0); break;
+    case 10u:
+        set(kMotionParamId, 2.0); set(kArticulationParamId, 1.0);
+        set(kFieldParamId, 0.58); set(kMotionRateParamId, 0.60);
+        set(kTravelParamId, 0.72); set(kJitterParamId, 0.68);
+        set(kInnerRateParamId, 19.0); set(kOuterRateParamId, 1.3);
+        set(kPacketDutyParamId, 0.58); set(kSymmetryParamId, 0.37);
+        set(kJoinParamId, 0.84); set(kSeedParamId, 4312.0); break;
+    case 11u:
+        set(kArticulationParamId, 1.0); set(kMotionRateParamId, 0.50);
+        set(kInnerRateParamId, 14.0); set(kOuterRateParamId, 0.55);
+        set(kMotorEnvelopeParamId, 1.0); set(kSymmetryParamId, 0.42); break;
+    case 12u:
+        set(kVoiceModeParamId, 0.0); set(kFieldParamId, 0.82);
+        set(kMotionRateParamId, 0.24); set(kAttackParamId, 0.08);
+        set(kReleaseParamId, 0.35); break;
+    case 13u:
+        set(kMotionParamId, 6.0); set(kFieldParamId, 0.18);
+        set(kMotionRateParamId, 1.0); set(kEventStepParamId, 0.025);
+        set(kJoinParamId, 0.86); break;
+    case 14u:
+        set(kMotionParamId, 7.0); set(kFieldParamId, 0.48);
+        set(kMotionRateParamId, 0.85); set(kJoinParamId, 0.72); break;
+    case 15u:
+        set(kMotionParamId, 3.0); set(kFieldParamId, 0.70);
+        set(kMotionRateParamId, 1.0); set(kTravelParamId, 0.48);
+        set(kJitterParamId, 0.28); set(kOutputTraversalParamId, 4.0);
+        set(kOutputVoiceWidthParamId, 0.0);
+        set(kOutputAssignmentEventParamId, 1.0);
+        set(kAvoidAdjacentParamId, 1.0); break;
+    case 16u:
+        set(kSegmentModelParamId, 1.0); set(kEventRateParamId, 6.0);
+        set(kEventRepeatsParamId, 8.0); set(kFieldParamId, 0.08);
+        set(kEventStepParamId, 0.0); set(kEventOverlapParamId, 1.0);
+        set(kEventPitchParamId, 0.08); set(kEventLevelParamId, 0.05);
+        set(kJitterParamId, 0.08); break;
+    case 17u:
+        set(kSegmentModelParamId, 2.0); set(kEventRateParamId, 5.0);
+        set(kFieldParamId, 0.16); set(kEventStepParamId, 0.0);
+        set(kEventPitchParamId, 0.18); set(kEventLevelParamId, 0.12);
+        set(kJitterParamId, 0.12); set(kJoinParamId, 0.92);
+        set(kEventOverlapParamId, 1.0); break;
+    case 18u:
+        set(kSegmentModelParamId, 3.0); set(kEventRateParamId, 12.0);
+        set(kFieldParamId, 0.35); set(kPacketDutyParamId, 0.24);
+        set(kEventOverlapParamId, 1.0); set(kEventPitchParamId, 1.0);
+        set(kEventLevelParamId, 0.25); set(kJitterParamId, 0.20);
+        set(kMotorEnvelopeParamId, 3.0); set(kJoinParamId, 1.0); break;
+    case 19u:
+        set(kSegmentModelParamId, 4.0); set(kMotionRateParamId, 1.0);
+        set(kEventRepeatsParamId, 3.0); set(kFieldParamId, 0.10);
+        set(kEventStepParamId, 0.10); set(kEventLevelParamId, 0.0);
+        set(kJitterParamId, 0.0); set(kJoinParamId, 0.88); break;
+    case 20u:
+        set(kSegmentModelParamId, 5.0); set(kEventRateParamId, 2.0);
+        set(kEventRepeatsParamId, 10.0); set(kFieldParamId, 0.18);
+        set(kEventCurveParamId, 0.22); set(kEventLevelParamId, 0.18);
+        set(kPacketDutyParamId, 0.25); set(kEventOverlapParamId, 1.0); break;
+    case 21u:
+        set(kSegmentModelParamId, 6.0); set(kEventRateParamId, 6.0);
+        set(kFieldParamId, 0.14); set(kEventStepParamId, 0.0);
+        set(kEventPitchParamId, 0.20); set(kEventLevelParamId, 0.12);
+        set(kJitterParamId, 0.12); set(kEventOverlapParamId, 1.0);
+        set(kOutputTraversalParamId, 4.0);
+        set(kOutputVoiceWidthParamId, 0.0);
+        set(kOutputAssignmentEventParamId, 2.0);
+        set(kAvoidAdjacentParamId, 1.0); break;
+    default: break;
+    }
+    markStateDirty(instance);
+    return true;
+}
+
+constexpr std::array<const char*, 9u> portableSoundMenuItems {{
+    "Continuous", "Packets", "Motor", "Freeze Loop",
+    "Natural Iterate", "Pulser", "Doublets", "Bounce",
+    "Routed Iterate",
+}};
+
+bool portableIsSoundMenuParameter(uint32_t id) noexcept
+{
+    return id == kSegmentModelParamId || id == kArticulationParamId;
+}
+
+uint32_t portableParameterMenuItemCount(void*, uint32_t id)
+{
+    return portableIsSoundMenuParameter(id)
+        ? static_cast<uint32_t>(portableSoundMenuItems.size()) : 0u;
+}
+
+bool portableParameterMenuItem(void*, uint32_t id, uint32_t index,
+    double* value, char* text, uint32_t capacity)
+{
+    if (!portableIsSoundMenuParameter(id)
+        || index >= portableSoundMenuItems.size() || !value || !text
+        || capacity == 0u) return false;
+    *value = static_cast<double>(index);
+    std::snprintf(text, capacity, "%s", portableSoundMenuItems[index]);
+    return true;
+}
+
+int32_t portableParameterMenuSelectedIndex(void* context, uint32_t id)
+{
+    if (!context || !portableIsSoundMenuParameter(id)) return -1;
+    auto& instance = *static_cast<Plugin*>(context);
+    const int model = static_cast<int>(std::lround(
+        paramValue(instance, kSegmentModelParamId)));
+    const int articulation = static_cast<int>(std::lround(
+        paramValue(instance, kArticulationParamId)));
+    if (model != 0) return std::clamp(model + 2, 3, 8);
+    return articulation == 2 ? 1 : articulation == 1 ? 2 : 0;
+}
+
+bool portableApplyParameterMenuItem(
+    void* context, uint32_t id, uint32_t index)
+{
+    if (!context || !portableIsSoundMenuParameter(id)
+        || index >= portableSoundMenuItems.size()) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto set = [&](clap_id parameterId, double value) {
+        queueGuiParamGesture(instance, parameterId, value);
+    };
+    if (index < 3u) {
+        const double articulation = index == 1u ? 2.0
+            : index == 2u ? 1.0 : 0.0;
+        set(kSegmentModelParamId, 0.0);
+        set(kArticulationParamId, articulation);
+        markStateDirty(instance);
+        return true;
+    }
+
+    const uint32_t model = index - 2u;
+    set(kSegmentModelParamId, static_cast<double>(model));
+    switch (model) {
+    case 1u:
+        set(kSegmentTriggerParamId, 0.0); set(kEventRateParamId, 6.0);
+        set(kEventRepeatsParamId, 8.0); set(kFieldParamId, 0.08);
+        set(kEventStepParamId, 0.0); set(kEventPitchParamId, 0.08);
+        set(kEventLevelParamId, 0.05); set(kEventCurveParamId, 0.0);
+        set(kJitterParamId, 0.08); set(kJoinParamId, 1.0);
+        set(kEventOverlapParamId, 1.0); break;
+    case 2u:
+        set(kSegmentTriggerParamId, 0.0); set(kEventRateParamId, 5.0);
+        set(kFieldParamId, 0.16); set(kEventStepParamId, 0.0);
+        set(kEventPitchParamId, 0.18); set(kEventLevelParamId, 0.12);
+        set(kEventCurveParamId, 0.0); set(kJitterParamId, 0.12);
+        set(kJoinParamId, 0.92); set(kEventOverlapParamId, 1.0); break;
+    case 3u:
+        set(kSegmentTriggerParamId, 0.0); set(kEventRateParamId, 12.0);
+        set(kPacketDutyParamId, 0.24); set(kFieldParamId, 0.35);
+        set(kEventPitchParamId, 1.0); set(kEventLevelParamId, 0.25);
+        set(kEventCurveParamId, 0.0); set(kJitterParamId, 0.20);
+        set(kMotorEnvelopeParamId, 3.0); set(kJoinParamId, 1.0);
+        set(kEventOverlapParamId, 1.0); break;
+    case 4u:
+        set(kSegmentTriggerParamId, 0.0); set(kMotionRateParamId, 1.0);
+        set(kEventRepeatsParamId, 3.0); set(kFieldParamId, 0.08);
+        set(kEventStepParamId, 0.08); set(kEventPitchParamId, 0.0);
+        set(kEventLevelParamId, 0.0); set(kEventCurveParamId, 0.0);
+        set(kJitterParamId, 0.0); set(kJoinParamId, 0.88);
+        set(kEventOverlapParamId, 0.0); break;
+    case 5u:
+        set(kSegmentTriggerParamId, 0.0); set(kEventRateParamId, 2.0);
+        set(kEventRepeatsParamId, 10.0); set(kFieldParamId, 0.18);
+        set(kEventStepParamId, 0.0); set(kEventPitchParamId, 0.0);
+        set(kEventLevelParamId, 0.18); set(kEventCurveParamId, 0.22);
+        set(kPacketDutyParamId, 0.25); set(kJitterParamId, 0.0);
+        set(kJoinParamId, 0.90); set(kEventOverlapParamId, 1.0); break;
+    case 6u:
+        set(kSegmentTriggerParamId, 0.0); set(kEventRateParamId, 6.0);
+        set(kFieldParamId, 0.14); set(kEventStepParamId, 0.0);
+        set(kEventPitchParamId, 0.20); set(kEventLevelParamId, 0.12);
+        set(kEventCurveParamId, 0.0); set(kJitterParamId, 0.12);
+        set(kJoinParamId, 0.92); set(kEventOverlapParamId, 1.0);
+        if (isMultichannel(instance)) {
+            set(kOutputTraversalParamId, 4.0);
+            set(kOutputVoiceWidthParamId, 0.0);
+            set(kOutputAssignmentEventParamId, 2.0);
+            set(kAvoidAdjacentParamId, 1.0);
+        }
+        break;
+    default: break;
+    }
+    markStateDirty(instance);
+    return true;
+}
+
+uint32_t portableSampleSlotCount(void*) { return 1u; }
+
+const SampleAsset* portableAsset(void* context, uint32_t)
+{
+    return context ? static_cast<Plugin*>(context)->controlAsset.get()
+                   : nullptr;
+}
+
+const char* portableSamplePath(void* context, uint32_t)
+{
+    static thread_local std::string path;
+    if (!context) return "";
+    auto& instance = *static_cast<Plugin*>(context);
+    std::lock_guard<std::mutex> lock(instance.statusMutex);
+    path = instance.samplePath;
+    return path.c_str();
+}
+
+const char* portableSampleStatus(void* context, uint32_t)
+{
+    static thread_local std::string status;
+    if (!context) return "";
+    auto& instance = *static_cast<Plugin*>(context);
+    std::lock_guard<std::mutex> lock(instance.statusMutex);
+    status = instance.status;
+    return status.c_str();
+}
+
+bool portableLoadSample(void* context, uint32_t, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    queueSampleLoad(*static_cast<Plugin*>(context), path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool portableClearSample(void* context, uint32_t)
+{
+    if (!context) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    cancelSampleLoads(instance);
+#endif
+    return publishAsset(instance, nullptr, "");
+}
+
+const char* portableStorageName(void* context, uint32_t)
+{
+    return context ? s3g::sample_storage::storageModeName(
+        static_cast<Plugin*>(context)->storageMode) : "PROJECT";
+}
+
+bool portableCycleStorage(void* context, uint32_t)
+{
+    if (!context) return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    auto& instance = *static_cast<Plugin*>(context);
+    const StorageMode next = instance.storageMode == StorageMode::Project
+        ? StorageMode::Link : (instance.storageMode == StorageMode::Link
+            ? StorageMode::Embed : StorageMode::Project);
+    setStorageMode(instance, next);
+    return true;
+#else
+    return false;
+#endif
+}
+
+float portableOutputPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t portableOutputChannelCount(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputChannelCount : 2u;
+}
+
+uint32_t portableCursorTrajectories(void* context,
+    s3g::portable_gui::SampleCursorTrajectory* output, uint32_t capacity)
+{
+    if (!context || !output) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.cursorCount.load(std::memory_order_acquire),
+            static_cast<uint32_t>(instance.cursorPositions.size())));
+    for (uint32_t i = 0; i < count; ++i) {
+        auto& t = output[i];
+        t.asset = reinterpret_cast<uintptr_t>(
+            instance.publishedAsset.load(std::memory_order_acquire));
+        t.identity = instance.cursorIdentities[i].load(std::memory_order_relaxed);
+        t.position = instance.cursorPositions[i].load(std::memory_order_relaxed);
+        t.smoothObserved = true;
+    }
+    return count;
+}
+
+uint32_t portableCursors(void* context, uint32_t, float* positions,
+    uint8_t* keys, uint32_t capacity)
+{
+    if (!context || !positions || !keys) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.cursorCount.load(
+            std::memory_order_acquire),
+            static_cast<uint32_t>(instance.cursorPositions.size())));
+    for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+        positions[cursor] = instance.cursorPositions[cursor].load(
+            std::memory_order_relaxed);
+        keys[cursor] = instance.cursorKeys[cursor].load(
+            std::memory_order_relaxed);
+    }
+    return count;
+}
+
+uint32_t portableCursorStates(void* context, uint32_t,
+    s3g::portable_gui::SampleFamilyCursorState* output, uint32_t capacity)
+{
+    if (!context || !output) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.cursorCount.load(
+            std::memory_order_acquire),
+            static_cast<uint32_t>(instance.cursorPositions.size())));
+    for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+        auto& cursorState = output[cursor];
+        cursorState.position = instance.cursorPositions[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.key = instance.cursorKeys[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.outputFirst = instance.cursorOutputFirst[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.outputSecond = instance.cursorOutputSecond[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.outputWidth = instance.cursorOutputWidths[cursor].load(
+            std::memory_order_relaxed);
+        cursorState.hasOutputRouting = true;
+    }
+    return count;
+}
+
+uint32_t portableMotionRandom(uint32_t& state) noexcept
+{
+    if (state == 0u) state = 1u;
+    state ^= state << 13u;
+    state ^= state >> 17u;
+    state ^= state << 5u;
+    return state;
+}
+
+bool portableMotionScopeState(void* context,
+    s3g::portable_gui::SampleFamilyMotionScopeState* state)
+{
+    if (!context || !state) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    state->activeVoices = instance.activeVoiceCount.load(std::memory_order_relaxed);
+    state->cursorPhase = -1.0f;
+    const uint32_t count = std::min<uint32_t>(instance.cursorCount.load(
+        std::memory_order_acquire), static_cast<uint32_t>(instance.cursorIdentities.size()));
+    uint32_t newest = 0u;
+    uint64_t identity = 0u;
+    for (uint32_t slot = 0u; slot < count; ++slot) {
+        const uint64_t candidate = instance.cursorIdentities[slot].load(std::memory_order_relaxed);
+        if (slot == 0u || candidate > identity) { newest = slot; identity = candidate; }
+    }
+    if (count != 0u) {
+        const int articulation = static_cast<int>(std::lround(paramValue(instance, kArticulationParamId)));
+        const bool packets = articulation != 0 || paramValue(instance, kSegmentModelParamId) != 0.0;
+        state->cursorPhase = articulation == 1
+            ? instance.cursorOuterPhases[newest].load(std::memory_order_relaxed)
+            : packets ? instance.cursorInnerPhases[newest].load(std::memory_order_relaxed)
+                      : instance.cursorMotionPhases[newest].load(std::memory_order_relaxed);
+    }
+    return true;
+}
+
+uint32_t portableVisualizationPoints(void* context, uint32_t series,
+    s3g::portable_gui::SampleFamilyVisualPoint* output, uint32_t capacity)
+{
+    if (!context || !output || capacity == 0u || series != 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const MotionSettings settings = settingsSnapshot(instance);
+    const double lower = std::max(settings.start,
+        settings.locus - settings.field * 0.5);
+    const double upper = std::min(settings.end,
+        settings.locus + settings.field * 0.5);
+    const uint32_t count = std::min<uint32_t>(capacity, 257u);
+    uint32_t randomState = static_cast<uint32_t>(std::lround(
+        paramValue(instance, kSeedParamId)));
+    double drunkA = std::clamp(settings.locus, lower, upper);
+    double drunkB = drunkA;
+    const double travel = settings.travel * (upper - lower);
+    for (uint32_t point = 0u; point < count; ++point) {
+        const double phase = count > 1u
+            ? static_cast<double>(point) / (count - 1u) : 0.0;
+        double position = 0.5 * (lower + upper);
+        switch (settings.motion) {
+        case MotionMode::Hover:
+            position += 0.5 * (upper - lower)
+                * std::sin(6.283185307179586 * phase);
+            break;
+        case MotionMode::Mirror:
+        case MotionMode::RoundTrip: {
+            const double triangle = phase < 0.5
+                ? phase * 2.0 : 2.0 - phase * 2.0;
+            position = lower + triangle * (upper - lower);
+            break;
+        }
+        case MotionMode::Forward:
+        case MotionMode::MovingLoop:
+            position = lower + phase * (upper - lower);
+            break;
+        case MotionMode::Reverse:
+            position = upper - phase * (upper - lower);
+            break;
+        case MotionMode::Drunk:
+        case MotionMode::Zigzag: {
+            const uint32_t segment = std::min<uint32_t>(7u,
+                static_cast<uint32_t>(phase * 8.0));
+            randomState = static_cast<uint32_t>(std::lround(
+                paramValue(instance, kSeedParamId)));
+            drunkA = std::clamp(settings.locus, lower, upper);
+            for (uint32_t step = 0u; step <= segment; ++step) {
+                const double unit = static_cast<double>(
+                    portableMotionRandom(randomState) >> 8u) / 16777215.0;
+                if (settings.motion == MotionMode::Zigzag) {
+                    const double direction = (step & 1u) == 0u ? 1.0 : -1.0;
+                    drunkB = std::clamp(drunkA + direction
+                        * (0.20 + unit * 0.80) * travel, lower, upper);
+                    if (std::abs(drunkB - drunkA) < 1.0e-6)
+                        drunkB = std::clamp(drunkA - direction
+                            * (0.20 + unit * 0.80) * travel, lower, upper);
+                } else {
+                    drunkB = std::clamp(drunkA
+                        + (unit * 2.0 - 1.0) * travel, lower, upper);
+                }
+                if (step != segment) drunkA = drunkB;
+            }
+            const double local = std::min(1.0, phase * 8.0 - segment);
+            const double smooth = local * local * (3.0 - 2.0 * local);
+            const double amount = local + (smooth - local)
+                * settings.joinAmount;
+            position = drunkA + (drunkB - drunkA) * amount;
+            break;
+        }
+        }
+        output[point].x = static_cast<float>(phase);
+        output[point].y = static_cast<float>(std::clamp(position, 0.0, 1.0));
+    }
+    return count;
+}
+
+void portableAction(void* context, uint32_t action, bool pressed)
+{
+    if (context && pressed)
+        requestAction(*static_cast<Plugin*>(context), action);
+}
+
+void portableService(void* context)
+{
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    if (context) serviceLoads(*static_cast<Plugin*>(context));
+#else
+    (void)context;
+#endif
+}
+
+bool portableLoadPreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::loadStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+bool portableSavePreset(void* context, const char* path)
+{
+    return context && s3g::clap_gui::portable::saveStateFile(
+        &static_cast<Plugin*>(context)->plugin, state, path);
+}
+
+const std::array<s3g::portable_gui::SampleFamilyWaveMarker, 3u>
+    portableMarkers {{
+        { kStartParamId, "S" },
+        { kEndParamId, "E" },
+        { kLocusParamId, "L" },
+    }};
+
+const std::array<s3g::portable_gui::SampleFamilyAction, 2u>
+    portableActions {{
+        { kActionPreview, "PREVIEW", false },
+        { kActionStopAll, "STOP / KILL ALL", false },
+    }};
+
+s3g::portable_gui::SampleFamilyEditorConfig
+makeSampleFamilyEditorConfig(Plugin& instance)
+{
+    s3g::portable_gui::SampleFamilyEditorConfig config {};
+    config.callbacks.context = &instance;
+    config.callbacks.getParameterCount = portableParameterCount;
+    config.callbacks.getParameterInfo = portableParameterInfo;
+    config.callbacks.getParam = portableReadParameter;
+    config.callbacks.getParamText = portableParameterText;
+    config.callbacks.beginParamEdit = portableBeginParameter;
+    config.callbacks.setParam = portableSetParameter;
+    config.callbacks.endParamEdit = portableEndParameter;
+    config.callbacks.parameterToNormalized = portableParameterToNormalized;
+    config.callbacks.parameterFromNormalized
+        = portableParameterFromNormalized;
+    config.callbacks.resetToDefaults = portableResetParameters;
+    config.callbacks.getFactoryPresetCount = portableFactoryPresetCount;
+    config.callbacks.getFactoryPresetName = portableFactoryPresetName;
+    config.callbacks.applyFactoryPreset = portableApplyFactoryPreset;
+    config.callbacks.getParameterMenuItemCount
+        = portableParameterMenuItemCount;
+    config.callbacks.getParameterMenuItem = portableParameterMenuItem;
+    config.callbacks.getParameterMenuSelectedIndex
+        = portableParameterMenuSelectedIndex;
+    config.callbacks.applyParameterMenuItem
+        = portableApplyParameterMenuItem;
+    config.callbacks.getSampleSlotCount = portableSampleSlotCount;
+    config.callbacks.getAsset = portableAsset;
+    config.callbacks.getSamplePath = portableSamplePath;
+    config.callbacks.getSampleStatus = portableSampleStatus;
+    config.callbacks.loadSample = portableLoadSample;
+    config.callbacks.clearSample = portableClearSample;
+    config.callbacks.getStorageModeName = portableStorageName;
+    config.callbacks.cycleStorageMode = portableCycleStorage;
+    config.callbacks.getOutputPeak = portableOutputPeak;
+    config.callbacks.getOutputChannelCount = portableOutputChannelCount;
+    config.callbacks.getCursors = portableCursors;
+    config.callbacks.getCursorTrajectories = portableCursorTrajectories;
+    config.callbacks.getCursorStates = portableCursorStates;
+    config.callbacks.getMotionScopeState = portableMotionScopeState;
+    config.callbacks.getVisualizationPoints = portableVisualizationPoints;
+    config.callbacks.performAction = portableAction;
+    config.callbacks.service = portableService;
+    config.callbacks.loadPreset = portableLoadPreset;
+    config.callbacks.savePreset = portableSavePreset;
+    config.pluginName = instance.plugin.desc->name;
+    config.samplePanelName = "MOTION SOURCE";
+    config.markers = portableMarkers.data();
+    config.markerCount = static_cast<uint32_t>(portableMarkers.size());
+    config.actions = portableActions.data();
+    config.actionCount = static_cast<uint32_t>(portableActions.size());
+    config.nativeWidth = kGuiWidth;
+    config.nativeHeight = kGuiHeight;
+    config.minimumColumns = 3u;
+    config.visualization
+        = s3g::portable_gui::SampleFamilyVisualization::Motion;
+    return config;
+}
+
+#include "../common/s3g_sample_family_clap_gui.inc"
+
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (!id) return nullptr;
@@ -2357,7 +3096,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif
     return nullptr;

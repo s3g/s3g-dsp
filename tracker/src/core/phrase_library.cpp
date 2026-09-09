@@ -103,6 +103,7 @@ bool capturePhrase(const Track& source, std::size_t firstRow,
     const auto length = std::max(requested, kMinimumPhraseRows);
     PhraseDefinition candidate = makeBlankPhrase(length);
     candidate.name = destination.name;
+    candidate.recommendedBpm = destination.recommendedBpm;
     candidate.previewMidiChannel = std::clamp<uint8_t>(
         source.midiChannel, 1u, 16u);
     for (std::size_t row = 0u; row < requested; ++row) {

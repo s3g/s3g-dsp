@@ -31,12 +31,14 @@ int main()
     auto& phrase = sourcePhrases.phrases[5u];
     phrase = makeBlankPhrase(5u);
     phrase.name = "Odd break turn";
+    phrase.recommendedBpm = 126.5;
     phrase.notes[1u] = NoteCell::withBurst(7u);
     phrase.notes[3u] = NoteCell::withNote(42u);
 
     const auto pack = makePhraseAssetPack("Break Foundations",
         sourcePhrases, 5u, sourceBursts);
     assert(pack.phraseBank.library.phrases[0u].name == "Odd break turn");
+    assert(pack.phraseBank.library.phrases[0u].recommendedBpm == 126.5);
     assert(pack.phraseBank.library.phrases[0u].notes[1u].note == 0u);
     assert(pack.burstBank.library.bursts[0u].name == "Shared ruff");
 
@@ -113,9 +115,21 @@ int main()
 
     TrackerAssetPack decoded;
     assert(decodeTrackerAssetPack(encoded, decoded).ok());
+    assert(decoded.phraseBank.library.phrases[0u].recommendedBpm == 126.5);
     assert(decoded.burstBank.library.bursts[0u].events[1u].note == 37u);
     assert(decoded.phraseBank.library.phrases[0u].notes[1u].state
         == NoteCellState::Burst);
+
+    std::string legacyEncoded = encoded;
+    const auto legacyBpm = legacyEncoded.find("\"recommendedBpm\"");
+    assert(legacyBpm != std::string::npos);
+    const auto legacyLineBegin = legacyEncoded.rfind('\n', legacyBpm) + 1u;
+    const auto legacyLineEnd = legacyEncoded.find('\n', legacyBpm) + 1u;
+    legacyEncoded.erase(legacyLineBegin, legacyLineEnd - legacyLineBegin);
+    TrackerAssetPack legacyDecoded;
+    assert(decodeTrackerAssetPack(legacyEncoded, legacyDecoded).ok());
+    assert(!legacyDecoded.phraseBank.library.phrases[0u]
+        .recommendedBpm.has_value());
 
     ProjectDocument destination;
     destination.burstBanks[0u].library.bursts[0u] = burst("Occupied", 60u);

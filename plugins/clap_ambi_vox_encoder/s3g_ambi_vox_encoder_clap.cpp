@@ -7752,6 +7752,7 @@ static NSColor* votColor(int rgb, double alpha = 1.0)
 constexpr CGFloat kLyricsSliderTrackOffset = 110.0;
 constexpr CGFloat kGeneratorSliderTrackOffset = 126.0;
 constexpr CGFloat kLyricsSliderTrackWidth = 170.0;
+constexpr int kLyricCueChannelMenuId = 16;
 constexpr s3g::gui_layout::Panel kVoiceEncoderPanel {
     s3g::gui_layout::PluginClass::ProceduralEncoder,
     s3g::gui_layout::PanelRole::Engine,
@@ -9438,13 +9439,11 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
         controlsY + 56, attrs, valueAttrs, style,
         rect.origin.x + 8, rect.origin.x + kLyricsSliderTrackOffset,
         rect.origin.x + 302, kLyricsSliderTrackWidth);
-    paramsValueToText(nullptr, kLyricCueChannelParamId, _plugin->lyric.cueChannel,
-        display, sizeof(display));
-    s3g::clap_gui::drawSlider(@"MIDI CH", [NSString stringWithUTF8String:display],
-        static_cast<double>(_plugin->lyric.cueChannel - 1u) / 15.0,
+    s3g::clap_gui::drawMenu(@"MIDI CH",
+        [NSString stringWithFormat:@"CHANNEL %u", _plugin->lyric.cueChannel],
         controlsY + 84, attrs, valueAttrs, style,
         rect.origin.x + 8, rect.origin.x + kLyricsSliderTrackOffset,
-        rect.origin.x + 302, kLyricsSliderTrackWidth);
+        kLyricsSliderTrackWidth);
 }
 
 - (void)drawMenu:(NSString*)name value:(NSString*)value y:(CGFloat)y attrs:(NSDictionary*)attrs valueAttrs:(NSDictionary*)valueAttrs style:(const s3g::clap_gui::Style&)style
@@ -9628,6 +9627,13 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 - (void)drawOpenMenu:(NSDictionary*)attrs style:(const s3g::clap_gui::Style&)style
 {
     if (_openMenu <= 0 || _menuItemCount == 0u) return;
+    if (_openMenu == kLyricCueChannelMenuId) {
+        s3g::clap_gui::drawMidiChannelDropdownMenu(
+            [self openMenuRect], 18.0,
+            static_cast<int>(_plugin->lyric.cueChannel) - 1,
+            _hoverMenuItem, attrs, style);
+        return;
+    }
     static NSString* modeItems[] = { @"FREE", @"MIDI", @"BOTH" };
     static NSString* waveItems[] = { @"SINE", @"CLASSIC", @"DIGITAL", @"FORMANT", @"USER" };
     static NSString* orderItems[] = { @"1OA", @"2OA", @"3OA", @"4OA", @"5OA", @"6OA", @"7OA" };
@@ -10060,7 +10066,8 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     s3g::clap_gui::drawPanelHeader(@"VOICE SPACE", true, left.origin.x, left.origin.y, left.size.width, 21, labelAttrs, style);
     [self drawPageButtons:labelAttrs style:style];
     [_lyricsScroll setHidden:_leftPage != 3 || _showLyricGenerator
-        || _openMenu == 12 || _openMenu == 14 || _openMenu == 15];
+        || _openMenu == 12 || _openMenu == 14 || _openMenu == 15
+        || _openMenu == kLyricCueChannelMenuId];
     if (_leftPage == 0) {
         [self drawViewButtons:labelAttrs style:style];
         [self drawField:[self leftContentRect] attrs:valueAttrs];
@@ -10475,7 +10482,8 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
     _hoverMenuItem = -1;
     _menuOrigin = NSMakePoint(x, y + 18.0);
     _menuWidth = width;
-    if (_leftPage == 3 && (menu == 12 || menu == 14 || menu == 15)) {
+    if (_leftPage == 3 && (menu == 12 || menu == 14 || menu == 15
+            || menu == kLyricCueChannelMenuId)) {
         [_lyricsScroll setHidden:YES];
     }
     [self setNeedsDisplay:YES];
@@ -10484,7 +10492,9 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 - (NSRect)openMenuRect
 {
     const CGFloat itemHeight = 18.0;
-    const uint32_t columns = _openMenu == 6 ? 4u : 1u;
+    const uint32_t columns = _openMenu == 6 ? 4u
+        : (_openMenu == kLyricCueChannelMenuId
+                ? s3g::clap_gui::kMidiChannelMenuColumns : 1u);
     const CGFloat columnWidth = _openMenu == 6 ? 180.0 : _menuWidth;
     const uint32_t rows =
         s3g::clap_gui::multiColumnMenuRows(_menuItemCount, columns);
@@ -10502,6 +10512,10 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
 - (int)openMenuHit:(NSPoint)point
 {
     const NSRect menuRect = [self openMenuRect];
+    if (_openMenu == kLyricCueChannelMenuId) {
+        return s3g::clap_gui::midiChannelDropdownHitIndex(
+            point, menuRect, 18.0);
+    }
     return _openMenu == 6
         ? s3g::clap_gui::multiColumnDropdownHitIndex(
             point, menuRect, 18.0, _menuItemCount, 4u)
@@ -10531,6 +10545,8 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
             else if (_openMenu == 10) applyParam(*_plugin, kOrchestrationParamId, hit);
             else if (_openMenu == 11) applyParam(*_plugin, kContourModeParamId, hit);
             else if (_openMenu == 13) applyParam(*_plugin, kLyricModeParamId, hit);
+            else if (_openMenu == kLyricCueChannelMenuId)
+                applyParam(*_plugin, kLyricCueChannelParamId, hit + 1);
             else if (_openMenu == 14) {
                 _plugin->generator.form = static_cast<VoxPhraseForm>(hit);
                 clampVoxPhraseGeneratorRecipe(_plugin->generator);
@@ -10804,11 +10820,19 @@ static CGFloat voxWorldRowY(VoxSpeechMode mode, uint32_t row)
                 y:controlsY width:150];
             return;
         }
+        if (NSPointInRect(point, NSMakeRect(
+                content.origin.x + kLyricsSliderTrackOffset,
+                controlsY + 83, kLyricsSliderTrackWidth, 17))) {
+            [self openMenu:kLyricCueChannelMenuId
+                count:s3g::clap_gui::kMidiChannelMenuItemCount
+                x:content.origin.x + kLyricsSliderTrackOffset
+                y:controlsY + 84 width:kLyricsSliderTrackWidth];
+            return;
+        }
         struct LyricSliderHit { clap_id param; CGFloat y; };
         const LyricSliderHit lyricSliders[] {
             { kLyricCueBeatsParamId, controlsY + 28 },
             { kLyricCueNoteParamId, controlsY + 56 },
-            { kLyricCueChannelParamId, controlsY + 84 },
         };
         for (const auto& slider : lyricSliders) {
             if (!NSPointInRect(point, NSMakeRect(content.origin.x + 102,

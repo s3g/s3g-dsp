@@ -1,11 +1,18 @@
 #include "s3g_ambisonic_point_encoder.h"
 #include "s3g_realtime.h"
 
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI)
+#include "../common/s3g_clap_gui_param_queue.h"
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_ambi_point_encoder_vstgui.h"
+#endif
+
 #include <clap/clap.h>
+#include <clap/ext/gui.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_POINT_GUI) && defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -28,6 +35,8 @@ constexpr uint32_t kMixerBankSize = 16u;
 constexpr uint32_t kMixerBankCount = kPointCount / kMixerBankSize;
 constexpr uint32_t kOutputChannels = s3g::kAmbiPointEncoderMaxChannels;
 constexpr uint32_t kStateVersion = 12;
+constexpr uint32_t kGuiWidth = 900u;
+constexpr uint32_t kGuiHeight = 716u;
 
 constexpr clap_id kPointParamId = 1;
 constexpr clap_id kAzimuthParamId = 2;
@@ -175,6 +184,7 @@ s3g::AmbiPointEncoderParams upgradeLegacyParams(const LegacyAmbiPointEncoderPara
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
     s3g::AmbiPointEncoderParams params {};
@@ -183,14 +193,20 @@ struct Plugin {
     // simulation positions held by the encoder.
     std::array<s3g::AmbiPoint, kPointCount> parameterPoints {};
     std::atomic<float> outputPeak { 0.0f };
-#if defined(__APPLE__)
-    void* guiView = nullptr;
-    s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
     int guiViewMode = 0;
     double guiViewAzDeg = 90.0;
     double guiViewElDeg = 0.0;
     double guiViewZoom = 1.0;
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI)
+    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::portable_gui::AmbiPointEditor* guiEditor = nullptr;
+    uint32_t guiWidth = kGuiWidth;
+    uint32_t guiHeight = kGuiHeight;
+    bool guiVisible = false;
+#elif defined(S3G_USE_LEGACY_COCOA_AMBI_POINT_GUI) && defined(__APPLE__)
+    void* guiView = nullptr;
+    s3g::clap_gui::ResponsiveViewport guiViewport {};
+    bool guiVisible = false;
 #endif
 };
 
@@ -623,16 +639,22 @@ bool init(const clap_plugin_t* plugin)
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
     p->parameterPoints = p->encoder.editPoints();
+    if (p->host && p->host->get_extension) {
+        p->hostParams = static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    }
     return true;
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_POINT_GUI) && defined(__APPLE__))
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_POINT_GUI) && defined(__APPLE__))
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -679,6 +701,10 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI)
+    s3g::clap_gui::serviceParamEvents(p->guiParamEvents, proc->out_events,
+        [](clap_id, double) {});
+#endif
     readParamEvents(*p, proc->in_events);
 
     if (proc->audio_outputs_count == 0) {
@@ -952,7 +978,16 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
+                 const clap_output_events_t* out)
+{
+    auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI)
+    s3g::clap_gui::serviceParamEvents(p->guiParamEvents, out,
+        [](clap_id, double) {});
+#endif
+    readParamEvents(*p, in);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
@@ -969,12 +1004,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     s.params.selectedDistance = selectedPoint.distance;
     s.params.selectedGain = selectedPoint.gain;
     s.params.selectedEnabled = selectedPoint.enabled;
-#if defined(__APPLE__)
     s.guiViewMode = p->guiViewMode;
     s.guiViewAzDeg = p->guiViewAzDeg;
     s.guiViewElDeg = p->guiViewElDeg;
     s.guiViewZoom = p->guiViewZoom;
-#endif
     return writeExact(stream, &s, sizeof(s));
 }
 
@@ -1033,12 +1066,10 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->encoder.setScene(s.points);
     p->params = p->encoder.params();
     p->parameterPoints = s.points;
-#if defined(__APPLE__)
     p->guiViewMode = std::clamp<int>(s.guiViewMode, -1, 2);
     p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
     p->guiViewElDeg = std::clamp(s.guiViewElDeg, -90.0, 90.0);
     p->guiViewZoom = std::clamp(s.guiViewZoom, 0.55, 2.20);
-#endif
     return true;
 }
 
@@ -1046,7 +1077,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_AMBI_POINT_GUI) && defined(__APPLE__)
 namespace {
 constexpr CGFloat kToolboxX = 630.0;
 constexpr CGFloat kToolboxWidth = 250.0;
@@ -2297,14 +2328,360 @@ void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView || !s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, false)) return false; p->guiVisible = true; [static_cast<S3GAmbiPointEncoderView*>(p->guiView) startRefreshTimer]; return true; }
 bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiPointEncoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
+} // namespace
 #endif
+
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI)
+namespace {
+
+void guiGetSnapshot(void* context,
+    s3g::portable_gui::AmbiPointEditorSnapshot* snapshot)
+{
+    if (!context || !snapshot) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    snapshot->params = instance.params;
+    const auto& animated = instance.encoder.points();
+    const auto& edited = instance.encoder.editPoints();
+    const auto& collision = instance.encoder.collisionEnergy();
+    const auto& release = instance.encoder.bondRelease();
+    std::copy(animated.begin(), animated.end(), snapshot->animatedPoints);
+    std::copy(edited.begin(), edited.end(), snapshot->editPoints);
+    std::copy(collision.begin(), collision.end(), snapshot->collisionEnergy);
+    std::copy(release.begin(), release.end(), snapshot->bondRelease);
+    snapshot->perturbationSource = instance.encoder.perturbationSource();
+    snapshot->previousPerturbationSource =
+        instance.encoder.previousPerturbationSource();
+    snapshot->outputPeak = instance.outputPeak.load(std::memory_order_relaxed);
+    snapshot->viewMode = instance.guiViewMode;
+    snapshot->viewAzimuthDeg = instance.guiViewAzDeg;
+    snapshot->viewElevationDeg = instance.guiViewElDeg;
+    snapshot->viewZoom = instance.guiViewZoom;
+}
+
+double guiGetParam(void* context, uint32_t id)
+{
+    if (!context) return 0.0;
+    double value = 0.0;
+    paramsGetValue(&static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), &value);
+    return value;
+}
+
+bool guiGetParamText(void* context, uint32_t id, double value,
+                     char* text, uint32_t size)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, size);
+}
+
+bool guiGetDefaultValue(void* context, uint32_t id, double* value)
+{
+    if (!context || !value) return false;
+    auto* plugin = &static_cast<Plugin*>(context)->plugin;
+    for (uint32_t index = 0u; index < paramsCount(plugin); ++index) {
+        clap_param_info_t info {};
+        if (paramsGetInfo(plugin, index, &info) && info.id == id) {
+            *value = info.default_value;
+            return true;
+        }
+    }
+    return false;
+}
+
+void guiSetParam(void* context, uint32_t id, double value)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    applyParam(instance, static_cast<clap_id>(id), value);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::Value,
+        static_cast<clap_id>(id), value);
+}
+
+void guiBeginParamEdit(void* context, uint32_t id)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureBegin,
+        static_cast<clap_id>(id));
+}
+
+void guiEndParamEdit(void* context, uint32_t id)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureEnd,
+        static_cast<clap_id>(id));
+}
+
+void guiSetPointParam(void* context, uint32_t point, uint32_t kind,
+                      double value)
+{
+    if (!context || point >= kPointCount
+        || kind > static_cast<uint32_t>(PerPointParamKind::Solo)) return;
+    guiSetParam(context, perPointParamId(point,
+        static_cast<PerPointParamKind>(kind)), value);
+}
+
+void guiSetViewState(void* context, int32_t mode, double azimuth,
+                     double elevation, double zoom)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.guiViewMode = std::clamp<int32_t>(mode, -1, 2);
+    instance.guiViewAzDeg = std::clamp(azimuth, -180.0, 180.0);
+    instance.guiViewElDeg = std::clamp(elevation, -90.0, 90.0);
+    instance.guiViewZoom = std::clamp(zoom, 0.55, 2.20);
+}
+
+void guiResetDefaults(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t order = instance.params.order;
+    const float output = instance.params.outputGainDb;
+    s3g::AmbiPointEncoderParams initial {};
+    initial.activePoints = kDefaultPointCount;
+    initial.order = order;
+    initial.outputGainDb = output;
+    instance.params = initial;
+    instance.encoder.setParams(initial);
+    instance.params = instance.encoder.params();
+    instance.parameterPoints = instance.encoder.editPoints();
+}
+
+double guiRandomUnit()
+{
+    static std::atomic<uint32_t> state { 0x5a17c9e3u };
+    uint32_t current = state.load(std::memory_order_relaxed);
+    uint32_t next = 0u;
+    do {
+        next = current;
+        next ^= next << 13u;
+        next ^= next >> 17u;
+        next ^= next << 5u;
+    } while (!state.compare_exchange_weak(current, next,
+        std::memory_order_relaxed));
+    return static_cast<double>(next) / 4294967295.0;
+}
+
+void guiRandomize(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    applyParam(instance, kMotionModeParamId,
+        1.0 + std::floor(guiRandomUnit() * 5.0));
+    applyParam(instance, kMotionAmountParamId,
+        0.18 + guiRandomUnit() * 0.64);
+    applyParam(instance, kRateParamId,
+        0.01 + guiRandomUnit() * 0.34);
+    applyParam(instance, kCollisionParamId, guiRandomUnit() * 0.72);
+    applyParam(instance, kSwirlParamId, -0.20 + guiRandomUnit() * 0.40);
+}
+
+struct GuiStateFileWriter {
+    clap_ostream_t stream {};
+    std::FILE* file = nullptr;
+    GuiStateFileWriter()
+    {
+        stream.ctx = this;
+        stream.write = [](const clap_ostream_t* stream, const void* data,
+                          uint64_t size) -> int64_t {
+            auto* writer = static_cast<GuiStateFileWriter*>(stream->ctx);
+            if (!writer || !writer->file) return -1;
+            return static_cast<int64_t>(std::fwrite(data, 1u,
+                static_cast<size_t>(size), writer->file));
+        };
+    }
+};
+
+struct GuiStateFileReader {
+    clap_istream_t stream {};
+    std::FILE* file = nullptr;
+    GuiStateFileReader()
+    {
+        stream.ctx = this;
+        stream.read = [](const clap_istream_t* stream, void* data,
+                         uint64_t size) -> int64_t {
+            auto* reader = static_cast<GuiStateFileReader*>(stream->ctx);
+            if (!reader || !reader->file) return -1;
+            return static_cast<int64_t>(std::fread(data, 1u,
+                static_cast<size_t>(size), reader->file));
+        };
+    }
+};
+
+bool guiSavePreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    GuiStateFileWriter writer;
+    writer.file = s3g::portable_gui::foundation::openFileUtf8(path, "wb");
+    if (!writer.file) return false;
+    const bool succeeded = stateSave(
+        &static_cast<Plugin*>(context)->plugin, &writer.stream);
+    const bool closed = std::fclose(writer.file) == 0;
+    return succeeded && closed;
+}
+
+bool guiLoadPreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    GuiStateFileReader reader;
+    reader.file = s3g::portable_gui::foundation::openFileUtf8(path, "rb");
+    if (!reader.file) return false;
+    const bool succeeded = stateLoad(
+        &static_cast<Plugin*>(context)->plugin, &reader.stream);
+    const bool closed = std::fclose(reader.file) == 0;
+    return succeeded && closed;
+}
+
+bool guiIsApiSupported(const clap_plugin_t*, const char* api,
+                       bool isFloating)
+{
+    return s3g::clap_gui::portable::isApiSupported(api, isFloating);
+}
+
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api,
+                        bool* isFloating)
+{
+    return s3g::clap_gui::portable::getPreferredApi(api, isFloating);
+}
+
+bool guiCreate(const clap_plugin_t* plugin, const char* api,
+               bool isFloating)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::create(
+        instance.guiEditor, api, isFloating, [&instance]() {
+            s3g::portable_gui::AmbiPointEditorConfig config {};
+            config.callbacks.context = &instance;
+            config.callbacks.getSnapshot = guiGetSnapshot;
+            config.callbacks.getParam = guiGetParam;
+            config.callbacks.getParamText = guiGetParamText;
+            config.callbacks.getDefaultValue = guiGetDefaultValue;
+            config.callbacks.beginParamEdit = guiBeginParamEdit;
+            config.callbacks.setParam = guiSetParam;
+            config.callbacks.endParamEdit = guiEndParamEdit;
+            config.callbacks.setPointParam = guiSetPointParam;
+            config.callbacks.setViewState = guiSetViewState;
+            config.callbacks.resetToDefaults = guiResetDefaults;
+            config.callbacks.randomize = guiRandomize;
+            config.callbacks.loadPreset = guiLoadPreset;
+            config.callbacks.savePreset = guiSavePreset;
+            config.pluginName = "s3g AMBI ENCODER POINT";
+            config.nativeWidth = kGuiWidth;
+            config.nativeHeight = kGuiHeight;
+            return s3g::portable_gui::createAmbiPointEditor(
+                config, instance.guiWidth, instance.guiHeight);
+        });
+}
+
+void guiDestroy(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    instance.guiVisible = false;
+    s3g::clap_gui::portable::destroy(instance.guiEditor,
+        s3g::portable_gui::destroyAmbiPointEditor);
+}
+
+bool guiSetScale(const clap_plugin_t*, double) { return false; }
+
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width,
+                uint32_t* height)
+{
+    const auto* instance = self(plugin);
+    return s3g::clap_gui::portable::getSize(instance->guiWidth,
+        instance->guiHeight, width, height);
+}
+
+bool guiCanResize(const clap_plugin_t*) { return true; }
+
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::portable::getResizeHints(
+        kGuiWidth, kGuiHeight, hints);
+}
+
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::portable::adjustSize(
+        kGuiWidth, kGuiHeight, width, height);
+}
+
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width,
+                uint32_t height)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setSize(instance.guiEditor,
+        kGuiWidth, kGuiHeight, instance.guiWidth, instance.guiHeight,
+        width, height, s3g::portable_gui::setAmbiPointEditorSize);
+}
+
+bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
+{
+    return s3g::clap_gui::portable::setParent(self(plugin)->guiEditor,
+        window, s3g::portable_gui::setAmbiPointEditorParent);
+}
+
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*)
+{
+    return false;
+}
+
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+
+bool guiShow(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setVisible(instance.guiEditor,
+        instance.guiVisible, true,
+        s3g::portable_gui::setAmbiPointEditorVisible);
+}
+
+bool guiHide(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setVisible(instance.guiEditor,
+        instance.guiVisible, false,
+        s3g::portable_gui::setAmbiPointEditorVisible);
+}
+
+const clap_plugin_gui_t guiExt {
+    guiIsApiSupported,
+    guiGetPreferredApi,
+    guiCreate,
+    guiDestroy,
+    guiSetScale,
+    guiGetSize,
+    guiCanResize,
+    guiGetResizeHints,
+    guiAdjustSize,
+    guiSetSize,
+    guiSetParent,
+    guiSetTransient,
+    guiSuggestTitle,
+    guiShow,
+    guiHide,
+};
+
+} // namespace
+#endif
+
+namespace {
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_AMBI_POINT_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_AMBI_POINT_GUI) && defined(__APPLE__))
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

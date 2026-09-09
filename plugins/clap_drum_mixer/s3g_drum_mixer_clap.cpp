@@ -2,6 +2,12 @@
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_gui_layout.h"
+#include "../common/s3g_drum_effect_queue.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_vstgui_canvas.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -222,12 +228,17 @@ struct Plugin {
     double sampleRate = 48000.0;
     s3g::DrumMixerParams params {};
     s3g::DrumMixer dsp {};
-    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::DrumEffectQueue guiParamEvents {};
     std::array<std::atomic<double>, kParamCount> publishedParams {};
     std::array<std::atomic<float>, s3g::kDrumMixerLaneCount> lanePeaks {};
     std::atomic<float> masterPeak { 0.0f };
     std::atomic<float> busActivity { 0.0f };
     std::atomic<float> busReductionDb { 0.0f };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
@@ -348,8 +359,15 @@ bool init(const clap_plugin_t* plugin)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin&);
+#endif
+
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -436,8 +454,13 @@ bool pushGuiEvent(const clap_output_events_t* output,
 
 void consumeGuiEvents(Plugin& plugin, const clap_output_events_t* output)
 {
-    s3g::clap_gui::ParamEvent pending;
+    s3g::clap_gui::DrumEffectEvent pending;
     while (plugin.guiParamEvents.peek(pending)) {
+        if (pending.resetDsp) {
+            plugin.dsp.reset();
+            plugin.guiParamEvents.pop();
+            continue;
+        }
         if (!pushGuiEvent(output, pending)) break;
         if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
             applyParam(plugin, pending.paramId, pending.value);
@@ -1501,12 +1524,19 @@ const clap_plugin_gui_t guiExtension {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "s3g_drum_mixer_vstgui.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;
@@ -1574,6 +1604,6 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory
 };

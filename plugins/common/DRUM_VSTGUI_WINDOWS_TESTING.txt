@@ -1,0 +1,36 @@
+s3g-dsp Drum VSTGUI pilots — Windows x64
+
+Contains s3g Drum Kick 2 and s3g Drum Hi-Hat 2 only.
+The remaining Drum instruments/effects have NOT been migrated in this pass.
+
+Requirements: Windows 10 or newer, 64-bit REAPER or another CLAP host.
+
+Installation for testing:
+1. Close REAPER and back up any existing copies of these two plugins.
+2. Copy both .clap files AND Resources into the same CLAP directory, e.g.
+   %LOCALAPPDATA%\Programs\Common\CLAP\s3g-dsp
+   Preserve other plugins and resources already in that directory.
+3. Restart REAPER; rescan if needed. Avoid duplicate copies in scan paths.
+
+Fira Code is supplied in Resources/Fonts; no system font installation is needed.
+Its license is alongside the font. If the font is missing, a monospace fallback
+is used. Keep Resources beside the .clap files when moving this package.
+
+Parity checklist (actual Windows REAPER validation is still required):
+- Compare the original four panels, gray levels, labels, and slider alignment.
+- Resize through 65–200%; check hit positions and text at Windows display scales.
+- Drag all sliders both ways; double-click to restore a default.
+- Open the custom factory/MIDI menus, select both columns, and dismiss outside.
+- Try all 12 Kick / 14 Hi-Hat factory presets.
+- RANDOM should preserve Output, Note Tracking, Velocity, and MIDI Receive.
+- Check Kick's animated rings and Hi-Hat's cymbals and pad illumination.
+- Try CLOSED / OPEN / PEDAL; closed and pedal should choke an open hat tail.
+- MIDI Receive filters external MIDI; GUI audition pads still work on any setting.
+- Record automation from sliders, presets, RANDOM, and audition pads.
+- SAVE / LOAD .s3gpreset files, including a folder/name containing accents.
+  LOAD preserves the current output trim. Project recall restores saved trim.
+- Save/reopen a project containing existing Cocoa-era plugin states.
+- Close/reopen editors and try multiple instances.
+
+Cross-compilation, resource/dependency checks, macOS host-harness checks, and
+direct editor interaction tests are not a substitute for this Windows host pass.

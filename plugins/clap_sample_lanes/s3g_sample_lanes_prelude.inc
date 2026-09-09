@@ -480,7 +480,7 @@ static_assert(sizeof(SavedState) == sizeof(StateHeader)
     + s3g::sample::kSampleLaneCount * sizeof(LaneState)
     + sizeof(ManualPathState));
 
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     uint8_t lane = 0u;
@@ -621,7 +621,7 @@ struct Plugin {
     std::array<ProjectFileRegistration, s3g::sample::kSampleLaneCount>
         projectFileRegistrations {};
     bool active = false;
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
     std::mutex loaderMutex;
     std::condition_variable loaderCondition;
     std::deque<LoadRequest> loadRequests;
@@ -629,8 +629,16 @@ struct Plugin {
     std::thread loaderThread;
     std::array<uint64_t, s3g::sample::kSampleLaneCount> loadGenerations {};
     bool loaderStopping = false;
+#endif
+#if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI)
+    s3g::portable_gui::SampleFamilyEditor* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth;
+    uint32_t portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
 #endif
 };
 
@@ -669,7 +677,7 @@ void clearLane(Plugin& instance, std::size_t lane);
 std::shared_ptr<const CutupsLaneMetadata> analyzeCutupsLane(
     const SampleAsset& asset, double transientPrerollMilliseconds);
 #endif
-#if defined(__APPLE__)
+#if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error,
     uint32_t maximumChannels);

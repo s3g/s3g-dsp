@@ -3,6 +3,11 @@
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_sample_storage.h"
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_sample_player_vstgui.h"
+#endif
+
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/audio-ports-config.h>
@@ -14,8 +19,15 @@
 
 #if defined(__APPLE__)
 #import <AVFoundation/AVFoundation.h>
+#if defined(S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
+#endif
+#endif
+
+#if defined(_WIN32)
+#define DR_WAV_IMPLEMENTATION
+#include <dr_wav.h>
 #endif
 
 #include <algorithm>
@@ -34,7 +46,9 @@
 #include <mutex>
 #include <new>
 #include <string>
+#if !defined(_WIN32)
 #include <strings.h>
+#endif
 #include <thread>
 #include <vector>
 
@@ -67,6 +81,15 @@ constexpr uint32_t kStateVersion = 6u;
 constexpr uint32_t kGuiWidth = 980u;
 constexpr uint32_t kGuiHeight = 844u;
 constexpr std::size_t kMaximumPathBytes = 1024u;
+
+int compareTextIgnoringCase(const char* left, const char* right)
+{
+#if defined(_WIN32)
+    return _stricmp(left, right);
+#else
+    return strcasecmp(left, right);
+#endif
+}
 constexpr std::size_t kMaximumBlockEvents = 2048u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes = 1024ull * 1024ull * 1024ull;
 
@@ -231,7 +254,7 @@ struct PitchSavedState {
     double sampleRate = 0.0;
 };
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
 enum class LoadRequestKind : uint8_t {
     Decode = 0u,
     ProjectCopyOnly,
@@ -296,7 +319,7 @@ struct Plugin {
     std::atomic<bool> projectRenamePending { false };
     std::chrono::steady_clock::time_point nextProjectCopyProbe {};
     bool active = false;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     std::mutex loaderMutex;
     std::condition_variable loaderCondition;
     std::deque<LoadRequest> loadRequests;
@@ -304,6 +327,14 @@ struct Plugin {
     std::thread loaderThread;
     uint64_t loadGeneration = 0u;
     bool loaderStopping = false;
+#endif
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI)
+    s3g::portable_gui::SamplePlayerEditor* guiEditor = nullptr;
+    uint32_t guiWidth = kGuiWidth;
+    uint32_t guiHeight = kGuiHeight;
+    bool guiVisible = false;
+#elif defined(S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI) \
+    && defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
@@ -627,10 +658,11 @@ bool publishAsset(Plugin& instance, std::shared_ptr<const SampleAsset> asset,
     return true;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
 bool decodeSampleFile(const std::string& path,
     std::shared_ptr<const SampleAsset>& assetOut, std::string& error)
 {
+#if defined(__APPLE__)
     @autoreleasepool {
         NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
         NSError* nsError = nil;
@@ -675,6 +707,76 @@ bool decodeSampleFile(const std::string& path,
         error.clear();
         return true;
     }
+#elif defined(_WIN32)
+    drwav decoder {};
+    const auto filePath = std::filesystem::u8path(path);
+    if (!drwav_init_file_w(&decoder, filePath.c_str(), nullptr)) {
+        error = "COULD NOT OPEN WAV OR AIFF SAMPLE";
+        return false;
+    }
+    struct DecoderGuard {
+        drwav* decoder = nullptr;
+        ~DecoderGuard() { if (decoder) drwav_uninit(decoder); }
+    } guard { &decoder };
+
+    if (decoder.channels < 1u
+        || decoder.channels > s3g::sample::kMaximumAudioChannels
+        || decoder.totalPCMFrameCount < 1u
+        || decoder.totalPCMFrameCount
+            > std::numeric_limits<uint32_t>::max()
+        || decoder.sampleRate == 0u) {
+        error = "USE A 1-16 CHANNEL WAV OR AIFF UNDER 2^32 FRAMES";
+        return false;
+    }
+    const auto channels = static_cast<uint32_t>(decoder.channels);
+    const auto requestedFrames = static_cast<uint32_t>(
+        decoder.totalPCMFrameCount);
+    if (static_cast<std::size_t>(requestedFrames)
+            > std::numeric_limits<std::size_t>::max() / channels) {
+        error = "SAMPLE IS TOO LARGE";
+        return false;
+    }
+
+    std::vector<float> interleaved;
+    try {
+        interleaved.resize(static_cast<std::size_t>(requestedFrames)
+            * channels);
+    } catch (...) {
+        error = "SAMPLE DECODE RAN OUT OF MEMORY";
+        return false;
+    }
+    const auto readFrames = drwav_read_pcm_frames_f32(&decoder,
+        requestedFrames, interleaved.data());
+    if (readFrames == 0u) {
+        error = "SAMPLE DECODE FAILED";
+        return false;
+    }
+    const auto decodedFrames = static_cast<uint32_t>(readFrames);
+
+    auto asset = std::make_shared<SampleAsset>();
+    asset->sampleRate = static_cast<double>(decoder.sampleRate);
+    asset->channelCount = static_cast<uint8_t>(channels);
+    try {
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            auto& output = asset->channels[channel];
+            output.resize(decodedFrames);
+            for (uint32_t frame = 0u; frame < decodedFrames; ++frame) {
+                output[frame] = interleaved[
+                    static_cast<std::size_t>(frame) * channels + channel];
+            }
+        }
+    } catch (...) {
+        error = "SAMPLE DECODE RAN OUT OF MEMORY";
+        return false;
+    }
+    if (!asset->valid()) {
+        error = "DECODED SAMPLE IS INVALID";
+        return false;
+    }
+    assetOut = std::move(asset);
+    error.clear();
+    return true;
+#endif
 }
 
 bool installDecodedSample(Plugin& instance, const std::string& locator,
@@ -958,51 +1060,36 @@ void setStorageMode(Plugin& instance, StorageMode mode)
 }
 #endif
 
-void requestGuiParamService(Plugin& instance)
-{
-    if (instance.hostParams && instance.hostParams->request_flush)
-        instance.hostParams->request_flush(instance.host);
-    else requestProcess(instance);
-}
-
 void queueGuiParamValue(Plugin& instance, clap_id id, double value)
 {
-    if (instance.guiParamEvents.push({
-            s3g::clap_gui::ParamEventKind::Value, id, value })) {
+    if (s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+            instance.host, instance.hostParams,
+            s3g::clap_gui::ParamEventKind::Value, id, value)) {
         markStateDirty(instance);
-        requestGuiParamService(instance);
     }
 }
 
-bool pushGuiParamEvent(const clap_output_events_t* output,
-    const s3g::clap_gui::ParamEvent& pending)
+void queueGuiParamGestureBegin(Plugin& instance, clap_id id)
 {
-    if (!output || !output->try_push) return true;
-    clap_event_param_value_t event {};
-    event.header.size = sizeof(event);
-    event.header.time = 0u;
-    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-    event.header.type = CLAP_EVENT_PARAM_VALUE;
-    event.header.flags = CLAP_EVENT_IS_LIVE;
-    event.param_id = pending.paramId;
-    event.note_id = -1;
-    event.port_index = -1;
-    event.channel = -1;
-    event.key = -1;
-    event.value = pending.value;
-    return output->try_push(output, &event.header);
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureBegin, id);
+}
+
+void queueGuiParamGestureEnd(Plugin& instance, clap_id id)
+{
+    (void)s3g::clap_gui::enqueueParamEvent(instance.guiParamEvents,
+        instance.host, instance.hostParams,
+        s3g::clap_gui::ParamEventKind::GestureEnd, id);
 }
 
 void serviceGuiParamEvents(Plugin& instance,
     const clap_output_events_t* output) noexcept
 {
-    s3g::clap_gui::ParamEvent pending {};
-    while (instance.guiParamEvents.peek(pending)) {
-        if (!pushGuiParamEvent(output, pending)) break;
-        if (pending.kind == s3g::clap_gui::ParamEventKind::Value)
-            setParam(instance, pending.paramId, pending.value);
-        instance.guiParamEvents.pop();
-    }
+    s3g::clap_gui::serviceParamEvents(instance.guiParamEvents, output,
+        [&instance](clap_id id, double value) {
+            setParam(instance, id, value);
+        });
 }
 
 void appendNoteEvent(Plugin& instance, std::size_t& count, uint32_t frame,
@@ -1101,7 +1188,7 @@ bool pluginInit(const clap_plugin_t* plugin)
         instance.hostState = static_cast<const clap_host_state_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     if (!startSampleLoader(instance)) {
         instance.status = "COULD NOT START SAMPLE LOADER";
         return false;
@@ -1110,18 +1197,22 @@ bool pluginInit(const clap_plugin_t* plugin)
     return true;
 }
 
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI) \
+        && defined(__APPLE__))
 void destroyGui(Plugin& instance);
 #endif
 
 void pluginDestroy(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI) \
+        && defined(__APPLE__))
     destroyGui(instance);
 #endif
     instance.projectFileRegistration.clear();
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     stopSampleLoader(instance);
 #endif
     delete &instance;
@@ -1276,7 +1367,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     serviceSampleLoads(*self(plugin));
 #else
     (void)plugin;
@@ -1588,7 +1679,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         || !paramIsExposed(*self(plugin), id)) return false;
     if (id == kPlayModeParamId) {
         for (int mode = 0; mode < 6; ++mode) {
-            if (strcasecmp(display, playModeName(mode)) == 0) {
+            if (compareTextIgnoringCase(display, playModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
             }
@@ -1597,7 +1688,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     }
     if (id == kFilterTypeParamId) {
         for (int type = 0; type < 5; ++type) {
-            if (strcasecmp(display, filterTypeName(type)) == 0) {
+            if (compareTextIgnoringCase(display, filterTypeName(type)) == 0) {
                 *value = static_cast<double>(type);
                 return true;
             }
@@ -1606,7 +1697,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     }
     if (id == kPitchModeParamId) {
         for (int mode = 0; mode < 3; ++mode) {
-            if (strcasecmp(display, pitchModeName(mode)) == 0) {
+            if (compareTextIgnoringCase(display, pitchModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
             }
@@ -1615,7 +1706,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     }
     if (id == kSyncModeParamId) {
         for (int mode = 0; mode < 2; ++mode) {
-            if (strcasecmp(display, syncModeName(mode)) == 0) {
+            if (compareTextIgnoringCase(display, syncModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
             }
@@ -1624,7 +1715,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     }
     if (id == kTriggerModeParamId) {
         for (int mode = 0; mode < 4; ++mode) {
-            if (strcasecmp(display, triggerModeName(mode)) == 0) {
+            if (compareTextIgnoringCase(display, triggerModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
             }
@@ -1633,7 +1724,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     }
     if (id == kRetriggerModeParamId) {
         for (int mode = 0; mode < 3; ++mode) {
-            if (strcasecmp(display, retriggerModeName(mode)) == 0) {
+            if (compareTextIgnoringCase(display, retriggerModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
             }
@@ -1642,7 +1733,7 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
     }
     if (id == kVoiceModeParamId) {
         for (int mode = 0; mode < 3; ++mode) {
-            if (strcasecmp(display, voiceModeName(mode)) == 0) {
+            if (compareTextIgnoringCase(display, voiceModeName(mode)) == 0) {
                 *value = static_cast<double>(mode);
                 return true;
             }
@@ -1650,13 +1741,13 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id,
         return false;
     }
     if (id == kMidiReceiveParamId) {
-        if (strcasecmp(display, "Omni") == 0) {
+        if (compareTextIgnoringCase(display, "Omni") == 0) {
             *value = 0.0;
             return true;
         }
         for (int channel = 1; channel <= 16; ++channel) {
             char text[32] {};
-            if (strcasecmp(display, midiReceiveName(
+            if (compareTextIgnoringCase(display, midiReceiveName(
                     channel, text, sizeof(text))) == 0) {
                 *value = static_cast<double>(channel);
                 return true;
@@ -1885,7 +1976,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     bool projectLocatorReady = false;
     if (!path.empty()) {
         if (requestedStorageMode == StorageMode::Project) {
-            if (std::filesystem::path(path).is_absolute()) {
+            if (std::filesystem::u8path(path).is_absolute()) {
                 resolvedPath = path;
             } else {
                 instance.reaperContext
@@ -1928,14 +2019,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             return false;
         }
     } else if (!resolvedPath.empty()) {
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
         std::string error;
         if (!decodeSampleFile(resolvedPath, asset, error)
             || !asset || asset->channelCount > instance.outputChannelCount)
             asset.reset();
 #endif
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     cancelSampleLoads(instance);
 #endif
     instance.storageMode = requestedStorageMode;
@@ -1953,7 +2044,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         saved.parameters[paramIndex(kAttackParamId)],
         saved.parameters[paramIndex(kDecayParamId)],
         saved.parameters[paramIndex(kReleaseParamId)]);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
     bool projectRegistered = false;
     if (requestedStorageMode == StorageMode::Project
         && projectLocatorReady && !instance.resolvedSamplePath.empty()) {
@@ -1997,7 +2088,8 @@ const clap_plugin_state_t state {
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI) \
+    && defined(__APPLE__)
 
 namespace {
 
@@ -3521,6 +3613,434 @@ const clap_plugin_gui_t gui {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI)
+
+namespace {
+
+double guiReadParam(void* context, uint32_t id)
+{
+    return paramValue(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+bool guiReadParamText(void* context, uint32_t id, double value,
+    char* text, uint32_t capacity)
+{
+    return context && paramsValueToText(
+        &static_cast<Plugin*>(context)->plugin,
+        static_cast<clap_id>(id), value, text, capacity);
+}
+
+bool guiParamIsExposed(void* context, uint32_t id)
+{
+    return context && paramIsExposed(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+const SampleAsset* guiReadAsset(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->controlAsset.get()
+                   : nullptr;
+}
+
+const char* guiReadStatus(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->status.c_str() : "";
+}
+
+const char* guiReadSamplePath(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->samplePath.c_str() : "";
+}
+
+const char* guiReadStorageModeName(void* context)
+{
+    return context ? s3g::sample_storage::storageModeName(
+        static_cast<Plugin*>(context)->storageMode) : "PROJECT";
+}
+
+uint8_t guiReadStorageMode(void* context)
+{
+    return context ? static_cast<uint8_t>(
+        static_cast<Plugin*>(context)->storageMode) : 0u;
+}
+
+uint32_t guiReadOutputChannelCount(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputChannelCount : 2u;
+}
+
+float guiReadPeak(void* context)
+{
+    return context ? static_cast<Plugin*>(context)->outputPeak.load(
+        std::memory_order_relaxed) : 0.0f;
+}
+
+uint32_t guiReadVoiceCursors(void* context, float* positions,
+    uint8_t* keys, uint32_t capacity)
+{
+    if (!context || !positions || !keys || capacity == 0u) return 0u;
+    auto& instance = *static_cast<Plugin*>(context);
+    const uint32_t count = std::min<uint32_t>(capacity,
+        std::min<uint32_t>(instance.voiceCursorCount.load(
+            std::memory_order_acquire),
+            static_cast<uint32_t>(instance.voiceCursorPositions.size())));
+    for (uint32_t cursor = 0u; cursor < count; ++cursor) {
+        positions[cursor] = instance.voiceCursorPositions[cursor].load(
+            std::memory_order_relaxed);
+        keys[cursor] = instance.voiceCursorKeys[cursor].load(
+            std::memory_order_relaxed);
+    }
+    return count;
+}
+
+void guiApplyParam(void* context, uint32_t id, double value)
+{
+    if (!context) return;
+    queueGuiParamValue(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id), value);
+}
+
+void guiBeginParamEdit(void* context, uint32_t id)
+{
+    if (context) queueGuiParamGestureBegin(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+void guiEndParamEdit(void* context, uint32_t id)
+{
+    if (context) queueGuiParamGestureEnd(*static_cast<Plugin*>(context),
+        static_cast<clap_id>(id));
+}
+
+bool guiDefaultValue(void* context, uint32_t id, double* value)
+{
+    if (!context || !value) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    const auto* definition = paramDef(static_cast<clap_id>(id));
+    if (!definition) return false;
+    if (instance.controlAsset && (id == kStartParamId
+            || id == kLengthParamId || id == kLoopStartParamId
+            || id == kLoopEndParamId)) {
+        const auto bounds = safeBoundaryValues(*instance.controlAsset);
+        const std::size_t index = id == kStartParamId ? 0u
+            : id == kLengthParamId ? 1u
+            : id == kLoopStartParamId ? 2u : 3u;
+        *value = bounds[index];
+    } else {
+        *value = definition->defaultValue;
+    }
+    return true;
+}
+
+void guiResetDefaults(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    for (const auto& definition : kParamDefs)
+        queueGuiParamValue(instance, definition.id, definition.defaultValue);
+    if (instance.controlAsset) {
+        const auto bounds = safeBoundaryValues(*instance.controlAsset);
+        queueGuiParamValue(instance, kStartParamId, bounds[0u]);
+        queueGuiParamValue(instance, kLengthParamId, bounds[1u]);
+        queueGuiParamValue(instance, kLoopStartParamId, bounds[2u]);
+        queueGuiParamValue(instance, kLoopEndParamId, bounds[3u]);
+    }
+}
+
+void guiKillAll(void* context)
+{
+    if (!context) return;
+    auto& instance = *static_cast<Plugin*>(context);
+    instance.killRequested.store(true, std::memory_order_release);
+    requestProcess(instance);
+}
+
+bool guiLoadSample(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+#if defined(__APPLE__) || defined(_WIN32)
+    queueSampleLoad(*static_cast<Plugin*>(context), path);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool guiCycleStorageMode(void* context)
+{
+    if (!context) return false;
+#if defined(__APPLE__) || defined(_WIN32)
+    auto& instance = *static_cast<Plugin*>(context);
+    setStorageMode(instance, nextStorageMode(instance.storageMode));
+    return true;
+#else
+    return false;
+#endif
+}
+
+void guiService(void* context)
+{
+#if defined(__APPLE__) || defined(_WIN32)
+    if (context) serviceSampleLoads(*static_cast<Plugin*>(context));
+#else
+    (void)context;
+#endif
+}
+
+struct GuiStateFileWriter {
+    FILE* file = nullptr;
+    clap_ostream_t stream {
+        this,
+        [](const clap_ostream_t* stream, const void* buffer,
+           uint64_t size) -> int64_t {
+            auto* writer = static_cast<GuiStateFileWriter*>(stream->ctx);
+            if (!writer || !writer->file || (!buffer && size != 0u))
+                return -1;
+            const std::size_t written = std::fwrite(buffer, 1u,
+                static_cast<std::size_t>(size), writer->file);
+            return written > 0u || size == 0u
+                ? static_cast<int64_t>(written) : -1;
+        },
+    };
+};
+
+struct GuiStateFileReader {
+    FILE* file = nullptr;
+    clap_istream_t stream {
+        this,
+        [](const clap_istream_t* stream, void* buffer,
+           uint64_t size) -> int64_t {
+            auto* reader = static_cast<GuiStateFileReader*>(stream->ctx);
+            if (!reader || !reader->file || (!buffer && size != 0u))
+                return -1;
+            const std::size_t read = std::fread(buffer, 1u,
+                static_cast<std::size_t>(size), reader->file);
+            if (read > 0u || std::feof(reader->file))
+                return static_cast<int64_t>(read);
+            return -1;
+        },
+    };
+};
+
+bool guiSavePreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    GuiStateFileWriter writer;
+    writer.file = s3g::portable_gui::foundation::openFileUtf8(path, "wb");
+    if (!writer.file) return false;
+    const bool succeeded = stateSave(
+        &static_cast<Plugin*>(context)->plugin, &writer.stream);
+    const bool closed = std::fclose(writer.file) == 0;
+    return succeeded && closed;
+}
+
+bool guiLoadPreset(void* context, const char* path)
+{
+    if (!context || !path || !path[0]) return false;
+    GuiStateFileReader reader;
+    reader.file = s3g::portable_gui::foundation::openFileUtf8(path, "rb");
+    if (!reader.file) return false;
+    const bool succeeded = stateLoad(
+        &static_cast<Plugin*>(context)->plugin, &reader.stream);
+    const bool closed = std::fclose(reader.file) == 0;
+    return succeeded && closed;
+}
+
+bool guiLoadDocumentationSample(void* context)
+{
+    if (!context) return false;
+#if defined(__APPLE__) || defined(_WIN32)
+    const char* path = std::getenv("S3G_GUI_DOCUMENTATION_SAMPLE_PATH");
+    if (!path || !path[0]) return false;
+    auto& instance = *static_cast<Plugin*>(context);
+    std::shared_ptr<const SampleAsset> asset;
+    std::string error;
+    if (!decodeSampleFile(path, asset, error) || !asset
+        || asset->channelCount > instance.outputChannelCount
+        || !installDecodedSample(instance, path, path, std::move(asset)))
+        return false;
+    if (instance.storageMode == StorageMode::Project)
+        instance.projectCopyPending = true;
+    setParam(instance, kPlayModeParamId,
+        static_cast<double>(PlayMode::ForwardLoop));
+    setParam(instance, kPitchModeParamId,
+        static_cast<double>(PitchMode::Stretch));
+    setParam(instance, kLoopCrossfadeParamId, 0.08);
+    setParam(instance, kFilterTypeParamId,
+        static_cast<double>(FilterType::LowPass));
+    setParam(instance, kFilterCutoffParamId, 3200.0);
+    setParam(instance, kFilterResonanceParamId, 0.42);
+    setParam(instance, kFilterEnvelopeParamId, 0.35);
+    const auto defaults = safeBoundaryValues(*instance.controlAsset);
+    const double start = defaults[0u];
+    const double end = std::min(1.0, start + defaults[1u]);
+    setParam(instance, kLoopStartParamId,
+        start + (end - start) * 0.24);
+    setParam(instance, kLoopEndParamId,
+        start + (end - start) * 0.76);
+    constexpr std::array<float, 3u> positions {{ 0.18f, 0.47f, 0.71f }};
+    constexpr std::array<uint8_t, 3u> keys {{ 48u, 55u, 60u }};
+    for (std::size_t cursor = 0u; cursor < positions.size(); ++cursor) {
+        instance.voiceCursorPositions[cursor].store(positions[cursor],
+            std::memory_order_relaxed);
+        instance.voiceCursorKeys[cursor].store(keys[cursor],
+            std::memory_order_relaxed);
+    }
+    instance.voiceCursorCount.store(static_cast<uint32_t>(positions.size()),
+        std::memory_order_release);
+    instance.status = "CROSSFADING LOOP READY";
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool floating)
+{
+    return s3g::clap_gui::portable::isApiSupported(api, floating);
+}
+
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api,
+    bool* floating)
+{
+    return s3g::clap_gui::portable::getPreferredApi(api, floating);
+}
+
+bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::create(
+        instance.guiEditor, api, floating, [&instance]() {
+            s3g::portable_gui::SamplePlayerEditorConfig config {};
+            config.callbacks.context = &instance;
+            config.callbacks.getParam = guiReadParam;
+            config.callbacks.getParamText = guiReadParamText;
+            config.callbacks.isParamExposed = guiParamIsExposed;
+            config.callbacks.getAsset = guiReadAsset;
+            config.callbacks.getStatus = guiReadStatus;
+            config.callbacks.getSamplePath = guiReadSamplePath;
+            config.callbacks.getStorageModeName = guiReadStorageModeName;
+            config.callbacks.getStorageMode = guiReadStorageMode;
+            config.callbacks.getOutputChannelCount = guiReadOutputChannelCount;
+            config.callbacks.getOutputPeak = guiReadPeak;
+            config.callbacks.getVoiceCursors = guiReadVoiceCursors;
+            config.callbacks.beginParamEdit = guiBeginParamEdit;
+            config.callbacks.setParam = guiApplyParam;
+            config.callbacks.endParamEdit = guiEndParamEdit;
+            config.callbacks.getDefaultValue = guiDefaultValue;
+            config.callbacks.resetToDefaults = guiResetDefaults;
+            config.callbacks.killAll = guiKillAll;
+            config.callbacks.loadSample = guiLoadSample;
+            config.callbacks.cycleStorageMode = guiCycleStorageMode;
+            config.callbacks.service = guiService;
+            config.callbacks.loadPreset = guiLoadPreset;
+            config.callbacks.savePreset = guiSavePreset;
+            config.callbacks.loadDocumentationSample = guiLoadDocumentationSample;
+            config.pluginName = instance.plugin.desc->name;
+            config.nativeWidth = kGuiWidth;
+            config.nativeHeight = kGuiHeight;
+            return s3g::portable_gui::createSamplePlayerEditor(
+                config, instance.guiWidth, instance.guiHeight);
+        });
+}
+
+void destroyGui(Plugin& instance)
+{
+    instance.guiVisible = false;
+    s3g::clap_gui::portable::destroy(instance.guiEditor,
+        s3g::portable_gui::destroySamplePlayerEditor);
+}
+
+void guiDestroy(const clap_plugin_t* plugin)
+{
+    destroyGui(*self(plugin));
+}
+
+bool guiSetScale(const clap_plugin_t*, double) { return false; }
+
+bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width,
+    uint32_t* height)
+{
+    const auto* instance = self(plugin);
+    return s3g::clap_gui::portable::getSize(instance->guiWidth,
+        instance->guiHeight, width, height);
+}
+
+bool guiCanResize(const clap_plugin_t*) { return true; }
+
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
+{
+    return s3g::clap_gui::portable::getResizeHints(
+        kGuiWidth, kGuiHeight, hints);
+}
+
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* width, uint32_t* height)
+{
+    return s3g::clap_gui::portable::adjustSize(
+        kGuiWidth, kGuiHeight, width, height);
+}
+
+bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setSize(instance.guiEditor,
+        kGuiWidth, kGuiHeight, instance.guiWidth, instance.guiHeight,
+        width, height, s3g::portable_gui::setSamplePlayerEditorSize);
+}
+
+bool guiSetParent(const clap_plugin_t* plugin,
+    const clap_window_t* window)
+{
+    return s3g::clap_gui::portable::setParent(self(plugin)->guiEditor,
+        window, s3g::portable_gui::setSamplePlayerEditorParent);
+}
+
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*)
+{
+    return false;
+}
+
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+
+bool guiShow(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setVisible(instance.guiEditor,
+        instance.guiVisible, true,
+        s3g::portable_gui::setSamplePlayerEditorVisible);
+}
+
+bool guiHide(const clap_plugin_t* plugin)
+{
+    auto& instance = *self(plugin);
+    return s3g::clap_gui::portable::setVisible(instance.guiEditor,
+        instance.guiVisible, false,
+        s3g::portable_gui::setSamplePlayerEditorVisible);
+}
+
+const clap_plugin_gui_t gui {
+    guiIsApiSupported,
+    guiGetPreferredApi,
+    guiCreate,
+    guiDestroy,
+    guiSetScale,
+    guiGetSize,
+    guiCanResize,
+    guiGetResizeHints,
+    guiAdjustSize,
+    guiSetSize,
+    guiSetParent,
+    guiSetTransient,
+    guiSuggestTitle,
+    guiShow,
+    guiHide,
+};
+
+} // namespace
+
+#endif
+
 namespace {
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
@@ -3536,7 +4056,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_NOTE_NAME) == 0) return &noteNames;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_SAMPLE_PLAYER_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_SAMPLE_PLAYER_GUI) \
+        && defined(__APPLE__))
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif
     return nullptr;

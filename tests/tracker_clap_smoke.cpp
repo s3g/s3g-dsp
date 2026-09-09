@@ -242,6 +242,8 @@ bool expect(bool condition, const char* message)
 
 @interface NSView (S3GTrackerBurstPreviewSmokeAccess)
 - (NSRect)burstPreviewHeaderButtonRect;
+- (NSRect)burstPreviewChannelMenuBoxRect;
+- (void)applyGeometryMenuSelection:(NSInteger)index;
 - (BOOL)handleToolboxClickAtPoint:(NSPoint)point;
 @end
 
@@ -773,6 +775,14 @@ int main(int argc, char** argv)
                 if (burstPrepared && geometryView
                     && plugin->activate(plugin, 48000.0, 64u, 8192u)
                     && plugin->start_processing(plugin)) {
+                    const NSRect channelMenu = [geometryView
+                        burstPreviewChannelMenuBoxRect];
+                    const bool channelMenuOpened = [geometryView
+                        handleToolboxClickAtPoint:NSMakePoint(
+                            NSMidX(channelMenu), NSMidY(channelMenu))];
+                    // The menu is user-facing MIDI 01..16, so index 9 selects
+                    // MIDI channel 10 and should emit zero-based status 9.
+                    [geometryView applyGeometryMenuSelection:9u];
                     const NSRect previewButton = [geometryView
                         burstPreviewHeaderButtonRect];
                     const bool clicked = [geometryView
@@ -792,6 +802,7 @@ int main(int argc, char** argv)
                     const bool processed = plugin->process(plugin,
                         &previewProcess) == CLAP_PROCESS_CONTINUE;
                     std::array<uint32_t, 4u> onsetTimes {};
+                    std::array<uint8_t, 4u> channels {};
                     std::size_t onsetCount = 0u;
                     for (uint32_t index = 0u;
                          index < previewOutput.count; ++index) {
@@ -799,18 +810,24 @@ int main(int argc, char** argv)
                         if ((event.data[0] & 0xf0u) != 0x90u
                             || event.data[2] == 0u
                             || onsetCount >= onsetTimes.size()) continue;
-                        onsetTimes[onsetCount++] = event.header.time;
+                        onsetTimes[onsetCount] = event.header.time;
+                        channels[onsetCount++] = static_cast<uint8_t>(
+                            event.data[0] & 0x0fu);
                     }
-                    previewAudioOk = clicked && processed
+                    previewAudioOk = channelMenuOpened && clicked && processed
                         && onsetCount == 4u
                         && onsetTimes == std::array<uint32_t, 4u> {{
                             0u, 1500u, 3000u, 4500u,
+                        }}
+                        && channels == std::array<uint8_t, 4u> {{
+                            9u, 9u, 9u, 9u,
                         }};
                     plugin->stop_processing(plugin);
                     plugin->deactivate(plugin);
                 }
                 ok &= expect(previewAudioOk,
-                    "stopped Burst Preview did not emit substeps at project-BPM row positions");
+                    "stopped Burst Preview did not emit substeps at project-BPM "
+                    "row positions on the selected MIDI channel");
                 const bool reshapeSelected = clickButton(
                     parent, nil, @"RESHAPE page", nil);
                 [parent layoutSubtreeIfNeeded];

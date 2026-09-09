@@ -4,7 +4,10 @@ function(add_s3g_macro_pitch_target target channels output_name bundle_id bundle
   )
 
   target_link_libraries(${target} PRIVATE s3g_dsp)
-  target_include_directories(${target} PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_include_directories(${target} PRIVATE
+    ${S3G_CLAP_INCLUDE_DIR}
+    ${PROJECT_SOURCE_DIR}/plugins/common)
+  target_compile_features(${target} PRIVATE cxx_std_17)
   target_compile_definitions(${target} PRIVATE
     S3G_MACRO_PITCH_CHANNEL_COUNT=${channels}
     S3G_MACRO_PITCH_PLUGIN_ID="${bundle_id}"
@@ -12,7 +15,13 @@ function(add_s3g_macro_pitch_target target channels output_name bundle_id bundle
     S3G_MACRO_PITCH_DESCRIPTION="${description}"
   )
 
-  if(APPLE)
+  if(S3G_VSTGUI_AVAILABLE)
+    s3g_enable_vstgui_gui(${target}
+      "${PROJECT_SOURCE_DIR}/plugins/common/s3g_macro_effect_vstgui.cpp"
+      S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI)
+  elseif(APPLE)
+    target_compile_definitions(${target} PRIVATE
+      S3G_USE_LEGACY_COCOA_MACRO_PITCH_GUI=1)
     set_source_files_properties(s3g_macro_pitch_clap.cpp PROPERTIES LANGUAGE OBJCXX)
     target_link_libraries(${target} PRIVATE "-framework Cocoa")
   endif()
@@ -31,6 +40,8 @@ function(add_s3g_macro_pitch_target target channels output_name bundle_id bundle
       MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     )
+  elseif(WIN32)
+    set_target_properties(${target} PROPERTIES SUFFIX ".clap")
   endif()
 endfunction()
 

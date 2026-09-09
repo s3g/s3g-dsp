@@ -29,6 +29,7 @@ NSString* const S3GSongColumnWarp = @"warp";
 NSString* const S3GSongColumnPatternLoop = @"patternLoop";
 NSString* const S3GSongColumnRepeats = @"repeats";
 NSString* const S3GSongColumnTicks = @"ticks";
+NSString* const S3GSongColumnTempoMultiplier = @"tempoMultiplier";
 NSString* const S3GSongColumnSwing = @"swing";
 NSString* const S3GSongColumnEnergy = @"energy";
 NSString* const S3GSongColumnMutes = @"mutes";
@@ -37,6 +38,14 @@ NSString* const S3GSongRowPasteboardType = @"org.s3g.tracker.song-row";
 
 constexpr std::array<NSInteger, 16u> kSongTickChoices {
     1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256,
+};
+
+constexpr std::array<double, 7u> kSongTempoMultipliers {
+    0.25, 0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 4.0,
+};
+
+constexpr std::array<const char*, 7u> kSongTempoMultiplierNames {
+    "1/4×", "1/2×", "2/3×", "1×", "3/2×", "2×", "4×",
 };
 
 NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
@@ -51,6 +60,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 @property(nonatomic, copy) NSString* pattern;
 @property(nonatomic) NSInteger repeats;
 @property(nonatomic) NSInteger ticks;
+@property(nonatomic) double tempoMultiplier;
 @property(nonatomic) NSInteger energy;
 @property(nonatomic) double swing;
 @property(nonatomic) BOOL hasSwingOverride;
@@ -603,7 +613,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable
         | NSWindowStyleMaskResizable;
     NSWindow* window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0.0, 0.0, 1080.0, 610.0)
+        initWithContentRect:NSMakeRect(0.0, 0.0, 1160.0, 610.0)
                   styleMask:style
                     backing:NSBackingStoreBuffered
                       defer:NO];
@@ -627,7 +637,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _nextRowIdentity = 1u;
 
     window.title = @"s3g Tracker — Song";
-    window.minSize = NSMakeSize(900.0, 430.0);
+    window.minSize = NSMakeSize(980.0, 430.0);
     window.releasedWhenClosed = NO;
     window.delegate = self;
     window.tabbingMode = NSWindowTabbingModeDisallowed;
@@ -648,6 +658,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     row.pattern = pattern;
     row.repeats = 1;
     row.ticks = 4;
+    row.tempoMultiplier = 1.0;
     row.energy = 100;
     row.swing = 56.0;
     row.hasSwingOverride = YES;
@@ -664,6 +675,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     S3GTrackerSongRow* row = [self newRowWithPattern:source.pattern.copy];
     row.repeats = source.repeats;
     row.ticks = source.ticks;
+    row.tempoMultiplier = source.tempoMultiplier;
     row.energy = source.energy;
     row.swing = source.swing;
     row.hasSwingOverride = source.hasSwingOverride;
@@ -861,6 +873,8 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     [self addColumn:S3GSongColumnRepeats title:@"REP" width:48.0 minWidth:48.0];
     [self addColumn:S3GSongColumnTicks title:@"TICKS / SPAN"
         width:68.0 minWidth:68.0];
+    [self addColumn:S3GSongColumnTempoMultiplier title:@"BPM ×"
+        width:66.0 minWidth:66.0];
     [self addColumn:S3GSongColumnSwing title:@"SWING %" width:78.0 minWidth:78.0];
     [self addColumn:S3GSongColumnEnergy title:@"EN %" width:58.0 minWidth:58.0];
     [self addColumn:S3GSongColumnMutes
@@ -1423,6 +1437,36 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         span.accessibilityValue = span.stringValue;
         [cell addSubview:span];
         [cell layoutSubtreeIfNeeded];
+    } else if ([column isEqualToString:S3GSongColumnTempoMultiplier]) {
+        S3GTrackerPopupButton* multiplier = [self
+            cellPopupForColumn:tableColumn row:rowIndex
+            action:@selector(tempoMultiplierPopupChanged:)
+            accessibilityLabel:[NSString stringWithFormat:
+                @"Song row %ld BPM multiplier", rowIndex + 1]];
+        for (std::size_t index = 0u;
+             index < kSongTempoMultipliers.size(); ++index) {
+            [multiplier addItemWithTitle:[NSString stringWithUTF8String:
+                kSongTempoMultiplierNames[index]]];
+            multiplier.lastItem.representedObject = @(
+                kSongTempoMultipliers[index]);
+        }
+        NSInteger selection = -1;
+        for (NSInteger index = 0; index < multiplier.numberOfItems; ++index) {
+            NSNumber* value = [multiplier itemAtIndex:index].representedObject;
+            if (std::abs(value.doubleValue - row.tempoMultiplier) < 1.0e-9) {
+                selection = index;
+                break;
+            }
+        }
+        if (selection < 0) {
+            [multiplier addItemWithTitle:[NSString stringWithFormat:
+                @"%g× · SAVED", row.tempoMultiplier]];
+            multiplier.lastItem.representedObject = @(row.tempoMultiplier);
+            selection = multiplier.numberOfItems - 1;
+        }
+        [multiplier selectItemAtIndex:selection];
+        multiplier.toolTip = @"Multiply the observed REAPER BPM for this Song row; this also composes with the Tracker transport BPM multiplier";
+        [cell addSubview:multiplier];
     } else if ([column isEqualToString:S3GSongColumnSwing]) {
         S3GTrackerSongSwingField* field = [[S3GTrackerSongSwingField alloc]
             initWithFrame:NSZeroRect];
@@ -1612,6 +1656,23 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     if (changed) [self songDidChange];
 }
 
+- (void)tempoMultiplierPopupChanged:(S3GTrackerPopupButton*)sender
+{
+    const NSInteger rowIndex = sender.tag;
+    if (rowIndex < 0 || rowIndex >= static_cast<NSInteger>(self.rows.count))
+        return;
+    NSNumber* represented = sender.selectedItem.representedObject;
+    if (![represented isKindOfClass:NSNumber.class]) return;
+    const double value = represented.doubleValue;
+    if (!std::isfinite(value)
+        || value < s3g::tracker::kMinimumSongTempoMultiplier
+        || value > s3g::tracker::kMaximumSongTempoMultiplier) return;
+    S3GTrackerSongRow* row = self.rows[static_cast<NSUInteger>(rowIndex)];
+    if (std::abs(row.tempoMultiplier - value) < 1.0e-9) return;
+    row.tempoMultiplier = value;
+    [self songDidChange];
+}
+
 - (void)energyPopupChanged:(S3GTrackerPopupButton*)sender
 {
     const NSInteger rowIndex = sender.tag;
@@ -1679,6 +1740,7 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     if (insertion > 0 && insertion <= (NSInteger)self.rows.count) {
         S3GTrackerSongRow* prior = self.rows[(NSUInteger)insertion - 1u];
         row.ticks = prior.ticks;
+        row.tempoMultiplier = prior.tempoMultiplier;
         row.energy = prior.energy;
         row.swing = prior.swing;
         row.hasSwingOverride = prior.hasSwingOverride;
@@ -2055,6 +2117,9 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
             source.repeats, 1, 65535));
         row.energy = static_cast<float>(std::clamp<NSInteger>(
             source.energy, 0, 100)) * 0.01f;
+        row.tempoMultiplier = std::clamp(source.tempoMultiplier,
+            s3g::tracker::kMinimumSongTempoMultiplier,
+            s3g::tracker::kMaximumSongTempoMultiplier);
         if (source.hasSwingOverride)
             row.swing = std::clamp(source.swing * 0.01, 0.5, 0.75);
         if (source.warpSlot > 0)
@@ -2106,6 +2171,9 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         row.repeats = static_cast<NSInteger>(source.repeats);
         row.energy = static_cast<NSInteger>(std::lround(
             std::clamp(source.energy, 0.0f, 1.0f) * 100.0f));
+        row.tempoMultiplier = std::clamp(source.tempoMultiplier,
+            s3g::tracker::kMinimumSongTempoMultiplier,
+            s3g::tracker::kMaximumSongTempoMultiplier);
         row.swing = source.swing.value_or(0.56) * 100.0;
         row.hasSwingOverride = source.swing.has_value();
         row.warpSlot = source.timingWarpLibraryIndex

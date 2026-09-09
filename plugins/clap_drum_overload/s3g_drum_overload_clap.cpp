@@ -1,6 +1,12 @@
 #include "s3g_drum_overload.h"
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_gui_layout.h"
+#include "../common/s3g_drum_effect_queue.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_clap_vstgui.h"
+#include "../common/s3g_vstgui_canvas.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/params.h>
@@ -91,12 +97,20 @@ struct SavedState {
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    const clap_host_params_t* hostParams = nullptr;
+    s3g::clap_gui::DrumEffectQueue guiParamEvents {};
+    std::array<std::atomic<double>, kParamCount> publishedParams {};
     double sampleRate = 48000.0;
     s3g::DrumOverloadParams params {};
     s3g::DrumOverload dsp {};
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<float> gainReductionDb { 0.0f };
     std::atomic<float> overloadActivity { 0.0f };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
@@ -109,8 +123,49 @@ Plugin* self(const clap_plugin_t* plugin)
     return static_cast<Plugin*>(plugin->plugin_data);
 }
 
+bool rawParamValue(const Plugin& plugin, clap_id id, double* value)
+{
+    if (!value) return false;
+    const auto& params = plugin.params;
+    switch (id) {
+    case kCircuitParamId: *value = static_cast<uint32_t>(params.circuit); return true;
+    case kInputParamId: *value = params.inputGainDb; return true;
+    case kOverloadParamId: *value = params.overload; return true;
+    case kDensityParamId: *value = params.density; return true;
+    case kPunchParamId: *value = params.punch; return true;
+    case kBiasParamId: *value = params.bias; return true;
+    case kBreakupParamId: *value = params.breakup; return true;
+    case kWeightParamId: *value = params.weight; return true;
+    case kToneParamId: *value = params.tone; return true;
+    case kLinkParamId: *value = params.stereoLink; return true;
+    case kMixParamId: *value = params.mix; return true;
+    case kOutputParamId: *value = params.outputGainDb; return true;
+    case kBypassParamId: *value = params.bypass ? 1.0 : 0.0; return true;
+    default: return false;
+    }
+}
+
+void publishAll(Plugin& plugin)
+{
+    for (const auto& def : kParamDefs) {
+        double value = 0.;
+        rawParamValue(plugin, def.id, &value);
+        plugin.publishedParams[def.id - 1u].store(value, std::memory_order_release);
+    }
+}
+
+double clampParamValue(clap_id id, double value)
+{
+    const auto* def = findParam(id);
+    if (!def) return 0.;
+    if (!std::isfinite(value)) value = def->defaultValue;
+    value = std::clamp(value, def->minimum, def->maximum);
+    return def->stepped ? std::round(value) : value;
+}
+
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
+    value = clampParamValue(id, value);
     switch (id) {
     case kCircuitParamId:
         plugin.params.circuit = static_cast<s3g::DrumOverloadCircuit>(
@@ -133,16 +188,47 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
     plugin.dsp.setParams(plugin.params);
     plugin.params = plugin.dsp.params();
+    double published = 0.;
+    rawParamValue(plugin, id, &published);
+    plugin.publishedParams[id - 1u].store(published, std::memory_order_release);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin)
+{
+    auto& p = *self(plugin);
+    if (p.host && p.host->get_extension)
+        p.hostParams = static_cast<const clap_host_params_t*>(p.host->get_extension(p.host, CLAP_EXT_PARAMS));
+    publishAll(p);
+    return true;
+}
+
+void consumeGuiEvents(Plugin& plugin, const clap_output_events_t* output)
+{
+    s3g::clap_gui::DrumEffectEvent pending;
+    while (plugin.guiParamEvents.peek(pending)) {
+        if (pending.resetDsp) plugin.dsp.reset();
+        else {
+            if (output && !s3g::clap_gui::pushParamEvent(output, pending)) break;
+            if (pending.kind == s3g::clap_gui::ParamEventKind::Value)
+                applyParam(plugin, pending.paramId, pending.value);
+        }
+        plugin.guiParamEvents.pop();
+    }
+}
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin&);
+#endif
+
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -220,6 +306,7 @@ clap_process_status process(const clap_plugin_t* plugin,
 {
     auto* instance = self(plugin);
     readParamEvents(*instance, processContext->in_events);
+    consumeGuiEvents(*instance, processContext->out_events);
     if (processContext->audio_inputs_count == 0u
         || processContext->audio_outputs_count == 0u) {
         return CLAP_PROCESS_CONTINUE;
@@ -297,24 +384,9 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
-    if (!value) return false;
-    const auto& params = self(plugin)->params;
-    switch (id) {
-    case kCircuitParamId: *value = static_cast<uint32_t>(params.circuit); return true;
-    case kInputParamId: *value = params.inputGainDb; return true;
-    case kOverloadParamId: *value = params.overload; return true;
-    case kDensityParamId: *value = params.density; return true;
-    case kPunchParamId: *value = params.punch; return true;
-    case kBiasParamId: *value = params.bias; return true;
-    case kBreakupParamId: *value = params.breakup; return true;
-    case kWeightParamId: *value = params.weight; return true;
-    case kToneParamId: *value = params.tone; return true;
-    case kLinkParamId: *value = params.stereoLink; return true;
-    case kMixParamId: *value = params.mix; return true;
-    case kOutputParamId: *value = params.outputGainDb; return true;
-    case kBypassParamId: *value = params.bypass ? 1.0 : 0.0; return true;
-    default: return false;
-    }
+    if (!value || !findParam(id)) return false;
+    *value = self(plugin)->publishedParams[id - 1u].load(std::memory_order_acquire);
+    return true;
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
@@ -376,9 +448,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* input, const clap_output_events_t*)
+    const clap_input_events_t* input, const clap_output_events_t* output)
 {
     readParamEvents(*self(plugin), input);
+    consumeGuiEvents(*self(plugin), output);
 }
 
 const clap_plugin_params_t paramsExtension {
@@ -405,6 +478,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     instance->dsp.setParams(state.params);
     instance->params = instance->dsp.params();
     instance->dsp.reset();
+    publishAll(*instance);
     return true;
 }
 
@@ -412,7 +486,6 @@ const clap_plugin_state_t stateExtension { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
 constexpr auto kOutputPanel =
     s3g::gui_layout::compactEffectOutputPanel(3u);
 constexpr auto kDrivePanel = s3g::gui_layout::compactEffectLeftPanel(
@@ -433,6 +506,7 @@ constexpr uint32_t kDriveParamIndices[] { 0u, 1u, 2u, 3u, 4u };
 constexpr uint32_t kColorParamIndices[] { 5u, 6u, 7u, 8u, 9u };
 constexpr uint32_t kDriveSliderParamIndices[] { 1u, 2u, 3u, 4u };
 
+#if defined(__APPLE__)
 NSRect processorMenuRect(const s3g::gui_layout::Panel& panel, uint32_t row)
 {
     return NSMakeRect(
@@ -895,12 +969,19 @@ const clap_plugin_gui_t guiExtension {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "s3g_drum_overload_vstgui.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;
@@ -971,6 +1052,6 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory
 };

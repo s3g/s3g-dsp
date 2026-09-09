@@ -195,6 +195,7 @@ ProjectDocument makeDocument()
     auto& phrase = document.phraseBanks[0u].library.phrases[3u];
     phrase = makeBlankPhrase(7u);
     phrase.name = "Odd Hat Turn";
+    phrase.recommendedBpm = 117.5;
     phrase.previewMidiChannel = 10u;
     phrase.notes[0u] = NoteCell::withNote(42u);
     phrase.notes[3u] = NoteCell::withNote(46u);
@@ -220,6 +221,7 @@ ProjectDocument makeDocument()
     firstRow.repeats = 3u;
     firstRow.energy = 0.65f;
     firstRow.bpm = 145.0;
+    firstRow.tempoMultiplier = 1.5;
     firstRow.swing = 0.63;
     firstRow.mutedTracks = 0x80000000u;
     firstRow.timingWarpLibraryIndex = 6u;
@@ -297,6 +299,8 @@ void testCompleteDeterministicRoundTrip()
         "random seeds, Song mode, NOTE view, and row jump should survive without precision loss");
     check(decoded.phraseBanks[0u].library.phrases[3u].name == "Odd Hat Turn"
             && decoded.phraseBanks[0u].library.phrases[3u].length == 7u
+            && decoded.phraseBanks[0u].library.phrases[3u].recommendedBpm
+                == 117.5
             && decoded.phraseBanks[0u].library.phrases[3u].previewMidiChannel == 10u
             && decoded.phraseBanks[0u].library.phrases[3u].notes[3u].note == 46u
             && decoded.phraseBanks[0u].library.phrases[3u].notes[5u].state
@@ -309,7 +313,7 @@ void testCompleteDeterministicRoundTrip()
                 .normalized == 0.6f
             && decoded.phraseBanks[0u].library.phrases[3u].gates[3u]
                 .gateVoice(0u).rows == 0.75f,
-        "project phrase library should preserve preview channel, odd lengths, gates, and typed cells");
+        "project phrase library should preserve recommended BPM, preview channel, odd lengths, gates, and typed cells");
     check(decoded.burstBanks.size() == 2u
             && decoded.phraseBanks.size() == 2u
             && decoded.burstBanks[1u].id == 9u
@@ -394,7 +398,9 @@ void testCompleteDeterministicRoundTrip()
         "decoded lanes should reconstruct the MIDI-only runtime route without legacy instrument data");
     check(decoded.song.rows.size() == 2u
             && decoded.song.rows[0u].bpm == 145.0
+            && decoded.song.rows[0u].tempoMultiplier == 1.5
             && decoded.song.rows[0u].energy == 0.65f
+            && decoded.song.rows[1u].tempoMultiplier == 1.0
             && decoded.song.rows[1u].energy == 1.0f
             && decoded.song.rows[0u].timingWarpLibraryIndex
                 == std::optional<std::size_t>(6u)
@@ -570,6 +576,25 @@ void testStrictTransactionalRejection()
     check(encodeProjectDocument(invalidBank, untouched).code
                 == ProjectErrorCode::OutOfRange,
         "Tracker row jump should reject values outside 1..16");
+
+    invalidBank = makeDocument();
+    invalidBank.phraseBanks[0u].library.phrases[3u].recommendedBpm = 19.0;
+    check(encodeProjectDocument(invalidBank, untouched).code
+                == ProjectErrorCode::OutOfRange,
+        "Phrase recommended BPM should reject values outside 20..400");
+
+    std::string invalidPhraseBpm = encoded;
+    const auto phraseBpm = invalidPhraseBpm.find(
+        "\"recommendedBpm\": 117.5");
+    check(phraseBpm != std::string::npos,
+        "strict-rejection fixture should include Phrase BPM metadata");
+    invalidPhraseBpm.replace(phraseBpm,
+        std::string("\"recommendedBpm\": 117.5").size(),
+        "\"recommendedBpm\": 401");
+    check(decodeProjectDocument(invalidPhraseBpm, destination).code
+                == ProjectErrorCode::OutOfRange
+            && activePattern(destination).name == "sentinel",
+        "out-of-range Phrase BPM metadata should reject transactionally");
 
     invalidBank = makeDocument();
     activePattern(invalidBank).tracks[0u].fxPairs[1u].actions[0u]

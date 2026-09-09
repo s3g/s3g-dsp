@@ -6,7 +6,7 @@ project(s3g_dsp VERSION 0.9.0 LANGUAGES CXX)
 
 include(CTest)
 
-if(APPLE)
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   enable_language(OBJCXX)
 endif()
 
@@ -16,6 +16,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(s3g_dsp INTERFACE)
 target_include_directories(s3g_dsp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/dsp)
+if(WIN32)
+  target_compile_definitions(s3g_dsp INTERFACE _USE_MATH_DEFINES=1)
+endif()
 
 # Compatibility toggles for the components introduced in 0.7. Fresh builds
 # include the complete release inventory; the switches remain available for
@@ -305,6 +308,10 @@ if(S3G_BUILD_FUTURE_COMPONENTS)
     tests/low_frequency_synth_smoke.cpp)
   target_link_libraries(s3g_low_frequency_synth_smoke PRIVATE s3g_dsp)
 
+  add_executable(s3g_processor_lowform_smoke
+    tests/processor_lowform_smoke.cpp)
+  target_link_libraries(s3g_processor_lowform_smoke PRIVATE s3g_dsp)
+
   add_executable(s3g_processor_stack_smoke
     tests/processor_stack_smoke.cpp)
   target_link_libraries(s3g_processor_stack_smoke PRIVATE s3g_dsp)
@@ -413,6 +420,8 @@ add_executable(s3g_psd_raw_field_parameter_audit tests/psd_raw_field_parameter_a
 target_link_libraries(s3g_psd_raw_field_parameter_audit PRIVATE s3g_dsp)
 
 add_executable(s3g_gui_layout_contract_smoke tests/gui_layout_contract_smoke.cpp)
+add_executable(s3g_sample_cursor_clock_smoke tests/sample_cursor_clock_smoke.cpp)
+target_compile_features(s3g_sample_cursor_clock_smoke PRIVATE cxx_std_17)
 
 add_executable(s3g_ambi_group_rotate_equivalence_smoke
   tests/ambi_group_rotate_equivalence_smoke.cpp)
@@ -519,6 +528,7 @@ if(BUILD_TESTING)
     s3g_psd_raw_field_smoke
     s3g_psd_raw_field_parameter_audit
     s3g_gui_layout_contract_smoke
+    s3g_sample_cursor_clock_smoke
     s3g_ambi_group_rotate_equivalence_smoke
     s3g_environmental_svf_regression_smoke)
   foreach(S3G_SMOKE_TARGET IN LISTS S3G_NON_NIM_CORE_SMOKE_TARGETS)
@@ -604,6 +614,10 @@ if(BUILD_TESTING)
     add_test(NAME s3g_low_frequency_synth_smoke
       COMMAND $<TARGET_FILE:s3g_low_frequency_synth_smoke>)
     set_tests_properties(s3g_low_frequency_synth_smoke PROPERTIES
+      LABELS "non_nim;smoke" TIMEOUT 300)
+    add_test(NAME s3g_processor_lowform_smoke
+      COMMAND $<TARGET_FILE:s3g_processor_lowform_smoke>)
+    set_tests_properties(s3g_processor_lowform_smoke PROPERTIES
       LABELS "non_nim;smoke" TIMEOUT 300)
     add_test(NAME s3g_processor_stack_smoke
       COMMAND $<TARGET_FILE:s3g_processor_stack_smoke>)
@@ -694,10 +708,24 @@ endif()
 option(S3G_BUILD_CLAP_PLUGIN "Build experimental CLAP plugin targets" OFF)
 option(S3G_BUILD_STANDALONE_APPS "Build experimental standalone app targets" OFF)
 option(S3G_FETCH_CLAP "Fetch the CLAP headers when S3G_CLAP_INCLUDE_DIR is not set" ON)
+option(S3G_ENABLE_PORTABLE_CLAP_GUI
+  "Build the VSTGUI-backed portable CLAP editors" ON)
+option(S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS
+  "Use the in-progress Sample-family VSTGUI ports on macOS" OFF)
+option(S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS
+  "Use the Drum instruments and effects VSTGUI parity ports on macOS" OFF)
+option(S3G_BUILD_DRUM_GUI_PILOTS
+  "Build Drum Kick/Hi-Hat without enabling unrelated future components" OFF)
+option(S3G_BUILD_DRUM_GUI_FAMILY
+  "Build all ten Drum instruments and three effects without unrelated future components" OFF)
 option(S3G_ENABLE_WORLD "Enable WORLD speech vocoder support where available" ON)
 set(S3G_CLAP_INCLUDE_DIR "" CACHE PATH "Path containing clap/clap.h")
 set(S3G_CLAP_GIT_REPOSITORY "https://github.com/free-audio/clap.git" CACHE STRING "CLAP git repository used by FetchContent")
 set(S3G_CLAP_GIT_TAG "1.2.6" CACHE STRING "CLAP git tag or commit used by FetchContent")
+set(S3G_VSTGUI_GIT_REPOSITORY "https://github.com/steinbergmedia/vstgui.git" CACHE STRING "VSTGUI git repository used by FetchContent")
+set(S3G_VSTGUI_GIT_TAG "5db272256172557818b6158cf0bb2c4410bddb25" CACHE STRING "Pinned VSTGUI commit used by FetchContent")
+set(S3G_DR_LIBS_GIT_REPOSITORY "https://github.com/mackron/dr_libs.git" CACHE STRING "dr_libs git repository used by FetchContent")
+set(S3G_DR_LIBS_GIT_TAG "dfe8377631000664666519fdb83da193fd8037f4" CACHE STRING "Pinned dr_libs commit used by FetchContent")
 set(S3G_WORLD_GIT_REPOSITORY "https://github.com/mmorise/World.git" CACHE STRING "WORLD git repository used by FetchContent")
 set(S3G_WORLD_GIT_TAG "d625e7608ca23a870018f01e7c562ac683d9847f" CACHE STRING "WORLD git tag or commit used by FetchContent")
 
@@ -734,7 +762,236 @@ if(S3G_BUILD_CLAP_PLUGIN OR S3G_BUILD_STANDALONE_APPS)
   endif()
 endif()
 
+if(S3G_BUILD_CLAP_PLUGIN AND WIN32
+    AND (S3G_BUILD_SAMPLE_PLAYER_PREVIEW OR S3G_ENABLE_PORTABLE_CLAP_GUI))
+  set(DR_LIBS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(DR_LIBS_BUILD_FUZZERS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    dr_libs
+    GIT_REPOSITORY ${S3G_DR_LIBS_GIT_REPOSITORY}
+    GIT_TAG ${S3G_DR_LIBS_GIT_TAG}
+    GIT_SHALLOW FALSE
+  )
+  FetchContent_MakeAvailable(dr_libs)
+  set(S3G_DR_LIBS_INCLUDE_DIR "${dr_libs_SOURCE_DIR}")
+endif()
+
+if(S3G_BUILD_CLAP_PLUGIN AND S3G_ENABLE_PORTABLE_CLAP_GUI
+    AND (APPLE OR WIN32))
+  set(VSTGUI_STANDALONE OFF CACHE BOOL "" FORCE)
+  set(VSTGUI_STANDALONE_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(VSTGUI_TOOLS OFF CACHE BOOL "" FORCE)
+  set(VSTGUI_DISABLE_UNITTESTS ON CACHE BOOL "" FORCE)
+  set(VSTGUI_UISCRIPTING OFF CACHE BOOL "" FORCE)
+  set(VSTGUI_ENABLE_OPENGL_SUPPORT OFF CACHE BOOL "" FORCE)
+  set(VSTGUI_ENABLE_XMLPARSER OFF CACHE BOOL "" FORCE)
+  set(VSTGUI_ENABLE_DEPRECATED_METHODS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    vstgui
+    GIT_REPOSITORY ${S3G_VSTGUI_GIT_REPOSITORY}
+    GIT_TAG ${S3G_VSTGUI_GIT_TAG}
+    GIT_SHALLOW FALSE
+  )
+  FetchContent_MakeAvailable(vstgui)
+  set_target_properties(vstgui PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    EXCLUDE_FROM_ALL TRUE)
+  if(WIN32)
+    if(CMAKE_CROSSCOMPILING
+        AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+      # VSTGUI checks its build host when adding platform libraries. Remove
+      # those macOS-only transitive flags for a Darwin-to-Windows build.
+      set_property(TARGET vstgui PROPERTY INTERFACE_LINK_LIBRARIES "")
+    endif()
+    target_compile_definitions(vstgui PUBLIC
+      _WIN32_WINNT=0x0A00
+      WINVER=0x0A00)
+    target_link_libraries(vstgui PUBLIC
+      d2d1
+      d3d11
+      dwrite
+      dwmapi
+      imm32
+      ole32
+      shell32
+      shlwapi
+      uuid
+      windowscodecs)
+    if(MINGW)
+      # VSTGUI enables -Werror when CMake itself is hosted on macOS. Its
+      # intentional four-character IDs and MSVC-oriented implementation also
+      # trigger GCC diagnostics which should not prevent a MinGW cross-build.
+      target_compile_options(vstgui PRIVATE -Wno-error)
+      target_compile_options(vstgui PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mingw/vstgui_compat.h")
+      target_include_directories(vstgui PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mingw")
+      # MinGW's generated DirectWrite C++ header suffixes the five-argument
+      # overload to keep its C ABI declarations unique.
+      target_compile_definitions(vstgui PRIVATE
+        GetMatchingFonts=GetMatchingFonts_)
+    endif()
+  endif()
+  set(S3G_VSTGUI_AVAILABLE ON)
+endif()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GVSTGUI.cmake")
+
+# Keep the established Cocoa Sample-family editors authoritative on macOS
+# until each VSTGUI port has passed direct visual and interaction comparison.
+# Windows still builds the portable implementation because Cocoa is not
+# available there. Developers can opt into the macOS VSTGUI comparison build
+# explicitly without changing the normal macOS product.
+set(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE
+    AND (WIN32 OR S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS))
+  set(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE ON)
+endif()
+set(s3g_sample_family_gui_smoke_mode responsive)
+set(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE OFF)
+set(s3g_drum_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE
+    AND (WIN32 OR S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS))
+  set(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE ON)
+  set(s3g_drum_gui_smoke_mode proportional)
+endif()
+set(s3g_sample_player_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE)
+  set(s3g_sample_player_gui_smoke_mode proportional)
+endif()
+set(s3g_sample_rings_gui_smoke_mode responsive-wide)
+if(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE)
+  set(s3g_sample_family_gui_smoke_mode proportional)
+  set(s3g_sample_rings_gui_smoke_mode proportional)
+endif()
+
 if(S3G_BUILD_CLAP_PLUGIN)
+  if(BUILD_TESTING)
+    if(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE
+        AND (S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_PILOTS OR S3G_BUILD_DRUM_GUI_FAMILY))
+      set(s3g_drum_canvas_instruments kick hi_hat)
+      if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
+        list(APPEND s3g_drum_canvas_instruments snare floor_tom concert_bass toms clap cowbell crash break)
+      endif()
+      foreach(drum IN LISTS s3g_drum_canvas_instruments)
+        set(drum_canvas_target "s3g_drum_${drum}_canvas_smoke")
+        add_executable(${drum_canvas_target} tests/drum_canvas_smoke.cpp)
+        target_include_directories(${drum_canvas_target} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        target_link_libraries(${drum_canvas_target} PRIVATE s3g_dsp)
+        s3g_enable_vstgui_gui(${drum_canvas_target}
+          "${CMAKE_CURRENT_SOURCE_DIR}/plugins/clap_drum_${drum}/s3g_drum_${drum}_vstgui.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        string(TOUPPER "${drum}" drum_define)
+        string(REPLACE "_" ";" drum_words "${drum}")
+        set(drum_class "S3GDrum")
+        foreach(word IN LISTS drum_words)
+          string(SUBSTRING "${word}" 0 1 initial)
+          string(TOUPPER "${initial}" initial)
+          string(SUBSTRING "${word}" 1 -1 rest)
+          string(APPEND drum_class "${initial}${rest}")
+        endforeach()
+        target_compile_definitions(${drum_canvas_target} PRIVATE
+          S3G_TEST_DRUM_${drum_define}=1
+          S3G_TEST_DRUM_COCOA_VIEW=${drum_class}View
+          S3G_TEST_DRUM_SOURCE="../plugins/clap_drum_${drum}/s3g_drum_${drum}_clap.cpp")
+        if(APPLE)
+          set_source_files_properties(tests/drum_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          target_link_libraries(${drum_canvas_target} PRIVATE "-framework Cocoa" "-framework CoreText")
+          set_target_properties(${drum_canvas_target} PROPERTIES MACOSX_BUNDLE TRUE)
+        endif()
+        add_test(NAME ${drum_canvas_target} COMMAND $<TARGET_FILE:${drum_canvas_target}>)
+        set_tests_properties(${drum_canvas_target} PROPERTIES LABELS "non_nim;drum;gui;smoke" TIMEOUT 60)
+      endforeach()
+    endif()
+    if(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE AND (S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY))
+      foreach(effect echo overload mixer)
+        set(effect_test "s3g_drum_${effect}_canvas_smoke")
+        add_executable(${effect_test} tests/drum_effect_canvas_smoke.cpp)
+        target_include_directories(${effect_test} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        target_link_libraries(${effect_test} PRIVATE s3g_dsp)
+        s3g_enable_vstgui_gui(${effect_test}
+          "${CMAKE_CURRENT_SOURCE_DIR}/plugins/clap_drum_${effect}/s3g_drum_${effect}_vstgui.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        string(TOUPPER "${effect}" effect_define)
+        string(SUBSTRING "${effect}" 0 1 initial)
+        string(TOUPPER "${initial}" initial)
+        string(SUBSTRING "${effect}" 1 -1 rest)
+        target_compile_definitions(${effect_test} PRIVATE
+          S3G_TEST_DRUM_${effect_define}=1
+          S3G_TEST_DRUM_COCOA_VIEW=S3GDrum${initial}${rest}View
+          S3G_TEST_DRUM_SOURCE="../plugins/clap_drum_${effect}/s3g_drum_${effect}_clap.cpp")
+        if(APPLE)
+          set_source_files_properties(tests/drum_effect_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          target_link_libraries(${effect_test} PRIVATE "-framework Cocoa" "-framework CoreText")
+          set_target_properties(${effect_test} PROPERTIES MACOSX_BUNDLE TRUE)
+        endif()
+        add_test(NAME ${effect_test} COMMAND $<TARGET_FILE:${effect_test}>)
+        set_tests_properties(${effect_test} PROPERTIES LABELS "non_nim;drum;gui;smoke" TIMEOUT 60)
+      endforeach()
+    endif()
+    if(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE)
+      add_executable(s3g_sample_family_interaction_smoke
+        tests/sample_family_interaction_smoke.cpp
+        plugins/common/s3g_vstgui_foundation.cpp
+        plugins/common/s3g_sample_cursor_presenter.cpp)
+      target_include_directories(s3g_sample_family_interaction_smoke PRIVATE "${vstgui_SOURCE_DIR}")
+      target_compile_features(s3g_sample_family_interaction_smoke PRIVATE cxx_std_17)
+      target_compile_definitions(s3g_sample_family_interaction_smoke PRIVATE
+        VSTGUI_ENABLE_DEPRECATED_METHODS=0 VSTGUI_ENABLE_XML_PARSER=0 VSTGUI_OPENGL_SUPPORT=0
+        S3GPortableSampleCursorOverlay=S3GSampleInteractionTestCursorOverlay)
+      target_link_libraries(s3g_sample_family_interaction_smoke PRIVATE vstgui s3g_dsp)
+      if(APPLE)
+        set_source_files_properties(plugins/common/s3g_sample_cursor_presenter.cpp
+          PROPERTIES LANGUAGE OBJCXX)
+        target_compile_options(s3g_sample_family_interaction_smoke PRIVATE -fobjc-arc)
+        target_link_libraries(s3g_sample_family_interaction_smoke PRIVATE "-framework Cocoa" "-framework QuartzCore")
+      elseif(WIN32)
+        target_link_libraries(s3g_sample_family_interaction_smoke PRIVATE d3d11 d2d1 dcomp dxgi)
+      endif()
+      add_test(NAME s3g_sample_family_interaction_smoke COMMAND s3g_sample_family_interaction_smoke)
+      set_tests_properties(s3g_sample_family_interaction_smoke PROPERTIES LABELS "non_nim;sample;gui;smoke" TIMEOUT 30)
+      foreach(canvas IN ITEMS slicer ambi_grain)
+        if(canvas STREQUAL "slicer" AND NOT S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)
+          continue()
+        endif()
+        set(canvas_target "s3g_${canvas}_canvas_smoke")
+        add_executable(${canvas_target} tests/canvas_plugin_interaction_smoke.cpp
+          plugins/common/s3g_vstgui_foundation.cpp)
+        target_include_directories(${canvas_target} PRIVATE "${vstgui_SOURCE_DIR}" "${S3G_CLAP_INCLUDE_DIR}")
+        target_compile_features(${canvas_target} PRIVATE cxx_std_17)
+        target_compile_definitions(${canvas_target} PRIVATE S3G_ENABLE_VSTGUI_CANVAS_GUI=1
+          VSTGUI_ENABLE_DEPRECATED_METHODS=0 VSTGUI_ENABLE_XML_PARSER=0 VSTGUI_OPENGL_SUPPORT=0)
+        target_link_libraries(${canvas_target} PRIVATE vstgui s3g_dsp)
+        if(canvas STREQUAL "slicer")
+          target_compile_definitions(${canvas_target} PRIVATE S3G_TEST_SLICER_CANVAS=1)
+        endif()
+        if(APPLE)
+          set_source_files_properties(tests/canvas_plugin_interaction_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          if(canvas STREQUAL "slicer")
+            target_compile_options(${canvas_target} PRIVATE -fobjc-arc)
+          endif()
+          target_link_libraries(${canvas_target} PRIVATE "-framework Cocoa" "-framework AVFoundation" "-framework CoreText")
+          set_target_properties(${canvas_target} PROPERTIES MACOSX_BUNDLE TRUE)
+          set_source_files_properties(assets/fonts/FiraCode-Regular.ttf assets/fonts/FiraCode-LICENSE.txt
+            PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Fonts")
+          target_sources(${canvas_target} PRIVATE assets/fonts/FiraCode-Regular.ttf assets/fonts/FiraCode-LICENSE.txt)
+        elseif(WIN32)
+          s3g_enable_windows_sample_decode(${canvas_target})
+        endif()
+        add_test(NAME ${canvas_target} COMMAND $<TARGET_FILE:${canvas_target}>)
+        set_tests_properties(${canvas_target} PROPERTIES LABELS "non_nim;sample;gui;smoke" TIMEOUT 120)
+      endforeach()
+    endif()
+    add_executable(s3g_clap_gui_param_queue_smoke
+      tests/clap_gui_param_queue_smoke.cpp)
+    target_include_directories(s3g_clap_gui_param_queue_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    add_test(NAME s3g_clap_gui_param_queue_smoke
+      COMMAND $<TARGET_FILE:s3g_clap_gui_param_queue_smoke>)
+    set_tests_properties(s3g_clap_gui_param_queue_smoke PROPERTIES
+      LABELS "non_nim;clap;gui;smoke" TIMEOUT 30)
+  endif()
+
   if(APPLE AND Python3_Interpreter_FOUND)
     add_custom_target(audit_clap_objc_symbols
       COMMAND ${Python3_EXECUTABLE}
@@ -1261,46 +1518,46 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_insect_encoder)
   add_subdirectory(plugins/clap_accelerometer_field_encoder)
   add_subdirectory(plugins/clap_ambi_encoder_medium)
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY OR S3G_BUILD_DRUM_GUI_PILOTS)
     add_subdirectory(plugins/clap_drum_kick)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_snare)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_overload)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_echo)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_mixer)
   endif()
-  if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_DRUM_OVERLOAD_PREVIEW AND NOT S3G_BUILD_FUTURE_COMPONENTS AND NOT S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_overload)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_floor_tom)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_concert_bass)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_toms)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY OR S3G_BUILD_DRUM_GUI_PILOTS)
     add_subdirectory(plugins/clap_drum_hi_hat)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_clap)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_cowbell)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_crash)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_break)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
@@ -1311,6 +1568,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_low_frequency_synth)
+  endif()
+  if(S3G_BUILD_FUTURE_COMPONENTS)
+    add_subdirectory(plugins/clap_processor_lowform)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_subdirectory(plugins/clap_processor_stack)
@@ -1400,6 +1660,23 @@ if(S3G_BUILD_CLAP_PLUGIN)
         $<TARGET_FILE:s3g_breakbeat_slicer_clap>)
     set_tests_properties(s3g_breakbeat_slicer_clap_smoke PROPERTIES
       LABELS "non_nim;breakbeat-slicer;clap;smoke" TIMEOUT 120)
+    if(APPLE)
+      add_test(NAME s3g_breakbeat_slicer_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_breakbeat_slicer_clap>
+          org.s3g.s3g-dsp.breakbeat-slicer
+          1080 800 "s3g Sample Slicer 16" ${s3g_sample_family_gui_smoke_mode})
+      add_test(NAME s3g_breakbeat_slicer_stereo_gui_smoke
+        # The bundle's canonical documentation capture is the 16-channel ID.
+        COMMAND ${CMAKE_COMMAND} -E env S3G_GUI_DOCUMENTATION_CAPTURE=0
+          $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_breakbeat_slicer_clap>
+          org.s3g.s3g-dsp.breakbeat-slicer-stereo
+          1080 800 "s3g Sample Slicer 2" ${s3g_sample_family_gui_smoke_mode})
+      set_tests_properties(s3g_breakbeat_slicer_gui_smoke
+        s3g_breakbeat_slicer_stereo_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+    endif()
   endif()
   if(S3G_BUILD_SAMPLE_PLAYER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_sample_player_clap_smoke
@@ -1419,7 +1696,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_doubles_clap>
           org.s3g.s3g-dsp.sample-doubles
-          1040 838 "s3g Sample Doubles 2" responsive)
+          1040 838 "s3g Sample Doubles 2" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_doubles_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1435,14 +1712,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_wavesets_clap>
           org.s3g.s3g-dsp.sample-wavesets
-          980 844 "s3g Sample Wavesets 2" responsive)
+          980 844 "s3g Sample Wavesets 2" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_wavesets_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
       add_test(NAME s3g_sample_wavesets_32_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_wavesets_clap>
           org.s3g.s3g-dsp.sample-wavesets-32
-          980 844 "s3g Sample Wavesets 32" responsive)
+          980 844 "s3g Sample Wavesets 32" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_wavesets_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1458,14 +1735,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_motion_clap>
           org.s3g.s3g-dsp.sample-motion
-          980 844 "s3g Sample Motion 2" responsive)
+          980 844 "s3g Sample Motion 2" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_motion_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
       add_test(NAME s3g_sample_motion_32_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_motion_clap>
           org.s3g.s3g-dsp.sample-motion-32
-          980 844 "s3g Sample Motion 32" responsive)
+          980 844 "s3g Sample Motion 32" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_motion_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1481,14 +1758,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_lanes_clap>
           org.s3g.s3g-dsp.sample-lanes
-          1280 724 "s3g Sample Lanes 2" responsive)
+          1280 724 "s3g Sample Lanes 2" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_lanes_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
       add_test(NAME s3g_sample_lanes_32_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_lanes_clap>
           org.s3g.s3g-dsp.sample-lanes-32
-          1280 724 "s3g Sample Lanes 32" responsive)
+          1280 724 "s3g Sample Lanes 32" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_lanes_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1504,7 +1781,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_rings_clap>
           org.s3g.s3g-dsp.sample-rings-8
-          1356 820 "s3g Sample Rings 8" responsive-wide)
+          1356 820 "s3g Sample Rings 8" ${s3g_sample_rings_gui_smoke_mode})
       set_tests_properties(s3g_sample_rings_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1520,14 +1797,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains
-          1280 932 "s3g Sample Grains 2" responsive)
+          1280 932 "s3g Sample Grains 2" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_grains_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
       add_test(NAME s3g_sample_grains_32_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains-32
-          1280 932 "s3g Sample Grains 32" responsive)
+          1280 932 "s3g Sample Grains 32" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_grains_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1543,14 +1820,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_cutups_clap>
           org.s3g.s3g-dsp.sample-cutups
-          1280 832 "s3g Sample Cutups 2" responsive)
+          1280 832 "s3g Sample Cutups 2" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_cutups_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
       add_test(NAME s3g_sample_cutups_32_gui_smoke
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_cutups_clap>
           org.s3g.s3g-dsp.sample-cutups-32
-          1280 832 "s3g Sample Cutups 32" responsive)
+          1280 832 "s3g Sample Cutups 32" ${s3g_sample_family_gui_smoke_mode})
       set_tests_properties(s3g_sample_cutups_32_gui_smoke PROPERTIES
         LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
     endif()
@@ -1633,6 +1910,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_sub_crossover)
   add_subdirectory(plugins/clap_sample_rings)
   add_subdirectory(plugins/clap_ambi_grain_processor)
+  if(APPLE AND BUILD_TESTING)
+    add_test(NAME s3g_ambi_grain_processor_gui_smoke
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_ambi_grain_processor_clap>
+        org.s3g.s3g-dsp.ambi-grain-processor
+        920 640 "s3g Processor Ambi Grain 16" ${s3g_sample_family_gui_smoke_mode})
+    set_tests_properties(s3g_ambi_grain_processor_gui_smoke PROPERTIES
+      LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+  endif()
   add_subdirectory(plugins/clap_macro_delay)
   add_subdirectory(plugins/clap_macro_fracture)
   add_subdirectory(plugins/clap_macro_pitch)
@@ -1678,6 +1964,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_crcltr_clap_smoke>
         $<TARGET_FILE:s3g_crcltr_clap>)
     set_tests_properties(s3g_crcltr_clap_smoke PROPERTIES TIMEOUT 90)
+    if(APPLE)
+      add_test(NAME s3g_crcltr_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_crcltr_clap>
+          org.s3g.s3g-dsp.crcltr
+          760 660 "s3g Sample Circulator 2" ${s3g_sample_family_gui_smoke_mode})
+      set_tests_properties(s3g_crcltr_gui_smoke PROPERTIES
+        LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+    endif()
 
     set(S3G_V050_STATE_FIXTURE_ROOT
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/clap-state/v0.5.0-pre)
@@ -1884,21 +2179,34 @@ if(S3G_BUILD_CLAP_PLUGIN)
     endif()
   endif()
 
-  add_custom_target(audit_ambi_encoder_medium
-    COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_smoke>
-    COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_clap_smoke>
-      $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
-      org.s3g.s3g-dsp.ambi-encoder-medium-16
-    COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
-      $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
-      org.s3g.s3g-dsp.ambi-encoder-medium-16
-      920 680 "s3g Ambi Encoder Medium" responsive
-    DEPENDS
-      s3g_fractional_waveguide_network_smoke
-      s3g_fractional_waveguide_network_clap_smoke
-      s3g_encoder_family_gui_smoke
-      s3g_ambi_encoder_medium_clap
-    COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
+  if(APPLE)
+    add_custom_target(audit_ambi_encoder_medium
+      COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_smoke>
+      COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_clap_smoke>
+        $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
+        org.s3g.s3g-dsp.ambi-encoder-medium-16
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
+        org.s3g.s3g-dsp.ambi-encoder-medium-16
+        920 680 "s3g Ambi Encoder Medium" responsive
+      DEPENDS
+        s3g_fractional_waveguide_network_smoke
+        s3g_fractional_waveguide_network_clap_smoke
+        s3g_encoder_family_gui_smoke
+        s3g_ambi_encoder_medium_clap
+      COMMENT "Validating fractional waveguide DSP, CLAP contract, state, and GUI")
+  else()
+    add_custom_target(audit_ambi_encoder_medium
+      COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_smoke>
+      COMMAND $<TARGET_FILE:s3g_fractional_waveguide_network_clap_smoke>
+        $<TARGET_FILE:s3g_ambi_encoder_medium_clap>
+        org.s3g.s3g-dsp.ambi-encoder-medium-16
+      DEPENDS
+        s3g_fractional_waveguide_network_smoke
+        s3g_fractional_waveguide_network_clap_smoke
+        s3g_ambi_encoder_medium_clap
+      COMMENT "Validating fractional waveguide DSP and CLAP contract")
+  endif()
 
   if(S3G_BUILD_FUTURE_COMPONENTS)
     add_custom_target(audit_drum_kick
@@ -1918,7 +2226,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_kick_clap>
           org.s3g.s3g-dsp.drum-kick
-          920 680 "s3g Drum Kick 2" responsive
+          920 680 "s3g Drum Kick 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_kick_clap
@@ -1946,7 +2254,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_snare_clap>
           org.s3g.s3g-dsp.drum-snare
-          920 680 "s3g Drum Snare 2" responsive
+          920 680 "s3g Drum Snare 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_snare_clap
@@ -1976,7 +2284,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_floor_tom_clap>
           org.s3g.s3g-dsp.drum-floor-tom
-          920 680 "s3g Drum Floor Tom 2" responsive
+          920 680 "s3g Drum Floor Tom 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_floor_tom_clap
@@ -2010,7 +2318,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_concert_bass_clap>
           org.s3g.s3g-dsp.drum-concert-bass
-          920 704 "s3g Drum Concert Bass 2" responsive
+          920 704 "s3g Drum Concert Bass 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_concert_bass_clap
@@ -2040,7 +2348,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_toms_clap>
           org.s3g.s3g-dsp.drum-toms
-          920 680 "s3g Drum Toms 2" responsive
+          920 680 "s3g Drum Toms 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_toms_clap
@@ -2068,7 +2376,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_hi_hat_clap>
           org.s3g.s3g-dsp.drum-hi-hat
-          920 680 "s3g Drum Hi-Hat 2" responsive
+          920 680 "s3g Drum Hi-Hat 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_hi_hat_clap
@@ -2096,7 +2404,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_clap_clap>
           org.s3g.s3g-dsp.drum-clap
-          920 680 "s3g Drum Clap 2" responsive
+          920 680 "s3g Drum Clap 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_clap_clap
@@ -2124,7 +2432,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_cowbell_clap>
           org.s3g.s3g-dsp.drum-cowbell
-          920 680 "s3g Drum Cowbell 2" responsive
+          920 680 "s3g Drum Cowbell 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_cowbell_clap
@@ -2152,7 +2460,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_crash_clap>
           org.s3g.s3g-dsp.drum-crash
-          920 680 "s3g Drum Crash 2" responsive
+          920 680 "s3g Drum Crash 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_crash_clap
@@ -2186,7 +2494,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_break_clap>
           org.s3g.s3g-dsp.drum-break
-          920 760 "s3g Drum Break 2" responsive
+          920 760 "s3g Drum Break 2" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_break_clap
@@ -2209,7 +2517,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_overload_clap>
           org.s3g.s3g-dsp.drum-overload
-          760 376 "s3g Drum " responsive
+          760 376 "s3g Drum " ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_overload_clap
@@ -2239,7 +2547,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_echo_clap>
           org.s3g.s3g-dsp.drum-echo
-          760 376 "s3g Drum " responsive
+          760 376 "s3g Drum " ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_echo_clap
@@ -2268,7 +2576,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_mixer_clap>
           org.s3g.s3g-dsp.drum-mixer-16
-          1320 600 "s3g Drum Mixer 16" responsive
+          1320 600 "s3g Drum Mixer 16" ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_mixer_clap
@@ -2371,6 +2679,34 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_low_frequency_synth_gui)
     endif()
 
+    add_custom_target(audit_processor_lowform
+      COMMAND $<TARGET_FILE:s3g_processor_lowform_smoke>
+      COMMAND $<TARGET_FILE:s3g_processor_lowform_clap_smoke>
+        $<TARGET_FILE:s3g_processor_lowform_clap>
+      COMMAND $<TARGET_FILE:s3g_clap_realtime_audit>
+        --sample-rates 44100,48000,96000 --blocks 16,64,256
+        --event-bursts 1,16 --distributed-events
+        $<TARGET_FILE:s3g_processor_lowform_clap>
+        org.s3g.s3g-dsp.processor-lowform
+      DEPENDS
+        s3g_processor_lowform_smoke
+        s3g_processor_lowform_clap_smoke
+        s3g_processor_lowform_clap
+        s3g_clap_realtime_audit
+      COMMENT "Validating Processor Lowform layers, direct body engines, modulation, MIDI, state, realtime safety, and CLAP contract")
+    if(APPLE)
+      add_custom_target(audit_processor_lowform_gui
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_processor_lowform_clap>
+          org.s3g.s3g-dsp.processor-lowform
+          1100 720 "s3g Processor Lowform 2" responsive
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_processor_lowform_clap
+        COMMENT "Validating the responsive Processor Lowform editor")
+      add_dependencies(audit_processor_lowform audit_processor_lowform_gui)
+    endif()
+
     add_custom_target(audit_processor_stack
       COMMAND $<TARGET_FILE:s3g_processor_stack_smoke>
       COMMAND $<TARGET_FILE:s3g_processor_stack_clap_smoke>
@@ -2446,7 +2782,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_drum_overload_clap>
           org.s3g.s3g-dsp.drum-overload
-          760 376 "s3g Drum " responsive
+          760 376 "s3g Drum " ${s3g_drum_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_drum_overload_clap
@@ -2782,9 +3118,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 696 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sample_rings_clap> org.s3g.s3g-dsp.sample-rings-8 1356 820 "s3g Sample Rings 8" responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sample_rings_clap> org.s3g.s3g-dsp.sample-rings-8 1356 820 "s3g Sample Rings 8" ${s3g_sample_rings_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " ${s3g_sample_family_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 820 "s3g Processor " responsive-wide
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 820 "s3g Processor " responsive-wide
@@ -2813,18 +3149,22 @@ if(S3G_BUILD_CLAP_PLUGIN)
         audit_gui_processor_feedback_shift)
     endif()
 
+    set(s3g_macro_gui_smoke_mode responsive)
+    if(S3G_VSTGUI_AVAILABLE)
+      set(s3g_macro_gui_smoke_mode proportional)
+    endif()
     add_custom_target(audit_gui_macro_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_delay_clap> org.s3g.s3g-dsp.macro-delay-8ch 760 496 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_delay_clap> org.s3g.s3g-dsp.macro-delay-24ch 760 496 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_pitch_clap> org.s3g.s3g-dsp.macro-pitch-8ch 760 496 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_pitch_clap> org.s3g.s3g-dsp.macro-pitch-24ch 760 496 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_mono_clap> org.s3g.s3g-dsp.macro-shred-mono 416 498 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-8ch 760 620 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-24ch 760 620 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_fracture_mono_clap> org.s3g.s3g-dsp.macro-fracture-mono 416 498 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_fracture_clap> org.s3g.s3g-dsp.macro-fracture-8ch 760 620 "s3g Macro " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_fracture_clap> org.s3g.s3g-dsp.macro-fracture-24ch 760 620 "s3g Macro " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_delay_clap> org.s3g.s3g-dsp.macro-delay-8ch 760 496 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_delay_clap> org.s3g.s3g-dsp.macro-delay-24ch 760 496 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_pitch_clap> org.s3g.s3g-dsp.macro-pitch-8ch 760 496 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_pitch_clap> org.s3g.s3g-dsp.macro-pitch-24ch 760 496 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_mono_clap> org.s3g.s3g-dsp.macro-shred-mono 416 498 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-8ch 760 620 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_shred_clap> org.s3g.s3g-dsp.macro-shred-24ch 760 620 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_fracture_mono_clap> org.s3g.s3g-dsp.macro-fracture-mono 416 498 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_macro_fracture_clap> org.s3g.s3g-dsp.macro-fracture-8ch 760 620 "s3g Macro " ${s3g_macro_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_macro_fracture_clap> org.s3g.s3g-dsp.macro-fracture-24ch 760 620 "s3g Macro " ${s3g_macro_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -2964,7 +3304,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_spray_clap> org.s3g.s3g-dsp.spectral-spray 760 376 "s3g Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_spectral_spray_clap> org.s3g.s3g-dsp.8ch-spectral-spray 760 376 "s3g Effect " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_delay_field_clap> org.s3g.s3g-dsp.delay-field 760 520 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_crcltr_clap> org.s3g.s3g-dsp.crcltr 760 660 "s3g Sample Circulator 2" responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_crcltr_clap> org.s3g.s3g-dsp.crcltr 760 660 "s3g Sample Circulator 2" ${s3g_sample_family_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -3041,7 +3381,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_breakbeat_slicer_clap>
           org.s3g.s3g-dsp.breakbeat-slicer
-          1080 800 "s3g Sample Slicer 16" responsive
+          1080 800 "s3g Sample Slicer 16" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_breakbeat_slicer_clap
@@ -3053,11 +3393,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_player_clap>
           org.s3g.s3g-dsp.sample-player
-          980 844 "s3g Sample Player 2" responsive
+          980 844 "s3g Sample Player 2" ${s3g_sample_player_gui_smoke_mode}
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_player_clap>
           org.s3g.s3g-dsp.sample-player-16
-          980 844 "s3g Sample Player 16" responsive
+          980 844 "s3g Sample Player 16" ${s3g_sample_player_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_player_clap
@@ -3068,7 +3408,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_doubles_clap>
           org.s3g.s3g-dsp.sample-doubles
-          1040 838 "s3g Sample Doubles 2" responsive
+          1040 838 "s3g Sample Doubles 2" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_doubles_clap
@@ -3079,11 +3419,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_wavesets_clap>
           org.s3g.s3g-dsp.sample-wavesets
-          980 844 "s3g Sample Wavesets 2" responsive
+          980 844 "s3g Sample Wavesets 2" ${s3g_sample_family_gui_smoke_mode}
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_wavesets_clap>
           org.s3g.s3g-dsp.sample-wavesets-32
-          980 844 "s3g Sample Wavesets 32" responsive
+          980 844 "s3g Sample Wavesets 32" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_wavesets_clap
@@ -3094,11 +3434,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_motion_clap>
           org.s3g.s3g-dsp.sample-motion
-          980 844 "s3g Sample Motion 2" responsive
+          980 844 "s3g Sample Motion 2" ${s3g_sample_family_gui_smoke_mode}
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_motion_clap>
           org.s3g.s3g-dsp.sample-motion-32
-          980 844 "s3g Sample Motion 32" responsive
+          980 844 "s3g Sample Motion 32" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_motion_clap
@@ -3109,11 +3449,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_lanes_clap>
           org.s3g.s3g-dsp.sample-lanes
-          1280 724 "s3g Sample Lanes 2" responsive
+          1280 724 "s3g Sample Lanes 2" ${s3g_sample_family_gui_smoke_mode}
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_lanes_clap>
           org.s3g.s3g-dsp.sample-lanes-32
-          1280 724 "s3g Sample Lanes 32" responsive
+          1280 724 "s3g Sample Lanes 32" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_lanes_clap
@@ -3124,11 +3464,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains
-          1280 932 "s3g Sample Grains 2" responsive
+          1280 932 "s3g Sample Grains 2" ${s3g_sample_family_gui_smoke_mode}
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_grains_clap>
           org.s3g.s3g-dsp.sample-grains-32
-          1280 932 "s3g Sample Grains 32" responsive
+          1280 932 "s3g Sample Grains 32" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_grains_clap
@@ -3139,11 +3479,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_cutups_clap>
           org.s3g.s3g-dsp.sample-cutups
-          1280 832 "s3g Sample Cutups 2" responsive
+          1280 832 "s3g Sample Cutups 2" ${s3g_sample_family_gui_smoke_mode}
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_sample_cutups_clap>
           org.s3g.s3g-dsp.sample-cutups-32
-          1280 832 "s3g Sample Cutups 32" responsive
+          1280 832 "s3g Sample Cutups 32" ${s3g_sample_family_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_sample_cutups_clap

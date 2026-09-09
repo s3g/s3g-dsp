@@ -340,7 +340,11 @@ bool validate(const TrackerAssetPack& pack)
     std::size_t gateRowsAuthored = 0u;
     for (const auto& phrase : pack.phraseBank.library.phrases) {
         if (phrase.empty() || phrase.name.empty()
-            || phrase.previewMidiChannel != 1u) return false;
+            || phrase.previewMidiChannel != 1u
+            || !phrase.recommendedBpm.has_value()
+            || *phrase.recommendedBpm < kMinimumPhraseRecommendedBpm
+            || *phrase.recommendedBpm > kMaximumPhraseRecommendedBpm)
+            return false;
         ++phrases;
         bool polyphonic = false;
         for (std::size_t row = 0u; row < phrase.length; ++row) {
@@ -467,11 +471,20 @@ int main(int argc, char** argv)
     constexpr std::array<std::size_t, 8u> lengths {{
         16u, 16u, 16u, 16u, 32u, 12u, 8u, 24u,
     }};
+    constexpr std::array<double, 8u> recommendedBpmByStyle {{
+        132.0, 148.0, 190.0, 124.0, 132.0, 210.0, 188.0, 154.0,
+    }};
+    constexpr std::array<double, 8u> recommendedBpmVariation {{
+        0.0, 4.0, -2.0, 2.0, -4.0, 6.0, 0.0, 2.0,
+    }};
     for (std::size_t slot = 0u; slot < names.size(); ++slot) {
         const auto group = slot / 8u;
         const auto variant = slot % 8u;
-        store(pack, slot, makeStylePhrase(static_cast<Style>(group),
-            names[slot], lengths[variant], variant, slot % kBurstCount));
+        auto phrase = makeStylePhrase(static_cast<Style>(group),
+            names[slot], lengths[variant], variant, slot % kBurstCount);
+        phrase.recommendedBpm = recommendedBpmByStyle[group]
+            + recommendedBpmVariation[variant];
+        store(pack, slot, std::move(phrase));
     }
 
     if (!validate(pack)) {

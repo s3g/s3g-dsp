@@ -46,10 +46,27 @@
           <li>Insert <code>s3g Processor Ambi Grain 16</code> on a correctly routed 16-channel Ambisonic track and set <code>ORD</code> to the intended <code>1OA</code>, <code>2OA</code>, or <code>3OA</code> source order.</li>
           <li>Follow it with an <a href="ambisonic-decoders.html">ambisonic decoder</a>. Additional Ambisonic effects may be placed before the decoder when their supported order and channel count match the field.</li>
           <li>Click <code>LOAD</code> and choose an <code>ACN/SN3D</code> ambisonic audio file.</li>
+          <li>Choose <code>STORE PROJECT</code> (the new-instance default), <code>LINK</code>, or <code>EMBED</code> below the waveform. Save the REAPER project to enable project-media collection.</li>
           <li>Use the transport icons to play, pause/resume, or stop and return the scan/grain state to the start.</li>
         </ol>
 
         <p>The output bus is fixed at 16 channels for third-order ambisonics. First-order and second-order modes use the matching lower channel counts and leave higher-order channels silent.</p>
+
+        <h2 id="sample-storage">Sample Storage and Recall</h2>
+
+        <p>Ambi Grain uses the shared <a href="sample-instruments.html#state">Sample Storage</a> policy. The storage selector, sample locator, <code>RELINK</code> button, and status are below the waveform; the waveform and grain controls retain their existing layout.</p>
+
+        <ul>
+          <li><code>PROJECT</code> copies the unchanged source in the background into <code>s3g Samples</code> under the saved REAPER project's effective media directory. State stores a project-relative locator after collection, so moving the project together with its media does not depend on the original file path. Identical source copies are content-verified and reused.</li>
+          <li><code>LINK</code> retains an absolute file reference without collecting or embedding the audio. Keep that file available at the same location; use <code>RELINK</code> after moving it or transferring a linked session to another computer.</li>
+          <li><code>EMBED</code> includes decoded floating-point audio in the host's saved plugin state and in plugin presets. It preserves every loaded channel and the shared normalization data, without normalizing again on recall. The plugin bundle itself is never modified. Embedded audio is limited to 1 GiB per instance; larger assets require <code>PROJECT</code> or <code>LINK</code>.</li>
+        </ul>
+
+        <p><code>PROJECT</code> requires a saved REAPER project and supported project-media access. Until those are available, collection remains pending and playback continues using the loaded source. A pending file-backed sample remains path-referenced; an embedded sample being converted to project media keeps its audio in state until collection succeeds. Save again after the status reports that project media is ready. For REAPER Save As, enable a copy-media option if collected files should follow the new project.</p>
+
+        <p>Missing-file recall restores the settings and retains the missing locator, displays <code>MISSING SAMPLE / RELINK</code>, and does not play unrelated previously loaded audio. <code>RELINK</code> selects a replacement while preserving the recalled settings. Existing version-1 projects and presets with a source path restore as <code>LINK</code>; they are not silently converted or copied. Newly saved version-2 states require this updated plugin or newer.</p>
+
+        <p>A failed preset save leaves the previous preset file intact. Imports exceeding the decoded-audio cap in <code>EMBED</code> mode are rejected without replacing the current sample; select <code>PROJECT</code> or <code>LINK</code> before loading a larger asset.</p>
 
         <h2 id="grain-model">Grain Model</h2>
 
@@ -149,6 +166,7 @@
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#sample-storage">Sample Storage and Recall</a>
           <a href="#grain-model">Grain Model</a>
           <a href="#display">Display</a>
           <a href="#controls">Controls</a>

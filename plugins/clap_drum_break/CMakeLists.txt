@@ -12,6 +12,15 @@ set_target_properties(s3g_drum_break_clap PROPERTIES
   OUTPUT_NAME "s3g_drum_break"
 )
 
+if(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_drum_break_clap
+    "${CMAKE_CURRENT_SOURCE_DIR}/s3g_drum_break_vstgui.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_drum_break_clap PROPERTIES SUFFIX ".clap")
+endif()
+
 if(APPLE)
   set_source_files_properties(s3g_drum_break_clap.cpp
     PROPERTIES LANGUAGE OBJCXX)
@@ -25,4 +34,3 @@ if(APPLE)
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
   )
 endif()
-

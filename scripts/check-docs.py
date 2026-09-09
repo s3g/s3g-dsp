@@ -390,6 +390,7 @@ DOC_SEQUENCE = [
     "drum-mixer.html",
     "generative-instruments.html",
     "low-frequency-synth.html",
+    "processor-lowform.html",
     "processor-stack.html",
     "processor-conduit.html",
     "processor-feedback-shift.html",

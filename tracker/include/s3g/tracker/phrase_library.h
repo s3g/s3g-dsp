@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <string>
 
 namespace s3g::tracker {
@@ -12,12 +13,17 @@ constexpr std::size_t kPhraseLibrarySlots = 64u;
 constexpr std::size_t kMinimumPhraseRows = 2u;
 constexpr std::size_t kMaximumPhraseRows = 64u;
 constexpr std::size_t kMaximumPhraseNameBytes = 64u;
+constexpr double kMinimumPhraseRecommendedBpm = 20.0;
+constexpr double kMaximumPhraseRecommendedBpm = 400.0;
 
 // A phrase is a visible, editable lane fragment. It deliberately stores the
 // same cells as the Tracker instead of a reference or generator recipe; after
 // placement the destination pattern has no dependency on this library slot.
 struct PhraseDefinition {
     std::string name;
+    // An optional authoring hint shown in the Phrase library. Playback stays
+    // synchronized to the project/host tempo; this value does not retime it.
+    std::optional<double> recommendedBpm;
     std::size_t length = 16u;
     // Audition routing belongs to the reusable phrase. Placement still uses
     // the destination Tracker lane's MIDI channel.

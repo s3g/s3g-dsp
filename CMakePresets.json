@@ -72,6 +72,55 @@
         "S3G_BUILD_TRACKER_PREVIEW": "OFF",
         "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW": "OFF"
       }
+    },
+    {
+      "name": "clap-windows-pilot",
+      "displayName": "Windows CLAP GUI Pilot",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-clap-windows",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "S3G_BUILD_CLAP_PLUGIN": "ON",
+        "S3G_BUILD_FUTURE_COMPONENTS": "OFF",
+        "S3G_ENABLE_PORTABLE_CLAP_GUI": "ON",
+        "S3G_ENABLE_WORLD": "OFF"
+      }
+    },
+    {
+      "name": "clap-windows-cross",
+      "displayName": "Windows CLAP GUI Pilots (Mac cross-build)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-clap-windows-cross",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/mingw-w64-x86_64.cmake",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "S3G_BUILD_CLAP_PLUGIN": "ON",
+        "S3G_BUILD_FUTURE_COMPONENTS": "OFF",
+        "S3G_BUILD_TRACKER_PREVIEW": "OFF",
+        "S3G_BUILD_RELAY_PREVIEW": "OFF",
+        "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW": "OFF",
+        "S3G_BUILD_SAMPLE_PLAYER_PREVIEW": "ON",
+        "S3G_BUILD_SAMPLE_DOUBLES_PREVIEW": "ON",
+        "S3G_BUILD_SAMPLE_WAVESETS_PREVIEW": "ON",
+        "S3G_BUILD_SAMPLE_MOTION_PREVIEW": "ON",
+        "S3G_BUILD_SAMPLE_LANES_PREVIEW": "ON",
+        "S3G_BUILD_SAMPLE_GRAINS_PREVIEW": "ON",
+        "S3G_BUILD_SAMPLE_CUTUPS_PREVIEW": "ON",
+        "S3G_ENABLE_PORTABLE_CLAP_GUI": "ON",
+        "S3G_ENABLE_WORLD": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -103,6 +152,29 @@
     {
       "name": "apps",
       "configurePreset": "apps"
+    },
+    {
+      "name": "clap-windows-pilot",
+      "configurePreset": "clap-windows-pilot",
+      "configuration": "Release",
+      "targets": [
+        "s3g_macro_delay_clap",
+        "s3g_24ch_macro_delay_clap",
+        "s3g_sample_player_clap",
+        "s3g_ambi_point_encoder_clap",
+        "s3g_ambi_stochastic_encoder_clap",
+        "s3g_macro_delay_windows_clap_smoke"
+      ]
+    },
+    {
+      "name": "clap-windows-cross",
+      "configurePreset": "clap-windows-cross",
+      "targets": [
+        "s3g_macro_delay_clap",
+        "s3g_sample_player_clap",
+        "s3g_ambi_point_encoder_clap",
+        "s3g_ambi_stochastic_encoder_clap"
+      ]
     }
   ]
 }

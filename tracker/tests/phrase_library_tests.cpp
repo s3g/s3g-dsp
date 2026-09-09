@@ -23,8 +23,10 @@ int main()
 
     PhraseDefinition odd = makeBlankPhrase(5u);
     odd.name = "Odd five";
+    odd.recommendedBpm = 117.5;
     assert(capturePhrase(track, 3u, 7u, odd));
     assert(odd.length == 5u);
+    assert(odd.recommendedBpm == 117.5);
     assert(odd.previewMidiChannel == 11u);
     assert(odd.notes[0u].note == 48u);
     assert(odd.notes[2u].note == 51u);
