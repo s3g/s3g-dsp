@@ -9,6 +9,10 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_topology_gui_support.h"
+#endif
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
@@ -51,7 +55,12 @@ constexpr uint32_t kChannelCount = s3g::kSpectralTopologyChannels;
 constexpr uint32_t kStateVersion = 4;
 constexpr uint32_t kGuiWidth = static_cast<uint32_t>(
     s3g::gui_layout::kTopologyProcessorColumns.canvasWidth);
+// Keep the original layout; expose the previously clipped final matrix rows.
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr uint32_t kGuiHeight = kChannelCount > 8u ? 912u : 820u;
+#else
 constexpr uint32_t kGuiHeight = 820u;
+#endif
 constexpr double kPrimaryPanelX =
     s3g::gui_layout::kTopologyProcessorColumns.first.x;
 constexpr double kSecondaryPanelX =
@@ -229,6 +238,9 @@ static_assert(sizeof(SavedState) == 728u);
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_topology_gui_members.inc"
+#endif
     const clap_host_tail_t* hostTail = nullptr;
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
@@ -271,6 +283,10 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_topology_gui_service.inc"
+#endif
 
 void markTailChanged(Plugin& p)
 {
@@ -625,12 +641,25 @@ bool patchOutputInjected(const Plugin& p, uint32_t output)
     return false;
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* p = self(plugin);
+    p->hostParams = p->host && p->host->get_extension
+        ? static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS)) : nullptr;
+#else
+    (void)plugin;
+#endif
+    return true;
+}
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -735,6 +764,9 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableParamEvents(*p, proc->out_events);
+#endif
     readParamEvents(*p, proc->in_events);
     const bool controlsChanged = syncAudioControls(*p);
     deliverTailChangedOnAudioThread(*p);
@@ -753,7 +785,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     if (p->clearCapturePending.exchange(false, std::memory_order_acq_rel)) {
         p->processor.requestClearCapture();
     }
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const bool telemetryEnabled = p->portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
     const bool telemetryEnabled = p->guiVisible.load(std::memory_order_relaxed);
 #else
     constexpr bool telemetryEnabled = false;
@@ -960,7 +994,15 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     *value = std::strchr(display, '%') ? parsed * 0.01 : parsed;
     return true;
 }
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableParamEvents(*self(plugin), out);
+#else
+    (void)out;
+#endif
+    readParamEvents(*self(plugin), in);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 s3g::SpectralTopologySettings migrateLegacySettings(
@@ -2195,8 +2237,17 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_TOPOLOGY_SPECTRAL_TOPOLOGY_PORT 1
+#include "../common/s3g_topology_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
@@ -2299,4 +2350,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

@@ -1,6 +1,11 @@
 #include "s3g_ambisonic_geometry.h"
 #include "s3g_layout_panner.h"
 #include "s3g_realtime.h"
+#include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_monitoring_gui.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -64,6 +69,13 @@ struct SavedState {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    const clap_host_params_t* monitorHostParams = nullptr;
+    s3g::clap_gui::ParamEventQueue<1024> monitorGuiEvents {};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -119,24 +131,40 @@ void resetMeters(Plugin& p)
     p.activeChannels.store(0, std::memory_order_relaxed);
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void serviceMeterGui(Plugin&, const clap_output_events_t*);
+void destroyPortableGui(Plugin&);
+#endif
 void applyVisibleChannels(Plugin& p, double value)
 {
+    if (!std::isfinite(value)) return;
     p.visibleChannels.store(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, kChannelCount), std::memory_order_relaxed);
 }
 
 void applyViewMode(Plugin& p, double value)
 {
+    if (!std::isfinite(value)) return;
     p.viewMode.store(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u), std::memory_order_relaxed);
     syncVisibleWidthForFieldLayout(p);
 }
 
 void applyLayout(Plugin& p, double value)
 {
+    if (!std::isfinite(value)) return;
     p.layout.store(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, kMeterLayoutCount - 1u), std::memory_order_relaxed);
     syncVisibleWidthForFieldLayout(p);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension)
+        p->monitorHostParams = static_cast<const clap_host_params_t*>(p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+#else
+    (void)plugin;
+#endif
+    return true;
+}
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
@@ -146,6 +174,9 @@ void destroy(const clap_plugin_t* plugin)
 {
 #if defined(__APPLE__)
     guiDestroy(plugin);
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
 #endif
     delete self(plugin);
 }
@@ -167,6 +198,9 @@ void reset(const clap_plugin_t* plugin) { resetMeters(*self(plugin)); }
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceMeterGui(*p, proc->out_events);
+#endif
     if (proc->in_events) {
         const uint32_t n = proc->in_events->size(proc->in_events);
         for (uint32_t i = 0; i < n; ++i) {
@@ -348,8 +382,23 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return false;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void serviceMeterGui(Plugin& p, const clap_output_events_t* out) {
+    s3g::clap_gui::ParamEvent event {};
+    while (p.monitorGuiEvents.peek(event)) {
+        double current = 0.;
+        paramsGetValue(&p.plugin, event.paramId, &current);
+        const bool superseded = event.kind == s3g::clap_gui::ParamEventKind::Value && current != event.value;
+        if (!superseded && !s3g::clap_gui::pushParamEvent(out, event)) break;
+        p.monitorGuiEvents.pop();
+    }
+}
+#endif
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceMeterGui(*self(plugin), out);
+#endif
     if (!in) return;
     auto* p = self(plugin);
     const uint32_t n = in->size(in);
@@ -380,7 +429,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     state.visibleChannels = self(plugin)->visibleChannels.load(std::memory_order_relaxed);
     state.viewMode = self(plugin)->viewMode.load(std::memory_order_relaxed);
     state.layout = self(plugin)->layout.load(std::memory_order_relaxed);
-    return stream->write(stream, &state, sizeof(state)) == static_cast<int64_t>(sizeof(state));
+    return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -390,14 +439,14 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t visibleChannels = kChannelCount;
     uint32_t viewMode = static_cast<uint32_t>(MeterViewMode::Grid);
     uint32_t layout = static_cast<uint32_t>(MeterLayout::Auto);
-    if (stream->read(stream, &version, sizeof(version)) != static_cast<int64_t>(sizeof(version))) return false;
+    if (!s3g::clap_state::readAll(stream, &version, sizeof(version))) return false;
     if (version == 0u || version > kStateVersion) return false;
-    if (stream->read(stream, &visibleChannels, sizeof(visibleChannels)) != static_cast<int64_t>(sizeof(visibleChannels))) return false;
+    if (!s3g::clap_state::readAll(stream, &visibleChannels, sizeof(visibleChannels))) return false;
     if (version >= 2u) {
-        if (stream->read(stream, &viewMode, sizeof(viewMode)) != static_cast<int64_t>(sizeof(viewMode))) return false;
+        if (!s3g::clap_state::readAll(stream, &viewMode, sizeof(viewMode))) return false;
     }
     if (version >= 3u) {
-        if (stream->read(stream, &layout, sizeof(layout)) != static_cast<int64_t>(sizeof(layout))) return false;
+        if (!s3g::clap_state::readAll(stream, &layout, sizeof(layout))) return false;
     }
     self(plugin)->visibleChannels.store(std::clamp<uint32_t>(visibleChannels, 1u, kChannelCount), std::memory_order_relaxed);
     self(plugin)->viewMode.store(std::clamp<uint32_t>(viewMode, 0u, 2u), std::memory_order_relaxed);
@@ -1149,12 +1198,21 @@ bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiV
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
+#if !defined(__APPLE__)
+namespace {
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_meter_canvas.inc"
+#include "../common/s3g_monitor_dynamic_gui.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -1211,4 +1269,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

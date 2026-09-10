@@ -5,6 +5,14 @@ function(add_s3g_spectral_topology_target target channels output_name bundle_id 
 
   target_link_libraries(${target} PRIVATE s3g_dsp)
   target_include_directories(${target} PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  if(S3G_TOPOLOGY_FAMILY_VSTGUI_AVAILABLE)
+    s3g_enable_vstgui_gui(${target}
+      "${CMAKE_CURRENT_SOURCE_DIR}/../common/s3g_topology_canvas.inc"
+      S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  endif()
+  if(WIN32)
+    set_target_properties(${target} PROPERTIES SUFFIX ".clap")
+  endif()
   target_compile_definitions(${target} PRIVATE
     S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT=${channels}
     S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID="${bundle_id}"

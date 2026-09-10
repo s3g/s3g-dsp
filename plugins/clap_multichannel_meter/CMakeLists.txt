@@ -4,6 +4,14 @@ add_library(s3g_multichannel_meter_clap MODULE
 
 target_link_libraries(s3g_multichannel_meter_clap PRIVATE s3g_dsp)
 target_include_directories(s3g_multichannel_meter_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+if(S3G_MONITORING_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_multichannel_meter_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_meter_canvas.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_multichannel_meter_clap PROPERTIES SUFFIX ".clap")
+endif()
 
 if(APPLE)
   set_source_files_properties(s3g_multichannel_meter_clap.cpp PROPERTIES LANGUAGE OBJCXX)

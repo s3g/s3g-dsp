@@ -25,3 +25,11 @@ if(APPLE)
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   )
 endif()
+if(S3G_MEMORY_EFFECTS_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_buffer_processor_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_memory_effect_canvas.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_buffer_processor_clap PROPERTIES SUFFIX ".clap")
+endif()

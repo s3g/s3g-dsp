@@ -95,9 +95,9 @@ GUI_COMMAND_RE = re.compile(
     (?P<plugin>\$<TARGET_FILE:[A-Za-z0-9_]+>)[ \t]+
     (?P<plugin_id>org\.s3g\.s3g-dsp\.[A-Za-z0-9._-]+)[ \t]+
     (?P<width>[0-9]+)[ \t]+
-    (?P<height>[0-9]+)
+    (?P<height>[0-9]+|\$\{s3g_spectral_24_gui_height\})
     (?:[ \t]+"(?P<prefix>[^"\r\n]+)"[ \t]+
-    (?P<mode>responsive-wide|responsive|proportional|dynamic|fixed|\$\{s3g_(?:macro|sample_player|sample_family|sample_rings|drum)_gui_smoke_mode\}))?
+    (?P<mode>responsive-wide|responsive|proportional|dynamic|fixed|\$\{s3g_(?:macro|sample_player|sample_family|sample_rings|drum|topology|memory_effects|autogain)_gui_smoke_mode\}))?
     [ \t]*(?:\#[^\r\n]*)?$
     """,
     re.VERBOSE,
@@ -296,6 +296,21 @@ def resolve_configured_gui_mode(mode: str | None, build_dir: Path) -> str | None
             build_dir, "S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS", False
         )
         return "proportional" if drum_portable else "responsive"
+    if mode == "${s3g_topology_gui_smoke_mode}":
+        topology_portable = portable and cmake_cache_bool(
+            build_dir, "S3G_ENABLE_TOPOLOGY_FAMILY_VSTGUI_ON_MACOS", False
+        )
+        return "proportional" if topology_portable else "responsive-wide"
+    if mode == "${s3g_memory_effects_gui_smoke_mode}":
+        memory_portable = portable and cmake_cache_bool(
+            build_dir, "S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS", False
+        )
+        return "proportional" if memory_portable else "responsive"
+    if mode == "${s3g_autogain_gui_smoke_mode}":
+        monitoring_portable = portable and cmake_cache_bool(
+            build_dir, "S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS", False
+        )
+        return "proportional" if monitoring_portable else "responsive"
     return mode
 
 
@@ -333,7 +348,9 @@ def read_gui_inventory(
                 plugin_target,
                 plugin_id,
                 int(match.group("width")),
-                int(match.group("height")),
+                (912 if mode == "proportional" else 820)
+                if match.group("height") == "${s3g_spectral_24_gui_height}"
+                else int(match.group("height")),
                 extra_arguments,
                 bundle,
             )

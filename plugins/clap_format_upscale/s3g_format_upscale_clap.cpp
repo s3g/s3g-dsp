@@ -1,6 +1,12 @@
 #include "s3g_format_upscale.h"
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_monitoring_gui.h"
+#include "../common/s3g_gui_documentation.h"
+#include "../common/s3g_vstgui_auxiliary_window.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -167,6 +173,9 @@ struct Plugin {
     std::array<float, kChannels> frameIn {};
     std::array<float, kChannels> frameOut {};
     std::array<std::atomic<float>, kChannels> outputPeaks {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_upmix_gui_members.inc"
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     void* macRealtimeActivity = nullptr;
@@ -209,7 +218,8 @@ void applyParams(Plugin& plugin)
     constrainManualPolarityToStereo(plugin);
 }
 
-void setParamValue(Plugin& plugin, clap_id id, double value)
+double getParamValue(const Plugin& plugin, clap_id id);
+void setParamValue(Plugin& plugin, clap_id id, double value, bool publish = true)
 {
     const ParamDef* def = findParam(id);
     if (!def || !std::isfinite(value)) return;
@@ -271,6 +281,15 @@ void setParamValue(Plugin& plugin, clap_id id, double value)
         return;
     }
     applyParams(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (publish) {
+        plugin.monitorValues[id - 1].store(getParamValue(plugin, id), std::memory_order_release);
+        if (id == kParamInputLayout && plugin.params.inputLayout != s3g::FormatUpscaleLayout::Stereo)
+            plugin.monitorClearNegative.store(true, std::memory_order_release);
+    }
+#else
+    (void)publish;
+#endif
 }
 
 double getParamValue(const Plugin& plugin, clap_id id)
@@ -533,7 +552,22 @@ void limitExactOutputColumns(Plugin& plugin)
     setExactManualMatrix(plugin, weights);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_upmix_gui_service.inc"
+void destroyPortableGui(Plugin&);
+#endif
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto& p = *self(plugin);
+    if (p.host && p.host->get_extension) {
+        p.monitorHostParams = static_cast<const clap_host_params_t*>(p.host->get_extension(p.host, CLAP_EXT_PARAMS));
+        p.monitorHostState = static_cast<const clap_host_state_t*>(p.host->get_extension(p.host, CLAP_EXT_STATE));
+    }
+#else
+    (void)plugin;
+#endif
+    return true;
+}
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
@@ -544,6 +578,9 @@ void destroy(const clap_plugin_t* plugin)
 #if defined(__APPLE__)
     guiDestroy(plugin);
     s3g::clap_support::endRealtimeActivity(self(plugin)->macRealtimeActivity);
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
 #endif
     delete self(plugin);
 }
@@ -557,6 +594,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     s3g::clap_support::beginRealtimeActivity(instance->macRealtimeActivity);
 #endif
     instance->dsp.prepare(sampleRate);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncUpmixAudio(*instance);
+#endif
     applyParams(*instance);
     return true;
 }
@@ -614,6 +654,9 @@ clap_process_status process(const clap_plugin_t* plugin,
     const clap_process_t* processContext)
 {
     auto* instance = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceUpmixGui(*instance, processContext->out_events);
+#endif
     readParamEvents(*instance, processContext->in_events);
     if (processContext->audio_outputs_count == 0u)
         return CLAP_PROCESS_CONTINUE;
@@ -692,7 +735,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value || !findParam(id)) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    *value = self(plugin)->monitorValues[id - 1].load(std::memory_order_acquire);
+#else
     *value = getParamValue(*self(plugin), id);
+#endif
     return true;
 }
 
@@ -772,8 +819,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* input, const clap_output_events_t*)
+    const clap_input_events_t* input, const clap_output_events_t* output)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceUpmixGui(*self(plugin), output);
+#else
+    (void)output;
+#endif
     readParamEvents(*self(plugin), input);
 }
 
@@ -782,7 +834,27 @@ const clap_plugin_params_t paramsExt {
     paramsValueToText, paramsTextToValue, paramsFlush
 };
 
-bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+template<class State> bool finiteUpmixWireState(const State& s) {
+    const float values[] = {s.params.amountPercent, s.params.rotationDegrees,
+        s.params.spreadPercent, s.params.delayMs, s.params.decorrelationPercent,
+        s.params.smoothingMs, s.params.outputGainDb};
+    for(float v:values) if(!std::isfinite(v)) return false;
+    if constexpr (!std::is_same_v<State,SavedStateV1>) {
+        for(const auto* layout:{&s.customInput,&s.customOutput})
+            for(const auto& speaker:layout->speakers)
+                if(!std::isfinite(speaker.azimuthDeg) || !std::isfinite(speaker.elevationDeg)
+                    || !std::isfinite(speaker.distance)) return false;
+    }
+    if constexpr (std::is_same_v<State,SavedStateV4> || std::is_same_v<State,SavedStateV5>
+        || std::is_same_v<State,SavedStateV6> || std::is_same_v<State,SavedState>) {
+        for(float v:s.manualWeights) if(!std::isfinite(v)) return false;
+    }
+    return true;
+}
+#endif
+
+bool encodeUpmixState(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     const auto* instance = self(plugin);
     const SavedState state { kStateVersion, instance->params,
@@ -795,7 +867,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+bool decodeUpmixState(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     auto* instance = self(plugin);
     uint32_t version = 0u;
@@ -810,6 +882,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.setCustomInputLayout(state.customInput);
         instance->dsp.setCustomOutputLayout(state.customOutput);
@@ -826,6 +901,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.setCustomInputLayout(state.customInput);
         instance->dsp.setCustomOutputLayout(state.customOutput);
@@ -843,6 +921,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.setCustomInputLayout(state.customInput);
         instance->dsp.setCustomOutputLayout(state.customOutput);
@@ -858,6 +939,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.setCustomInputLayout(state.customInput);
         instance->dsp.setCustomOutputLayout(state.customOutput);
@@ -872,6 +956,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.setCustomInputLayout(state.customInput);
         instance->dsp.setCustomOutputLayout(state.customOutput);
@@ -885,6 +972,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.setCustomInputLayout(state.customInput);
         instance->dsp.setCustomOutputLayout(state.customOutput);
@@ -895,6 +985,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!finiteUpmixWireState(state)) return false;
+#endif
         instance->params = s3g::sanitizeFormatUpscaleParams(state.params);
         instance->dsp.useAutomaticRoutes();
     } else {
@@ -916,6 +1009,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_upmix_state.inc"
+#else
+bool stateSave(const clap_plugin_t* p, const clap_ostream_t* s) { return encodeUpmixState(p, s); }
+bool stateLoad(const clap_plugin_t* p, const clap_istream_t* s) { return decodeUpmixState(p, s); }
+#endif
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
@@ -5585,14 +5684,30 @@ const clap_plugin_gui_t guiExt {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+namespace {
+#include "../common/s3g_upmix_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+}
+#endif
+
 namespace {
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+    if (!id) return nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const char* capture = std::getenv("S3G_GUI_DOCUMENTATION_CAPTURE");
+    if (capture && std::strcmp(capture,"1")==0
+        && std::strcmp(id,s3g::gui_documentation::kExtension)==0)
+        return &upmix_canvas::documentation;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -5625,6 +5740,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     if (!instance) return nullptr;
     instance->host = host;
     applyParams(*instance);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (!initializeUpmixGui(*instance)) { delete instance; return nullptr; }
+#endif
     instance->plugin.desc = &descriptor;
     instance->plugin.plugin_data = instance;
     instance->plugin.init = init;
@@ -5662,6 +5780,6 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory
 };

@@ -9656,6 +9656,17 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
+        if (ok && topologyProcessor && portableVstguiRoot) {
+            ok = gui->show(plugin);
+            // Portable hit regions are registered by paint, including when
+            // the host embeds the editor before its first visible frame.
+            [document dataWithPDFInsideRect:[document bounds]];
+        }
+        auto topologyCanvasPoint = [&](NSPoint point) {
+            const double scale = portableVstguiRoot
+                ? [document bounds].size.width / nativeWidth : 1.0;
+            return NSMakePoint(point.x * scale, point.y * scale);
+        };
         if (ok && delayProcessor) {
             failureStage = "delay route parameter/default contract";
             constexpr clap_id routeParam = 26u;
@@ -9752,12 +9763,12 @@ int main(int argc, char** argv)
                     pressure:1.0];
             };
             auto dragRouteSlider = [&](size_t index) {
-                const NSPoint downPoint = NSMakePoint(
+                const NSPoint downPoint = topologyCanvasPoint(NSMakePoint(
                     routeRows[index].x + trackWidth * 0.25,
-                    routeRows[index].y);
-                const NSPoint dragPoint = NSMakePoint(
+                    routeRows[index].y));
+                const NSPoint dragPoint = topologyCanvasPoint(NSMakePoint(
                     routeRows[index].x + trackWidth * 0.75,
-                    routeRows[index].y);
+                    routeRows[index].y));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:downPoint fromView:document]];
                 if (hitView != document) return false;
@@ -9783,9 +9794,9 @@ int main(int argc, char** argv)
                 return passed;
             };
             auto clickRouteSlider = [&](size_t index, double normalized) {
-                const NSPoint point = NSMakePoint(
+                const NSPoint point = topologyCanvasPoint(NSMakePoint(
                     routeRows[index].x + trackWidth * normalized,
-                    routeRows[index].y);
+                    routeRows[index].y));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:point fromView:document]];
                 if (hitView != document) return false;
@@ -9802,9 +9813,9 @@ int main(int argc, char** argv)
             };
             auto resetRouteSlider = [&](size_t index) {
                 if (!clickRouteSlider(index, 0.82)) return false;
-                const NSPoint point = NSMakePoint(
+                const NSPoint point = topologyCanvasPoint(NSMakePoint(
                     routeRows[index].x + trackWidth * 0.50,
-                    routeRows[index].y);
+                    routeRows[index].y));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:point fromView:document]];
                 if (hitView != document) return false;
@@ -10071,10 +10082,10 @@ int main(int argc, char** argv)
             auto dragSlider = [&](clap_id id, NSPoint rowPoint,
                                   double minimum = 0.0,
                                   double maximum = 1.0) {
-                const NSPoint downPoint = NSMakePoint(
-                    rowPoint.x + trackWidth * 0.25, rowPoint.y);
-                const NSPoint dragPoint = NSMakePoint(
-                    rowPoint.x + trackWidth * 0.75, rowPoint.y);
+                const NSPoint downPoint = topologyCanvasPoint(NSMakePoint(
+                    rowPoint.x + trackWidth * 0.25, rowPoint.y));
+                const NSPoint dragPoint = topologyCanvasPoint(NSMakePoint(
+                    rowPoint.x + trackWidth * 0.75, rowPoint.y));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:downPoint fromView:document]];
                 double clickedValue = -1.0;
@@ -10208,10 +10219,10 @@ int main(int argc, char** argv)
             auto dragSlider = [&](clap_id id, NSPoint rowPoint,
                                   double minimum = 0.0,
                                   double maximum = 1.0) {
-                const NSPoint downPoint = NSMakePoint(
-                    rowPoint.x + trackWidth * 0.25, rowPoint.y);
-                const NSPoint dragPoint = NSMakePoint(
-                    rowPoint.x + trackWidth * 0.75, rowPoint.y);
+                const NSPoint downPoint = topologyCanvasPoint(NSMakePoint(
+                    rowPoint.x + trackWidth * 0.25, rowPoint.y));
+                const NSPoint dragPoint = topologyCanvasPoint(NSMakePoint(
+                    rowPoint.x + trackWidth * 0.75, rowPoint.y));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:downPoint fromView:document]];
                 double clickedValue = -1.0;
@@ -10239,8 +10250,8 @@ int main(int argc, char** argv)
             };
             auto clickSliderAt = [&](clap_id id, NSPoint rowPoint,
                                      double normalized) {
-                const NSPoint point = NSMakePoint(
-                    rowPoint.x + trackWidth * normalized, rowPoint.y);
+                const NSPoint point = topologyCanvasPoint(NSMakePoint(
+                    rowPoint.x + trackWidth * normalized, rowPoint.y));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:point fromView:document]];
                 if (hitView != document) return false;
@@ -11751,14 +11762,34 @@ int main(int argc, char** argv)
         }
         if (ok && topologyProcessor) {
             failureStage = "topology field interaction";
+            if (portableVstguiRoot) ok = gui->show(plugin);
+            const double topologyScale = portableVstguiRoot
+                ? [document bounds].size.width / nativeWidth : 1.0;
+            auto topologyPoint = [&](NSPoint point) {
+                return NSMakePoint(point.x * topologyScale, point.y * topologyScale);
+            };
+            auto topologyPixels = [&]() {
+                // Pixel evidence for portable camera/page changes, not Cocoa
+                // private ivars (and not PDF bytes with changing metadata).
+                NSData* pdf = [document dataWithPDFInsideRect:[document bounds]];
+                NSImage* img = [[NSImage alloc] initWithData:pdf];
+                NSBitmapImageRep* bitmap = [NSBitmapImageRep imageRepWithData:[img TIFFRepresentation]];
+                std::vector<uint8_t> result;
+                if (bitmap && [bitmap bitmapData]) {
+                    const auto* first = [bitmap bitmapData];
+                    result.assign(first, first + [bitmap bytesPerRow] * [bitmap pixelsHigh]);
+                }
+                [img release];
+                return result;
+            };
             const NSRect fieldPanel = s3g::clap_gui::cocoaRect(
                 s3g::gui_layout::kTopologyProcessorColumns.field);
             const NSRect fieldContent =
                 s3g::clap_gui::topologyProcessorFieldContentRect(
                     fieldPanel);
             auto clickRect = [&](NSRect rect) {
-                const NSPoint point = NSMakePoint(
-                    NSMidX(rect), NSMidY(rect));
+                const NSPoint point = topologyPoint(NSMakePoint(
+                    NSMidX(rect), NSMidY(rect)));
                 NSView* hitView = [parent hitTest:
                     [parent convertPoint:point fromView:document]];
                 if (hitView != document) return false;
@@ -11940,16 +11971,19 @@ int main(int argc, char** argv)
                     }
                 }
 
-                ok = clickRect(
+                const auto beforeCamera = portableVstguiRoot ? topologyPixels() : std::vector<uint8_t>{};
+                ok = ok && clickRect(
                         s3g::clap_gui::topologyProcessorCameraButtonRect(
                             fieldPanel, 0u))
-                    && [[document valueForKey:@"cameraView"] intValue]
-                        == 0;
-                const NSPoint dragStart = NSMakePoint(
+                    && (portableVstguiRoot
+                        ? !beforeCamera.empty() && topologyPixels() != beforeCamera
+                        : [[document valueForKey:@"cameraView"] intValue] == 0);
+                const auto beforeDrag = portableVstguiRoot ? topologyPixels() : std::vector<uint8_t>{};
+                const NSPoint dragStart = topologyPoint(NSMakePoint(
                     fieldContent.origin.x + 180.0,
-                    fieldContent.origin.y + 240.0);
+                    fieldContent.origin.y + 240.0));
                 const NSPoint dragEnd = NSMakePoint(
-                    dragStart.x + 42.0, dragStart.y + 28.0);
+                    dragStart.x + 42.0 * topologyScale, dragStart.y + 28.0 * topologyScale);
                 NSView* dragView = [parent hitTest:
                     [parent convertPoint:dragStart fromView:document]];
                 if (ok && dragView == document) {
@@ -11959,17 +11993,18 @@ int main(int argc, char** argv)
                         NSEventTypeLeftMouseDragged, dragEnd)];
                     [dragView mouseUp:mouseEvent(
                         NSEventTypeLeftMouseUp, dragEnd)];
-                    ok = [[document valueForKey:@"cameraView"] intValue]
-                        == -1;
+                    ok = portableVstguiRoot ? topologyPixels() != beforeDrag
+                        : [[document valueForKey:@"cameraView"] intValue] == -1;
                 } else {
                     ok = false;
                 }
 
+                const auto beforePage = portableVstguiRoot ? topologyPixels() : std::vector<uint8_t>{};
                 ok = ok && clickRect(
                         s3g::clap_gui::topologyProcessorFieldPageButtonRect(
                             fieldPanel, 1u))
-                    && [[document valueForKey:@"fieldPage"] intValue]
-                        == 1;
+                    && (portableVstguiRoot ? topologyPixels() != beforePage
+                        : [[document valueForKey:@"fieldPage"] intValue] == 1);
                 NSData* secondPage = ok
                     ? [document dataWithPDFInsideRect:[document bounds]]
                     : nil;
@@ -11992,18 +12027,20 @@ int main(int argc, char** argv)
                         atomically:YES];
                 }
 
+                const auto secondPixels = portableVstguiRoot ? topologyPixels() : std::vector<uint8_t>{};
                 ok = ok && clickRect(
                         s3g::clap_gui::topologyProcessorFieldPageButtonRect(
                             fieldPanel, 0u))
+                    && (!portableVstguiRoot || topologyPixels() != secondPixels)
                     && clickRect(
                         s3g::clap_gui::topologyProcessorCameraButtonRect(
                             fieldPanel, documentationCapture
                                 ? documentationCamera : 2u))
-                    && [[document valueForKey:@"fieldPage"] intValue]
-                        == 0
-                    && [[document valueForKey:@"cameraView"] intValue]
-                        == static_cast<int>(documentationCapture
-                            ? documentationCamera : 2u);
+                    && (portableVstguiRoot
+                        || ([[document valueForKey:@"fieldPage"] intValue] == 0
+                            && [[document valueForKey:@"cameraView"] intValue]
+                                == static_cast<int>(documentationCapture
+                                    ? documentationCamera : 2u)));
             } @catch (NSException*) {
                 ok = false;
             }
@@ -13865,7 +13902,7 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && !documentationCapture
+        if (ok && !portableVstguiRoot && !documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.format-upscale-64") == 0) {
             failureStage = "Matrix Upmix stereo-derived matrix interaction";
@@ -14665,7 +14702,28 @@ int main(int argc, char** argv)
                     << "/" << cubeLabelCount << '\n';
             }
         }
-        if (ok && documentationCapture
+        if (ok && portableVstguiRoot && documentationCapture
+            && std::strcmp(pluginId, "org.s3g.s3g-dsp.format-upscale-64")==0) {
+            failureStage="portable Matrix Upmix documentation fixtures";
+            const auto* bridge=static_cast<const s3g::gui_documentation::Extension*>(
+                plugin->get_extension(plugin,s3g::gui_documentation::kExtension));
+            ok=bridge && bridge->loadFixtures(plugin);
+            const char* captureDirectory=std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+            if(ok && captureDirectory && captureDirectory[0]) {
+                for(uint32_t page=1;page<=2 && ok;++page) {
+                    ok=bridge->selectPage(plugin,page);
+                    [document setNeedsDisplay:YES]; [document displayIfNeeded];
+                    NSData* rendered=[document dataWithPDFInsideRect:[document bounds]];
+                    NSString* path=[[NSString stringWithUTF8String:captureDirectory]
+                        stringByAppendingPathComponent:[NSString stringWithFormat:@"%s.%s.pdf",
+                            pluginId,page==1?"layout":"cube41"]];
+                    ok=ok && rendered && [rendered length]>0 && [rendered writeToFile:path atomically:YES];
+                }
+                if(ok) ok=bridge->selectPage(plugin,0);
+            }
+            [document setNeedsDisplay:YES]; [document displayIfNeeded];
+        }
+        if (ok && !portableVstguiRoot && documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.format-upscale-64") == 0) {
             failureStage = "documentation Format Upscale height manifold";

@@ -9,6 +9,10 @@
 #include "s3g_realtime.h"
 #include <clap/ext/latency.h>
 #include <clap/ext/tail.h>
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_topology_gui_support.h"
+#endif
 #if defined(__APPLE__)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
@@ -38,6 +42,8 @@ namespace {
     S3G_OBJC_CLASS_JOIN(S3GDelayProcessorView, S3G_DELAY_PROCESSOR_CHANNEL_COUNT)
 
 constexpr uint32_t kChannelCount = S3G_DELAY_PROCESSOR_CHANNEL_COUNT;
+constexpr uint32_t kGuiWidth = 1356u;
+constexpr uint32_t kGuiHeight = 696u;
 static_assert(kChannelCount > 0 && kChannelCount <= s3g::kLanePatchMaxChannels,
               "S3G_DELAY_PROCESSOR_CHANNEL_COUNT must fit the lane patch matrix");
 
@@ -440,6 +446,9 @@ struct DelaySettings {
 struct Plugin : DelaySettings {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_topology_gui_members.inc"
+#endif
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0;
     bool clearUnused = false;
@@ -487,6 +496,10 @@ Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
 }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_topology_gui_service.inc"
+#endif
 
 
 void requestGuiRedraw(Plugin& p);
@@ -1276,10 +1289,23 @@ void togglePatchCellFromGui(Plugin& p, uint32_t input, uint32_t output)
     requestGuiRedraw(p);
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* p = self(plugin);
+    p->hostParams = p->host && p->host->get_extension
+        ? static_cast<const clap_host_params_t*>(
+            p->host->get_extension(p->host, CLAP_EXT_PARAMS)) : nullptr;
+#else
+    (void)plugin;
+#endif
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -1485,10 +1511,12 @@ void publishOutputMeter(Plugin& p, float blockPeak, bool blockClip, uint32_t fra
 void publishRouteTelemetry(Plugin& p)
 {
     bool publishGuiTelemetry = false;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishGuiTelemetry = p.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
     publishGuiTelemetry = p.guiVisible.load(std::memory_order_relaxed);
 #endif
-    // Edge/node telemetry is consumed only by the open Cocoa view. Avoid the
+    // Edge/node telemetry is consumed only by the open editor. Avoid the
     // 24x24 atomic copy in headless realtime processing, but always publish
     // the route-tail value because CLAP_EXT_TAIL consumes it independently.
     if (!publishGuiTelemetry) {
@@ -1638,6 +1666,9 @@ void applyBlockCoalescedParamEvents(Plugin& p,
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableParamEvents(*p, process->out_events);
+#endif
     const uint32_t frames = process->frames_count;
     syncAudioSettings(*p);
     deliverTailChangedOnAudioThread(*p);
@@ -2120,8 +2151,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     }
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableParamEvents(*self(plugin), out);
+#else
+    (void)out;
+#endif
     readParamEvents(*self(plugin), in);
 }
 
@@ -3972,8 +4008,17 @@ const clap_plugin_gui_t gui {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_TOPOLOGY_DELAY_PORT 1
+#include "../common/s3g_topology_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) {
         return &audioPorts;
     }
@@ -4076,7 +4121,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

@@ -152,6 +152,9 @@ public:
     explicit ContentView(const VSTGUI::CRect& size) : CView(size) {}
     virtual void startRefresh() {}
     virtual void stopRefresh() {}
+    // Opt-in only: reflow into a non-proportional viewport while retaining
+    // shared magnification. Existing fixed canvases remain unchanged.
+    virtual bool hasResponsiveLayout() const { return false; }
 };
 
 class EditorHost {

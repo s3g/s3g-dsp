@@ -71,6 +71,7 @@ public:
   }
   virtual void paint() = 0;
   virtual void service() {}
+  virtual double refreshPeriodMilliseconds() const { return 33.; }
   virtual bool pointerDown(MouseDownEvent &) { return false; }
   virtual void pointerMove(MouseMoveEvent &) {}
   virtual void pointerUp(MouseUpEvent &) {}
@@ -82,13 +83,14 @@ public:
   void startRefresh() override {
     if (!timer)
       timer = makeOwned<CVSTGUITimer>(
-          [this](CVSTGUITimer *) {
+          [this](CVSTGUITimer *tick) {
             if (closeNumeric)
               finishNumeric();
             service();
             invalid();
+            tick->setFireTime(nextRefreshInterval());
           },
-          33, true);
+          nextRefreshInterval(), true);
   }
   void stopRefresh() override {
     timer = nullptr;
@@ -369,6 +371,13 @@ protected:
   SharedPointer<CFontDesc> font, titleFont, smallFont;
 
 private:
+  uint32_t nextRefreshInterval() {
+    refreshFraction += std::clamp(refreshPeriodMilliseconds(), 1., 1000.);
+    const auto interval = static_cast<uint32_t>(refreshFraction);
+    refreshFraction -= interval;
+    return interval;
+  }
+  double refreshFraction = 0.;
   struct Hit {
     CRect bounds;
     std::function<void()> action;

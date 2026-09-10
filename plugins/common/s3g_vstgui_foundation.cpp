@@ -796,6 +796,11 @@ void EditorHost::updateViewportScale()
         static_cast<double>(width_) / static_cast<double>(nativeWidth_),
         static_cast<double>(height_) / static_cast<double>(nativeHeight_));
     frame_->setTransform(CGraphicsTransform().scale(scale, scale));
+    if (view_ && view_->hasResponsiveLayout()) {
+        const auto bounds = rect(0., 0., width_ / scale, height_ / scale);
+        view_->setViewSize(bounds);
+        view_->setMouseableArea(bounds);
+    }
     frame_->invalid();
 }
 

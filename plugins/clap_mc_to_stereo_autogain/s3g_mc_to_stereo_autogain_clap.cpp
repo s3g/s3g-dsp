@@ -1,5 +1,10 @@
 #include "s3g_mc_to_stereo.h"
 #include "../common/s3g_clap_state_stream.h"
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_MONITOR_STEREO_PORT 1
+#include "../common/s3g_monitoring_gui.h"
+#endif
 
 #include <clap/clap.h>
 #include "s3g_realtime.h"
@@ -22,6 +27,7 @@
 
 namespace {
 
+constexpr uint32_t kGuiWidth = 920, kGuiHeight = 560;
 constexpr uint32_t kStateVersion = 2;
 constexpr uint32_t kLegacyStateVersion = 1;
 constexpr uint32_t kInputBusChannels = s3g::kMcToStereoMaxInputChannels;
@@ -60,6 +66,15 @@ struct SavedStateV1 {
 s3g::McStereoParams sanitizeParams(s3g::McStereoParams params);
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    const clap_host_params_t* monitorHostParams = nullptr;
+    s3g::clap_gui::ParamEventQueue<1024> monitorGuiEvents {};
+    std::array<std::atomic<double>, 9> monitorValues {};
+    std::atomic<bool> monitorResetGains {false};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -163,7 +178,14 @@ s3g::McStereoParams sanitizeParams(s3g::McStereoParams params)
     return params;
 }
 
-void setParamValue(Plugin& p, clap_id paramId, double value)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+double getParamValue(const Plugin&, clap_id);
+void monitorPublishAll(Plugin&);
+void monitorSync(Plugin&);
+void serviceMonitorGui(Plugin&, const clap_output_events_t*);
+void destroyPortableGui(Plugin&);
+#endif
+void setParamValue(Plugin& p, clap_id paramId, double value, bool publishMonitorValue = true)
 {
     const s3g::McStereoParams before = effectiveGainParams(p.params);
     switch (paramId) {
@@ -202,6 +224,12 @@ void setParamValue(Plugin& p, clap_id paramId, double value)
     if (gainParamsChanged(before, after)) {
         p.gainsDirty = true;
     }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (publishMonitorValue && paramId >= 1 && paramId <= 9)
+        p.monitorValues[paramId - 1].store(getParamValue(p, paramId), std::memory_order_release);
+#else
+    (void)publishMonitorValue;
+#endif
 }
 
 double getParamValue(const Plugin& p, clap_id paramId)
@@ -229,7 +257,16 @@ Plugin* self(const clap_plugin_t* plugin)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension)
+        p->monitorHostParams = static_cast<const clap_host_params_t*>(p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+#else
+    (void)plugin;
+#endif
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
@@ -237,12 +274,18 @@ void destroy(const clap_plugin_t* plugin)
     guiDestroy(plugin);
     s3g::clap_support::endRealtimeActivity(self(plugin)->macRealtimeActivity);
 #endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
     delete self(plugin);
 }
 
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t maxFrames)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    monitorSync(*p);
+#endif
 #if defined(__APPLE__)
     s3g::clap_support::beginRealtimeActivity(p->macRealtimeActivity);
 #endif
@@ -409,6 +452,9 @@ clap_process_status processDouble(Plugin& p, const clap_audio_buffer_t& input, c
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceMonitorGui(*p, process->out_events);
+#endif
     readParamEvents(*p, process->in_events);
 
     if (process->audio_inputs_count == 0 || process->audio_outputs_count == 0) {
@@ -532,11 +578,18 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (!value || paramId < 1 || paramId > 9) return false;
+    *value = self(plugin)->monitorValues[paramId - 1].load(std::memory_order_acquire);
+    return true;
+#else
+
     if (!value) {
         return false;
     }
     *value = getParamValue(*self(plugin), paramId);
     return paramId >= kParamInputChannels && paramId <= kParamDistance3d;
+#endif
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char* display, uint32_t size)
@@ -596,8 +649,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     return paramId >= kParamInputChannels && paramId <= kParamDistance3d;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceMonitorGui(*self(plugin), out);
+#endif
     readParamEvents(*self(plugin), in);
 }
 
@@ -610,7 +666,11 @@ const clap_plugin_params_t params {
     paramsFlush
 };
 
-bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_output_autogain_service.inc"
+#endif
+
+bool encodeMonitorState(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) {
         return false;
@@ -619,7 +679,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+bool decodeMonitorState(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) {
         return false;
@@ -633,6 +693,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!s3g::clap_state::readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
                 sizeof(state) - sizeof(version))) return false;
+        #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!monitorFiniteParams(state.params)) return false;
+#endif
         self(plugin)->params = sanitizeParams(state.params);
     } else if (version == kLegacyStateVersion) {
         SavedStateV1 state {};
@@ -650,6 +713,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         params.layoutWeightPercent = state.layoutWeightPercent;
         params.attenuation3dPercent = state.attenuation3dPercent;
         params.distance3dPercent = 100.0f;
+        #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!monitorFiniteParams(params)) return false;
+#endif
         self(plugin)->params = sanitizeParams(params);
     } else {
         return false;
@@ -661,6 +727,33 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     self(plugin)->gainRampTotal = 0;
     return true;
 }
+bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto snapshot = std::make_unique<Plugin>();
+    snapshot->plugin.plugin_data = snapshot.get();
+    for (clap_id id = 1; id <= 9; ++id)
+        setParamValue(*snapshot, id, self(plugin)->monitorValues[id - 1].load(), false);
+    return encodeMonitorState(&snapshot->plugin, stream);
+#else
+    return encodeMonitorState(plugin, stream);
+#endif
+}
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto snapshot = std::make_unique<Plugin>();
+    snapshot->plugin.plugin_data = snapshot.get();
+    if (!decodeMonitorState(&snapshot->plugin, stream)) return false;
+    for (clap_id id = 1; id <= 9; ++id)
+        if (!std::isfinite(getParamValue(*snapshot, id))) return false;
+    for (clap_id id = 1; id <= 9; ++id)
+        self(plugin)->monitorValues[id - 1].store(getParamValue(*snapshot, id), std::memory_order_release);
+    self(plugin)->monitorResetGains.store(true, std::memory_order_release);
+    return true;
+#else
+    return decodeMonitorState(plugin, stream);
+#endif
+}
+
 
 const clap_plugin_state_t state {
     stateSave,
@@ -1326,6 +1419,10 @@ const clap_plugin_gui_t gui {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_output_autogain_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) {
@@ -1337,7 +1434,9 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) {
         return &state;
     }
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) {
         return &gui;
     }
@@ -1388,6 +1487,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->plugin.process = process;
     p->plugin.get_extension = pluginGetExtension;
     p->plugin.on_main_thread = onMainThread;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    monitorPublishAll(*p);
+#endif
     return &p->plugin;
 }
 
@@ -1421,7 +1523,7 @@ const void* entryGetFactory(const char* factoryId)
 #define S3G_CLAP_ENTRY_SYMBOL clap_entry
 #endif
 
-extern "C" const clap_plugin_entry_t S3G_CLAP_ENTRY_SYMBOL {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t S3G_CLAP_ENTRY_SYMBOL {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

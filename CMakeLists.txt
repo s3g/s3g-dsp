@@ -714,6 +714,12 @@ option(S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS
   "Use the in-progress Sample-family VSTGUI ports on macOS" OFF)
 option(S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS
   "Use the Drum instruments and effects VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_TOPOLOGY_FAMILY_VSTGUI_ON_MACOS
+  "Use the Topology effects VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS
+  "Use Spectral Spray, Buffer, and Delay Field VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS
+  "Use Monitoring / Fold-down VSTGUI parity ports on macOS" OFF)
 option(S3G_BUILD_DRUM_GUI_PILOTS
   "Build Drum Kick/Hi-Hat without enabling unrelated future components" OFF)
 option(S3G_BUILD_DRUM_GUI_FAMILY
@@ -856,6 +862,29 @@ if(S3G_VSTGUI_AVAILABLE
   set(s3g_drum_gui_smoke_mode proportional)
 endif()
 set(s3g_sample_player_gui_smoke_mode responsive)
+set(S3G_TOPOLOGY_FAMILY_VSTGUI_AVAILABLE OFF)
+set(s3g_topology_gui_smoke_mode responsive-wide)
+set(s3g_spectral_24_gui_height 820)
+set(S3G_MEMORY_EFFECTS_VSTGUI_AVAILABLE OFF)
+set(S3G_MONITORING_VSTGUI_AVAILABLE OFF)
+set(s3g_autogain_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE
+    AND (WIN32 OR S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS))
+  set(S3G_MONITORING_VSTGUI_AVAILABLE ON)
+  set(s3g_autogain_gui_smoke_mode proportional)
+endif()
+set(s3g_memory_effects_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE
+    AND (WIN32 OR S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS))
+  set(S3G_MEMORY_EFFECTS_VSTGUI_AVAILABLE ON)
+  set(s3g_memory_effects_gui_smoke_mode proportional)
+endif()
+if(S3G_VSTGUI_AVAILABLE
+    AND (WIN32 OR S3G_ENABLE_TOPOLOGY_FAMILY_VSTGUI_ON_MACOS))
+  set(S3G_TOPOLOGY_FAMILY_VSTGUI_AVAILABLE ON)
+  set(s3g_topology_gui_smoke_mode proportional)
+  set(s3g_spectral_24_gui_height 912)
+endif()
 if(S3G_VSTGUI_AVAILABLE)
   set(s3g_sample_player_gui_smoke_mode proportional)
 endif()
@@ -867,6 +896,127 @@ endif()
 
 if(S3G_BUILD_CLAP_PLUGIN)
   if(BUILD_TESTING)
+    if(S3G_MONITORING_VSTGUI_AVAILABLE)
+      add_executable(s3g_upmix_canvas_smoke tests/upmix_canvas_smoke.cpp
+        plugins/common/s3g_vstgui_auxiliary_window.cpp)
+      target_include_directories(s3g_upmix_canvas_smoke PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+      target_link_libraries(s3g_upmix_canvas_smoke PRIVATE s3g_dsp)
+      s3g_enable_vstgui_gui(s3g_upmix_canvas_smoke
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/common/s3g_upmix_canvas.inc"
+        S3G_ENABLE_VSTGUI_CANVAS_GUI)
+      if(APPLE)
+        set_source_files_properties(tests/upmix_canvas_smoke.cpp
+          plugins/common/s3g_vstgui_auxiliary_window.cpp PROPERTIES LANGUAGE OBJCXX)
+        target_link_libraries(s3g_upmix_canvas_smoke PRIVATE "-framework Cocoa" "-framework CoreText")
+        set_target_properties(s3g_upmix_canvas_smoke PROPERTIES MACOSX_BUNDLE TRUE)
+      endif()
+      add_test(NAME s3g_upmix_canvas_smoke COMMAND $<TARGET_FILE:s3g_upmix_canvas_smoke>)
+      set_tests_properties(s3g_upmix_canvas_smoke PROPERTIES LABELS "non_nim;monitoring;gui;smoke" TIMEOUT 180)
+      add_executable(s3g_meter_canvas_smoke tests/meter_canvas_smoke.cpp)
+      target_include_directories(s3g_meter_canvas_smoke PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+      target_link_libraries(s3g_meter_canvas_smoke PRIVATE s3g_dsp)
+      s3g_enable_vstgui_gui(s3g_meter_canvas_smoke
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/common/s3g_meter_canvas.inc"
+        S3G_ENABLE_VSTGUI_CANVAS_GUI)
+      if(APPLE)
+        set_source_files_properties(tests/meter_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+        target_link_libraries(s3g_meter_canvas_smoke PRIVATE "-framework Cocoa" "-framework CoreText")
+        set_target_properties(s3g_meter_canvas_smoke PROPERTIES MACOSX_BUNDLE TRUE)
+      endif()
+      add_test(NAME s3g_meter_canvas_smoke COMMAND $<TARGET_FILE:s3g_meter_canvas_smoke>)
+      set_tests_properties(s3g_meter_canvas_smoke PROPERTIES LABELS "non_nim;monitoring;gui;smoke" TIMEOUT 120)
+      foreach(variant stereo quad)
+        set(canvas_target "s3g_output_${variant}_canvas_smoke")
+        add_executable(${canvas_target} tests/output_autogain_canvas_smoke.cpp)
+        target_include_directories(${canvas_target} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        target_link_libraries(${canvas_target} PRIVATE s3g_dsp)
+        s3g_enable_vstgui_gui(${canvas_target}
+          "${CMAKE_CURRENT_SOURCE_DIR}/plugins/common/s3g_output_autogain_canvas.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        target_compile_definitions(${canvas_target} PRIVATE
+          S3G_TEST_OUTPUT_SOURCE="../plugins/clap_mc_to_${variant}_autogain/s3g_mc_to_${variant}_autogain_clap.cpp")
+        if(variant STREQUAL "stereo")
+          set(cocoa_view S3GMcStereoView)
+        else()
+          set(cocoa_view S3GMcQuadView)
+        endif()
+        target_compile_definitions(${canvas_target} PRIVATE S3G_TEST_OUTPUT_COCOA_VIEW=${cocoa_view})
+        if(APPLE)
+          set_source_files_properties(tests/output_autogain_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          target_link_libraries(${canvas_target} PRIVATE "-framework Cocoa" "-framework CoreText")
+          set_target_properties(${canvas_target} PROPERTIES MACOSX_BUNDLE TRUE)
+        endif()
+        add_test(NAME ${canvas_target} COMMAND $<TARGET_FILE:${canvas_target}>)
+        set_tests_properties(${canvas_target} PROPERTIES LABELS "non_nim;monitoring;gui;smoke" TIMEOUT 120)
+      endforeach()
+    endif()
+    if(S3G_MEMORY_EFFECTS_VSTGUI_AVAILABLE)
+      foreach(variant spectral_spray 8ch_spectral_spray buffer_processor delay_field)
+        set(canvas_target "s3g_memory_${variant}_canvas_smoke")
+        add_executable(${canvas_target} tests/memory_effect_canvas_smoke.cpp)
+        target_include_directories(${canvas_target} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        target_link_libraries(${canvas_target} PRIVATE s3g_dsp)
+        s3g_enable_vstgui_gui(${canvas_target}
+          "${CMAKE_CURRENT_SOURCE_DIR}/plugins/common/s3g_memory_effect_canvas.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        target_compile_definitions(${canvas_target} PRIVATE
+          S3G_TEST_MEMORY_SOURCE="../plugins/clap_${variant}/s3g_${variant}_clap.cpp")
+        if(variant STREQUAL "spectral_spray")
+          set(cocoa_view S3GSpectralSprayView)
+        elseif(variant STREQUAL "8ch_spectral_spray")
+          set(cocoa_view S3G8chSpectralSprayView)
+        elseif(variant STREQUAL "buffer_processor")
+          set(cocoa_view S3GBufferProcessorView)
+        else()
+          set(cocoa_view S3GDelayFieldView)
+        endif()
+        target_compile_definitions(${canvas_target} PRIVATE S3G_TEST_MEMORY_COCOA_VIEW=${cocoa_view})
+        if(APPLE)
+          set_source_files_properties(tests/memory_effect_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          target_link_libraries(${canvas_target} PRIVATE "-framework Cocoa" "-framework CoreText" "-framework Accelerate")
+          set_target_properties(${canvas_target} PROPERTIES MACOSX_BUNDLE TRUE)
+        endif()
+        add_test(NAME ${canvas_target} COMMAND $<TARGET_FILE:${canvas_target}>)
+        set_tests_properties(${canvas_target} PROPERTIES LABELS "non_nim;memory_effects;gui;smoke" TIMEOUT 120)
+      endforeach()
+    endif()
+    if(S3G_TOPOLOGY_FAMILY_VSTGUI_AVAILABLE)
+      foreach(variant delay_8 delay_24 wave_geometry_8 spectral_topology_8 spectral_topology_24)
+        string(REGEX REPLACE "_[0-9]+$" "" processor "${variant}")
+        string(REGEX REPLACE "^.*_([0-9]+)$" "\\1" channels "${variant}")
+        set(canvas_target "s3g_topology_${variant}_canvas_smoke")
+        add_executable(${canvas_target} tests/topology_canvas_smoke.cpp)
+        target_include_directories(${canvas_target} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        target_link_libraries(${canvas_target} PRIVATE s3g_dsp)
+        s3g_enable_vstgui_gui(${canvas_target}
+          "${CMAKE_CURRENT_SOURCE_DIR}/plugins/common/s3g_topology_canvas.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if(processor STREQUAL "delay")
+          set(cocoa_view "S3GDelayProcessorView${channels}")
+        elseif(processor STREQUAL "wave_geometry")
+          set(cocoa_view S3GWaveGeometryView)
+        else()
+          set(cocoa_view "S3GSpectralTopologyView${channels}")
+        endif()
+        target_compile_definitions(${canvas_target} PRIVATE
+          S3G_TEST_TOPOLOGY_SOURCE="../plugins/clap_${processor}_processor/s3g_${processor}_processor_clap.cpp"
+          S3G_TEST_TOPOLOGY_COCOA_VIEW=${cocoa_view}
+          S3G_DELAY_PROCESSOR_CHANNEL_COUNT=${channels}
+          S3G_SPECTRAL_TOPOLOGY_CHANNEL_COUNT=${channels})
+        if(variant STREQUAL "spectral_topology_24")
+          target_compile_definitions(${canvas_target} PRIVATE
+            S3G_SPECTRAL_TOPOLOGY_PLUGIN_ID="org.s3g.s3g-dsp.spectral-topology-processor-24ch"
+            S3G_SPECTRAL_TOPOLOGY_PLUGIN_NAME="s3g Processor Spectral 24")
+        endif()
+        if(APPLE)
+          set_source_files_properties(tests/topology_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          target_link_libraries(${canvas_target} PRIVATE "-framework Cocoa" "-framework CoreText" "-framework Accelerate")
+          set_target_properties(${canvas_target} PROPERTIES MACOSX_BUNDLE TRUE)
+        endif()
+        add_test(NAME ${canvas_target} COMMAND $<TARGET_FILE:${canvas_target}>)
+        set_tests_properties(${canvas_target} PROPERTIES LABELS "non_nim;topology;gui;smoke" TIMEOUT 120)
+      endforeach()
+    endif()
     if(S3G_DRUM_FAMILY_VSTGUI_AVAILABLE
         AND (S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_PILOTS OR S3G_BUILD_DRUM_GUI_FAMILY))
       set(s3g_drum_canvas_instruments kick hi_hat)
@@ -1479,7 +1629,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_format_upscale_clap>
           org.s3g.s3g-dsp.format-upscale-64
-          1120 720 "s3g Matrix Upmix 64" responsive)
+          1120 720 "s3g Matrix Upmix 64" ${s3g_autogain_gui_smoke_mode})
       set_tests_properties(s3g_format_upscale_gui_smoke PROPERTIES
         LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
@@ -3113,17 +3263,29 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_vbap_panner_clap
       COMMENT "Rendering and validating every Panner-family GUI")
 
+    add_custom_target(audit_gui_topology_family
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1356 696 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 696 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 820 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 ${s3g_spectral_24_gui_height} "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      DEPENDS s3g_encoder_family_gui_smoke
+        s3g_8ch_delay_processor_clap s3g_24ch_delay_processor_clap
+        s3g_wave_geometry_processor_clap s3g_spectral_topology_processor_clap
+        s3g_24ch_spectral_topology_processor_clap
+      COMMENT "Validating the five Topology-family GUI parity ports")
+
     add_custom_target(audit_gui_processor_family
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1356 696 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 696 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-8ch 1356 696 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_delay_processor_clap> org.s3g.s3g-dsp.delay-processor-24ch 1356 696 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " ${s3g_memory_effects_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " ${s3g_topology_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sample_rings_clap> org.s3g.s3g-dsp.sample-rings-8 1356 820 "s3g Sample Rings 8" ${s3g_sample_rings_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " ${s3g_sample_family_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 820 "s3g Processor " responsive-wide
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 820 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 820 "s3g Processor " ${s3g_topology_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 ${s3g_spectral_24_gui_height} "s3g Processor " ${s3g_topology_gui_smoke_mode}
       DEPENDS
         s3g_encoder_family_gui_smoke
         s3g_8ch_delay_processor_clap
@@ -3299,11 +3461,29 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_ambi_node_track_mixer_clap
       COMMENT "Rendering and validating every Mixer-family GUI")
 
+    add_custom_target(audit_gui_monitoring
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " ${s3g_autogain_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " ${s3g_autogain_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_multichannel_meter_clap> org.s3g.s3g-dsp.multichannel-meter-64 980 560 "s3g Analyzer Meter 64" dynamic
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Matrix Upmix 64" ${s3g_autogain_gui_smoke_mode}
+      DEPENDS s3g_encoder_family_gui_smoke s3g_mc_to_stereo_autogain_clap
+        s3g_mc_to_quad_autogain_clap s3g_multichannel_meter_clap s3g_format_upscale_clap
+      COMMENT "Validating Monitoring and Fold-down GUI lifecycle/resizing")
+
+    add_custom_target(audit_gui_memory_effects
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_spray_clap> org.s3g.s3g-dsp.spectral-spray 760 376 "s3g Effect " ${s3g_memory_effects_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_spectral_spray_clap> org.s3g.s3g-dsp.8ch-spectral-spray 760 376 "s3g Effect " ${s3g_memory_effects_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " ${s3g_memory_effects_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_delay_field_clap> org.s3g.s3g-dsp.delay-field 760 520 "s3g Effect " ${s3g_memory_effects_gui_smoke_mode}
+      DEPENDS s3g_encoder_family_gui_smoke s3g_spectral_spray_clap
+        s3g_8ch_spectral_spray_clap s3g_buffer_processor_clap s3g_delay_field_clap
+      COMMENT "Validating Spectral Spray, Buffer, and Delay Field GUI parity")
+
     add_custom_target(audit_gui_compact_effect_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_spray_clap> org.s3g.s3g-dsp.spectral-spray 760 376 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_spectral_spray_clap> org.s3g.s3g-dsp.8ch-spectral-spray 760 376 "s3g Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_delay_field_clap> org.s3g.s3g-dsp.delay-field 760 520 "s3g Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_spray_clap> org.s3g.s3g-dsp.spectral-spray 760 376 "s3g Effect " ${s3g_memory_effects_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_8ch_spectral_spray_clap> org.s3g.s3g-dsp.8ch-spectral-spray 760 376 "s3g Effect " ${s3g_memory_effects_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_delay_field_clap> org.s3g.s3g-dsp.delay-field 760 520 "s3g Effect " ${s3g_memory_effects_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_crcltr_clap> org.s3g.s3g-dsp.crcltr 760 660 "s3g Sample Circulator 2" ${s3g_sample_family_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
@@ -3316,9 +3496,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_output_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Matrix Upmix 64" responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " ${s3g_autogain_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " ${s3g_autogain_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Matrix Upmix 64" ${s3g_autogain_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sub_crossover_clap> org.s3g.s3g-dsp.sub-crossover 920 560 "s3g Output " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
