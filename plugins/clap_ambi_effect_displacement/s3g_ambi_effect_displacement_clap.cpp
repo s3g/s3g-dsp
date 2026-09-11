@@ -1,5 +1,11 @@
 #include "s3g_ambi_effect_displacement.h"
 #include "s3g_realtime.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_ambi_effect_drawing.h"
+#include "../common/s3g_gui_documentation.h"
+#include "vstgui/thirdparty/rapidjson/include/rapidjson/document.h"
+#include <fstream>
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -29,6 +35,8 @@
 
 namespace {
 
+constexpr uint32_t kGuiWidth = 920u;
+constexpr uint32_t kGuiHeight = 820u;
 constexpr uint32_t kChannels = s3g::kAmbiEffectDisplacementMaxChannels;
 constexpr uint32_t kStateMagic = 0x53334450u;
 constexpr uint32_t kStateVersion = 1u;
@@ -97,6 +105,15 @@ struct Runtime {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    std::array<std::atomic<double>, 256> effectValues {};
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents {};
+    std::atomic<bool> effectResetPhase {false};
+    char presetName[64] {"INIT"};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -116,13 +133,13 @@ struct Plugin {
     double sampleRate = 48000.0;
     double freePhase = 0.0;
     bool active = false;
-#if defined(__APPLE__)
-    void* guiView = nullptr;
-    bool guiVisible = false;
     int guiViewMode = 2;
     double guiViewAzimuthDeg = 38.0;
     double guiViewElevationDeg = 28.0;
     double guiViewZoom = 1.0;
+#if defined(__APPLE__)
+    void* guiView = nullptr;
+    bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
@@ -223,12 +240,19 @@ bool streamReadAll(const clap_istream_t* stream, void* destination, uint64_t byt
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+PluginParams snapshotEffectParams(const Plugin&);
+#endif
 Runtime* installRuntime(Plugin& plugin)
 {
     auto runtime = std::make_unique<Runtime>();
     runtime->processor.prepare(plugin.sampleRate);
     runtime->processor.setScore(plugin.score);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    runtime->processor.setParams(snapshotEffectParams(plugin).dsp);
+#else
     runtime->processor.setParams(plugin.params.dsp);
+#endif
     runtime->processor.reset();
     Runtime* result = runtime.get();
     plugin.runtimes.push_back(std::move(runtime));
@@ -243,6 +267,9 @@ void notifyParamValuesChanged(Plugin& plugin)
     }
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define applyParam applyRawEffectParam
+#endif
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     switch (id) {
@@ -301,7 +328,11 @@ void applyParam(Plugin& plugin, clap_id id, double value)
         runtime->processor.setParams(plugin.params.dsp);
     }
 }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#undef applyParam
+#endif
 
+#if !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 double getParam(const Plugin& plugin, clap_id id)
 {
     switch (id) {
@@ -331,11 +362,106 @@ double getParam(const Plugin& plugin, clap_id id)
     default: return 0.0;
     }
 }
+#else
+using EffectParams = PluginParams;
+void setEffectScalar(EffectParams& params, clap_id id, double value) {
+    switch (id) {
+    case kParamTransport:
+        params.transport = static_cast<TransportMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u));
+        break;
+    case kParamPlayback:
+        params.playback = static_cast<s3g::AmbiEffectDisplacementPlaybackMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 2u));
+        break;
+    case kParamPosition: params.position = static_cast<float>(value); break;
+    case kParamRate: params.rateHz = static_cast<float>(value); break;
+    case kParamLength: params.lengthBeats = static_cast<float>(value); break;
+    case kParamAmount: params.dsp.amount = static_cast<float>(value); break;
+    case kParamAzimuthScale: params.dsp.azimuthScale = static_cast<float>(value); break;
+    case kParamElevationScale: params.dsp.elevationScale = static_cast<float>(value); break;
+    case kParamRadiusScale: params.dsp.radiusScale = static_cast<float>(value); break;
+    case kParamDistanceMode:
+        params.dsp.distanceMode = static_cast<s3g::AmbiEffectDisplacementDistanceMode>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 1u));
+        break;
+    case kParamReferenceMeters: params.dsp.referenceDistanceMeters = static_cast<float>(value); break;
+    case kParamEnergy: params.dsp.energy = static_cast<float>(value); break;
+    case kParamOutput: params.dsp.outputGainDb = static_cast<float>(value); break;
+    case kParamBypass: params.dsp.bypass = value >= 0.5; break;
+    case kParamOrder:
+        params.dsp.order = std::clamp<uint32_t>(
+            static_cast<uint32_t>(std::lround(value)), 1u, 7u);
+        break;
+    case kParamBody:
+        params.dsp.body = static_cast<s3g::AmbiEffectBody>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                0u, 5u));
+        break;
+    case kParamMix: params.dsp.mix = static_cast<float>(value); break;
+    case kParamMaskAmount:
+        params.dsp.maskAmount = static_cast<float>(value); break;
+    case kParamMaskAzimuth:
+        params.dsp.maskAzimuthDeg = static_cast<float>(value); break;
+    case kParamMaskElevation:
+        params.dsp.maskElevationDeg = static_cast<float>(value); break;
+    case kParamMaskWidth:
+        params.dsp.maskWidth = static_cast<float>(value); break;
+    case kParamMaskCurve:
+        params.dsp.maskCurve = static_cast<float>(value); break;
+    case kParamMaskDry:
+        params.dsp.maskDry = static_cast<float>(value + 1.0); break;
+    default: return;
+    }
+    params = sanitizeParams(params);
+}
+double readEffectScalar(const EffectParams& params, clap_id id) {
+    switch (id) {
+    case kParamTransport: return static_cast<uint32_t>(params.transport);
+    case kParamPlayback: return static_cast<uint32_t>(params.playback);
+    case kParamPosition: return params.position;
+    case kParamRate: return params.rateHz;
+    case kParamLength: return params.lengthBeats;
+    case kParamAmount: return params.dsp.amount;
+    case kParamAzimuthScale: return params.dsp.azimuthScale;
+    case kParamElevationScale: return params.dsp.elevationScale;
+    case kParamRadiusScale: return params.dsp.radiusScale;
+    case kParamDistanceMode: return static_cast<uint32_t>(params.dsp.distanceMode);
+    case kParamReferenceMeters: return params.dsp.referenceDistanceMeters;
+    case kParamEnergy: return params.dsp.energy;
+    case kParamOutput: return params.dsp.outputGainDb;
+    case kParamBypass: return params.dsp.bypass ? 1.0 : 0.0;
+    case kParamOrder: return params.dsp.order;
+    case kParamBody: return static_cast<uint32_t>(params.dsp.body);
+    case kParamMix: return params.dsp.mix;
+    case kParamMaskAmount: return params.dsp.maskAmount;
+    case kParamMaskAzimuth: return params.dsp.maskAzimuthDeg;
+    case kParamMaskElevation: return params.dsp.maskElevationDeg;
+    case kParamMaskWidth: return params.dsp.maskWidth;
+    case kParamMaskCurve: return params.dsp.maskCurve;
+    case kParamMaskDry: return params.dsp.maskDry - 1.0f;
+    default: return 0.0;
+    }
+}
+bool isParam(clap_id id) { return id >= kParamTransport && id <= kParamMaskDry; }
+#include "../common/s3g_ambi_effect_capture_parameter_bridge.inc"
+#endif
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishEffectParams(*self(plugin));
+#endif
+    return true;
+}
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void portableGuiDestroy(const clap_plugin_t*);
+#endif
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    portableGuiDestroy(plugin);
+#endif
     auto* instance = self(plugin);
 #if defined(__APPLE__)
     if (instance && instance->guiView) {
@@ -349,6 +475,9 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t)
 {
     auto* instance = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncEffectParams(*instance);
+#endif
     instance->sampleRate = std::max(1.0, sampleRate);
     instance->runtimes.clear();
     installRuntime(*instance);
@@ -429,6 +558,10 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* instance = self(plugin);
     if (!process) return CLAP_PROCESS_CONTINUE;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushEffectGui(*instance, process->out_events);
+    if (instance->effectResetPhase.exchange(false, std::memory_order_acq_rel)) instance->freePhase = 0.;
+#endif
     readParamEvents(*instance, process->in_events);
     if (process->audio_outputs_count == 0u || !process->audio_outputs) return CLAP_PROCESS_CONTINUE;
 
@@ -457,6 +590,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         std::memory_order_relaxed);
 
     if (auto* runtime = instance->activeRuntime.load(std::memory_order_acquire)) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        runtime->processor.setParams(instance->params.dsp);
+#endif
         runtime->processor.processBlock(inputs,
                                         outputs,
                                         inputChannels,
@@ -670,8 +806,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushEffectGui(*self(plugin), out);
+#endif
     readParamEvents(*self(plugin), input);
 }
 
@@ -684,6 +823,10 @@ const clap_plugin_params_t paramsExt {
     paramsFlush,
 };
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define stateSave rawEffectStateSave
+#define stateLoad rawEffectStateLoad
+#endif
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
@@ -699,11 +842,16 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     {
         std::lock_guard<std::mutex> lock(instance->stateMutex);
         state.params = instance->params;
+        // This existing v1 codec stores the native struct, including the
+        // three padding bytes after bypass. Never serialize stack padding.
+        constexpr size_t padding = offsetof(s3g::AmbiEffectDisplacementParams, bypass) + sizeof(bool);
+        std::memset(reinterpret_cast<uint8_t*>(&state.params.dsp) + padding, 0,
+            sizeof(state.params.dsp) - padding);
         state.score = instance->score;
         state.freePhase = 0.0;
         std::snprintf(state.scoreName, sizeof(state.scoreName), "%s", instance->scoreName.c_str());
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     state.guiViewMode = instance->guiViewMode;
     state.guiViewAzimuthDeg = instance->guiViewAzimuthDeg;
     state.guiViewElevationDeg = instance->guiViewElevationDeg;
@@ -728,7 +876,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance->scoreName = state.scoreName;
         instance->status = "RESTORED WITH PROJECT";
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     instance->guiViewMode = std::clamp<int32_t>(state.guiViewMode, -1, 3);
     instance->guiViewAzimuthDeg = std::clamp(state.guiViewAzimuthDeg, -180.0, 180.0);
     instance->guiViewElevationDeg = std::clamp(state.guiViewElevationDeg, -90.0, 90.0);
@@ -739,6 +887,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#undef stateSave
+#undef stateLoad
+#include "../common/s3g_ambi_effect_displacement_state.inc"
+#endif
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
@@ -746,8 +899,6 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 #if defined(__APPLE__)
 namespace {
 
-constexpr uint32_t kGuiWidth = 920u;
-constexpr uint32_t kGuiHeight = 820u;
 constexpr NSUInteger kMaximumScoreBytes = 4u * 1024u * 1024u;
 
 float numberValue(NSDictionary* dictionary, NSString* key, float fallback)
@@ -1943,8 +2094,18 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_ambi_effect_displacement_canvas.inc"
+#endif
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, s3g::gui_documentation::kExtension) == 0
+        && std::getenv("S3G_GUI_DOCUMENTATION_CAPTURE")
+        && std::strcmp(std::getenv("S3G_GUI_DOCUMENTATION_CAPTURE"), "1") == 0)
+        return &ambi_effect_canvas::documentation;
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;

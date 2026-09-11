@@ -3468,6 +3468,15 @@ int main(int argc, char** argv)
         const bool documentationNodeBusMixer = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.node-bus-mixer") == 0;
+        const bool documentationAmbiNodeBusMixer = documentationCapture
+            && std::strcmp(pluginId,
+                "org.s3g.s3g-dsp.ambi-node-bus-mixer") == 0;
+        const bool documentationAmbiDepthSingle = documentationCapture
+            && std::strcmp(pluginId, "org.s3g.s3g-dsp.ambi-depth-16") == 0;
+        const bool documentationAmbiDepth = documentationAmbiDepthSingle
+            || (documentationCapture &&
+                (std::strcmp(pluginId, "org.s3g.s3g-dsp.ambi-group-depth-64") == 0
+                 || std::strcmp(pluginId, "org.s3g.s3g-dsp.ambi-group-depth-128") == 0));
         const bool documentationSubCrossover = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.sub-crossover") == 0;
@@ -8739,7 +8748,10 @@ int main(int argc, char** argv)
                 [document displayIfNeeded];
             }
         }
-        if (ok && ambiEffectTrace) {
+        // Direct NSView hit identity/coordinates apply to the retained Cocoa
+        // viewport only. The portable canvas suite exercises the same four
+        // elevation positions through VSTGUI's pointer-event entry point.
+        if (ok && ambiEffectTrace && !portableVstguiRoot) {
             failureStage = "Ambi Effect Trace AED elevation direction";
             if (scroll) {
                 [[scroll contentView] scrollToPoint:NSMakePoint(200.0, 280.0)];
@@ -11379,7 +11391,10 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && arrayCalibrate) {
+        // AppKit's NSTextField hierarchy applies only to the retained Cocoa
+        // editor. The routing canvas tests exercise VSTGUI paging, every
+        // channel control, and native numeric text-entry commits separately.
+        if (ok && arrayCalibrate && !portableVstguiRoot) {
             failureStage = "Array Calibrate page and control hierarchy";
             const auto clickArrayCalibrate = [&](NSPoint point) {
                 [document mouseDown:mouseEvent(
@@ -12793,6 +12808,8 @@ int main(int argc, char** argv)
             || documentationVbapPanner
             || documentationGroupMatrix
             || documentationNodeBusMixer
+            || documentationAmbiNodeBusMixer
+            || documentationAmbiDepth
             || documentationSubCrossover
             || documentationArrayCalibrate;
         if (ok && documentationRoutingScene) {
@@ -12899,6 +12916,25 @@ int main(int argc, char** argv)
                             name, levels[route]);
                     }
                 }
+            } else if (documentationAmbiDepth) {
+                ok = setDocumentationRoutingParam("Depth", 0.42)
+                    && setDocumentationRoutingParam("Focus", 0.36)
+                    && setDocumentationRoutingParam("Air Damping", 0.72)
+                    && setDocumentationRoutingParam("Tail", 0.83)
+                    && setDocumentationRoutingParam("Low Body", -0.18)
+                    && setDocumentationRoutingParam("Order Width", 1.18);
+                if (documentationAmbiDepthSingle) {
+                    ok = ok && setDocumentationRoutingParam("Env Size", 0.76)
+                        && setDocumentationRoutingParam("Env Decay", 0.68)
+                        && setDocumentationRoutingParam("Env Damping", 0.57);
+                } else {
+                    ok = ok && setDocumentationRoutingParam("Group Spread", 0.76);
+                }
+            } else if (documentationAmbiNodeBusMixer) {
+                ok = setDocumentationRoutingParam("Node count", 8.0)
+                    && setDocumentationRoutingParam("Cursor X", 0.0)
+                    && setDocumentationRoutingParam("Cursor Y", 0.60)
+                    && setDocumentationRoutingParam("Cursor radius", 1.35);
             } else if (documentationNodeBusMixer) {
                 ok = setDocumentationRoutingParam("Mix bed shape", 13.0)
                     && setDocumentationRoutingParam(
@@ -13060,13 +13096,18 @@ int main(int argc, char** argv)
                     && setDocumentationSceneParam("Width", 1.08);
                 if (ok) {
                     @try {
-                        ok = [document respondsToSelector:
-                            @selector(setViewPreset:)];
+                        const auto* portableDocumentation =
+                            static_cast<const s3g::gui_documentation::Extension*>(
+                                plugin->get_extension(plugin,
+                                    s3g::gui_documentation::kExtension));
+                        ok = portableDocumentation && portableDocumentation->loadFixtures
+                            ? portableDocumentation->loadFixtures(plugin)
+                            : [document respondsToSelector:@selector(setViewPreset:)];
                         if (!ok) {
                             std::cerr << "Speaker Decoder view does not expose "
                                       << "setViewPreset:\n";
                         }
-                        if (ok) [document setViewPreset:0];
+                        if (ok && !portableDocumentation) [document setViewPreset:0];
                     } @catch (NSException* exception) {
                         std::cerr << "Speaker Decoder top-view exception: "
                                   << [[exception reason] UTF8String] << "\n";
@@ -13256,9 +13297,15 @@ int main(int argc, char** argv)
                         "Directional mask dry attenuation", -0.68);
             } else if (documentationDisplacement) {
                 failureStage = "documentation Displacement score";
-                ok = [document respondsToSelector:
-                    @selector(loadDocumentationScore)];
-                if (ok) [document loadDocumentationScore];
+                if (portableVstguiRoot) {
+                    const auto* docs = static_cast<const s3g::gui_documentation::Extension*>(
+                        plugin->get_extension(plugin, s3g::gui_documentation::kExtension));
+                    ok = docs && docs->loadFixtures && docs->loadFixtures(plugin);
+                } else {
+                    ok = [document respondsToSelector:
+                        @selector(loadDocumentationScore)];
+                    if (ok) [document loadDocumentationScore];
+                }
                 ok = ok
                     && setDocumentationSceneParam("Clock", 2.0)
                     && setDocumentationSceneParam("Playback", 0.0)

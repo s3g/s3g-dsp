@@ -1,5 +1,8 @@
 #include "s3g_ambi_effect_dj_filter.h"
 #include "s3g_realtime.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_ambi_effect_drawing.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/ambisonic.h>
@@ -208,9 +211,24 @@ bool isAmbiEffectParam(clap_id id)
 }
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    const clap_host_params_t* hostParams = nullptr;
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+    std::array<std::atomic<double>, 256> effectValues {};
+    bool effectActive = false;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     s3g::AmbiEffectDjFilterParams params {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    decltype(params) effectStateBase {};
+    std::vector<std::unique_ptr<decltype(params)>> effectLoadedStates;
+    std::atomic<const decltype(params)*> effectPendingState { nullptr };
+    const decltype(params)* effectAppliedState = nullptr;
+#endif
     s3g::AmbiEffectDjFilter processor {};
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::atomic<float>,
@@ -227,8 +245,8 @@ struct Plugin {
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
-    char presetName[64] { "INIT" };
 #endif
+    char presetName[64] { "INIT" };
 };
 
 Plugin* self(const clap_plugin_t* plugin)
@@ -246,6 +264,192 @@ uint32_t roundedUint(double value)
         std::max(0.0, std::floor(value + 0.5)));
 }
 
+void applyRawEffectParam(Plugin& plugin, clap_id id, double value)
+{
+    uint32_t pickup = 0u;
+    if (pickupFilterParamIndex(id, pickup)) {
+        plugin.params.pickupFilterTrim[pickup] = static_cast<float>(value);
+        plugin.params = s3g::sanitizeAmbiEffectDjFilterParams(plugin.params);
+        plugin.processor.setParams(plugin.params);
+        return;
+    }
+    if (pickupResonanceParamIndex(id, pickup)) {
+        plugin.params.pickupResonanceTrim[pickup] = static_cast<float>(value);
+        plugin.params = s3g::sanitizeAmbiEffectDjFilterParams(plugin.params);
+        plugin.processor.setParams(plugin.params);
+        return;
+    }
+    switch (id) {
+    case kParamOrder:
+        plugin.params.order = std::clamp<uint32_t>(
+            roundedUint(value), 1u, s3g::kAmbiEffectDjFilterMaxOrder);
+        break;
+    case kParamBody:
+        plugin.params.body = static_cast<s3g::AmbiEffectBody>(
+            std::min<uint32_t>(roundedUint(value), 5u));
+        break;
+    case kParamTopology:
+        plugin.params.topology = static_cast<s3g::AmbiEffectTopology>(
+            std::min<uint32_t>(roundedUint(value), 3u));
+        break;
+    case kParamFilter:
+        plugin.params.filter = static_cast<float>(value);
+        break;
+    case kParamResonance:
+        plugin.params.resonance = static_cast<float>(value);
+        break;
+    case kParamSpread:
+        plugin.params.spread = static_cast<float>(value);
+        break;
+    case kParamDeviation:
+        plugin.params.deviation = static_cast<float>(value);
+        break;
+    case kParamMaskCurve:
+        plugin.params.maskCurve = static_cast<float>(value);
+        break;
+    case kParamTopologyAmount:
+        plugin.params.topologyAmount = static_cast<float>(value);
+        break;
+    case kParamRoamingRate:
+        plugin.params.roamingRateHz = static_cast<float>(value);
+        break;
+    case kParamMix:
+        plugin.params.mix = static_cast<float>(value);
+        break;
+    case kParamOutput:
+        plugin.params.outputGainDb = static_cast<float>(value);
+        break;
+    case kParamMaskAmount:
+        plugin.params.maskAmount = static_cast<float>(value);
+        break;
+    case kParamMaskAzimuth:
+        plugin.params.maskAzimuthDeg = static_cast<float>(value);
+        break;
+    case kParamMaskElevation:
+        plugin.params.maskElevationDeg = static_cast<float>(value);
+        break;
+    case kParamMaskWidth:
+        plugin.params.maskWidth = static_cast<float>(value);
+        break;
+    case kParamMaskDry:
+        plugin.params.maskDry = static_cast<float>(value + 1.0);
+        break;
+    default:
+        return;
+    }
+    plugin.params = s3g::sanitizeAmbiEffectDjFilterParams(plugin.params);
+    plugin.processor.setParams(plugin.params);
+}
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+using EffectParams = decltype(Plugin::params);
+bool effectIsParam(clap_id id) { return id < 256 && isAmbiEffectParam(id); }
+void setEffectScalar(EffectParams& params, clap_id id, double value)
+{
+    uint32_t pickup = 0u;
+    if (pickupFilterParamIndex(id, pickup)) {
+        params.pickupFilterTrim[pickup] = static_cast<float>(value);
+        params = s3g::sanitizeAmbiEffectDjFilterParams(params);
+        return;
+    }
+    if (pickupResonanceParamIndex(id, pickup)) {
+        params.pickupResonanceTrim[pickup] = static_cast<float>(value);
+        params = s3g::sanitizeAmbiEffectDjFilterParams(params);
+        return;
+    }
+    switch (id) {
+    case kParamOrder:
+        params.order = std::clamp<uint32_t>(
+            roundedUint(value), 1u, s3g::kAmbiEffectDjFilterMaxOrder);
+        break;
+    case kParamBody:
+        params.body = static_cast<s3g::AmbiEffectBody>(
+            std::min<uint32_t>(roundedUint(value), 5u));
+        break;
+    case kParamTopology:
+        params.topology = static_cast<s3g::AmbiEffectTopology>(
+            std::min<uint32_t>(roundedUint(value), 3u));
+        break;
+    case kParamFilter:
+        params.filter = static_cast<float>(value);
+        break;
+    case kParamResonance:
+        params.resonance = static_cast<float>(value);
+        break;
+    case kParamSpread:
+        params.spread = static_cast<float>(value);
+        break;
+    case kParamDeviation:
+        params.deviation = static_cast<float>(value);
+        break;
+    case kParamMaskCurve:
+        params.maskCurve = static_cast<float>(value);
+        break;
+    case kParamTopologyAmount:
+        params.topologyAmount = static_cast<float>(value);
+        break;
+    case kParamRoamingRate:
+        params.roamingRateHz = static_cast<float>(value);
+        break;
+    case kParamMix:
+        params.mix = static_cast<float>(value);
+        break;
+    case kParamOutput:
+        params.outputGainDb = static_cast<float>(value);
+        break;
+    case kParamMaskAmount:
+        params.maskAmount = static_cast<float>(value);
+        break;
+    case kParamMaskAzimuth:
+        params.maskAzimuthDeg = static_cast<float>(value);
+        break;
+    case kParamMaskElevation:
+        params.maskElevationDeg = static_cast<float>(value);
+        break;
+    case kParamMaskWidth:
+        params.maskWidth = static_cast<float>(value);
+        break;
+    case kParamMaskDry:
+        params.maskDry = static_cast<float>(value + 1.0);
+        break;
+    default:
+        return;
+    }
+    params = s3g::sanitizeAmbiEffectDjFilterParams(params);
+}
+double readEffectScalar(const EffectParams& params, clap_id id)
+{
+    uint32_t pickup = 0u;
+    if (pickupFilterParamIndex(id, pickup)) {
+        return params.pickupFilterTrim[pickup];
+    }
+    if (pickupResonanceParamIndex(id, pickup)) {
+        return params.pickupResonanceTrim[pickup];
+    }
+    switch (id) {
+    case kParamOrder: return params.order;
+    case kParamBody: return static_cast<uint32_t>(params.body);
+    case kParamTopology:
+        return static_cast<uint32_t>(params.topology);
+    case kParamFilter: return params.filter;
+    case kParamResonance: return params.resonance;
+    case kParamSpread: return params.spread;
+    case kParamDeviation: return params.deviation;
+    case kParamMaskCurve: return params.maskCurve;
+    case kParamTopologyAmount: return params.topologyAmount;
+    case kParamRoamingRate: return params.roamingRateHz;
+    case kParamMix: return params.mix;
+    case kParamOutput: return params.outputGainDb;
+    case kParamMaskAmount: return params.maskAmount;
+    case kParamMaskAzimuth: return params.maskAzimuthDeg;
+    case kParamMaskElevation: return params.maskElevationDeg;
+    case kParamMaskWidth: return params.maskWidth;
+    case kParamMaskDry: return params.maskDry - 1.0;
+    default: return 0.0;
+    }
+}
+void refreshEffectProcessor(Plugin& p) { p.processor.setParams(p.params); }
+#include "../common/s3g_ambi_effect_parameter_bridge.inc"
+#else
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     uint32_t pickup = 0u;
@@ -322,7 +526,6 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     plugin.params = s3g::sanitizeAmbiEffectDjFilterParams(plugin.params);
     plugin.processor.setParams(plugin.params);
 }
-
 double getParam(const Plugin& plugin, clap_id id)
 {
     uint32_t pickup = 0u;
@@ -354,11 +557,25 @@ double getParam(const Plugin& plugin, clap_id id)
     default: return 0.0;
     }
 }
+#endif
 
-bool init(const clap_plugin_t*) { return true; }
 
+
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishEffectParams(*self(plugin));
+#endif
+    return true;
+}
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin&);
+#endif
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -368,6 +585,10 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate,
     uint32_t, uint32_t)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncEffectParams(*self(plugin));
+    self(plugin)->effectActive = true;
+#endif
     auto* p = self(plugin);
     p->params = s3g::sanitizeAmbiEffectDjFilterParams(p->params);
     p->processor.prepare(sampleRate);
@@ -376,7 +597,11 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ self(plugin)->effectActive = false;
+#endif
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 
@@ -455,6 +680,9 @@ clap_process_status processTyped(Plugin& plugin,
 clap_process_status process(
     const clap_plugin_t* plugin, const clap_process_t* process)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushEffectGui(*self(plugin), process->out_events);
+#endif
     auto* p = self(plugin);
     readParamEvents(*p, process->in_events);
     if (process->audio_inputs_count == 0u
@@ -811,8 +1039,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* events, const clap_output_events_t*)
+    const clap_input_events_t* events, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushEffectGui(*self(plugin), out);
+#endif
     readParamEvents(*self(plugin), events);
 }
 
@@ -855,6 +1086,10 @@ bool streamReadAll(const clap_istream_t* stream,
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define stateSave rawEffectStateSave
+#define stateLoad rawEffectStateLoad
+#endif
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
@@ -1051,6 +1286,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#undef stateSave
+#undef stateLoad
+#include "../common/s3g_ambi_effect_scalar_state.inc"
+#endif
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 std::array<s3g::Vec3, s3g::kAmbiEffectDjFilterMaxPickups>
@@ -2012,13 +2252,19 @@ const clap_plugin_gui_t guiExt {
 #endif
 
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_ambi_effect_dj_filter_canvas.inc"
+#endif
+
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2092,7 +2338,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

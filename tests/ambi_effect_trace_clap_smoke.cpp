@@ -51,6 +51,7 @@ struct HostContext {
     clap_host_t host {};
     clap_host_tail_t tail {};
     uint32_t tailChanges = 0u;
+    bool restartRequested = false;
 };
 
 HostContext* hostContext(const clap_host_t* host)
@@ -63,6 +64,17 @@ const void* hostGetExtension(const clap_host_t* host, const char* id)
         ? &hostContext(host)->tail : nullptr;
 }
 void hostRequest(const clap_host_t*) {}
+void hostRestart(const clap_host_t* host) { hostContext(host)->restartRequested = true; }
+bool loadAndServiceRestart(const clap_plugin_t* plugin, const clap_plugin_state_t* state,
+    const clap_istream_t* input, HostContext& host) {
+    if (!state->load(plugin, input)) return false;
+    if (!host.restartRequested) return true;
+    host.restartRequested = false;
+    plugin->stop_processing(plugin);
+    plugin->deactivate(plugin);
+    return plugin->activate(plugin, kSampleRate, kFrames, kFrames)
+        && plugin->start_processing(plugin);
+}
 void hostTailChanged(const clap_host_t* host)
 {
     ++hostContext(host)->tailChanges;
@@ -221,7 +233,7 @@ int main(int argc, char** argv)
     context.host.url = "https://github.com/s3g/s3g-dsp";
     context.host.version = "1";
     context.host.get_extension = hostGetExtension;
-    context.host.request_restart = hostRequest;
+    context.host.request_restart = hostRestart;
     context.host.request_process = hostRequest;
     context.host.request_callback = hostRequest;
     const auto* factory = ok ? static_cast<const clap_plugin_factory_t*>(
@@ -278,7 +290,7 @@ int main(int argc, char** argv)
         clap_istream_t partialInput { &partialState, readState };
         double frozenValue = 0.0;
         double smearValue = 0.0;
-        ok = ok && state->load(plugin, &partialInput)
+        ok = ok && loadAndServiceRestart(plugin, state, &partialInput, context)
             && params->get_value(plugin, kFreeze, &frozenValue)
             && params->get_value(plugin, kSmear, &smearValue)
             && frozenValue > 0.5 && smearValue > 0.79;
@@ -327,7 +339,7 @@ int main(int argc, char** argv)
                     partialState.bytes.begin() + viewOffset,
                     partialState.bytes.begin() + viewOffset + viewBytes);
                 clap_istream_t legacyInput { &legacyPartial, readState };
-                ok = state->load(plugin, &legacyInput)
+                ok = loadAndServiceRestart(plugin, state, &legacyInput, context)
                     && params->get_value(plugin, kFreeze, &frozenValue)
                     && params->get_value(plugin, kSmear, &smearValue)
                     && frozenValue < 0.5 && smearValue < 0.001;
@@ -368,7 +380,7 @@ int main(int argc, char** argv)
         flushValue(plugin, params, kClear, 0.0);
         memory.position = 0u;
         clap_istream_t inputStream { &memory, readState };
-        ok = ok && state->load(plugin, &inputStream)
+        ok = ok && loadAndServiceRestart(plugin, state, &inputStream, context)
             && tail->get(plugin) > 1024u;
 
         MemoryState legacy;
@@ -419,7 +431,7 @@ int main(int argc, char** argv)
                 flushValue(plugin, params, kClear, 1.0);
                 flushValue(plugin, params, kClear, 0.0);
                 clap_istream_t legacyStream { &legacy, readState };
-                ok = state->load(plugin, &legacyStream)
+                ok = loadAndServiceRestart(plugin, state, &legacyStream, context)
                     && tail->get(plugin) > 1024u;
             }
         }

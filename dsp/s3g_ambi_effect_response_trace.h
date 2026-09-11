@@ -4,12 +4,8 @@
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
-#if defined(__APPLE__)
+#include "s3g_ambi_effect_fft.h"
 #define S3G_HAS_RESPONSE_TRACE_FFT 1
-#include <Accelerate/Accelerate.h>
-#else
-#define S3G_HAS_RESPONSE_TRACE_FFT 0
-#endif
 
 #include <algorithm>
 #include <array>
@@ -119,7 +115,7 @@ public:
                 / kResponseTracePartitionSize);
         fftSize_ = kResponseTracePartitionSize * 2u;
         halfSize_ = fftSize_ / 2u;
-        setup_ = vDSP_create_fftsetup(11u, kFFTRadix2);
+        setup_ = ambi_effect_fft::vDSP_create_fftsetup(11u, ambi_effect_fft::radix2);
         if (!setup_) {
             release();
             return false;
@@ -304,17 +300,17 @@ private:
 #if S3G_HAS_RESPONSE_TRACE_FFT
     void forward(float* time, float* real, float* imag)
     {
-        DSPSplitComplex split { real, imag };
-        vDSP_ctoz(reinterpret_cast<const DSPComplex*>(time), 2,
+        ambi_effect_fft::DSPSplitComplex split { real, imag };
+        ambi_effect_fft::vDSP_ctoz(reinterpret_cast<const ambi_effect_fft::DSPComplex*>(time), 2,
             &split, 1, halfSize_);
-        vDSP_fft_zrip(setup_, &split, 1, 11u, FFT_FORWARD);
+        ambi_effect_fft::vDSP_fft_zrip(setup_, &split, 1, 11u, ambi_effect_fft::forward);
     }
 
     void inverse(float* real, float* imag, float* time)
     {
-        DSPSplitComplex split { real, imag };
-        vDSP_fft_zrip(setup_, &split, 1, 11u, FFT_INVERSE);
-        vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(time), 2,
+        ambi_effect_fft::DSPSplitComplex split { real, imag };
+        ambi_effect_fft::vDSP_fft_zrip(setup_, &split, 1, 11u, ambi_effect_fft::inverse);
+        ambi_effect_fft::vDSP_ztoc(&split, 1, reinterpret_cast<ambi_effect_fft::DSPComplex*>(time), 2,
             halfSize_);
     }
 
@@ -349,11 +345,11 @@ private:
             state.accumulatorReal[0] += xr[0] * hr[0];
             state.accumulatorImag[0] += xi[0] * hi[0];
             if (halfSize_ > 1u) {
-                DSPSplitComplex x { xr + 1u, xi + 1u };
-                DSPSplitComplex h { hr + 1u, hi + 1u };
-                DSPSplitComplex a { state.accumulatorReal.data() + 1u,
+                ambi_effect_fft::DSPSplitComplex x { xr + 1u, xi + 1u };
+                ambi_effect_fft::DSPSplitComplex h { hr + 1u, hi + 1u };
+                ambi_effect_fft::DSPSplitComplex a { state.accumulatorReal.data() + 1u,
                     state.accumulatorImag.data() + 1u };
-                vDSP_zvma(&x, 1, &h, 1, &a, 1, &a, 1, halfSize_ - 1u);
+                ambi_effect_fft::vDSP_zvma(&x, 1, &h, 1, &a, 1, &a, 1, halfSize_ - 1u);
             }
         }
         inverse(state.accumulatorReal.data(), state.accumulatorImag.data(),
@@ -370,7 +366,7 @@ private:
     void release()
     {
 #if S3G_HAS_RESPONSE_TRACE_FFT
-        if (setup_) vDSP_destroy_fftsetup(setup_);
+        if (setup_) ambi_effect_fft::vDSP_destroy_fftsetup(setup_);
         setup_ = nullptr;
 #endif
         nodeCount_ = 0u;
@@ -388,7 +384,7 @@ private:
     }
 
 #if S3G_HAS_RESPONSE_TRACE_FFT
-    FFTSetup setup_ = nullptr;
+    ambi_effect_fft::FFTSetup setup_ = nullptr;
 #endif
     uint32_t nodeCount_ = 0u;
     uint32_t partitionCount_ = 0u;
@@ -626,6 +622,9 @@ public:
 
     void clearResponseImmediately()
     {
+        if (stateObserver_.begin) stateObserver_.begin(stateObserver_.context,
+            0u, 0u, AmbiEffectBody::Auto, 0.);
+        if (stateObserver_.complete) stateObserver_.complete(stateObserver_.context);
         clearPending_ = false;
         responseFrames_ = 0u;
         responseSampleRate_ = 0.0;
@@ -641,6 +640,17 @@ public:
         toneState_.fill(0.0f);
         responseSlewState_.fill(0.0f);
     }
+
+    // Optional allocation-free observer for an editor's project-state mirror.
+    // Captured samples are delivered during the existing bounded Scale work,
+    // never by copying the whole response on an audio callback.
+    struct StateObserver {
+        void* context = nullptr;
+        void (*begin)(void*, uint32_t, uint32_t, AmbiEffectBody, double) = nullptr;
+        void (*sample)(void*, uint32_t, uint32_t, float) = nullptr;
+        void (*complete)(void*) = nullptr;
+    };
+    void setStateObserver(StateObserver observer) { stateObserver_ = observer; }
 
     bool loadResponse(const float* samples, uint32_t pickupCount,
         AmbiEffectBody capturedBody, uint32_t frames, double sampleRate,
@@ -1090,10 +1100,14 @@ private:
                 }
                 preparationNode_ = 0u;
                 responsePreparationStage_ = ResponsePreparationStage::Scale;
+                if (stateObserver_.begin) stateObserver_.begin(stateObserver_.context,
+                    responseFrames_, capturedPickupCount_, capturedBody_, sampleRate_);
                 continue;
             }
             float& value = responseBuffer_[preparationNode_][preparationFrame_];
             value = flushDenormal(value * preparationScale_);
+            if (stateObserver_.sample) stateObserver_.sample(stateObserver_.context,
+                preparationNode_, preparationFrame_, value);
             ++preparationFrame_;
             --workBudget;
             if (preparationFrame_ < responseFrames_) continue;
@@ -1102,6 +1116,7 @@ private:
             if (preparationNode_ < capturedPickupCount_) continue;
             responsePreparationStage_ = ResponsePreparationStage::Idle;
             responseSampleRate_ = sampleRate_;
+            if (stateObserver_.complete) stateObserver_.complete(stateObserver_.context);
             beginConvolutionKernelRebuild();
         }
     }
@@ -1412,6 +1427,7 @@ private:
     double sampleRate_ = 48000.0;
     AmbiEffectResponseTraceParams params_ {};
     AmbiEffectDjFilter spatial_ {};
+    StateObserver stateObserver_ {};
     response_trace_detail::PartitionedConvolutionBank convolution_ {};
     std::atomic<float> outputTargetDb_ { 0.0f };
     uint32_t maximumResponseFrames_ = 0u;

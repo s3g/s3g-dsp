@@ -3,6 +3,10 @@
 #include "../common/s3g_gui_layout.h"
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_clap_gui_param_queue.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_gui.h"
+#include "../common/s3g_node_mesh.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -117,7 +121,13 @@ struct Plugin {
     PublishedParamBank audioParamBank {};
     std::atomic<uint64_t> publicationClock { 0u };
     uint64_t audioConsumedControlStamp = 0u;
-    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    std::atomic<bool> active { false };
+#endif
     std::atomic<float> outputPeak { 0.0f };
     std::array<std::atomic<float>, s3g::kNodeTrackMixerMaxNodes> nodePeaks {};
     std::array<std::atomic<float>, s3g::kNodeTrackMixerMaxNodes> publishedNodeWeights {};
@@ -371,14 +381,14 @@ void writeParamsToBank(PublishedParamBank& bank, const Params& params,
 {
     // Each bank has exactly one producer: the host/control thread for the
     // control bank and the audio thread for the audio-report bank. The stamp
-    // becomes visible only after the complete even-sequence snapshot.
+    // is part of the snapshot and is published before the even sequence.
     bank.sequence.fetch_add(1u, std::memory_order_acq_rel);
     forEachStoredParamId([&](clap_id id) {
         bank.values[id].store(getParam(params, id),
             std::memory_order_relaxed);
     });
-    bank.sequence.fetch_add(1u, std::memory_order_release);
     bank.stamp.store(stamp, std::memory_order_release);
+    bank.sequence.fetch_add(1u, std::memory_order_release);
 }
 
 bool tryParamsFromBank(const PublishedParamBank& bank, Params base,
@@ -386,6 +396,9 @@ bool tryParamsFromBank(const PublishedParamBank& bank, Params base,
 {
     const uint64_t before = bank.sequence.load(std::memory_order_acquire);
     if ((before & 1u) != 0u) return false;
+    // A zero-initialized bank is not a parameter snapshot. In particular,
+    // the audio-report bank is empty until the first host automation event.
+    if (bank.stamp.load(std::memory_order_acquire) == 0u) return false;
     forEachStoredParamId([&](clap_id id) {
         applyParam(base, id,
             bank.values[id].load(std::memory_order_relaxed));
@@ -587,22 +600,38 @@ bool pushGuiParamEvent(const clap_output_events_t* out,
 
 void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* out)
 {
+#if !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     Params next = latestParamsSnapshot(p, p.params);
     bool changed = false;
+#endif
     s3g::clap_gui::ParamEvent pending {};
     while (p.guiParamEvents.peek(pending)) {
         if (!pushGuiParamEvent(out, pending)) break;
+#if !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
             changed = applyParam(next, pending.paramId, pending.value)
                 || changed;
         }
+#endif
         p.guiParamEvents.pop();
     }
+#if !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (changed) publishControlParams(p, next);
+#endif
+    // The portable GUI already published these values. Its queue is solely
+    // for host notifications: replaying them into the control bank here made
+    // the audio callback a second producer and could replace a complete GUI
+    // snapshot with an older (or previously uninitialized) bank.
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin&);
+#endif
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     auto* p = self(plugin);
     if (p && p->guiView) {
@@ -617,9 +646,18 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->processor.prepare(sampleRate);
     syncAudioParams(*p, true);
     p->processor.reset();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    p->active.store(true, std::memory_order_release);
+#endif
     return true;
 }
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    self(plugin)->active.store(false, std::memory_order_release);
+#else
+    (void)plugin;
+#endif
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
@@ -949,7 +987,16 @@ void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
                  const clap_output_events_t* out)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    // CLAP flush runs on the audio thread while active, and on the main
+    // thread while inactive. Keep each publication bank single-producer.
+    if (p->active.load(std::memory_order_acquire))
+        applyProcessParamEvents(*p, in);
+    else
+        readControlParamEvents(*p, in);
+#else
     readControlParamEvents(*p, in);
+#endif
     serviceGuiParamEvents(*p, out);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
@@ -1996,12 +2043,19 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_node_bus_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2058,4 +2112,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

@@ -3,6 +3,14 @@ add_library(s3g_ambi_ray_encoder_clap MODULE
 )
 
 target_link_libraries(s3g_ambi_ray_encoder_clap PRIVATE s3g_dsp)
+if(S3G_INPUT_ENCODERS_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_ambi_ray_encoder_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_input_encoder_ray_canvas.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_ambi_ray_encoder_clap PROPERTIES SUFFIX ".clap")
+endif()
 target_include_directories(s3g_ambi_ray_encoder_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
 
 if(APPLE)
@@ -33,4 +41,15 @@ if(APPLE)
     MACOSX_BUNDLE_BUNDLE_VERSION "0.4.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.0"
   )
+endif()
+
+if(WIN32 AND S3G_INPUT_ENCODERS_VSTGUI_AVAILABLE)
+  file(GLOB ray_resources CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/plugins/clap_ambi_ray_encoder/atlas/*.s3gray"
+    "${PROJECT_SOURCE_DIR}/plugins/clap_ambi_ray_encoder/atlas/manifest.json")
+  add_custom_command(TARGET s3g_ambi_ray_encoder_clap POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:s3g_ambi_ray_encoder_clap>/Resources/Ray Atlas"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ray_resources}
+      "$<TARGET_FILE_DIR:s3g_ambi_ray_encoder_clap>/Resources/Ray Atlas"
+    VERBATIM)
 endif()

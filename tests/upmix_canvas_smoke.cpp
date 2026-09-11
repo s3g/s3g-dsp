@@ -622,6 +622,14 @@ void nativeWindows(Plugin &p) {
       "Matrix parity main", kGuiWidth, kGuiHeight);
   auto *v = new Editor(p);
   expect(main->attach(v) && main->show(), "native main window");
+  const auto nativeWindow = [](Editor &editor) -> NSWindow * {
+    auto *view = static_cast<NSView *>(
+        editor.getFrame()->getPlatformFrame()->getPlatformRepresentation());
+    return [view window];
+  };
+  NSWindow *hostWindow = nativeWindow(*v);
+  // REAPER's floating FX window may sit above ordinary application windows.
+  [hostWindow setLevel:NSFloatingWindowLevel];
   v->edit([&] { v->applyMatrixPreset(0); });
   click(*v, center(M::formatEditButtonRect(false)));
   const double typed[] = {72.5, -24.25, 1.73};
@@ -652,6 +660,22 @@ void nativeWindows(Plugin &p) {
   auto *child = v->_layoutPopupView;
   expect(child && child->_page == 1, "detached layout editor");
   if (child) {
+    NSWindow *popupWindow = nativeWindow(*child);
+    const auto aboveHost = [&] {
+      expect([popupWindow parentWindow] == hostWindow,
+             "pop-out is attached to its actual host window");
+      expect([popupWindow level] == [hostWindow level],
+             "pop-out follows host level without global always-on-top");
+      [hostWindow makeKeyAndOrderFront:nil];
+      // NSApp.orderedWindows is a scripting list and excludes NSPanels.
+      NSArray<NSNumber *> *ordered = [NSWindow windowNumbersWithOptions:0];
+      const auto popupIndex = [ordered indexOfObject:@([popupWindow windowNumber])];
+      const auto hostIndex = [ordered indexOfObject:@([hostWindow windowNumber])];
+      expect(popupIndex != NSNotFound && hostIndex != NSNotFound &&
+                 popupIndex < hostIndex,
+             "pop-out stays above floating FX window when host is raised");
+    };
+    aboveHost();
     const auto &layout = child->_plugin->dsp.outputLayout();
     std::array<M::Point, 64> nodes{};
     M::layoutNodePoints(layout, M::layoutProjectionRect(true), true, nodes);
@@ -663,15 +687,55 @@ void nativeWindows(Plugin &p) {
     v->service();
     expect(!v->_layoutPanel->visible() && v->_page == 1,
            "DOCK returns layout without destroying callback");
+    expect([popupWindow parentWindow] == nil,
+           "DOCK detaches native window ordering");
     v->openLayoutPopup();
+    aboveHost();
     v->_layoutPanel->closed();
     expect(!v->_layoutPanel->visible() && v->_page == 0,
            "native close hides without docking");
+    expect([popupWindow parentWindow] == nil,
+           "native close detaches window ordering");
+    // Reopening must follow the current host, including a changed window level.
+    [hostWindow setLevel:NSNormalWindowLevel];
     v->openLayoutPopup();
+    aboveHost();
     main->hide();
     expect(!v->_layoutPanel->visible(), "host hide also hides detached window");
+    expect([popupWindow parentWindow] == nil,
+           "host hide detaches window ordering");
     main->show();
     v->openLayoutPopup();
+    aboveHost();
+    NSWindow *originalHost = hostWindow;
+    auto *replacementHost = [[NSWindow alloc]
+        initWithContentRect:NSMakeRect(100, 100, 300, 200)
+                  styleMask:NSWindowStyleMaskTitled
+                    backing:NSBackingStoreBuffered defer:NO];
+    [replacementHost setReleasedWhenClosed:NO];
+    [replacementHost setLevel:NSFloatingWindowLevel];
+    [replacementHost orderFront:nil];
+    expect(v->_layoutPanel->show([replacementHost contentView]),
+           "pop-out can follow a replaced host container");
+    hostWindow = replacementHost;
+    aboveHost();
+    expect([[originalHost childWindows] count] == 0,
+           "reparenting removes the old ordering link");
+    v->openLayoutPopup();
+    hostWindow = originalHost;
+    aboveHost();
+    expect([[replacementHost childWindows] count] == 0,
+           "reopening reattaches to the editor's actual host");
+    [replacementHost close];
+    [replacementHost release];
+    [popupWindow retain];
+    [hostWindow retain];
+    main.reset();
+    expect(![popupWindow isVisible] && [popupWindow parentWindow] == nil &&
+               [[hostWindow childWindows] count] == 0,
+           "host destruction removes detached window and ordering link");
+    [popupWindow release];
+    [hostWindow release];
   }
   main.reset(); // destruction with open child, no timer/native-parent survivors
 #else

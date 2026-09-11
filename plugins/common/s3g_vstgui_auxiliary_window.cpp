@@ -39,6 +39,7 @@ struct AuxiliaryWindow::Native {
     if (delegate)
       delegate->owner = nullptr;
     [panel setDelegate:nil];
+    [[panel parentWindow] removeChildWindow:panel];
     [panel orderOut:nil];
     [panel close];
     [panel release];
@@ -222,11 +223,13 @@ bool AuxiliaryWindow::show(void *adjacentNativeView) {
     return false;
 #if defined(__APPLE__)
   NSView *adjacent = static_cast<NSView *>(adjacentNativeView);
-  NSScreen *screen =
-      adjacent ? [[adjacent window] screen] : [NSScreen mainScreen];
+  NSWindow *parent = [adjacent window];
+  if (parent == native_->panel)
+    parent = nil;
+  NSScreen *screen = [parent screen] ?: [NSScreen mainScreen];
   const NSRect visible = [screen visibleFrame];
   NSRect frame = [native_->panel frame];
-  const NSRect nearby = adjacent ? [[adjacent window] frame] : visible;
+  const NSRect nearby = parent ? [parent frame] : visible;
   frame.origin.x =
       std::clamp(NSMaxX(nearby) + 12.0, NSMinX(visible),
                  std::max(NSMinX(visible), NSMaxX(visible) - frame.size.width));
@@ -234,6 +237,15 @@ bool AuxiliaryWindow::show(void *adjacentNativeView) {
       NSMaxY(nearby) - frame.size.height, NSMinY(visible),
       std::max(NSMinY(visible), NSMaxY(visible) - frame.size.height));
   [native_->panel setFrame:frame display:NO];
+  // REAPER can host the editor in a floating FX window. Raising an unrelated
+  // normal-level panel cannot put it above that host. Keep the pop-out above
+  // its actual containing window, without imposing a global topmost level.
+  NSWindow *previousParent = [native_->panel parentWindow];
+  if (previousParent != parent)
+    [previousParent removeChildWindow:native_->panel];
+  [native_->panel setLevel:parent ? [parent level] : NSNormalWindowLevel];
+  if (parent && previousParent != parent)
+    [parent addChildWindow:native_->panel ordered:NSWindowAbove];
   [native_->panel makeKeyAndOrderFront:nil];
 #elif defined(_WIN32)
   HWND adjacent = static_cast<HWND>(adjacentNativeView);
@@ -265,6 +277,7 @@ void AuxiliaryWindow::hide() {
   if (editor_)
     editor_->setVisible(false);
 #if defined(__APPLE__)
+  [[native_->panel parentWindow] removeChildWindow:native_->panel];
   [native_->panel orderOut:nil];
 #elif defined(_WIN32)
   if (native_->window)

@@ -40,6 +40,7 @@ struct HostContext {
     clap_host_t host {};
     clap_host_tail_t tail {};
     uint32_t tailChanges = 0u;
+    bool restartRequested = false;
 };
 
 HostContext* hostContext(const clap_host_t* host)
@@ -56,6 +57,17 @@ const void* hostGetExtension(const clap_host_t* host, const char* id)
 }
 
 void hostRequest(const clap_host_t*) {}
+void hostRestart(const clap_host_t* host) { hostContext(host)->restartRequested = true; }
+bool loadAndServiceRestart(const clap_plugin_t* plugin, const clap_plugin_state_t* state,
+    const clap_istream_t* input, HostContext& host) {
+    if (!state->load(plugin, input)) return false;
+    if (!host.restartRequested) return true;
+    host.restartRequested = false;
+    plugin->stop_processing(plugin);
+    plugin->deactivate(plugin);
+    return plugin->activate(plugin, kSampleRate, kFrames, kFrames)
+        && plugin->start_processing(plugin);
+}
 
 void hostTailChanged(const clap_host_t* host)
 {
@@ -213,7 +225,7 @@ int main(int argc, char** argv)
     hostContext.host.url = "https://github.com/s3g/s3g-dsp";
     hostContext.host.version = "1";
     hostContext.host.get_extension = hostGetExtension;
-    hostContext.host.request_restart = hostRequest;
+    hostContext.host.request_restart = hostRestart;
     hostContext.host.request_process = hostRequest;
     hostContext.host.request_callback = hostRequest;
     const auto* factory = ok ? static_cast<const clap_plugin_factory_t*>(
@@ -339,7 +351,7 @@ int main(int argc, char** argv)
     if (ok) {
         MemoryState input = saved;
         clap_istream_t stream { &input, stateRead };
-        ok = state->load(plugin, &stream)
+        ok = loadAndServiceRestart(plugin, state, &stream, hostContext)
             && tail->get(plugin) == capturedTail;
     }
     if (ok) {
@@ -352,7 +364,7 @@ int main(int argc, char** argv)
         legacy.bytes.erase(legacy.bytes.begin() + printEnabledOffset,
             legacy.bytes.begin() + printEnabledOffset + sizeof(uint32_t));
         clap_istream_t stream { &legacy, stateRead };
-        ok = state->load(plugin, &stream)
+        ok = loadAndServiceRestart(plugin, state, &stream, hostContext)
             && tail->get(plugin) == 0u
             && params->get_value(plugin, kApplyPrintParam, &applyValue)
             && applyValue == 0.0;

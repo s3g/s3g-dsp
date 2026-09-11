@@ -2,6 +2,11 @@
 #include "s3g_realtime.h"
 #include "../common/s3g_objc_class_name.h"
 
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_gui.h"
+#endif
+
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/params.h>
@@ -38,6 +43,19 @@ constexpr uint32_t kChannelCount = S3G_ARRAY_CALIBRATE_CHANNELS;
 constexpr uint32_t kStateVersion = 1u;
 constexpr float kFixedMaxDelayMs = s3g::kArrayDelayDefaultMaxMs;
 
+constexpr auto kArrayLayout = s3g::gui_layout::arrayFamilyLayoutForRows(
+    s3g::gui_layout::arrayRowsPerPageForChannels(kChannelCount));
+constexpr uint32_t kGuiWidth = static_cast<uint32_t>(kArrayLayout.canvas.width);
+constexpr uint32_t kGuiHeight = static_cast<uint32_t>(kArrayLayout.canvas.height);
+constexpr uint32_t kRowsPerPage = kArrayLayout.rowsPerPage;
+constexpr uint32_t kRowHeight =
+    static_cast<uint32_t>(s3g::gui_layout::kStandardMetrics.rowPitch);
+constexpr double kFilterCutoffX = 34.0;
+constexpr double kFilterCutoffWidth = 318.0;
+constexpr double kFilterPolesX = 366.0;
+constexpr double kFilterPolesWidth = 320.0;
+constexpr double kFilterGraphHeight = 362.0;
+
 constexpr clap_id kActiveParamId = 1;
 constexpr clap_id kOutputParamId = 2;
 constexpr clap_id kBypassParamId = 3;
@@ -62,6 +80,9 @@ struct Plugin {
     s3g::ArrayCalibrate calibrate {};
     s3g::ArrayCalibrateParams params {};
     std::atomic<float> outputPeak { 0.0f };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_parameter_members.inc"
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -69,6 +90,13 @@ struct Plugin {
     char presetName[64] { "INIT" };
 #endif
 };
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void publishRoutingParameters(Plugin&);
+bool rawParamsGetValue(const clap_plugin_t*,clap_id,double*);
+void flushRoutingParameters(Plugin&,const clap_output_events_t*);
+void destroyPortableGui(Plugin&);
+#endif
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
@@ -102,6 +130,7 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
 
 void applyParam(Plugin& p, clap_id id, double value)
 {
+    if (!std::isfinite(value)) return;
     switch (id) {
     case kActiveParamId:
         p.params.activeChannels = std::clamp<uint32_t>(
@@ -137,12 +166,24 @@ void applyParam(Plugin& p, clap_id id, double value)
     }
     p.calibrate.setParams(p.params);
     p.params = p.calibrate.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    double canonical=0.;
+    if(id<p.routingValues.size()&&rawParamsGetValue(&p.plugin,id,&canonical))p.routingValues[id].store(canonical,std::memory_order_release);
+#endif
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishRoutingParameters(*self(plugin));
+#endif
+    return true;
+}
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -156,6 +197,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     p->calibrate.prepare(sampleRate, std::max<uint32_t>(1u, maxFrameCount));
     p->calibrate.setParams(p->params);
     p->params = p->calibrate.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishRoutingParameters(*p);
+#endif
     return true;
 }
 
@@ -199,6 +243,9 @@ float peakForChannels(float* const* output, uint32_t channels, uint32_t frames)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushRoutingParameters(*p,proc->out_events);
+#endif
     readParamEvents(*p, proc->in_events);
     if (proc->audio_inputs_count == 0u || proc->audio_outputs_count == 0u)
         return CLAP_PROCESS_CONTINUE;
@@ -314,7 +361,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool rawParamsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+#else
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+#endif
 {
     if (!value) return false;
     const auto* p = self(plugin);
@@ -352,6 +403,10 @@ bool isToggleParam(clap_id id)
         || (id >= kInvertParamBaseId && id < kInvertParamBaseId + kChannelCount);
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_parameter_bridge.inc"
+#endif
+
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     char* display, uint32_t size)
 {
@@ -385,8 +440,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display,
 }
 
 void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in,
-    const clap_output_events_t*)
+    const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushRoutingParameters(*self(plugin),out);
+#endif
     readParamEvents(*self(plugin), in);
 }
 
@@ -398,7 +456,13 @@ const clap_plugin_params_t paramsExt {
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto snapshot=std::make_unique<Plugin>();snapshot->plugin.plugin_data=snapshot.get();
+    for(unsigned n=0;n<paramsCount(plugin);++n){clap_param_info_t i{};double v=0.;paramsGetInfo(plugin,n,&i);paramsGetValue(plugin,i.id,&v);applyParam(*snapshot,i.id,v);}
+    const SavedState state { kStateVersion, snapshot->params };
+#else
     const SavedState state { kStateVersion, self(plugin)->params };
+#endif
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -408,28 +472,24 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     SavedState state {};
     if (!readExact(stream, &state, sizeof(state)) || state.version != kStateVersion)
         return false;
+    if(!std::isfinite(state.params.outputGainDb)||!std::isfinite(state.params.cutoffHz))return false;
+    for(float v:state.params.delayMs)if(!std::isfinite(v))return false;
+    for(float v:state.params.gainDb)if(!std::isfinite(v))return false;
+    state.params.activeChannels=std::clamp(state.params.activeChannels,1u,kChannelCount);
     auto* p = self(plugin);
     p->params = state.params;
     p->calibrate.setParams(p->params);
     p->params = p->calibrate.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishRoutingParameters(*p);
+#endif
     return true;
 }
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 #if defined(__APPLE__)
-constexpr auto kArrayLayout = s3g::gui_layout::arrayFamilyLayoutForRows(
-    s3g::gui_layout::arrayRowsPerPageForChannels(kChannelCount));
-constexpr uint32_t kGuiWidth = static_cast<uint32_t>(kArrayLayout.canvas.width);
-constexpr uint32_t kGuiHeight = static_cast<uint32_t>(kArrayLayout.canvas.height);
-constexpr uint32_t kRowsPerPage = kArrayLayout.rowsPerPage;
-constexpr uint32_t kRowHeight =
-    static_cast<uint32_t>(s3g::gui_layout::kStandardMetrics.rowPitch);
-constexpr CGFloat kFilterCutoffX = 34.0;
-constexpr CGFloat kFilterCutoffWidth = 318.0;
-constexpr CGFloat kFilterPolesX = 366.0;
-constexpr CGFloat kFilterPolesWidth = 320.0;
-constexpr CGFloat kFilterGraphHeight = 362.0;
+
 
 } // namespace
 
@@ -1223,12 +1283,19 @@ const clap_plugin_gui_t guiExt {
 };
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_array_calibrate_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -1320,7 +1387,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

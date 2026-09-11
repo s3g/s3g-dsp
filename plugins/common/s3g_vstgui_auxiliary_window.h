@@ -3,8 +3,9 @@
 #include <memory>
 
 namespace s3g::portable_gui::foundation {
-// Main-thread-only, independent native window for a secondary canvas.
+// Main-thread-only, separate native window for a secondary canvas.
 // Closing hides the window; ownership remains with the main editor.
+// On macOS, show(view) keeps it above that view's host window until hidden.
 class AuxiliaryWindow {
 public:
   AuxiliaryWindow(const char *title, uint32_t width, uint32_t height);

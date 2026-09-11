@@ -37,3 +37,14 @@ add_s3g_ambi_effect_pitch_gain(
   "s3g Ambi Effect Gain 64"
   0
 )
+
+foreach(s3g_ambi_effect_target IN ITEMS s3g_ambi_effect_pitch_clap s3g_ambi_effect_gain_clap)
+  if(S3G_AMBI_EFFECTS_VSTGUI_AVAILABLE)
+    s3g_enable_vstgui_gui(${s3g_ambi_effect_target}
+      "${PROJECT_SOURCE_DIR}/plugins/common/s3g_ambi_effect_pitch_gain_canvas.inc"
+      S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  endif()
+  if(WIN32)
+    set_target_properties(${s3g_ambi_effect_target} PROPERTIES SUFFIX ".clap")
+  endif()
+endforeach()

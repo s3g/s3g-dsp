@@ -25,3 +25,14 @@ if(APPLE)
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
 endif()
+
+foreach(s3g_ambi_effect_target IN ITEMS s3g_ambi_effect_resonance_print_clap)
+  if(S3G_AMBI_EFFECTS_VSTGUI_AVAILABLE)
+    s3g_enable_vstgui_gui(${s3g_ambi_effect_target}
+      "${PROJECT_SOURCE_DIR}/plugins/common/s3g_ambi_effect_resonance_print_canvas.inc"
+      S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  endif()
+  if(WIN32)
+    set_target_properties(${s3g_ambi_effect_target} PROPERTIES SUFFIX ".clap")
+  endif()
+endforeach()

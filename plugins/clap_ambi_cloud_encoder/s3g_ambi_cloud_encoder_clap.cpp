@@ -7,7 +7,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_gui_layout.h"
@@ -21,12 +21,20 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_drawing.h"
+#include "../common/s3g_capture_snapshot.h"
+#include "../common/s3g_clap_state_stream.h"
+#include <random>
+#endif
 
 namespace {
 
 constexpr uint32_t kInputChannels = s3g::kAmbiCloudEncoderMaxInputs;
 constexpr uint32_t kOutputChannels = s3g::kAmbiCloudEncoderMaxChannels;
 constexpr uint32_t kStateVersion = 4;
+constexpr uint32_t kGuiWidth=900,kGuiHeight=672;
+void portableGuiDestroy(const clap_plugin_t*);
 
 constexpr clap_id kInputsParamId = 1;
 constexpr clap_id kCloudsParamId = 2;
@@ -79,14 +87,20 @@ struct Plugin {
     s3g::AmbiCloudEncoder encoder {};
     s3g::AmbiCloudEncoderParams params {};
     std::atomic<float> outputPeak { 0.0f };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
+#endif
     int guiViewMode = 0;
     double guiViewAzDeg = 90.0;
     double guiViewElDeg = 0.0;
     double guiViewZoom = 1.0;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    #include "../common/s3g_decoder_gui_members.inc"
+    std::array<std::atomic<double>,128> encoderValues{};
+    s3g::clap_gui::CaptureSnapshot<std::array<s3g::Vec3,kInputChannels>> encoderDisplay;
+    std::atomic<bool> encoderProcessing{false};
 #endif
 };
 
@@ -144,6 +158,52 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+template<class Model> void rawEncoderApplyParam(Model& p, clap_id id, double value)
+{
+    uint32_t cloudIndex = 0;
+    CloudParamKind cloudKind = CloudParamKind::Azimuth;
+    if (decodePerCloudParam(id, cloudIndex, cloudKind)) {
+        auto clouds = p.encoder.clouds();
+        auto& cloud = clouds[cloudIndex];
+        switch (cloudKind) {
+        case CloudParamKind::Azimuth: cloud.azimuthDeg = static_cast<float>(value); break;
+        case CloudParamKind::Elevation: cloud.elevationDeg = static_cast<float>(value); break;
+        case CloudParamKind::Distance: cloud.distance = static_cast<float>(value); break;
+        }
+        p.encoder.setParams(p.params);
+        p.encoder.setClouds(clouds);
+        p.params = p.encoder.params();
+        return;
+    }
+
+    switch (id) {
+    case kInputsParamId: p.params.activeInputs = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, kInputChannels); break;
+    case kCloudsParamId: p.params.activeClouds = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiCloudEncoderMaxClouds); break;
+    case kCloudParamId: p.params.selectedCloud = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiCloudEncoderMaxClouds) - 1u; break;
+    case kOrderParamId: p.params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiCloudEncoderMaxOrder); break;
+    case kAzimuthParamId: p.params.selectedAzimuthDeg = static_cast<float>(value); break;
+    case kElevationParamId: p.params.selectedElevationDeg = static_cast<float>(value); break;
+    case kDistanceParamId: p.params.selectedDistance = static_cast<float>(value); break;
+    case kCloudGainParamId: p.params.selectedGain = static_cast<float>(value); break;
+    case kSpreadParamId: p.params.spread = static_cast<float>(value); break;
+    case kElevationSpreadParamId: p.params.elevationSpread = static_cast<float>(value); break;
+    case kJitterParamId: p.params.jitter = static_cast<float>(value); break;
+    case kDriftParamId: p.params.drift = static_cast<float>(value); break;
+    case kRateParamId: p.params.rateHz = static_cast<float>(value); break;
+    case kDecorrelateParamId: p.params.decorrelate = static_cast<float>(value); break;
+    case kShapeParamId: p.params.shape = static_cast<s3g::AmbiCloudShape>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 4u)); break;
+    case kForceParamId: p.params.force = static_cast<s3g::AmbiCloudForce>(std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, 4u)); break;
+    case kOutputParamId: p.params.outputGainDb = static_cast<float>(value); break;
+    case kDopplerParamId: p.params.doppler = static_cast<float>(value); break;
+    case kAirParamId: p.params.air = static_cast<float>(value); break;
+    default: break;
+    }
+    p.encoder.setParams(p.params);
+    p.params = p.encoder.params();
+}
+#include "../common/s3g_input_encoder_cloud_bridge.inc"
+#else
 void applyParam(Plugin& p, clap_id id, double value)
 {
     uint32_t cloudIndex = 0;
@@ -187,15 +247,25 @@ void applyParam(Plugin& p, clap_id id, double value)
     p.encoder.setParams(p.params);
     p.params = p.encoder.params();
 }
+#endif
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ auto& p=*self(plugin);p.encoder.prepare(p.sampleRate);p.encoder.setParams(p.params);p.params=p.encoder.params();
+ publishEncoderState(p,p.params,p.encoder.clouds());
+#endif
+ return true;
+}
 void destroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (p && p->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    portableGuiDestroy(plugin);
 #endif
     delete p;
 }
@@ -204,15 +274,31 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
 {
     auto* p = self(plugin);
     p->sampleRate = sampleRate;
+    #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncEncoderParams(*p);
+    const auto clouds=p->encoder.clouds();
+    #endif
     p->encoder.prepare(sampleRate);
+    #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    p->encoder.setClouds(clouds);
+    #endif
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
     return true;
 }
 
 void deactivate(const clap_plugin_t*) {}
-bool startProcessing(const clap_plugin_t*) { return true; }
-void stopProcessing(const clap_plugin_t*) {}
+bool startProcessing(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ self(plugin)->encoderProcessing.store(true);
+#endif
+ return true;
+}
+void stopProcessing(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ self(plugin)->encoderProcessing.store(false);
+#endif
+}
 void reset(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
@@ -236,6 +322,9 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncEncoderParams(*p);serviceEncoderGui(*p,proc->out_events);
+#endif
     readParamEvents(*p, proc->in_events);
     if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto* input = proc->audio_inputs_count > 0 ? &proc->audio_inputs[0] : nullptr;
@@ -254,6 +343,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->encoder.setParams(p->params);
     p->encoder.processBlock(inputPtrs.data(), outputPtrs.data(), inChannels, outChannels, frames);
     p->params = p->encoder.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishEncoderDisplay(*p);
+#endif
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
     float peak = 0.0f;
@@ -342,6 +434,10 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    *value=readEncoderValue(*self(plugin),id);uint32_t index=0;CloudParamKind kind{};
+    return (id>0&&id<=19)||decodePerCloudParam(id,index,kind);
+#else
     auto* pluginSelf = self(plugin);
     uint32_t cloudIndex = 0;
     CloudParamKind cloudKind = CloudParamKind::Azimuth;
@@ -376,6 +472,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kAirParamId: *value = p.air; return true;
     default: return false;
     }
+#endif
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -421,20 +518,26 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ syncEncoderParams(*self(plugin));serviceEncoderGui(*self(plugin),out);
+#endif
+ readParamEvents(*self(plugin), in); }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    SavedState state{kStateVersion,snapshotEncoderParams(*p),snapshotEncoderClouds(*p)};
+#else
     SavedState state { kStateVersion, p->params, p->encoder.clouds() };
-#if defined(__APPLE__)
+#endif
     state.guiViewMode = p->guiViewMode;
     state.guiViewAzDeg = p->guiViewAzDeg;
     state.guiViewElDeg = p->guiViewElDeg;
     state.guiViewZoom = p->guiViewZoom;
-#endif
     return writeExact(stream, &state, sizeof(state));
 }
 
@@ -457,16 +560,30 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         return false;
     }
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    for (clap_id id = 1; id <= 19; ++id)
+        if (!std::isfinite(readEncoderScalar(state.params, id))) return false;
+    for (auto& cloud : state.clouds) {
+        if (!std::isfinite(cloud.azimuthDeg) || !std::isfinite(cloud.elevationDeg)
+            || !std::isfinite(cloud.distance) || !std::isfinite(cloud.gain)) return false;
+        if (std::abs(cloud.azimuthDeg) > 360.f) cloud.azimuthDeg = std::fmod(cloud.azimuthDeg, 360.f);
+    }
+    if (!std::isfinite(state.guiViewAzDeg) || !std::isfinite(state.guiViewElDeg)
+        || !std::isfinite(state.guiViewZoom)) return false;
+    if (std::abs(state.params.selectedAzimuthDeg) > 360.f)
+        state.params.selectedAzimuthDeg = std::fmod(state.params.selectedAzimuthDeg, 360.f);
+    s3g::AmbiCloudEncoder model;model.setClouds(state.clouds);model.setParams(state.params);
+    publishEncoderState(*p,model.params(),model.clouds());
+#else
     p->params = state.params;
     p->encoder.setClouds(state.clouds);
     p->encoder.setParams(p->params);
     p->params = p->encoder.params();
-#if defined(__APPLE__)
+#endif
     p->guiViewMode = std::clamp<int>(state.guiViewMode, -1, 2);
     p->guiViewAzDeg = std::clamp(state.guiViewAzDeg, -180.0, 180.0);
     p->guiViewElDeg = std::clamp(state.guiViewElDeg, -90.0, 90.0);
     p->guiViewZoom = std::clamp(state.guiViewZoom, 0.55, 2.20);
-#endif
     return true;
 }
 
@@ -474,7 +591,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 constexpr CGFloat kToolboxX = 630.0;
 constexpr CGFloat kToolboxLabelX = kToolboxX
@@ -1142,12 +1259,18 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_cloud_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -1204,7 +1327,7 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

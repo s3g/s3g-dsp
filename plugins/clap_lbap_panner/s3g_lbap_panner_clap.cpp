@@ -1,5 +1,8 @@
 #include "s3g_layout_panner.h"
 #include "s3g_realtime.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_panner_gui.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
@@ -24,6 +27,8 @@
 
 namespace {
 
+constexpr uint32_t kGuiWidth = 900;
+constexpr uint32_t kGuiHeight = 720;
 constexpr uint32_t kInputChannels = s3g::kLayoutPannerSources;
 constexpr uint32_t kOutputChannels = s3g::kLayoutPannerMaxSpeakers;
 constexpr uint32_t kStateVersion = 7;
@@ -82,11 +87,14 @@ constexpr uint32_t menuIndexForLayoutPreset(uint32_t preset)
     return 0u;
 }
 
+#if defined(__APPLE__)
 static NSString* layoutMenuItem(uint32_t index)
 {
     return [NSString stringWithUTF8String:s3g::layoutPannerPresetName(
         static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(index)))];
 }
+
+#endif
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -194,19 +202,29 @@ struct Plugin {
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
+#endif
     int guiViewMode = 2;
     double guiViewAzDeg = 35.0;
     double guiViewElDeg = 34.0;
     double guiViewZoom = 1.0;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_gui_members.inc"
 #endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void destroyPortableGui(Plugin&);
+void flushPannerGuiEvents(Plugin& p, const clap_output_events_t* out) {
+    s3g::clap_gui::serviceParamEvents(p.guiParamEvents, out, [](clap_id, double) {});
+}
+#endif
 
 void forceFixedMethod(s3g::LayoutPannerParams& params)
 {
     params.method = kFixedMethod;
-    if (menuIndexForLayoutPreset(static_cast<uint32_t>(params.layout)) == 0u
+    if (params.layout != s3g::LayoutPannerPreset::Custom
+        && menuIndexForLayoutPreset(static_cast<uint32_t>(params.layout)) == 0u
         && params.layout != static_cast<s3g::LayoutPannerPreset>(layoutPresetForMenuIndex(0u))) {
         params.layout = s3g::LayoutPannerPreset::Dome24NoOverhead;
     }
@@ -340,6 +358,9 @@ void guiDestroy(const clap_plugin_t* plugin);
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -424,6 +445,9 @@ float peakForChannels(float* const* output, uint32_t channels, uint32_t frames)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushPannerGuiEvents(*p, proc->out_events);
+#endif
     bool stateChanged = false;
     if (p->controlPublishedRevision.load(std::memory_order_acquire) > p->audioRevision) {
         PannerState pending; p->controlToAudio.readLatest(pending);
@@ -668,9 +692,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushPannerGuiEvents(*p, out);
+#else
+    (void)out;
+#endif
     if (p->active.load(std::memory_order_acquire)) {
         if (p->controlPublishedRevision.load(std::memory_order_acquire) > p->audioRevision) {
             PannerState pending;
@@ -719,12 +748,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     s.params = state.params;
     s.sources = state.sources;
     s.speakers = state.speakers;
-#if defined(__APPLE__)
     s.guiViewMode = p->guiViewMode;
     s.guiViewAzDeg = p->guiViewAzDeg;
     s.guiViewElDeg = p->guiViewElDeg;
     s.guiViewZoom = p->guiViewZoom;
-#endif
     return writeStateBytes(stream, &s, sizeof(s));
 }
 
@@ -774,18 +801,19 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else {
         return false;
     }
+    for(double v:{double(s.params.focus),double(s.params.distanceRolloffDb),double(s.params.smoothingMs),double(s.params.globalAzimuthDeg),double(s.params.globalElevationDeg),double(s.params.globalDistanceOffset),double(s.params.distanceDiffusion),double(s.params.outputGainDb),s.guiViewAzDeg,s.guiViewElDeg,s.guiViewZoom})if(!std::isfinite(v))return false;
+    for(const auto& source:s.sources)for(float v:{source.x,source.y,source.z,source.azimuthDeg,source.elevationDeg,source.distance,source.gainDb})if(!std::isfinite(v))return false;
+    for(const auto& speaker:s.speakers)for(float v:{speaker.azimuthDeg,speaker.elevationDeg,speaker.distance})if(!std::isfinite(v))return false;
     auto* p = self(plugin);
     PannerState state;
     state.params = s.params;
     state.sources = s.sources;
     state.speakers = s.speakers;
     queueControlState(*p, state);
-#if defined(__APPLE__)
-    p->guiViewMode = std::clamp<int>(s.guiViewMode, 0, 2);
-    p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
+    p->guiViewMode = std::clamp<int>(s.guiViewMode, -1, 2);
+    p->guiViewAzDeg = s.guiViewAzDeg; // Manual camera rotations may exceed one turn.
     p->guiViewElDeg = std::clamp(s.guiViewElDeg, -90.0, 90.0);
     p->guiViewZoom = std::clamp(s.guiViewZoom, 0.25, 4.0);
-#endif
     return true;
 }
 
@@ -2504,9 +2532,11 @@ static clap_id lpSliderParamId(int slider)
 }
 - (void)mouseUp:(NSEvent*)event { (void)event; _dragSlider = -1; _dragView = NO; _dragSource = NO; _dragSpeaker = NO; _dragMixerSource = -1; _dragMixerOutput = NO; }
 @end
+#endif
 
 namespace {
 
+#if defined(__APPLE__)
 bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool isFloating) { return !isFloating && std::strcmp(api, CLAP_WINDOW_API_COCOA) == 0; }
 bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* isFloating) { if (!api || !isFloating) return false; *api = CLAP_WINDOW_API_COCOA; *isFloating = false; return true; }
 bool guiCreate(const clap_plugin_t* plugin, const char* api, bool isFloating) { if (!guiIsApiSupported(plugin, api, isFloating)) return false; auto* p = self(plugin); if (p->guiView) return true; p->guiView = [[S3GLbapPannerView alloc] initWithPlugin:p]; if (!p->guiView) return false; if (!s3g::clap_gui::createResponsiveViewport(p->guiViewport, static_cast<NSView*>(p->guiView), 900u, 720u)) { [static_cast<NSView*>(p->guiView) release]; p->guiView = nullptr; return false; } return true; }
@@ -2525,12 +2555,19 @@ bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiV
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_panner_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2589,4 +2626,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

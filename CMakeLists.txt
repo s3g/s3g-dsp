@@ -720,6 +720,16 @@ option(S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS
   "Use Spectral Spray, Buffer, and Delay Field VSTGUI parity ports on macOS" OFF)
 option(S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS
   "Use Monitoring / Fold-down VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_ROUTING_VSTGUI_ON_MACOS
+  "Use Direct Panning, Bus Routing, and Speaker Array VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_AMBI_BUS_VSTGUI_ON_MACOS
+  "Use Ambisonic Bus and Transform VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_AMBI_EFFECTS_VSTGUI_ON_MACOS
+  "Use Ambisonic Effect VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_DECODERS_VSTGUI_ON_MACOS
+  "Use Ambisonic Decoder VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_INPUT_ENCODERS_VSTGUI_ON_MACOS
+  "Use Cloud, Path, Ray and Ray Bilocation VSTGUI parity ports on macOS" OFF)
 option(S3G_BUILD_DRUM_GUI_PILOTS
   "Build Drum Kick/Hi-Hat without enabling unrelated future components" OFF)
 option(S3G_BUILD_DRUM_GUI_FAMILY
@@ -867,6 +877,32 @@ set(s3g_topology_gui_smoke_mode responsive-wide)
 set(s3g_spectral_24_gui_height 820)
 set(S3G_MEMORY_EFFECTS_VSTGUI_AVAILABLE OFF)
 set(S3G_MONITORING_VSTGUI_AVAILABLE OFF)
+set(S3G_ROUTING_VSTGUI_AVAILABLE OFF)
+set(S3G_AMBI_BUS_VSTGUI_AVAILABLE OFF)
+set(S3G_AMBI_EFFECTS_VSTGUI_AVAILABLE OFF)
+set(S3G_INPUT_ENCODERS_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_INPUT_ENCODERS_VSTGUI_ON_MACOS))
+  set(S3G_INPUT_ENCODERS_VSTGUI_AVAILABLE ON)
+endif()
+set(S3G_DECODERS_VSTGUI_AVAILABLE OFF)
+set(s3g_decoder_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_DECODERS_VSTGUI_ON_MACOS))
+  set(S3G_DECODERS_VSTGUI_AVAILABLE ON)
+  set(s3g_decoder_gui_smoke_mode proportional)
+endif()
+set(s3g_ambi_effect_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_AMBI_EFFECTS_VSTGUI_ON_MACOS))
+  set(S3G_AMBI_EFFECTS_VSTGUI_AVAILABLE ON)
+  set(s3g_ambi_effect_gui_smoke_mode proportional)
+endif()
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_AMBI_BUS_VSTGUI_ON_MACOS))
+  set(S3G_AMBI_BUS_VSTGUI_AVAILABLE ON)
+endif()
+set(s3g_routing_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_ROUTING_VSTGUI_ON_MACOS))
+  set(S3G_ROUTING_VSTGUI_AVAILABLE ON)
+  set(s3g_routing_gui_smoke_mode proportional)
+endif()
 set(s3g_autogain_gui_smoke_mode responsive)
 if(S3G_VSTGUI_AVAILABLE
     AND (WIN32 OR S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS))
@@ -894,8 +930,101 @@ if(S3G_SAMPLE_FAMILY_VSTGUI_AVAILABLE)
   set(s3g_sample_rings_gui_smoke_mode proportional)
 endif()
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GAmbiBusTests.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GAmbiEffectTests.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GDecoderTests.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GInputEncoderTests.cmake")
+
 if(S3G_BUILD_CLAP_PLUGIN)
   if(BUILD_TESTING)
+    if(S3G_ROUTING_VSTGUI_AVAILABLE)
+      set(s3g_panner_variant 0)
+      foreach(s3g_panner_name layout dbap lbap vbap)
+        set(s3g_panner_test "s3g_${s3g_panner_name}_panner_canvas_smoke")
+        add_executable(${s3g_panner_test} tests/panner_canvas_smoke.cpp)
+        target_link_libraries(${s3g_panner_test} PRIVATE s3g_dsp)
+        target_include_directories(${s3g_panner_test} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        s3g_enable_vstgui_gui(${s3g_panner_test}
+          "${PROJECT_SOURCE_DIR}/plugins/common/s3g_panner_canvas.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if(s3g_panner_name STREQUAL "layout")
+          set(s3g_panner_view S3GDirectLayoutPannerView)
+        elseif(s3g_panner_name STREQUAL "dbap")
+          set(s3g_panner_view S3GDbapPannerView)
+        elseif(s3g_panner_name STREQUAL "lbap")
+          set(s3g_panner_view S3GLbapPannerView)
+        else()
+          set(s3g_panner_view S3GVbapPannerView)
+        endif()
+        target_compile_definitions(${s3g_panner_test} PRIVATE
+          S3G_PANNER_VARIANT=${s3g_panner_variant}
+          "S3G_TEST_PANNER_SOURCE=\"../plugins/clap_${s3g_panner_name}_panner/s3g_${s3g_panner_name}_panner_clap.cpp\""
+          S3G_TEST_PANNER_COCOA_VIEW=${s3g_panner_view})
+        if(APPLE)
+          set_source_files_properties(tests/panner_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          set_target_properties(${s3g_panner_test} PROPERTIES MACOSX_BUNDLE TRUE)
+          target_link_libraries(${s3g_panner_test} PRIVATE "-framework Cocoa")
+        endif()
+        add_test(NAME ${s3g_panner_test} COMMAND $<TARGET_FILE:${s3g_panner_test}>)
+        set_tests_properties(${s3g_panner_test} PROPERTIES LABELS "non_nim;routing;gui;smoke" TIMEOUT 180)
+        math(EXPR s3g_panner_variant "${s3g_panner_variant}+1")
+      endforeach()
+      foreach(s3g_routing_case group_matrix group_matrix_32 node_bus sub_crossover array_16 array_26 array_32 array_64)
+        set(s3g_routing_test "s3g_${s3g_routing_case}_canvas_smoke")
+        if(s3g_routing_case MATCHES "^group_matrix")
+          set(s3g_routing_source "clap_${s3g_routing_case}/s3g_${s3g_routing_case}_clap.cpp")
+          set(s3g_routing_canvas group_matrix)
+          set(s3g_routing_editor group_canvas::Editor)
+          set(s3g_routing_family 1)
+          set(s3g_routing_output kParamOutput)
+          if(s3g_routing_case STREQUAL "group_matrix_32")
+            set(s3g_routing_extra S3G_GROUP_MATRIX_CHANNELS=32 S3G_TEST_ROUTING_COCOA_VIEW=S3GGroupMatrix32View)
+          else()
+            set(s3g_routing_extra S3G_GROUP_MATRIX_CHANNELS=64 S3G_TEST_ROUTING_COCOA_VIEW=S3GGroupMatrixView)
+          endif()
+        elseif(s3g_routing_case STREQUAL "node_bus")
+          set(s3g_routing_source "clap_node_track_mixer/s3g_node_track_mixer_clap.cpp")
+          set(s3g_routing_canvas node_bus)
+          set(s3g_routing_editor node_canvas::Editor)
+          set(s3g_routing_family 2)
+          set(s3g_routing_output kParamOutputGain)
+          set(s3g_routing_extra "")
+        elseif(s3g_routing_case MATCHES "^array_(.*)")
+          set(s3g_routing_extra "S3G_ARRAY_CALIBRATE_CHANNELS=${CMAKE_MATCH_1}")
+          set(s3g_routing_source "clap_array_calibrate/s3g_array_calibrate_clap.cpp")
+          set(s3g_routing_canvas array_calibrate)
+          set(s3g_routing_editor calibrate_canvas::Editor)
+          set(s3g_routing_family 3)
+          set(s3g_routing_output kOutputParamId)
+        else()
+          set(s3g_routing_source "clap_sub_crossover/s3g_sub_crossover_clap.cpp")
+          set(s3g_routing_canvas sub_crossover)
+          set(s3g_routing_editor crossover_canvas::Editor)
+          set(s3g_routing_family 4)
+          set(s3g_routing_output CLAP_INVALID_ID)
+          set(s3g_routing_extra "")
+        endif()
+        add_executable(${s3g_routing_test} tests/routing_canvas_smoke.cpp)
+        target_link_libraries(${s3g_routing_test} PRIVATE s3g_dsp)
+        target_include_directories(${s3g_routing_test} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+        target_compile_definitions(${s3g_routing_test} PRIVATE
+          "S3G_TEST_ROUTING_SOURCE=\"../plugins/${s3g_routing_source}\""
+          S3G_TEST_ROUTING_EDITOR=${s3g_routing_editor}
+          S3G_ROUTING_FAMILY=${s3g_routing_family}
+          S3G_TEST_OUTPUT_PARAM=${s3g_routing_output}
+          ${s3g_routing_extra})
+        s3g_enable_vstgui_gui(${s3g_routing_test}
+          "${PROJECT_SOURCE_DIR}/plugins/common/s3g_${s3g_routing_canvas}_canvas.inc"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if(APPLE)
+          set_source_files_properties(tests/routing_canvas_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+          set_target_properties(${s3g_routing_test} PROPERTIES MACOSX_BUNDLE TRUE)
+          target_link_libraries(${s3g_routing_test} PRIVATE "-framework Cocoa")
+        endif()
+        add_test(NAME ${s3g_routing_test} COMMAND $<TARGET_FILE:${s3g_routing_test}>)
+        set_tests_properties(${s3g_routing_test} PROPERTIES LABELS "non_nim;routing;gui;smoke" TIMEOUT 180)
+      endforeach()
+    endif()
     if(S3G_MONITORING_VSTGUI_AVAILABLE)
       add_executable(s3g_upmix_canvas_smoke tests/upmix_canvas_smoke.cpp
         plugins/common/s3g_vstgui_auxiliary_window.cpp)
@@ -3233,12 +3362,12 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMENT "Rendering and validating every encoder-family GUI")
 
     add_custom_target(audit_gui_decoder_family
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_head_decoder_clap> org.s3g.s3g-dsp.ambisonic-head-decoder 930 720 "s3g Ambi Decoder " responsive
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_stereo_decoder_clap> org.s3g.s3g-dsp.ambisonic-stereo-decoder 940 650 "s3g Ambi Decoder " responsive
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_sub_decoder_clap> org.s3g.s3g-dsp.ambisonic-sub-decoder 600 360 "s3g Ambi Decoder " responsive
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_adaptive_decoder_clap> org.s3g.s3g-dsp.ambi-adaptive-decoder-64 900 620 "s3g Ambi Decoder " responsive
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_object_decoder_clap> org.s3g.s3g-dsp.ambi-object-decoder-64 900 620 "s3g Ambi Decoder " responsive
-      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_speaker_decoder_clap> org.s3g.s3g-dsp.ambi-speaker-decoder-64 900 620 "s3g Ambi Decoder " responsive
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_head_decoder_clap> org.s3g.s3g-dsp.ambisonic-head-decoder 930 720 "s3g Ambi Decoder " ${s3g_decoder_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_stereo_decoder_clap> org.s3g.s3g-dsp.ambisonic-stereo-decoder 940 650 "s3g Ambi Decoder " ${s3g_decoder_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambisonic_sub_decoder_clap> org.s3g.s3g-dsp.ambisonic-sub-decoder 600 360 "s3g Ambi Decoder " ${s3g_decoder_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_adaptive_decoder_clap> org.s3g.s3g-dsp.ambi-adaptive-decoder-64 900 620 "s3g Ambi Decoder " ${s3g_decoder_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_object_decoder_clap> org.s3g.s3g-dsp.ambi-object-decoder-64 900 620 "s3g Ambi Decoder " ${s3g_decoder_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_decoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_speaker_decoder_clap> org.s3g.s3g-dsp.ambi-speaker-decoder-64 900 620 "s3g Ambi Decoder " ${s3g_decoder_gui_smoke_mode}
       DEPENDS
         s3g_decoder_family_gui_smoke
         s3g_ambisonic_head_decoder_clap
@@ -3250,10 +3379,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMENT "Rendering and validating every decoder-family GUI")
 
     add_custom_target(audit_gui_panner_family
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_layout_panner_clap> org.s3g.s3g-dsp.layout-panner 900 720 "s3g Panner " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_dbap_panner_clap> org.s3g.s3g-dsp.dbap-panner 900 720 "s3g Panner " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_lbap_panner_clap> org.s3g.s3g-dsp.lbap-panner 900 720 "s3g Panner " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_vbap_panner_clap> org.s3g.s3g-dsp.vbap-panner 900 720 "s3g Panner " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_layout_panner_clap> org.s3g.s3g-dsp.layout-panner 900 720 "s3g Panner " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_dbap_panner_clap> org.s3g.s3g-dsp.dbap-panner 900 720 "s3g Panner " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_lbap_panner_clap> org.s3g.s3g-dsp.lbap-panner 900 720 "s3g Panner " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_vbap_panner_clap> org.s3g.s3g-dsp.vbap-panner 900 720 "s3g Panner " ${s3g_routing_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -3378,10 +3507,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_array_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_16_clap> org.s3g.s3g-dsp.array-calibrate-16 720 596 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_26_clap> org.s3g.s3g-dsp.array-calibrate-26 720 856 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_32_clap> org.s3g.s3g-dsp.array-calibrate-32 720 596 "s3g Array " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_64_clap> org.s3g.s3g-dsp.array-calibrate-64 720 596 "s3g Array " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_16_clap> org.s3g.s3g-dsp.array-calibrate-16 720 596 "s3g Array " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_26_clap> org.s3g.s3g-dsp.array-calibrate-26 720 856 "s3g Array " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_32_clap> org.s3g.s3g-dsp.array-calibrate-32 720 596 "s3g Array " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_array_calibrate_64_clap> org.s3g.s3g-dsp.array-calibrate-64 720 596 "s3g Array " ${s3g_routing_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -3414,14 +3543,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_ambi_effect_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_dj_filter_clap> org.s3g.s3g-dsp.ambi-effect-dj-filter-64 820 640 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_delay_clap> org.s3g.s3g-dsp.ambi-effect-delay-64 820 640 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_pitch_clap> org.s3g.s3g-dsp.ambi-effect-pitch-64 820 640 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_gain_clap> org.s3g.s3g-dsp.ambi-effect-gain-64 820 640 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_resonance_print_clap> org.s3g.s3g-dsp.ambi-effect-resonance-print-64 920 820 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_partial_trace_clap> org.s3g.s3g-dsp.ambi-effect-partial-trace-64 920 820 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_response_trace_clap> org.s3g.s3g-dsp.ambi-effect-response-trace-64 920 820 "s3g Ambi Effect " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_displacement_clap> org.s3g.s3g-dsp.ambi-effect-displacement-64 920 820 "s3g Ambi Effect " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_dj_filter_clap> org.s3g.s3g-dsp.ambi-effect-dj-filter-64 820 640 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_delay_clap> org.s3g.s3g-dsp.ambi-effect-delay-64 820 640 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_pitch_clap> org.s3g.s3g-dsp.ambi-effect-pitch-64 820 640 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_gain_clap> org.s3g.s3g-dsp.ambi-effect-gain-64 820 640 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_resonance_print_clap> org.s3g.s3g-dsp.ambi-effect-resonance-print-64 920 820 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_partial_trace_clap> org.s3g.s3g-dsp.ambi-effect-partial-trace-64 920 820 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_response_trace_clap> org.s3g.s3g-dsp.ambi-effect-response-trace-64 920 820 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_effect_displacement_clap> org.s3g.s3g-dsp.ambi-effect-displacement-64 920 820 "s3g Ambi Effect " ${s3g_ambi_effect_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -3437,8 +3566,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_matrix_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_group_matrix_32_clap> org.s3g.s3g-dsp.group-matrix-32 1040 648 "s3g Matrix " responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_group_matrix_clap> org.s3g.s3g-dsp.group-matrix 1040 648 "s3g Matrix " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_group_matrix_32_clap> org.s3g.s3g-dsp.group-matrix-32 1040 648 "s3g Matrix " ${s3g_routing_gui_smoke_mode}
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_group_matrix_clap> org.s3g.s3g-dsp.group-matrix 1040 648 "s3g Matrix " ${s3g_routing_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_matrix_clap> org.s3g.s3g-dsp.ambi-group-matrix 1040 648 "s3g Ambi Matrix " responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_group_matrix_128_clap> org.s3g.s3g-dsp.ambi-group-matrix-128 1040 648 "s3g Ambi Matrix " responsive
       DEPENDS
@@ -3452,7 +3581,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_mixer_family
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_node_track_mixer_clap> org.s3g.s3g-dsp.node-bus-mixer 920 920 "s3g Mixer " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_node_track_mixer_clap> org.s3g.s3g-dsp.node-bus-mixer 920 920 "s3g Mixer " ${s3g_routing_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_node_track_mixer_clap> org.s3g.s3g-dsp.ambi-node-bus-mixer 920 920 "s3g Ambi Mixer " responsive
       DEPENDS
         s3g_gui_layout_contract_smoke
@@ -3499,7 +3628,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_stereo_autogain_clap> org.s3g.s3g-dsp.mc-to-stereo-autogain 920 560 "s3g Output " ${s3g_autogain_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_mc_to_quad_autogain_clap> org.s3g.s3g-dsp.mc-to-quad-autogain 920 560 "s3g Output " ${s3g_autogain_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_format_upscale_clap> org.s3g.s3g-dsp.format-upscale-64 1120 720 "s3g Matrix Upmix 64" ${s3g_autogain_gui_smoke_mode}
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sub_crossover_clap> org.s3g.s3g-dsp.sub-crossover 920 560 "s3g Output " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sub_crossover_clap> org.s3g.s3g-dsp.sub-crossover 920 560 "s3g Output " ${s3g_routing_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke

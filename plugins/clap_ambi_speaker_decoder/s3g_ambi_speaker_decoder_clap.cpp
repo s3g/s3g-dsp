@@ -2,6 +2,16 @@
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_decoder_drawing.h"
+#include "../common/s3g_gui_documentation.h"
+#include <cstdlib>
+#include "../common/s3g_clap_state_stream.h"
+#include <array>
+#include <memory>
+#include <vector>
+#endif
 #include <clap/ext/gui.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
@@ -50,7 +60,7 @@ constexpr clap_id kEnergyParamId = 13;
 constexpr clap_id kOutputParamId = 14;
 constexpr clap_id kWeightingParamId = 15;
 constexpr clap_id kCustomFieldParamId = 16;
-constexpr NSInteger kMixerGainFieldTagBase = 1000;
+constexpr long kMixerGainFieldTagBase = 1000;
 
 struct SavedState {
     uint32_t version = kStateVersion;
@@ -287,6 +297,9 @@ struct DecoderSnapshotSlot {
     RuntimeMixerState runtimeMixer;
 };
 
+constexpr uint32_t kGuiWidth = 900;
+constexpr uint32_t kGuiHeight = 620;
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -335,15 +348,19 @@ struct Plugin {
     uint32_t audioDecoderSnapshot = 0u;
     bool audioDecoderSnapshotHeld = false;
     std::atomic<float> outputPeak { 0.0f };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_decoder_gui_members.inc"
+#endif
+
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
+#endif
     int guiViewMode = 2;
     double guiViewAzDeg = 35.0;
     double guiViewElDeg = 34.0;
     double guiViewZoom = 1.0;
-#endif
 
     Plugin()
     {
@@ -1448,8 +1465,15 @@ bool init(const clap_plugin_t* plugin)
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void portableGuiDestroy(const clap_plugin_t*);
+#endif
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    portableGuiDestroy(plugin);
+#endif
+
     auto* p = self(plugin);
 #if defined(__APPLE__)
     if (p->guiView)
@@ -1584,9 +1608,15 @@ void readParamEvents(Plugin& p, const clap_input_events_t* in)
     }
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void serviceDecoderGui(Plugin&,const clap_output_events_t*);
+#endif
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceDecoderGui(*p, proc ? proc->out_events : nullptr);
+#endif
     readParamEvents(*p, proc->in_events);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) {
         return CLAP_PROCESS_CONTINUE;
@@ -1792,7 +1822,17 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void serviceDecoderGui(Plugin& p,const clap_output_events_t* out) {
+s3g::clap_gui::serviceParamEvents(p.guiParamEvents,out,[](clap_id,double){});
+}
+#endif
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ serviceDecoderGui(*self(plugin),out);
+#endif
+ readParamEvents(*self(plugin),in);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool writeStateBytes(
@@ -1848,7 +1888,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         s.speakers = visibleDecoderSpeakers(
             *p, snapshot.decoder(), snapshot.runtimeMixer());
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s.guiViewMode = p->guiViewMode;
     s.guiViewAzDeg = p->guiViewAzDeg;
     s.guiViewElDeg = p->guiViewElDeg;
@@ -1938,7 +1978,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->decoderPublishPending = true;
     publishModelDecoderBlocking(*p);
     p->commandEpoch.store(stableEpoch + 2u, std::memory_order_release);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     p->guiViewMode = std::clamp<int>(s.guiViewMode, 0, 2);
     p->guiViewAzDeg = std::clamp(s.guiViewAzDeg, -180.0, 180.0);
     p->guiViewElDeg = std::clamp(s.guiViewElDeg, -90.0, 90.0);
@@ -1948,10 +1988,20 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 }
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_decoder_speaker_canvas.inc"
+const s3g::gui_documentation::Extension decoderDocumentation{
+    [](const clap_plugin_t* plugin){
+        auto& p=*self(plugin);
+        p.guiViewMode=0;p.guiViewAzDeg=90.;p.guiViewElDeg=0.;p.guiViewZoom=1.;
+        return true;
+    }, nullptr, nullptr};
+#endif
+
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 @interface S3GAmbiSpeakerDecoderView : NSView <NSTextFieldDelegate> {
     void* _plugin;
     int _dragSlider;
@@ -3402,13 +3452,22 @@ bool guiShow(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiV
 bool guiHide(const clap_plugin_t* plugin) { auto* p = self(plugin); if (!p->guiView) return false; p->guiVisible = false; [static_cast<S3GAmbiSpeakerDecoderView*>(p->guiView) stopRefreshTimer]; return s3g::clap_gui::setResponsiveViewportHidden(p->guiViewport, true); }
 const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreate, guiDestroy, guiSetScale, guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize, guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide };
 #endif
+#if !defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+namespace {
+#endif
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+    if (std::strcmp(id,s3g::gui_documentation::kExtension)==0
+        && std::getenv("S3G_GUI_DOCUMENTATION_CAPTURE")
+        && std::strcmp(std::getenv("S3G_GUI_DOCUMENTATION_CAPTURE"),"1")==0)
+        return &decoderDocumentation;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -3459,4 +3518,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

@@ -41,6 +41,15 @@ Autogain and Analyzer refresh at the original 24 Hz; Matrix at 30 Hz.
 Fractional-millisecond scheduling is opt-in; existing canvases retain their
 33 ms default.
 
+Autogain slider enablement follows the existing DSP: Stereo ATT/DST are
+3D-only, and ROT is unused in Odd/even, Center-out, and Pair-preserving.
+Quad DST is 3D-only, but Quad ATT affects rear gains in 2D as well, and ROT
+affects every layout. Inactive sliders dim label, readout, fill, and handle,
+show OFF, and reject drag/reset without discarding their stored settings.
+Host layout changes are checked before edits as well as on refresh, ending
+an in-progress inactive gesture cleanly. Both canvas tests check all eight
+layouts against actual DSP dependencies and exercise automation mid-drag.
+
 ## Resizing and independent windows
 
 Autogain and Matrix use the shared proportional 65–200% CLAP lifecycle.
@@ -57,6 +66,14 @@ the detached window, and host destruction closes its editor before releasing
 the native parent. The detached window additionally supports proportional
 65–200% resizing. Cocoa uses NSPanel; Windows uses a module-owned window
 class that is unregistered after the last window is destroyed.
+
+Mac pop-outs are attached above the editor's actual host window and use its
+window level, including REAPER's floating FX windows. Raising the main editor
+therefore does not bury Tier Rings. The panel can still be moved separately;
+moving the host also moves its attached pop-out (AppKit child-window behavior).
+DOCK, close, host hide, and destruction detach the ordering relationship.
+This does not impose a global always-on-top level. The native Matrix test
+checks ordering against floating and normal hosts, reopening, and cleanup.
 
 ## Threading and resources
 

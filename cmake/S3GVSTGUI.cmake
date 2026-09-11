@@ -29,6 +29,26 @@ function(s3g_enable_vstgui_gui target gui_source compile_definition)
     VSTGUI_OPENGL_SUPPORT=0)
   target_link_libraries(${target} PRIVATE vstgui)
 
+  # The direct panners and input encoders use VSTGUI's pinned RapidJSON for portable
+  # layout, path and field files. Ship its license with those products.
+  if(gui_source MATCHES "s3g_panner_canvas[.]inc$" OR
+      gui_source MATCHES "s3g_input_encoder_(path|ray|ray_bilocation)_canvas[.]inc$")
+    set(json_license "${PROJECT_BINARY_DIR}/vstgui-resources/RapidJSON-LICENSE.txt")
+    configure_file("${vstgui_SOURCE_DIR}/vstgui/thirdparty/rapidjson/license.txt"
+      "${json_license}" COPYONLY)
+    if(APPLE)
+      set_source_files_properties("${json_license}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources/Licenses")
+      target_sources(${target} PRIVATE "${json_license}")
+    elseif(WIN32)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/Resources/Licenses"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${json_license}"
+          "$<TARGET_FILE_DIR:${target}>/Resources/Licenses/RapidJSON-LICENSE.txt"
+        VERBATIM)
+    endif()
+  endif()
+
   if(compile_definition STREQUAL "S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI")
     target_sources(${target} PRIVATE "${common_dir}/s3g_sample_cursor_presenter.cpp")
     if(APPLE)

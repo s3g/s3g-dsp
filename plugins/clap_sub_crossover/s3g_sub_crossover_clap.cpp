@@ -2,6 +2,12 @@
 #include "s3g_sub_crossover.h"
 #include "../common/s3g_clap_state_stream.h"
 
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_gui.h"
+#include "../common/s3g_panner_mesh.h"
+#endif
+
 #include <clap/clap.h>
 #include <clap/ext/gui.h>
 
@@ -22,6 +28,7 @@
 
 namespace {
 
+constexpr uint32_t kGuiWidth=920, kGuiHeight=560;
 constexpr uint32_t kChannelCount = s3g::kSubCrossoverMaxChannels;
 constexpr uint32_t kStateVersion = 1;
 constexpr uint32_t kLayoutCount = 30;
@@ -71,12 +78,25 @@ struct Plugin {
     s3g::SubCrossover xover {};
     std::array<float, kChannelCount> frameIn {};
     std::array<float, kChannelCount> frameOut {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    std::atomic<float> outputPeak{0.f};
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_parameter_members.inc"
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void publishRoutingParameters(Plugin&);
+bool rawParamsGetValue(const clap_plugin_t*,clap_id,double*);
+void flushRoutingParameters(Plugin&,const clap_output_events_t*);
+void destroyPortableGui(Plugin&);
+#endif
 
 Plugin* self(const clap_plugin_t* plugin)
 {
@@ -117,6 +137,7 @@ void apply(Plugin& p)
 
 void setParamValue(Plugin& p, clap_id paramId, double value)
 {
+    if (!std::isfinite(value)) return;
     switch (paramId) {
     case kParamLayout: {
         p.params.layout = static_cast<s3g::LayoutPannerPreset>(std::min<uint32_t>(roundedUint(value), kLayoutCount - 1u));
@@ -143,7 +164,19 @@ void setParamValue(Plugin& p, clap_id paramId, double value)
     default: return;
     }
     apply(p);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    double canonical=0.;
+    if(paramId<p.routingValues.size()&&rawParamsGetValue(&p.plugin,paramId,&canonical))p.routingValues[paramId].store(canonical,std::memory_order_release);
+    if(paramId==kParamLayout||paramId==kParamHighChannels) {
+        rawParamsGetValue(&p.plugin,kParamHighChannels,&canonical);p.routingValues[kParamHighChannels].store(canonical,std::memory_order_release);
+        rawParamsGetValue(&p.plugin,kParamSubOffset,&canonical);p.routingValues[kParamSubOffset].store(canonical,std::memory_order_release);
+    }
+#endif
 }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void applyParam(Plugin& p,clap_id id,double v){setParamValue(p,id,v);}
+#endif
 
 double getParamValue(const Plugin& p, clap_id paramId)
 {
@@ -163,7 +196,12 @@ double getParamValue(const Plugin& p, clap_id paramId)
     }
 }
 
-bool init(const clap_plugin_t*) { return true; }
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishRoutingParameters(*self(plugin));
+#endif
+    return true;
+}
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
@@ -171,6 +209,9 @@ void guiDestroy(const clap_plugin_t* plugin);
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -183,6 +224,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     p->sampleRate = sampleRate;
     p->xover.prepare(sampleRate);
     apply(*p);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishRoutingParameters(*p);
+#endif
     return true;
 }
 
@@ -226,6 +270,9 @@ void processTyped(Plugin& p, Sample** in, Sample** out, uint32_t channels, uint3
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushRoutingParameters(*p,process->out_events);
+#endif
     readParamEvents(*p, process->in_events);
     if (process->audio_inputs_count == 0 || process->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = process->audio_inputs[0];
@@ -284,12 +331,20 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool rawParamsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
+#else
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id paramId, double* value)
+#endif
 {
     if (!value) return false;
     *value = getParamValue(*self(plugin), paramId);
     return true;
 }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_parameter_bridge.inc"
+#endif
 
 bool paramsValueToText(const clap_plugin_t*, clap_id paramId, double value, char* display, uint32_t size)
 {
@@ -336,8 +391,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    flushRoutingParameters(*self(plugin),out);
+#endif
     readParamEvents(*self(plugin), in);
 }
 
@@ -346,7 +404,13 @@ const clap_plugin_params_t params { paramsCount, paramsGetInfo, paramsGetValue, 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto snapshot=std::make_unique<Plugin>();snapshot->plugin.plugin_data=snapshot.get();
+    for(unsigned n=0;n<paramsCount(plugin);++n){clap_param_info_t i{};double v=0.;paramsGetInfo(plugin,n,&i);paramsGetValue(plugin,i.id,&v);applyParam(*snapshot,i.id,v);}
+    const SavedState state { kStateVersion, snapshot->params };
+#else
     const SavedState state { kStateVersion, self(plugin)->params };
+#endif
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
@@ -356,9 +420,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     SavedState state {};
     if (!s3g::clap_state::readAll(stream, &state, sizeof(state))) return false;
     if (state.version != kStateVersion) return false;
+    for(float v:{state.params.cutoffHz,state.params.subFocus,state.params.subGainDb,state.params.highGainDb})if(!std::isfinite(v))return false;
     auto* p = self(plugin);
     p->params = sanitize(state.params);
     apply(*p);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishRoutingParameters(*p);
+#endif
     return true;
 }
 
@@ -1071,12 +1139,19 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_sub_crossover_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -1128,7 +1203,7 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

@@ -25,3 +25,13 @@ if(APPLE)
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   )
 endif()
+
+if(S3G_ROUTING_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_group_matrix_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_group_matrix_canvas.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  target_compile_definitions(s3g_group_matrix_clap PRIVATE S3G_GROUP_MATRIX_CHANNELS=64)
+endif()
+if(WIN32)
+  set_target_properties(s3g_group_matrix_clap PROPERTIES SUFFIX ".clap")
+endif()

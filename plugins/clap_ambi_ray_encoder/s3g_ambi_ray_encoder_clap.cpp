@@ -2,12 +2,20 @@
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
+#include <clap/ext/gui.h>
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_drawing.h"
+#include "../common/s3g_ray_field_loader_portable.h"
+#include "../common/s3g_clap_state_stream.h"
+#include <random>
+#endif
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
@@ -256,6 +264,8 @@ struct GuiSnapshot {
     float nearestDistance = 0.0f;
 };
 
+void portableGuiDestroy(const clap_plugin_t*);
+using EncoderParams=s3g::AmbiRayEncoderParams;
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -272,7 +282,11 @@ struct Plugin {
     std::atomic<bool> active { false };
     std::atomic<float> outputPeak { 0.0f };
     double sampleRate = 48000.0;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    #include "../common/s3g_decoder_gui_members.inc"
+    std::array<std::atomic<double>,64> encoderValues{};
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
@@ -337,6 +351,9 @@ void setListenerToDescriptorReference(s3g::AmbiRayEncoderParams& params,
     params.listenerZ = normalized.z;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_ray_bridge.inc"
+#else
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     switch (id) {
@@ -394,11 +411,20 @@ double getParam(const Plugin& plugin, clap_id id)
     default: return 0.0;
     }
 }
+#endif
 
-bool buildRuntime(Plugin& plugin, const s3g::AmbiRayDescriptor& descriptor, std::string& error)
+bool buildRuntime(Plugin& plugin, const s3g::AmbiRayDescriptor& descriptor, std::string& error
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+,const EncoderParams* replacement=nullptr
+#endif
+)
 {
     auto runtime = std::make_unique<s3g::AmbiRayEncoder>();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    runtime->setParams(replacement?*replacement:snapshotEncoderParams(plugin));
+#else
     runtime->setParams(plugin.params);
+#endif
     if (!runtime->prepare(plugin.sampleRate, descriptor)) {
         error = "RAY FIELD BUILD FAILED";
         return false;
@@ -409,6 +435,45 @@ bool buildRuntime(Plugin& plugin, const s3g::AmbiRayDescriptor& descriptor, std:
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool installDescriptor(Plugin& plugin,
+                       s3g::AmbiRayDescriptor descriptor,
+                       GuiSpaceGeometry geometry,
+                       std::string json,
+                       std::string name,
+                       bool adoptDefaultPositions,
+                       std::string& error,const EncoderParams* replacement=nullptr)
+{
+    descriptor = s3g::sanitizeAmbiRayDescriptor(std::move(descriptor));
+    if (descriptor.cells.empty()) {
+        error = "RAY FIELD HAS NO CELLS";
+        return false;
+    }
+    auto desired=replacement?*replacement:snapshotEncoderParams(plugin);
+    if (adoptDefaultPositions) {
+        const s3g::Vec3 normalized = s3g::AmbiRayEncoder::normalizedSourcePosition(
+            descriptor, descriptor.defaultSourcePositionMetres);
+        desired.sourceX = normalized.x;
+        desired.sourceY = normalized.y;
+        desired.sourceZ = normalized.z;
+        setListenerToDescriptorReference(desired, descriptor);
+        desired = s3g::sanitizeAmbiRayEncoderParams(desired);
+    }
+    if (plugin.active.load(std::memory_order_acquire) && !buildRuntime(plugin, descriptor, error,&desired)) return false;
+    {
+        std::lock_guard<std::mutex> lock(plugin.stateMutex);
+        plugin.descriptor = std::move(descriptor);
+        plugin.guiGeometry = std::move(geometry);
+        plugin.rayJson = std::move(json);
+        plugin.rayName = std::move(name);
+        plugin.status = "READY";
+    }
+    if(replacement)publishEncoderParams(plugin,desired);
+    else if(adoptDefaultPositions)for(auto id:{kParamSourceX,kParamSourceY,kParamSourceZ,kParamListenerX,kParamListenerY,kParamListenerZ})plugin.encoderValues[id].store(readEncoderScalar(desired,id));
+    if (plugin.hostTail && plugin.host) plugin.hostTail->changed(plugin.host);
+    return true;
+}
+#else
 bool installDescriptor(Plugin& plugin,
                        s3g::AmbiRayDescriptor descriptor,
                        GuiSpaceGeometry geometry,
@@ -443,6 +508,7 @@ bool installDescriptor(Plugin& plugin,
     if (plugin.hostTail && plugin.host) plugin.hostTail->changed(plugin.host);
     return true;
 }
+#endif
 
 GuiSnapshot guiSnapshot(Plugin& plugin)
 {
@@ -456,7 +522,11 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
         result.room = plugin.descriptor.room;
         result.branches = plugin.guiGeometry.branches;
         result.portals = plugin.guiGeometry.portals;
+        #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        params = snapshotEncoderParams(plugin);
+#else
         params = plugin.params;
+#endif
         result.source = sourcePosition(plugin.descriptor, params);
         result.listener = listenerPosition(plugin.descriptor, params);
         result.cells.reserve(plugin.descriptor.cells.size());
@@ -495,7 +565,7 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
     return result;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 float numberValue(NSDictionary* dictionary, NSString* key, float fallback)
 {
     id value = [dictionary objectForKey:key];
@@ -718,16 +788,22 @@ bool init(const clap_plugin_t* plugin)
     instance->hostTail = instance->host && instance->host->get_extension
         ? static_cast<const clap_host_tail_t*>(instance->host->get_extension(instance->host, CLAP_EXT_TAIL))
         : nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishEncoderParams(*instance,instance->params);
+#endif
     return true;
 }
 
 void destroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (instance->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(instance->guiViewport, instance->guiView);
     }
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    portableGuiDestroy(plugin);
 #endif
     delete instance;
 }
@@ -791,7 +867,11 @@ clap_process_status processTyped(Plugin& plugin,
     s3g::clearAudioBuffer(output, frames);
     auto* processor = plugin.activeProcessor.load(std::memory_order_acquire);
     if (!processor || !outputData) return CLAP_PROCESS_CONTINUE;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    processor->setParams(snapshotEncoderParams(plugin));
+#else
     processor->setParams(plugin.params);
+#endif
     const Sample* mono = inputData && input.channel_count > 0u ? inputData[0] : nullptr;
     processor->process(mono, outputData, output.channel_count, frames);
     float peak = 0.0f;
@@ -809,6 +889,9 @@ clap_process_status processTyped(Plugin& plugin,
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
     auto* instance = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceEncoderGui(*instance,process->out_events);
+#endif
     readParamEvents(*instance, process->in_events);
     if (process->audio_inputs_count == 0u || process->audio_outputs_count == 0u) return CLAP_PROCESS_CONTINUE;
     const auto& input = process->audio_inputs[0];
@@ -971,8 +1054,11 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id paramId, const char*
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceEncoderGui(*self(plugin),out);
+#endif
     readParamEvents(*self(plugin), input);
 }
 
@@ -988,11 +1074,62 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         json = instance->rayJson;
     }
     if (json.size() > kMaximumStateJsonBytes) return false;
-    const SavedStateHeader header { kStateMagic, kStateVersion, instance->params, static_cast<uint32_t>(json.size()) };
+    const auto savedParams =
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+      snapshotEncoderParams(*instance);
+#else
+      instance->params;
+#endif
+    const SavedStateHeader header { kStateMagic, kStateVersion, savedParams, static_cast<uint32_t>(json.size()) };
     return streamWriteAll(stream, &header, sizeof(header))
         && (json.empty() || streamWriteAll(stream, json.data(), json.size()));
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!stream || !stream->read) return false;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    if (!streamReadAll(stream, &magic, sizeof(magic))
+        || !streamReadAll(stream, &version, sizeof(version))
+        || magic != kStateMagic) return false;
+
+    s3g::AmbiRayEncoderParams loadedParams;
+    uint32_t jsonBytes = 0u;
+    const bool legacyListenerState = version == 1u;
+    if (legacyListenerState) {
+        SavedAmbiRayEncoderParamsV1 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV1(saved);
+    } else if (version == 2u) {
+        SavedAmbiRayEncoderParamsV2 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV2(saved);
+    } else if (version == 3u) {
+        SavedAmbiRayEncoderParamsV3 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV3(saved);
+    } else if (version == kStateVersion) {
+        if (!streamReadAll(stream, &loadedParams, sizeof(loadedParams))) return false;
+    } else {
+        return false;
+    }
+    if (!streamReadAll(stream, &jsonBytes, sizeof(jsonBytes)) || jsonBytes > kMaximumStateJsonBytes) return false;
+
+    auto* instance=self(plugin);
+    for (clap_id id = 1; id <= kParamFieldListen; ++id)
+        if (!std::isfinite(readEncoderScalar(loadedParams, id))) return false;
+    loadedParams=s3g::sanitizeAmbiRayEncoderParams(loadedParams);
+    auto descriptor=s3g::makeDefaultAmbiRayDescriptor();
+    GuiSpaceGeometry geometry;
+    std::string canonical,error;
+    if(jsonBytes){std::string json(jsonBytes,'\0');if(!streamReadAll(stream,json.data(),json.size()))return false;if(!parseRayData(json,descriptor,geometry,canonical,error))return false;}
+    if(legacyListenerState)setListenerToDescriptorReference(loadedParams,descriptor);
+    return installDescriptor(*instance,std::move(descriptor),std::move(geometry),std::move(canonical),jsonBytes?"PROJECT STATE":"BUILT-IN ROOM",false,error,&loadedParams);
+}
+
+#else
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
@@ -1029,7 +1166,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (jsonBytes > 0u) {
         std::string json(jsonBytes, '\0');
         if (!streamReadAll(stream, json.data(), json.size())) return false;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         NSData* data = [NSData dataWithBytes:json.data() length:json.size()];
         s3g::AmbiRayDescriptor descriptor;
         GuiSpaceGeometry geometry;
@@ -1048,22 +1185,35 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) processor->setParams(instance->params);
     return true;
 }
+#endif
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 uint32_t tailGet(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
-    if (instance->params.bypassRoom) return 0u;
+    if (getParam(*instance,kParamBypass)>=.5) return 0u;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* processor = instance->activeProcessor.load(std::memory_order_acquire);
+    if (!processor) return 0u;
+    // The runtime descriptor is immutable; its controls belong to audio.
+    // Compute the same DSP tail formula from the atomic parameter authority.
+    float maximumDecay = 0.f;
+    for (const auto& cell : processor->descriptor().cells)
+        maximumDecay = std::max(maximumDecay, cell.late.decaySeconds);
+    const float size = static_cast<float>(getParam(*instance, kParamSize));
+    return static_cast<uint32_t>(std::ceil(std::min(12.f, maximumDecay * size) * instance->sampleRate));
+#else
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) return processor->tailFrames();
     return 0u;
+#endif
 }
 
 const clap_plugin_tail_t tailExt { tailGet };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 
 NSString* compactFileName(const std::string& name)
@@ -1995,13 +2145,18 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_ray_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2064,4 +2219,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

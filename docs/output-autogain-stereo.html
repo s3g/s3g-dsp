@@ -89,6 +89,8 @@
 
         <p>The 3D layouts separate placement from level. <code>DST</code> changes how far elevated or lowered points sit from the center of the projection. <code>ATT</code> changes how much height and rear position reduce gain.</p>
 
+        <p>In the VSTGUI editor, sliders unused by the selected layout are gray and read <code>OFF</code>. This applies to <code>ATT</code>/<code>DST</code> in 2D layouts, and <code>ROT</code> in Odd/even, Center-out, and Pair-preserving. Their stored values are retained when switching layouts.</p>
+
         <figure>
           <div class="doc-graphic">
             <img src="mc_to_stereo_3d_controls.svg" alt="3D layout control diagram for MC to Stereo">
@@ -105,10 +107,10 @@
           <tbody>
             <tr><td>IN</td><td>How many plugin input channels are included in the fold-down.</td></tr>
             <tr><td>WDTH</td><td>Stereo width. Low values collapse inward; high values exaggerate left/right placement.</td></tr>
-            <tr><td>ROT</td><td>Rotates ring and 3D layouts before they are folded to stereo.</td></tr>
+            <tr><td>ROT</td><td>Rotates ring, linear, and 3D layouts before they are folded to stereo. Unused in Odd/even, Center-out, and Pair-preserving.</td></tr>
             <tr><td>LAY</td><td>Chooses the layout model.</td></tr>
             <tr><td>WGT</td><td>Controls how strongly the layout shape affects rear or grouped channel positions.</td></tr>
-            <tr><td>ATT</td><td>3D attenuation. In 3D layouts, height and rear position can reduce gain.</td></tr>
+            <tr><td>ATT</td><td>3D attenuation. In sphere, hemisphere, and cube layouts, height and rear position can reduce gain. Unused in 2D layouts.</td></tr>
             <tr><td>DST</td><td>3D distance. In 3D layouts, upper and lower positions spread away from or toward center.</td></tr>
             <tr><td>AGN</td><td>Autogain mode: off, power/sqrt(N), or energy sum.</td></tr>
             <tr><td>OUT</td><td>Final stereo output gain trim.</td></tr>

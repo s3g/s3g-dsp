@@ -2,6 +2,14 @@
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_decoder_drawing.h"
+#include "../common/s3g_clap_state_stream.h"
+#include <array>
+#include <memory>
+#include <vector>
+#endif
 #include <clap/ext/gui.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
@@ -39,6 +47,9 @@ struct SavedState {
     s3g::AmbiSubDecoderParams params {};
 };
 
+constexpr uint32_t kGuiWidth = 600;
+constexpr uint32_t kGuiHeight = 360;
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -46,6 +57,18 @@ struct Plugin {
     s3g::AmbiSubDecoder decoder {};
     s3g::AmbiSubDecoderParams params {};
     std::atomic<float> outputPeak { 0.0f };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_decoder_gui_members.inc"
+using DecoderParams = decltype(params);
+std::array<std::atomic<double>, 32> decoderValues{};
+DecoderParams decoderStateBase{};
+std::vector<std::unique_ptr<DecoderParams>> decoderLoadedStates;
+std::atomic<const DecoderParams*> decoderPendingState{nullptr};
+const DecoderParams* decoderAppliedState = nullptr;
+std::atomic<uint32_t> decoderLayoutCount{24u};
+bool decoderActive = false;
+#endif
+
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -83,6 +106,54 @@ bool readExact(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+using DecoderParams = decltype(Plugin::params);
+bool paramsGetInfo(const clap_plugin_t*, uint32_t, clap_param_info_t*);
+uint32_t paramsCount(const clap_plugin_t*);
+Plugin* self(const clap_plugin_t*);
+constexpr bool decoderHasLayoutCount = false;
+double readDecoderScalar(const DecoderParams& params, clap_id id) {
+
+    switch (id) {
+    case kOrderParamId: return params.order;
+    case kSubCountParamId: return params.subCount;
+    case kCutoffParamId: return params.cutoffHz;
+    case kWidthParamId: return params.directionWidth;
+    case kOutputParamId: return params.outputGainDb;
+    case kBypassParamId: return params.bypass ? 1.0 : 0.0;
+    default: return 0.;
+    }
+}
+void setDecoderScalar(DecoderParams& params, clap_id id, double value) {switch (id) {
+    case kOrderParamId: params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiSpeakerDecoderMaxOrder); break;
+    case kSubCountParamId: params.subCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiSubDecoderMaxSubs); break;
+    case kCutoffParamId: params.cutoffHz = s3g::clamp(static_cast<float>(value), 20.0f, 240.0f); break;
+    case kWidthParamId: params.directionWidth = s3g::clamp(static_cast<float>(value), 0.0f, 2.0f); break;
+    case kOutputParamId: params.outputGainDb = s3g::clamp(static_cast<float>(value), -60.0f, 18.0f); break;
+    case kBypassParamId: params.bypass = value >= 0.5; break;
+    default: break;
+    }
+}
+void refreshPortableDecoder(Plugin& p) { p.decoder.setParams(p.params); p.params = p.decoder.params(); }
+uint32_t decoderHiddenCount(const DecoderParams& params) {return 0u;}
+void setDecoderHiddenCount(DecoderParams& params, uint32_t count) {(void)params; (void)count;}
+void rawDecoderApplyParam(Plugin& p, clap_id id, double value)
+{
+    switch (id) {
+    case kOrderParamId: p.params.order = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 0u, s3g::kAmbiSpeakerDecoderMaxOrder); break;
+    case kSubCountParamId: p.params.subCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)), 1u, s3g::kAmbiSubDecoderMaxSubs); break;
+    case kCutoffParamId: p.params.cutoffHz = s3g::clamp(static_cast<float>(value), 20.0f, 240.0f); break;
+    case kWidthParamId: p.params.directionWidth = s3g::clamp(static_cast<float>(value), 0.0f, 2.0f); break;
+    case kOutputParamId: p.params.outputGainDb = s3g::clamp(static_cast<float>(value), -60.0f, 18.0f); break;
+    case kBypassParamId: p.params.bypass = value >= 0.5; break;
+    default: break;
+    }
+    p.decoder.setParams(p.params);
+    p.params = p.decoder.params();
+}
+#include "../common/s3g_decoder_parameter_bridge.inc"
+#else
 void applyParam(Plugin& p, clap_id id, double value)
 {
     switch (id) {
@@ -97,12 +168,30 @@ void applyParam(Plugin& p, clap_id id, double value)
     p.decoder.setParams(p.params);
     p.params = p.decoder.params();
 }
+#endif
 
-bool init(const clap_plugin_t*) { return true; }
+
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  auto& p=*self(plugin);
+  p.decoderStateBase=p.params;
+  publishDecoderParams(p);
+#endif
+  return true;
+}
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void portableGuiDestroy(const clap_plugin_t*);
+#endif
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    portableGuiDestroy(plugin);
+#endif
+
 #if defined(__APPLE__)
+#if !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
+#endif
 #endif
     delete self(plugin);
 }
@@ -110,6 +199,10 @@ void destroy(const clap_plugin_t* plugin)
 bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncDecoderParams(*p);
+    p->decoderActive = true;
+#endif
     p->sampleRate = sampleRate;
     p->decoder.prepare(sampleRate);
     p->decoder.setParams(p->params);
@@ -117,7 +210,11 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
     return true;
 }
 
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+self(plugin)->decoderActive=false;
+#endif
+}
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin)
@@ -154,6 +251,10 @@ float peakForChannels(float* const* output, uint32_t channels, uint32_t frames)
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    syncDecoderParams(*p);
+    serviceDecoderGui(*p, proc ? proc->out_events : nullptr);
+#endif
     readParamEvents(*p, proc->in_events);
     if (proc->audio_inputs_count == 0 || proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     const auto& input = proc->audio_inputs[0];
@@ -217,6 +318,12 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value) {
+if (!value || !decoderIsParam(id)) return false;
+*value=self(plugin)->decoderValues[id].load(std::memory_order_acquire); return true;
+}
+#else
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
@@ -231,6 +338,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     default: return false;
     }
 }
+#endif
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
@@ -259,17 +367,23 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id, const char* display, doubl
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ syncDecoderParams(*self(plugin));
+ serviceDecoderGui(*self(plugin),out);
+#endif
+ readParamEvents(*self(plugin),in);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
-bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+bool rawDecoderStateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     SavedState state { kStateVersion, self(plugin)->params };
     return writeExact(stream, &state, sizeof(state));
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+bool rawDecoderStateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     SavedState state {};
@@ -281,11 +395,21 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_DECODER_CAMERA_STATE 0
+#include "../common/s3g_decoder_state.inc"
+#undef S3G_DECODER_CAMERA_STATE
+#else
+bool stateSave(const clap_plugin_t* p,const clap_ostream_t* s){return rawDecoderStateSave(p,s);}
+bool stateLoad(const clap_plugin_t* p,const clap_istream_t* s){return rawDecoderStateLoad(p,s);}
+#endif
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_decoder_sub_canvas.inc"
+#endif
 
-#if defined(__APPLE__)
-constexpr uint32_t kGuiWidth = 600;
-constexpr uint32_t kGuiHeight = 360;
+
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 } // namespace
 
@@ -603,7 +727,9 @@ const void* getExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -658,7 +784,7 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

@@ -4,12 +4,8 @@
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
-#if defined(__APPLE__)
+#include "s3g_ambi_effect_fft.h"
 #define S3G_HAS_RESONANCE_PRINT_FFT 1
-#include <Accelerate/Accelerate.h>
-#else
-#define S3G_HAS_RESONANCE_PRINT_FFT 0
-#endif
 
 #include <algorithm>
 #include <array>
@@ -139,7 +135,7 @@ public:
         buildMatrixCache();
 #if S3G_HAS_RESONANCE_PRINT_FFT
         releaseFft();
-        fftSetup_ = vDSP_create_fftsetup(12u, kFFTRadix2);
+        fftSetup_ = ambi_effect_fft::vDSP_create_fftsetup(12u, ambi_effect_fft::radix2);
         if (!fftSetup_) return false;
 #endif
         for (uint32_t i = 0u; i < kResonancePrintAnalysisSize; ++i) {
@@ -958,10 +954,10 @@ private:
                     % kResonancePrintAnalysisSize;
                 fftTime_[i] = captureRing_[node][source] * analysisWindow_[i];
             }
-            DSPSplitComplex split { fftReal_.data(), fftImag_.data() };
-            vDSP_ctoz(reinterpret_cast<const DSPComplex*>(fftTime_.data()), 2,
+            ambi_effect_fft::DSPSplitComplex split { fftReal_.data(), fftImag_.data() };
+            ambi_effect_fft::vDSP_ctoz(reinterpret_cast<const ambi_effect_fft::DSPComplex*>(fftTime_.data()), 2,
                 &split, 1, kResonancePrintAnalysisSize / 2u);
-            vDSP_fft_zrip(fftSetup_, &split, 1, 12u, FFT_FORWARD);
+            ambi_effect_fft::vDSP_fft_zrip(fftSetup_, &split, 1, 12u, ambi_effect_fft::forward);
             captureSpectrum_[node][0] += std::abs(fftReal_[0]);
             for (uint32_t bin = 1u; bin < kResonancePrintBins - 1u; ++bin) {
                 captureSpectrum_[node][bin] += std::hypot(fftReal_[bin],
@@ -1108,7 +1104,7 @@ private:
     void releaseFft()
     {
 #if S3G_HAS_RESONANCE_PRINT_FFT
-        if (fftSetup_) vDSP_destroy_fftsetup(fftSetup_);
+        if (fftSetup_) ambi_effect_fft::vDSP_destroy_fftsetup(fftSetup_);
         fftSetup_ = nullptr;
 #endif
     }
@@ -1147,7 +1143,7 @@ private:
     std::array<float, kResonancePrintAnalysisSize / 2u> fftReal_ {};
     std::array<float, kResonancePrintAnalysisSize / 2u> fftImag_ {};
 #if S3G_HAS_RESONANCE_PRINT_FFT
-    FFTSetup fftSetup_ = nullptr;
+    ambi_effect_fft::FFTSetup fftSetup_ = nullptr;
 #endif
 
     AmbiEffectTopology previousTopology_ = AmbiEffectTopology::Local;

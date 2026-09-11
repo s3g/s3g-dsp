@@ -2,12 +2,20 @@
 #include "s3g_realtime.h"
 
 #include <clap/clap.h>
+#include <clap/ext/gui.h>
+#include "../common/s3g_gui_layout.h"
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_drawing.h"
+#include "../common/s3g_ray_field_loader_portable.h"
+#include "../common/s3g_clap_state_stream.h"
+#include <random>
+#endif
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
@@ -111,12 +119,28 @@ constexpr std::array<PairPreset, 8> kPairPresets {{
 
 struct FieldState {
     s3g::AmbiRayDescriptor descriptor = s3g::makeDefaultAmbiRayDescriptor();
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::ray_field_files::VisualGeometry visual{};
+#elif defined(__APPLE__)
     s3g::ray_field_loader::VisualGeometry visual {};
 #endif
     std::string json;
     std::string name = "BUILT-IN ROOM";
 };
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+FieldState builtinField(bool far){FieldState field;field.name=far?"BUILT-IN FAR":"BUILT-IN NEAR";if(far){    field.descriptor.durationSeconds = 4.5f;
+    for (auto& cell : field.descriptor.cells) {
+        for (auto& reflection : cell.reflections) {
+            reflection.delayMs *= 1.45f;
+            reflection.damping = s3g::clamp(reflection.damping + 0.22f, 0.0f, 1.0f);
+        }
+        cell.late.startMs *= 1.35f;
+        cell.late.decaySeconds *= 2.1f;
+        cell.late.damping = s3g::clamp(cell.late.damping + 0.18f, 0.0f, 1.0f);
+    }
+}return field;}
+#endif
 
 struct SavedAmbiRayBilocationParamsV1 {
     uint32_t order = 3u;
@@ -195,6 +219,8 @@ struct SavedStateHeader {
     uint32_t jsonBytesB = 0u;
 };
 
+void portableGuiDestroy(const clap_plugin_t*);
+using EncoderParams=s3g::AmbiRayBilocationParams;
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -211,8 +237,12 @@ struct Plugin {
     std::atomic<bool> active { false };
     std::atomic<float> outputPeak { 0.0f };
     double sampleRate = 48000.0;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    #include "../common/s3g_decoder_gui_members.inc"
+    std::array<std::atomic<double>,64> encoderValues{};
+#endif
     uint32_t maximumFrames = 1024u;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
@@ -245,6 +275,9 @@ bool streamReadAll(const clap_istream_t* stream, void* destination, uint64_t byt
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_ray_bilocation_bridge.inc"
+#else
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     auto& p = plugin.params;
@@ -321,14 +354,23 @@ double getParam(const Plugin& plugin, clap_id id)
     default: return 0.0;
     }
 }
+#endif
 
 bool buildRuntime(Plugin& plugin,
                   const s3g::AmbiRayDescriptor& descriptorA,
                   const s3g::AmbiRayDescriptor& descriptorB,
-                  std::string& error)
+                  std::string& error
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+,const EncoderParams* replacement=nullptr
+#endif
+)
 {
     auto runtime = std::make_unique<s3g::AmbiRayBilocationEncoder>();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    runtime->setParams(replacement?*replacement:snapshotEncoderParams(plugin));
+#else
     runtime->setParams(plugin.params);
+#endif
     if (!runtime->prepare(plugin.sampleRate, plugin.maximumFrames, descriptorA, descriptorB)) {
         error = "BILOCATION FIELD BUILD FAILED";
         return false;
@@ -339,6 +381,33 @@ bool buildRuntime(Plugin& plugin,
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool installFields(Plugin& plugin,
+                   FieldState fieldA,
+                   FieldState fieldB,
+                   std::string pairName,
+                   int selectedPair,
+                   std::string& error,const EncoderParams* replacement=nullptr)
+{
+    if (fieldA.descriptor.cells.empty() || fieldB.descriptor.cells.empty()) {
+        error = "BOTH RAY FIELDS REQUIRE CELLS";
+        return false;
+    }
+    if (plugin.active.load(std::memory_order_acquire)
+        && !buildRuntime(plugin, fieldA.descriptor, fieldB.descriptor, error,replacement)) return false;
+    {
+        std::lock_guard<std::mutex> lock(plugin.stateMutex);
+        plugin.fieldA = std::move(fieldA);
+        plugin.fieldB = std::move(fieldB);
+        plugin.pairName = std::move(pairName);
+        plugin.selectedPair = selectedPair;
+        plugin.status = "READY";
+    }
+    if(replacement)publishEncoderParams(plugin,*replacement);
+    if (plugin.hostTail && plugin.host) plugin.hostTail->changed(plugin.host);
+    return true;
+}
+#else
 bool installFields(Plugin& plugin,
                    FieldState fieldA,
                    FieldState fieldB,
@@ -363,6 +432,7 @@ bool installFields(Plugin& plugin,
     if (plugin.hostTail && plugin.host) plugin.hostTail->changed(plugin.host);
     return true;
 }
+#endif
 
 bool init(const clap_plugin_t* plugin)
 {
@@ -370,16 +440,22 @@ bool init(const clap_plugin_t* plugin)
     instance->hostTail = instance->host && instance->host->get_extension
         ? static_cast<const clap_host_tail_t*>(instance->host->get_extension(instance->host, CLAP_EXT_TAIL))
         : nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishEncoderParams(*instance,instance->params);
+#endif
     return true;
 }
 
 void destroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (instance->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(instance->guiViewport, instance->guiView);
     }
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    portableGuiDestroy(plugin);
 #endif
     delete instance;
 }
@@ -449,7 +525,11 @@ clap_process_status processTyped(Plugin& plugin,
     s3g::clearAudioBuffer(output, frames);
     auto* processor = plugin.activeProcessor.load(std::memory_order_acquire);
     if (!processor || !outputData) return CLAP_PROCESS_CONTINUE;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    processor->setParams(snapshotEncoderParams(plugin));
+#else
     processor->setParams(plugin.params);
+#endif
     const Sample* mono = inputData && input.channel_count > 0u ? inputData[0] : nullptr;
     processor->process(mono, outputData, output.channel_count, frames);
     float peak = 0.0f;
@@ -470,6 +550,9 @@ clap_process_status processTyped(Plugin& plugin,
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* processData)
 {
     auto* instance = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceEncoderGui(*instance,processData->out_events);
+#endif
     readParamEvents(*instance, processData->in_events);
     if (processData->audio_inputs_count == 0u || processData->audio_outputs_count == 0u) return CLAP_PROCESS_CONTINUE;
     const auto& input = processData->audio_inputs[0];
@@ -622,8 +705,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceEncoderGui(*self(plugin),out);
+#endif
     readParamEvents(*self(plugin), input);
 }
 
@@ -640,17 +726,24 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         jsonA = instance->fieldA.json;
         jsonB = instance->fieldB.json;
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (jsonA.size() > s3g::ray_field_loader::kMaximumJsonBytes
         || jsonB.size() > s3g::ray_field_loader::kMaximumJsonBytes) return false;
 #endif
-    const SavedStateHeader header { kStateMagic, kStateVersion, instance->params,
+    const auto savedParams =
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+      snapshotEncoderParams(*instance);
+#else
+      instance->params;
+#endif
+    const SavedStateHeader header { kStateMagic, kStateVersion, savedParams,
         static_cast<uint32_t>(jsonA.size()), static_cast<uint32_t>(jsonB.size()) };
     return streamWriteAll(stream, &header, sizeof(header))
         && (jsonA.empty() || streamWriteAll(stream, jsonA.data(), jsonA.size()))
         && (jsonB.empty() || streamWriteAll(stream, jsonB.data(), jsonB.size()));
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
@@ -673,7 +766,45 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     if (!streamReadAll(stream, &jsonBytesA, sizeof(jsonBytesA))
         || !streamReadAll(stream, &jsonBytesB, sizeof(jsonBytesB))) return false;
-#if defined(__APPLE__)
+    if (jsonBytesA > s3g::portable_gui::ray_field_files::kMaximumJsonBytes
+        || jsonBytesB > s3g::portable_gui::ray_field_files::kMaximumJsonBytes) return false;
+    for (clap_id id = 1; id <= kParamFieldListen; ++id)
+        if (!std::isfinite(readEncoderScalar(loadedParams, id))) return false;
+    auto* instance=self(plugin);loadedParams=s3g::sanitizeAmbiRayBilocationParams(loadedParams);
+    auto fieldA=builtinField(false),fieldB=builtinField(true);
+    auto readField=[&](uint32_t bytes,FieldState& field,const char* name){
+      if(!bytes)return true;std::string data(bytes,'\0');if(!streamReadAll(stream,data.data(),data.size()))return false;
+      std::string error;if(!s3g::portable_gui::ray_field_files::parse(data,field.descriptor,field.visual,field.json,error))return false;
+      field.name=name;return true;
+    };
+    if(!readField(jsonBytesA,fieldA,"PROJECT A")||!readField(jsonBytesB,fieldB,"PROJECT B"))return false;
+    std::string error;return installFields(*instance,std::move(fieldA),std::move(fieldB),"PROJECT PAIR",-1,error,&loadedParams);
+}
+
+#else
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!stream || !stream->read) return false;
+    uint32_t magic = 0u;
+    uint32_t version = 0u;
+    if (!streamReadAll(stream, &magic, sizeof(magic))
+        || !streamReadAll(stream, &version, sizeof(version))
+        || magic != kStateMagic) return false;
+    s3g::AmbiRayBilocationParams loadedParams;
+    uint32_t jsonBytesA = 0u;
+    uint32_t jsonBytesB = 0u;
+    if (version == 1u) {
+        SavedAmbiRayBilocationParamsV1 saved;
+        if (!streamReadAll(stream, &saved, sizeof(saved))) return false;
+        loadedParams = paramsFromV1(saved);
+    } else if (version == kStateVersion) {
+        if (!streamReadAll(stream, &loadedParams, sizeof(loadedParams))) return false;
+    } else {
+        return false;
+    }
+    if (!streamReadAll(stream, &jsonBytesA, sizeof(jsonBytesA))
+        || !streamReadAll(stream, &jsonBytesB, sizeof(jsonBytesB))) return false;
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (jsonBytesA > s3g::ray_field_loader::kMaximumJsonBytes
         || jsonBytesB > s3g::ray_field_loader::kMaximumJsonBytes) return false;
 #endif
@@ -685,7 +816,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (bytes == 0u) return true;
         std::string json(bytes, '\0');
         if (!streamReadAll(stream, json.data(), json.size())) return false;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         NSData* data = [NSData dataWithBytes:json.data() length:json.size()];
         std::string error;
         if (!s3g::ray_field_loader::parse(data, field.descriptor, field.visual, field.json, error)) return false;
@@ -705,15 +836,34 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) processor->setParams(instance->params);
     return true;
 }
+#endif
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 uint32_t tailGet(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
-    if (instance->params.bypassRoom) return 0u;
+    if (getParam(*instance,kParamBypass)>=.5) return 0u;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* processor = instance->activeProcessor.load(std::memory_order_acquire);
+    if (!processor) return 0u;
+    // Descriptors are immutable. Do not read the live DSP's mutable controls
+    // when the host asks for a tail on its main thread.
+    auto roomTail = [&](const s3g::AmbiRayDescriptor& field, clap_id sizeId) {
+        float maximumDecay = 0.f;
+        for (const auto& cell : field.cells)
+            maximumDecay = std::max(maximumDecay, cell.late.decaySeconds);
+        const float size = static_cast<float>(getParam(*instance, sizeId));
+        return static_cast<uint32_t>(std::ceil(std::min(12.f, maximumDecay * size) * instance->sampleRate));
+    };
+    const auto room = std::max(roomTail(processor->descriptorA(), kParamSizeA),
+                              roomTail(processor->descriptorB(), kParamSizeB));
+    const float memory = static_cast<float>(getParam(*instance, kParamMemory));
+    return room + static_cast<uint32_t>(std::ceil(memory * instance->sampleRate));
+#else
     if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) return processor->tailFrames();
     return 0u;
+#endif
 }
 
 const clap_plugin_tail_t tailExt { tailGet };
@@ -722,7 +872,7 @@ const clap_plugin_tail_t tailExt { tailGet };
 
 // GUI implementation is below so the audio/state core also builds on non-macOS hosts.
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 
 struct GuiFieldSnapshot {
@@ -1904,13 +2054,18 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_input_encoder_ray_bilocation_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -1979,4 +2134,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

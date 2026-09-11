@@ -67,10 +67,16 @@ public:
   void requestService() {
     s3g::clap_gui::requestParamEventService(p.host, p.monitorHostParams);
   }
+  virtual bool parameterEnabled(clap_id) const { return true; }
+  void service() override {
+    if (active != CLAP_INVALID_ID && !parameterEnabled(active))
+      end();
+  }
   void begin(clap_id id) {
     // Reserve an END slot before accepting BEGIN. No gesture can be left
     // open if the host temporarily stops draining its parameter events.
-    if ((id >= 1 && id <= 9 ? id - 1 : 9) >= 9u || active != CLAP_INVALID_ID ||
+    if (!parameterEnabled(id) ||
+        (id >= 1 && id <= 9 ? id - 1 : 9) >= 9u || active != CLAP_INVALID_ID ||
         p.monitorGuiEvents.available() < 3u)
       return;
     if (p.monitorGuiEvents.push({Kind::GestureBegin, id, 0.})) {
@@ -79,6 +85,11 @@ public:
     }
   }
   void setValue(clap_id id, double v) {
+    // A host layout change can arrive during a drag, before the next repaint.
+    if (active == id && !parameterEnabled(id)) {
+      end();
+      return;
+    }
     if (!std::isfinite(v) || active != id ||
         p.monitorGuiEvents.available() < 2u)
       return;
@@ -270,6 +281,32 @@ public:
 class Editor final : public EffectEditor {
 public:
   using EffectEditor::EffectEditor;
+  bool parameterEnabled(clap_id id) const override {
+    const auto model = static_cast<s3g::McStereoLayout>(roundedUint(value(kParamLayout)));
+    const bool projection = model == s3g::McStereoLayout::SphereProjection ||
+                            model == s3g::McStereoLayout::HemisphereProjection ||
+                            model == s3g::McStereoLayout::CubeProjection;
+    if (id == kParamDistance3d)
+      return projection;
+#if defined(S3G_MONITOR_STEREO_PORT)
+    if (id == kParamAttenuation3d)
+      return projection;
+    if (id == kParamRotation)
+      return model != s3g::McStereoLayout::OddEvenStereo &&
+             model != s3g::McStereoLayout::CenterOut &&
+             model != s3g::McStereoLayout::PairPreserving;
+#endif
+    // Quad rotates every layout, and ATT affects rear gain even at zero height.
+    return true;
+  }
+  foundation::Palette sliderStyle(clap_id id) const {
+    auto result = style;
+    if (!parameterEnabled(id)) {
+      result.label = result.value = result.text = color(0x686868);
+      result.fill = color(0x424242);
+    }
+    return result;
+  }
   double refreshPeriodMilliseconds() const override { return 1000. / 24.; }
   static constexpr auto outputPanel = layout::outputUtilityPanel(
       layout::PanelRole::Output, 42., outputCount + 2);
@@ -304,7 +341,8 @@ public:
     return sanitizeParams(prm);
   }
   void row(clap_id id, const char *name, const layout::Panel &panel,
-           unsigned index, bool enabled = true) {
+           unsigned index) {
+    const bool enabled = parameterEnabled(id);
     const double y = layout::rowY(panel, index);
     const double x = layout::processorControlX(panel.frame.x);
     const auto label = rect(layout::processorLabelX(panel.frame.x), y - 2.,
@@ -335,19 +373,19 @@ public:
     const auto readout =
         rect(layout::processorValueX(panel.frame.x, panel.frame.width), y - 2.,
              layout::kStandardMetrics.processorValueWidth, 15.);
-    const double normalized = enabled ? (value(id) - param.min_value) /
-                                            (param.max_value - param.min_value)
-                                      : id == kParamDistance3d ? .5 : 0.;
-    fittedText(name, label, style.label);
+    const double normalized = (value(id) - param.min_value) /
+                              (param.max_value - param.min_value);
+    const auto rowStyle = sliderStyle(id);
+    fittedText(name, label, rowStyle.label);
     foundation::drawHorizontalSlider(*context, track, normalized,
-                                     track.top - 2., 13., style);
+                                     track.top - 2., 13., rowStyle);
     const auto formatted =
         !enabled
             ? std::string("OFF")
             : id == kParamRotation ? format("%+.0f°", value(id)) : display(id);
     fittedText(foundation::sliderValueTextToFit(*context, formatted,
                                                 readout.getWidth(), font),
-               readout, style.value, kRightText);
+               readout, rowStyle.value, kRightText);
     drag(
         box(layout::sliderHitRect(panel, index)),
         [this, id, track](CPoint point) {
@@ -355,7 +393,10 @@ public:
                                               track.getWidth()));
         },
         [this, id] { begin(id); }, [this] { end(); },
-        [this, id] { set(id, info(id).default_value); }, enabled);
+        [this, id] {
+          if (parameterEnabled(id))
+            set(id, info(id).default_value);
+        }, enabled);
   }
   float peak(unsigned channel) const {
 #if defined(S3G_MONITOR_STEREO_PORT)
@@ -596,13 +637,8 @@ public:
     row(kParamRotation, "ROT", routingPanel, 2);
     row(kParamLayout, "LAY", routingPanel, 3);
     row(kParamLayoutWeight, "WGT", routingPanel, 4);
-#if defined(S3G_MONITOR_STEREO_PORT)
-    const bool projection = isProjectionLayout(prm.layout);
-#else
-    const bool projection = true;
-#endif
-    row(kParamAttenuation3d, "ATT", routingPanel, 5, projection);
-    row(kParamDistance3d, "DST", routingPanel, 6, projection);
+    row(kParamAttenuation3d, "ATT", routingPanel, 5);
+    row(kParamDistance3d, "DST", routingPanel, 6);
   }
 };
 } // namespace monitor_canvas

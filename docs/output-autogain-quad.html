@@ -75,17 +75,19 @@
           <tbody>
             <tr><td>IN</td><td>How many plugin input channels are included in the fold-down.</td></tr>
             <tr><td>WDTH</td><td>Quad field width. Low values collapse inward; high values exaggerate the field.</td></tr>
-            <tr><td>ROT</td><td>Rotates ring and 3D layouts before they are folded to quad.</td></tr>
+            <tr><td>ROT</td><td>Rotates positions in every layout before they are folded to quad.</td></tr>
             <tr><td>AGN</td><td>Dropdown menu for autogain: Off, Power/sqrt(N), or Energy sum.</td></tr>
             <tr><td>OUT</td><td>Final quad output gain trim.</td></tr>
             <tr><td>LAY</td><td>Dropdown menu for the layout model.</td></tr>
-            <tr><td>WGT</td><td>Controls how strongly the layout shape affects channel placement.</td></tr>
-            <tr><td>ATT</td><td>3D attenuation for layouts with height and rear relationships.</td></tr>
+            <tr><td>WGT</td><td>Scales the height/rear attenuation applied by ATT.</td></tr>
+            <tr><td>ATT</td><td>Height and rear attenuation. Unlike Stereo, Quad also applies rear attenuation in 2D layouts, so this control remains active there.</td></tr>
             <tr><td>DST</td><td>3D distance spread for sphere, hemisphere, and cube layouts.</td></tr>
           </tbody>
         </table>
 
         <h2 id="layout-models">Layout Models</h2>
+
+        <p>In the VSTGUI editor, <code>DST</code> is gray and reads <code>OFF</code> outside the sphere, hemisphere, and cube layouts. Its stored value is retained when switching layouts.</p>
 
         <p><code>LAY</code> uses the same layout names as the stereo fold-down: Ring projection, Linear left-right, Odd/even stereo, Center-out, Pair-preserving, Sphere projection, Hemisphere projection, and Cube projection. In the quad version, the channel positions are projected toward four speakers instead of a stereo pair.</p>
 

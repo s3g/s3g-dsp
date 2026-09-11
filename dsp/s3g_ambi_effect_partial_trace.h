@@ -4,12 +4,8 @@
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
-#if defined(__APPLE__)
+#include "s3g_ambi_effect_fft.h"
 #define S3G_HAS_PARTIAL_TRACE_FFT 1
-#include <Accelerate/Accelerate.h>
-#else
-#define S3G_HAS_PARTIAL_TRACE_FFT 0
-#endif
 
 #include <algorithm>
 #include <array>
@@ -159,7 +155,7 @@ public:
         spatial_.prepare(sampleRate_);
 #if S3G_HAS_PARTIAL_TRACE_FFT
         releaseFft();
-        fftSetup_ = vDSP_create_fftsetup(11u, kFFTRadix2);
+        fftSetup_ = ambi_effect_fft::vDSP_create_fftsetup(11u, ambi_effect_fft::radix2);
         if (!fftSetup_) return false;
 #endif
         for (uint32_t index = 0u; index < kPartialTraceAnalysisSize; ++index) {
@@ -495,10 +491,10 @@ private:
                 % kPartialTraceAnalysisSize;
             fftTime_[index] = analysisRing_[source] * analysisWindow_[index];
         }
-        DSPSplitComplex split { fftReal_.data(), fftImag_.data() };
-        vDSP_ctoz(reinterpret_cast<const DSPComplex*>(fftTime_.data()), 2,
+        ambi_effect_fft::DSPSplitComplex split { fftReal_.data(), fftImag_.data() };
+        ambi_effect_fft::vDSP_ctoz(reinterpret_cast<const ambi_effect_fft::DSPComplex*>(fftTime_.data()), 2,
             &split, 1, kPartialTraceAnalysisSize / 2u);
-        vDSP_fft_zrip(fftSetup_, &split, 1, 11u, FFT_FORWARD);
+        ambi_effect_fft::vDSP_fft_zrip(fftSetup_, &split, 1, 11u, ambi_effect_fft::forward);
         magnitudes_[0] = std::abs(fftReal_[0]);
         for (uint32_t bin = 1u; bin < kPartialTraceBins - 1u; ++bin) {
             magnitudes_[bin] = std::hypot(fftReal_[bin], fftImag_[bin]);
@@ -915,7 +911,7 @@ private:
     void releaseFft()
     {
 #if S3G_HAS_PARTIAL_TRACE_FFT
-        if (fftSetup_) vDSP_destroy_fftsetup(fftSetup_);
+        if (fftSetup_) ambi_effect_fft::vDSP_destroy_fftsetup(fftSetup_);
         fftSetup_ = nullptr;
 #endif
     }
@@ -934,7 +930,7 @@ private:
     std::array<float, kPartialTraceAnalysisSize / 2u> fftImag_ {};
     std::array<float, kPartialTraceBins> magnitudes_ {};
 #if S3G_HAS_PARTIAL_TRACE_FFT
-    FFTSetup fftSetup_ = nullptr;
+    ambi_effect_fft::FFTSetup fftSetup_ = nullptr;
 #endif
     uint32_t analysisWrite_ = 0u;
     uint32_t samplesUntilAnalysis_ = kPartialTraceAnalysisSize;

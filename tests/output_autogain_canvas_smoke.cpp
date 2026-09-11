@@ -212,6 +212,125 @@ void allControls(Editor &v, Plugin &p, Events &events) {
   expect(render(v) == closed, "outside menu dismissal");
   events.balanced();
 }
+void inactiveControls(Editor &v, Plugin &p, Events &events) {
+  const auto point = [&](clap_id id, double norm) {
+    const unsigned row = id == kParamRotation ? 2 : id == kParamAttenuation3d ? 5 : 6;
+    return CPoint(layout::processorControlX(Editor::routingPanel.frame.x) +
+                      norm * layout::processorTrackWidth(Editor::routingPanel.frame.width),
+                  layout::rowY(Editor::routingPanel, row) + 4.);
+  };
+  for (unsigned model = 0; model < 8; ++model) {
+    v.set(kParamLayout, model);
+    flush(p, events);
+    events.balanced();
+    for (clap_id id : {kParamRotation, kParamAttenuation3d, kParamDistance3d}) {
+      bool enabled = id != kParamDistance3d || model >= 5;
+#if defined(S3G_MONITOR_STEREO_PORT)
+      if (id == kParamAttenuation3d)
+        enabled = model >= 5;
+      if (id == kParamRotation)
+        enabled = model < 2 || model >= 5;
+#endif
+      expect(v.parameterEnabled(id) == enabled, "layout-specific enabled state");
+      v.set(id, 23.);
+      flush(p, events);
+      events.balanced();
+      const auto rowStyle = v.sliderStyle(id);
+      const auto &activeStyle = foundation::palette();
+      if (enabled)
+        expect(rowStyle.label == activeStyle.label && rowStyle.value == activeStyle.value &&
+                   rowStyle.fill == activeStyle.fill && rowStyle.text == activeStyle.text,
+               "active slider keeps family colors");
+      else
+        expect(rowStyle.label.red < activeStyle.label.red &&
+                   rowStyle.value.red < activeStyle.value.red &&
+                   rowStyle.fill.red < activeStyle.fill.red &&
+                   rowStyle.text.red < activeStyle.text.red,
+               "inactive label, value, fill, and handle are all dimmed");
+      render(v);
+      down(v, point(id, .4));
+      move(v, point(id, .8));
+      up(v);
+      click(v, point(id, .4), 2);
+      MouseWheelEvent wheel;
+      wheel.mousePosition = point(id, .4);
+      wheel.deltaY = 1.;
+      v.onMouseWheelEvent(wheel);
+      flush(p, events);
+      expect(near(v.value(id), enabled ? v.info(id).default_value : 23.),
+             "inactive drag/reset/wheel preserve stored value");
+      expect(enabled ? !events.values.empty() : events.values.empty(),
+             "inactive controls emit no automation gestures");
+      events.balanced();
+
+      // Validate the enablement mask against the real channel-gain equations,
+      // including Quad ATT's rear attenuation in non-3D layouts.
+      auto low = v.readParams();
+      low.inputChannels = 12;
+      low.widthPercent = 73.;
+      low.rotationDegrees = 31.;
+      low.layoutWeightPercent = 67.;
+      low.attenuation3dPercent = 45.;
+      low.distance3dPercent = 83.;
+      auto high = low;
+      if (id == kParamRotation) {
+        low.rotationDegrees = -27.; high.rotationDegrees = 62.;
+      } else if (id == kParamAttenuation3d) {
+        low.attenuation3dPercent = 0.; high.attenuation3dPercent = 100.;
+      } else {
+        low.distance3dPercent = 0.; high.distance3dPercent = 200.;
+      }
+      bool affectsGains = false;
+      for (unsigned ch = 0; ch < low.inputChannels; ++ch) {
+#if defined(S3G_MONITOR_STEREO_PORT)
+        const auto a = s3g::panGainForChannel(ch, low.inputChannels, low);
+        const auto b = s3g::panGainForChannel(ch, high.inputChannels, high);
+        affectsGains |= !near(a.pan, b.pan) || !near(a.gain, b.gain);
+#else
+        const auto a = s3g::quadGainsForChannel(ch, low.inputChannels, low);
+        const auto b = s3g::quadGainsForChannel(ch, high.inputChannels, high);
+        affectsGains |= !near(a.left, b.left) || !near(a.right, b.right) ||
+                        !near(a.leftBack, b.leftBack) || !near(a.rightBack, b.rightBack);
+#endif
+      }
+      expect(affectsGains == enabled, "enablement matches real DSP dependencies");
+    }
+  }
+  // Host automation can invalidate hit geometry before the next 24 Hz draw.
+  v.set(kParamLayout, 5);
+  v.set(kParamDistance3d, 147.);
+  flush(p, events);
+  events.balanced();
+  render(v);
+  setParamValue(p, kParamLayout, 0);
+  click(v, point(kParamDistance3d, .3));
+  click(v, point(kParamDistance3d, .3), 2);
+  flush(p, events);
+  expect(v.value(kParamDistance3d) == 147. && events.values.empty(),
+         "stale hit targets cannot edit an inactive parameter");
+  for (bool timerFirst : {false, true}) {
+    v.set(kParamLayout, 5);
+    flush(p, events);
+    events.balanced();
+    render(v);
+    down(v, point(kParamDistance3d, .4));
+    const auto before = v.value(kParamDistance3d);
+    setParamValue(p, kParamLayout, 0);
+    if (timerFirst)
+      v.service();
+    move(v, point(kParamDistance3d, .8));
+    up(v);
+    flush(p, events);
+    expect(v.value(kParamDistance3d) == before && v.active == CLAP_INVALID_ID,
+           "layout change ends an inactive drag without changing its value");
+    events.balanced();
+    v.set(kParamLayout, 5);
+    flush(p, events);
+    expect(v.value(kParamDistance3d) == before && v.parameterEnabled(kParamDistance3d),
+           "returning to 3D restores the retained setting");
+    events.balanced();
+  }
+}
 void presets(Editor &v, Plugin &p, Events &events) {
   const auto root =
       std::filesystem::temp_directory_path() /
@@ -409,6 +528,7 @@ int main() {
     Events events;
     render(*v, "initial");
     allControls(*v, p, events);
+    inactiveControls(*v, p, events);
     presets(*v, p, events);
     backpressure(*v, p, events);
     audio<float>(*v, p, events);

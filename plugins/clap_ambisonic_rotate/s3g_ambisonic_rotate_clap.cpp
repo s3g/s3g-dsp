@@ -2,6 +2,10 @@
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_state_stream.h"
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_gui.h"
+#endif
+
 #include <clap/clap.h>
 #include <clap/ext/ambisonic.h>
 #include <clap/ext/audio-ports.h>
@@ -77,6 +81,9 @@ struct Plugin {
     s3g::AmbiRotateProcessor processor {};
     std::atomic<float> outputPeak { 0.0f };
     int32_t guiViewMode = 2;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_routing_gui_members.inc"
+#endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -93,6 +100,7 @@ uint32_t roundedUint(double value) { return static_cast<uint32_t>(std::max(0.0, 
 
 bool setParamValue(s3g::AmbiRotateParams& params, clap_id id, double value)
 {
+    if (!std::isfinite(value)) return false;
     switch (id) {
     case kParamOrder: params.order = std::clamp<uint32_t>(roundedUint(value), 1u, s3g::kAmbiUtilityMaxOrder); break;
     case kParamYaw: params.yawDeg = static_cast<float>(value); break;
@@ -185,6 +193,10 @@ bool syncPendingParams(Plugin& p)
 bool init(const clap_plugin_t*) { return true; }
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    delete self(plugin)->portableGuiEditor;
+    self(plugin)->portableGuiEditor = nullptr;
+#endif
 #if defined(__APPLE__)
     guiDestroy(plugin);
 #endif
@@ -283,6 +295,9 @@ clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input,
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::clap_gui::serviceParamEvents(p->guiParamEvents, proc->out_events, [](clap_id, double) {});
+#endif
     const bool pendingParamsChanged = syncPendingParams(*p);
     // This processor has historically treated CLAP automation as block-rate.
     // Fold the whole event list into one snapshot so dense host bursts cause a
@@ -364,7 +379,12 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     }
     return paramId >= kParamOrder && paramId <= kParamOutput;
 }
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { flushParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::clap_gui::serviceParamEvents(self(plugin)->guiParamEvents, out, [](clap_id, double) {});
+#endif
+    flushParamEvents(*self(plugin), in);
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
@@ -861,12 +881,20 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_AMBI_ROTATE_GROUP 0
+#include "../common/s3g_ambi_rotate_canvas.inc"
+#include "../common/s3g_clap_canvas_gui.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -919,4 +947,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

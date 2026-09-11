@@ -1,0 +1,945 @@
+// Literal Cocoa geometry and interaction adaptation; see
+// DECODERS_VSTGUI_PARITY.md.
+namespace decoder_canvas {
+namespace drawing = s3g::portable_gui::decoder_drawing;
+namespace foundation = s3g::portable_gui::foundation;
+using namespace VSTGUI;
+using namespace s3g::portable_gui::routing;
+using Kind = s3g::clap_gui::ParamEventKind;
+constexpr const char *pluginName = "Ambi Decoder Adaptive";
+constexpr const char *pluginTitle = "s3g AMBI DECODER ADAPTIVE";
+constexpr clap_id preservedOutput = kOutputParamId;
+constexpr const auto &stateExtension = stateExt;
+double routingReadValue(const Plugin &p, clap_id id) {
+  return decoderIsParam(id)
+             ? p.decoderValues[id].load(std::memory_order_acquire)
+             : 0.;
+}
+void routingPublish(Plugin &p,
+                    const std::vector<std::pair<clap_id, double>> &values) {
+  auto params = snapshotDecoderParams(p);
+  for (auto [id, v] : values)
+    setDecoderScalar(params, id, v);
+  for (auto [id, v] : values)
+    p.decoderValues[id].store(readDecoderScalar(params, id),
+                              std::memory_order_release);
+  if (decoderHasLayoutCount)
+    p.decoderLayoutCount.store(decoderHiddenCount(params),
+                               std::memory_order_release);
+}
+void routingApply(Plugin &p, clap_id id, double v) { applyParam(p, id, v); }
+double routingRawValue(Plugin &p, clap_id id) {
+  return routingReadValue(p, id);
+}
+void routingInitialize(Plugin &p) {
+  p.plugin.plugin_data = &p;
+  init(&p.plugin);
+}
+#define S3G_ROUTING_CUSTOM_ACCESS 1
+#include "s3g_routing_parameter_editor.inc"
+#undef S3G_ROUTING_CUSTOM_ACCESS
+
+static float odLinearToSrgb(float v) {
+  const float x = std::clamp(v, 0.0f, 1.0f);
+  return x <= 0.0031308f ? x * 12.92f
+                         : 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
+}
+
+static VSTGUI::CColor odSpeakerColorFromAed(float azDeg, float elDeg,
+                                            float distance) {
+  const float hue = std::fmod((azDeg / 360.0f) + 1.0f, 1.0f);
+  const float light = std::clamp(
+      (std::clamp(elDeg, -90.0f, 90.0f) + 90.0f) / 180.0f, 0.28f, 0.88f);
+  const float chroma = std::clamp(distance / 2.4f, 0.08f, 1.0f) * 0.37f;
+  const float a = std::cos(hue * 2.0f * static_cast<float>(M_PI)) * chroma;
+  const float b = std::sin(hue * 2.0f * static_cast<float>(M_PI)) * chroma;
+  const float l3 = light + 0.3963377774f * a + 0.2158037573f * b;
+  const float m3 = light - 0.1055613458f * a - 0.0638541728f * b;
+  const float s3 = light - 0.0894841775f * a - 1.2914855480f * b;
+  const float l = l3 * l3 * l3;
+  const float m = m3 * m3 * m3;
+  const float s = s3 * s3 * s3;
+  float r =
+      odLinearToSrgb(4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s);
+  float g = odLinearToSrgb(-1.2684380046f * l + 2.6097574011f * m -
+                           0.3413193965f * s);
+  float bl = odLinearToSrgb(-0.0041960863f * l - 0.7034186147f * m +
+                            1.7076147010f * s);
+  constexpr float grayMix = 0.18f;
+  r = r * (1.0f - grayMix) + 0.74f * grayMix;
+  g = g * (1.0f - grayMix) + 0.74f * grayMix;
+  bl = bl * (1.0f - grayMix) + 0.74f * grayMix;
+  return drawing::calibratedRGB(r, g, bl, 0.88);
+}
+
+class Editor final : public ParameterEditor {
+public:
+  explicit Editor(Plugin &instance) : ParameterEditor(instance) {
+    auto *plugin = &p;
+
+    _plugin = plugin;
+
+    _openMenu = 0;
+    _hoverMenuItem = -1;
+    _menuItemCount = 0;
+    _dragParam = 0;
+    _viewMode = plugin ? plugin->guiViewMode : 2;
+    _viewAzDeg = plugin ? plugin->guiViewAzDeg : 35.0;
+    _viewElDeg = plugin ? plugin->guiViewElDeg : 34.0;
+    _viewZoom = plugin ? plugin->guiViewZoom : 1.0;
+    _dragView = false;
+    _lastDragPoint = drawing::makePoint(0, 0);
+    std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s", "CURRENT");
+
+    // setParams() does not generate a layout when it matches the defaults.
+    // Prepare this GUI-only model before the first refresh, independently of
+    // whether the host has activated the audio decoder yet.
+    guiDecoder.prepare(p.sampleRate);
+    service();
+  }
+  ~Editor() override { stopRefresh(); }
+  void stopRefresh() override {
+    ParameterEditor::stopRefresh();
+    pointerEditing = false;
+    _openMenu = 0;
+    _dragParam = 0;
+    _dragView = false;
+  }
+  double refreshPeriodMilliseconds() const override { return 1000. / 24.; }
+  void service() override {
+    _viewMode = p.guiViewMode;
+    _viewAzDeg = p.guiViewAzDeg;
+    _viewElDeg = p.guiViewElDeg;
+    _viewZoom = p.guiViewZoom;
+    guiParams = snapshotDecoderParams(p);
+    guiDecoder.setParams(guiParams);
+  }
+  void preparePresetSave(Plugin &candidate) override {
+    candidate.decoderStateBase = p.decoderStateBase;
+    candidate.decoderLayoutCount.store(p.decoderLayoutCount.load());
+    candidate.guiViewMode = p.guiViewMode;
+    candidate.guiViewAzDeg = p.guiViewAzDeg;
+    candidate.guiViewElDeg = p.guiViewElDeg;
+    candidate.guiViewZoom = p.guiViewZoom;
+  }
+  void finishPresetLoad(const Plugin &candidate) override {
+    publishDecoderStateBase(p, candidate.decoderStateBase);
+    p.decoderLayoutCount.store(candidate.decoderLayoutCount.load());
+    p.guiViewMode = candidate.guiViewMode;
+    p.guiViewAzDeg = candidate.guiViewAzDeg;
+    p.guiViewElDeg = candidate.guiViewElDeg;
+    p.guiViewZoom = candidate.guiViewZoom;
+    service();
+  }
+  void guiApplyParam(Plugin &, clap_id id, double v) { setEditorParam(id, v); }
+  void setEditorParam(clap_id id, double v) {
+    if (pointerEditing) {
+      if (begin(id))
+        change(id, v);
+    } else
+      set(id, v);
+    service();
+    invalid();
+  }
+  void setParam_value(clap_id id, double v) { setEditorParam(id, v); }
+  drawing::Rect bounds() const {
+    return drawing::makeRect(0, 0, kGuiWidth, kGuiHeight);
+  }
+  drawing::Point convertPoint_fromView(drawing::Point pt,
+                                       std::nullptr_t) const {
+    return pt;
+  }
+  void setNeedsDisplay(bool) { invalid(); }
+  bool pointerDown(MouseDownEvent &event) override {
+    if (!event.buttonState.isLeft())
+      return false;
+    service();
+    pointerEditing = true;
+    drawing::Event e{{event.mousePosition.x, event.mousePosition.y},
+                     int(event.clickCount)};
+    mouseDown(&e);
+    return true;
+  }
+  void pointerMove(MouseMoveEvent &event) override {
+    drawing::Event e{{event.mousePosition.x, event.mousePosition.y}};
+    if (event.buttonState.isLeft())
+      mouseDragged(&e);
+    else
+      mouseMoved(&e);
+    invalid();
+    event.consumed = true;
+  }
+  void pointerUp(MouseUpEvent &event) override {
+    drawing::Event e{{event.mousePosition.x, event.mousePosition.y}};
+    mouseUp(&e);
+    end();
+    pointerEditing = false;
+    invalid();
+  }
+  bool pointerEditing = false;
+  DecoderParams guiParams{};
+  decltype(Plugin::decoder) guiDecoder{};
+
+  Plugin *_plugin;
+
+  int _openMenu;
+  int _hoverMenuItem;
+  uint32_t _menuItemCount;
+  int _dragParam;
+  int _viewMode;
+  double _viewAzDeg;
+  double _viewElDeg;
+  double _viewZoom;
+  bool _dragView;
+  drawing::Point _lastDragPoint;
+  char _titlePresetName[64];
+  void storeViewState() {
+
+    if (!_plugin)
+      return;
+    _plugin->guiViewMode = _viewMode;
+    _plugin->guiViewAzDeg = _viewAzDeg;
+    _plugin->guiViewElDeg = _viewElDeg;
+    _plugin->guiViewZoom = _viewZoom;
+
+    markStateDirty();
+  }
+  drawing::Point speakerPointForAzimuth_elevation_inRect(float azimuth,
+                                                         float elevation,
+                                                         drawing::Rect rect) {
+
+    const double az = static_cast<double>(azimuth) * M_PI / 180.0;
+    const double elevScale =
+        0.78 + 0.22 * std::cos(static_cast<double>(elevation) * M_PI / 180.0);
+    const double r =
+        std::min(rect.size.width, rect.size.height) * 0.43 * elevScale;
+    const double cx = drawing::midX(rect);
+    const double cy = drawing::midY(rect);
+    return drawing::makePoint(cx - std::sin(az) * r, cy - std::cos(az) * r);
+  }
+  drawing::Rect viewButtonRect_inRect(int index, drawing::Rect rect) {
+
+    const double w = 38.0;
+    const double h = 13.0;
+    const double gap = 5.0;
+    const double x = drawing::maxX(rect) - 10.0 -
+                     (3.0 - static_cast<double>(index)) * w -
+                     (2.0 - static_cast<double>(index)) * gap;
+    return drawing::makeRect(x, rect.origin.y + 4.0, w, h);
+  }
+  drawing::Rect zoomButtonRect_inRect(int index, drawing::Rect rect) {
+
+    const double w = 18.0;
+    const double h = 13.0;
+    const double gap = 4.0;
+    const double viewStart = viewButtonRect_inRect(0, rect).origin.x;
+    const double x = viewStart - 12.0 - (2.0 - static_cast<double>(index)) * w -
+                     (1.0 - static_cast<double>(index)) * gap;
+    return drawing::makeRect(x, rect.origin.y + 4.0, w, h);
+  }
+  void drawViewButtonsInRect_attrs(drawing::Rect rect, drawing::Attrs attrs) {
+
+    static drawing::String labels[] = {"TOP", "SIDE", "3/4"};
+    drawing::Style style;
+    for (int i = 0; i < 3; ++i) {
+      drawing::drawToolboxHeaderButton(viewButtonRect_inRect(i, rect), rect,
+                                       labels[i], i == _viewMode, attrs, style);
+    }
+  }
+  void drawZoomButtonsInRect_attrs(drawing::Rect rect, drawing::Attrs attrs) {
+
+    static drawing::String labels[] = {"-", "+"};
+    drawing::Style style;
+    for (int i = 0; i < 2; ++i) {
+      drawing::drawToolboxHeaderButton(zoomButtonRect_inRect(i, rect), rect,
+                                       labels[i], false, attrs, style);
+    }
+  }
+  void setViewPreset(int mode) {
+
+    _viewMode = mode;
+    if (mode == 0) {
+      _viewAzDeg = 90.0;
+      _viewElDeg = 0.0;
+    } else if (mode == 1) {
+      _viewAzDeg = 90.0;
+      _viewElDeg = 90.0;
+    } else {
+      _viewAzDeg = 35.0;
+      _viewElDeg = 34.0;
+    }
+    storeViewState();
+    setNeedsDisplay(true);
+  }
+  double viewScaleForRect(drawing::Rect rect) {
+
+    double layoutScale = 1.0;
+    const auto layout = _plugin ? guiDecoder.params().decoder.layout
+                                : s3g::AmbiSpeakerLayoutPreset::Sphere24;
+    if (_viewMode != 0 && _viewMode != 1 &&
+        (layout == s3g::AmbiSpeakerLayoutPreset::Cube8 ||
+         layout == s3g::AmbiSpeakerLayoutPreset::Cube17)) {
+      layoutScale = 0.82;
+    }
+    return std::min(rect.size.width, rect.size.height) * 0.34 * layoutScale *
+           std::clamp(_viewZoom, 0.55, 2.20);
+  }
+  drawing::Point projectWorldPoint_rect_depth(s3g::Vec3 p, drawing::Rect rect,
+                                              double *depth) {
+
+    const double cx = rect.origin.x + rect.size.width * 0.50;
+    const double cy = rect.origin.y + rect.size.height * 0.54;
+    const double scale = viewScaleForRect(rect);
+    const float az = static_cast<float>(_viewAzDeg * M_PI / 180.0);
+    const float el = static_cast<float>(_viewElDeg * M_PI / 180.0);
+    const float ca = std::cos(az);
+    const float sa = std::sin(az);
+    const float ce = std::cos(el);
+    const float se = std::sin(el);
+    const float x1 = ca * p.x - sa * p.y;
+    const float y1 = sa * p.x + ca * p.y;
+    const float y2 = ce * y1 + se * p.z;
+    const float z2 = -se * y1 + ce * p.z;
+    if (depth)
+      *depth = static_cast<double>(z2);
+    return drawing::makePoint(cx + static_cast<double>(x1) * scale,
+                              cy - static_cast<double>(y2) * scale);
+  }
+  void addPolyhedronShellToPath_dodecaShell_rect(drawing::Path &links,
+                                                 bool dodecaShell,
+                                                 drawing::Rect rect) {
+
+    if (!links)
+      return;
+    constexpr float phi = 1.61803398875f;
+    constexpr float invPhi = 1.0f / phi;
+    std::array<s3g::Vec3, 20> verts{};
+    const uint32_t count = dodecaShell ? 20u : 12u;
+    if (dodecaShell) {
+      const float pts[20][3]{
+          {1, 1, 1},          {1, 1, -1},         {1, -1, 1},
+          {1, -1, -1},        {-1, 1, 1},         {-1, 1, -1},
+          {-1, -1, 1},        {-1, -1, -1},       {0, invPhi, phi},
+          {0, invPhi, -phi},  {0, -invPhi, phi},  {0, -invPhi, -phi},
+          {invPhi, phi, 0},   {invPhi, -phi, 0},  {-invPhi, phi, 0},
+          {-invPhi, -phi, 0}, {phi, 0, invPhi},   {phi, 0, -invPhi},
+          {-phi, 0, invPhi},  {-phi, 0, -invPhi},
+      };
+      for (uint32_t i = 0; i < count; ++i)
+        verts[i] = {pts[i][0], pts[i][1], pts[i][2]};
+    } else {
+      const float pts[12][3]{
+          {0, 1, phi}, {0, -1, phi}, {0, 1, -phi}, {0, -1, -phi},
+          {1, phi, 0}, {-1, phi, 0}, {1, -phi, 0}, {-1, -phi, 0},
+          {phi, 0, 1}, {-phi, 0, 1}, {phi, 0, -1}, {-phi, 0, -1},
+      };
+      for (uint32_t i = 0; i < count; ++i)
+        verts[i] = {pts[i][0], pts[i][1], pts[i][2]};
+    }
+
+    std::array<drawing::Point, 20> points{};
+    for (uint32_t i = 0; i < count; ++i) {
+      const float d =
+          std::sqrt(verts[i].x * verts[i].x + verts[i].y * verts[i].y +
+                    verts[i].z * verts[i].z);
+      if (d > 0.000001f) {
+        verts[i].x /= d;
+        verts[i].y /= d;
+        verts[i].z /= d;
+      }
+      points[i] = projectWorldPoint_rect_depth(verts[i], rect, nullptr);
+    }
+
+    float minD2 = 999999.0f;
+    for (uint32_t a = 0; a < count; ++a) {
+      for (uint32_t b = a + 1u; b < count; ++b) {
+        const float dx = verts[a].x - verts[b].x;
+        const float dy = verts[a].y - verts[b].y;
+        const float dz = verts[a].z - verts[b].z;
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > 0.0001f)
+          minD2 = std::min(minD2, d2);
+      }
+    }
+    const float maxD2 = minD2 * 1.08f;
+    for (uint32_t a = 0; a < count; ++a) {
+      for (uint32_t b = a + 1u; b < count; ++b) {
+        const float dx = verts[a].x - verts[b].x;
+        const float dy = verts[a].y - verts[b].y;
+        const float dz = verts[a].z - verts[b].z;
+        const float d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 <= maxD2) {
+          (links).moveToPoint(points[a]);
+          (links).lineToPoint(points[b]);
+        }
+      }
+    }
+  }
+  void drawLayout_attrs_style(drawing::Rect rect, drawing::Attrs attrs,
+                              const drawing::Style &style) {
+
+    drawing::setFill(drawing::calibratedColor(0x111111));
+    drawing::rectFill(rect);
+    drawing::setStroke(style.grid);
+    drawing::frameRect(rect);
+
+    const auto &params = guiParams;
+    const auto &speakers = guiDecoder.fieldDecoder().speakers();
+    const uint32_t count = std::min<uint32_t>(
+        params.decoder.activeSpeakers, s3g::kAmbiSpeakerDecoderMaxSpeakers);
+    drawing::Attrs labelAttrs = attrs;
+    labelAttrs.color = style.text;
+
+    std::array<drawing::Point, s3g::kAmbiSpeakerDecoderMaxSpeakers> points{};
+    for (uint32_t i = 0; i < count; ++i) {
+      const auto &sp = speakers[i];
+      const s3g::Vec3 dir =
+          s3g::directionFromAed(sp.azimuthDeg, sp.elevationDeg);
+      const s3g::Vec3 world{dir.x * sp.distance, dir.y * sp.distance,
+                            dir.z * sp.distance};
+      points[i] = projectWorldPoint_rect_depth(world, rect, nullptr);
+      points[i].x = std::round(points[i].x);
+      points[i].y = std::round(points[i].y);
+    }
+
+    drawing::setStroke(drawing::calibratedColor(0x777777, 0.72));
+    drawing::Path links = drawing::Path::bezierPath();
+    auto edge = [&](uint32_t a, uint32_t b) {
+      if (a >= count || b >= count)
+        return;
+      (links).moveToPoint(points[a]);
+      (links).lineToPoint(points[b]);
+    };
+    auto ring = [&](uint32_t base, uint32_t n) {
+      if (n < 2u)
+        return;
+      for (uint32_t i = 0; i < n; ++i)
+        edge(base + i, base + ((i + 1u) % n));
+    };
+    const auto layout = params.decoder.layout;
+    if (layout == s3g::AmbiSpeakerLayoutPreset::Quad) {
+      ring(0, 4);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube8) {
+      ring(0, 4);
+      ring(4, 4);
+      for (uint32_t i = 0; i < 4; ++i)
+        edge(i, i + 4u);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube17) {
+      ring(0, 4);
+      edge(4, 5);
+      edge(5, 6);
+      edge(6, 7);
+      edge(7, 8);
+      edge(8, 9);
+      edge(9, 10);
+      edge(10, 11);
+      edge(11, 4);
+      ring(12, 4);
+      edge(0, 4);
+      edge(1, 6);
+      edge(2, 8);
+      edge(3, 10);
+      edge(4, 12);
+      edge(6, 13);
+      edge(8, 14);
+      edge(10, 15);
+      edge(12, 16);
+      edge(13, 16);
+      edge(14, 16);
+      edge(15, 16);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Cube41 ||
+               layout == s3g::AmbiSpeakerLayoutPreset::Lpac41) {
+      ring(0, 16);
+      ring(16, 12);
+      ring(28, 8);
+      ring(36, 4);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dome24 ||
+               layout == s3g::AmbiSpeakerLayoutPreset::Dome25 ||
+               layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
+      ring(0, 12);
+      ring(12, 8);
+      ring(20, 4);
+      for (uint32_t i = 0; i < 8; ++i) {
+        const uint32_t lowerA = (i * 3u) / 2u;
+        const uint32_t lowerB = (lowerA + 1u) % 12u;
+        edge(12u + i, lowerA);
+        edge(12u + i, lowerB);
+      }
+      for (uint32_t i = 0; i < 4; ++i) {
+        edge(20u + i, 12u + i * 2u);
+        edge(20u + i, 12u + ((i * 2u + 1u) % 8u));
+      }
+      if (layout == s3g::AmbiSpeakerLayoutPreset::Dome25 ||
+          layout == s3g::AmbiSpeakerLayoutPreset::Srst25) {
+        for (uint32_t i = 0; i < 4; ++i)
+          edge(24, 20u + i);
+      }
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::QuadOverhead6) {
+      ring(0, 4);
+      edge(4, 0);
+      edge(4, 3);
+      edge(5, 1);
+      edge(5, 2);
+      edge(4, 5);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::OctophonicRing) {
+      ring(0, 8);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Dodeca12) {
+      addPolyhedronShellToPath_dodecaShell_rect(links, true, rect);
+    } else if (layout == s3g::AmbiSpeakerLayoutPreset::Icosahedron20) {
+      addPolyhedronShellToPath_dodecaShell_rect(links, false, rect);
+    }
+    (links).setLineWidth(1.0);
+    (links).stroke();
+
+    for (uint32_t i = 0; i < count; ++i) {
+      const drawing::Point p = points[i];
+      const auto &sp = speakers[i];
+      const double r = 4.8;
+      drawing::setFill(
+          odSpeakerColorFromAed(sp.azimuthDeg, sp.elevationDeg, sp.distance));
+      drawing::rectFill(drawing::makeRect(p.x - r, p.y - r, r * 2.0, r * 2.0));
+      drawing::setStroke(drawing::calibratedColor(0x050505, 0.90));
+      drawing::frameRect(drawing::makeRect(p.x - r, p.y - r, r * 2.0, r * 2.0));
+      drawing::String number = drawing::stringFormat("%u", i + 1u);
+      drawing::Attrs idAttrs{drawing::calibratedColor(0x151515), false, 7.5};
+      drawing::Size labelSize = drawing::sizeWithAttributes(number, idAttrs);
+      drawing::drawAtPoint_withAttributes(
+          number,
+          drawing::makePoint(p.x - labelSize.width * 0.5,
+                             p.y - labelSize.height * 0.5 - 0.5),
+          idAttrs);
+    }
+
+    const double blend = std::clamp<double>(params.focus, 0.0, 1.0);
+    const double gainNorm = std::clamp<double>(params.confidence, 0.0, 1.0);
+    const double cue = std::clamp<double>(
+        _plugin->adaptiveCue.load(std::memory_order_relaxed) * 8.0, 0.0, 1.0);
+    s3g::Vec3 adaptiveDir{
+        _plugin->adaptiveDirX.load(std::memory_order_relaxed),
+        _plugin->adaptiveDirY.load(std::memory_order_relaxed),
+        _plugin->adaptiveDirZ.load(std::memory_order_relaxed),
+    };
+    adaptiveDir = s3g::normalize(adaptiveDir);
+    const drawing::Point adaptivePt =
+        projectWorldPoint_rect_depth(adaptiveDir, rect, nullptr);
+    const double alpha =
+        std::clamp<double>(0.12 + blend * 0.72, 0.0, 0.92) * cue;
+    const double adaptiveRing = 8.0 + 8.0 * gainNorm;
+    drawing::setFill(drawing::calibratedColor(
+        0xf0d35d, 0.12 * cue + 0.24 * blend * gainNorm));
+    drawing::Path halo =
+        drawing::Path::bezierPathWithOvalInRect(drawing::makeRect(
+            adaptivePt.x - adaptiveRing, adaptivePt.y - adaptiveRing,
+            adaptiveRing * 2.0, adaptiveRing * 2.0));
+    (halo).fill();
+    drawing::setFill(drawing::calibratedColor(0xf0d35d, alpha));
+    const double r = 6.5;
+    drawing::rectFill(drawing::makeRect(adaptivePt.x - r, adaptivePt.y - r,
+                                        r * 2.0, r * 2.0));
+    drawing::setStroke(drawing::calibratedColor(0x151515, 0.95));
+    drawing::frameRect(drawing::makeRect(adaptivePt.x - r, adaptivePt.y - r,
+                                         r * 2.0, r * 2.0));
+    drawing::setStroke(drawing::calibratedColor(
+        0xf0d35d, std::clamp<double>(0.20 + gainNorm * 0.60, 0.0, 0.92) * cue));
+    drawing::frameRect(drawing::makeRect(
+        adaptivePt.x - adaptiveRing, adaptivePt.y - adaptiveRing,
+        adaptiveRing * 2.0, adaptiveRing * 2.0));
+    drawing::Attrs objAttrs{drawing::calibratedColor(0x111111, alpha), false,
+                            7.5};
+    drawing::drawAtPoint_withAttributes(
+        "A", drawing::makePoint(adaptivePt.x - 2.8, adaptivePt.y - 5.0),
+        objAttrs);
+
+    drawing::String viewText =
+        _viewMode == 0
+            ? "TOP VIEW   0 front/top  -90 right  +90 left"
+            : (_viewMode == 1 ? "SIDE VIEW   +90 elevation up"
+                              : "3/4 VIEW   drag blank space to rotate");
+    drawing::drawAtPoint_withAttributes(
+        viewText,
+        drawing::makePoint(rect.origin.x + 12,
+                           rect.origin.y + rect.size.height - 23),
+        attrs);
+  }
+  void drawMenu_value_y_attrs_style(drawing::String name, drawing::String value,
+                                    double y, drawing::Attrs attrs,
+                                    const drawing::Style &style) {
+
+    drawing::drawMenu(name, value, y, attrs, drawing::softValueAttrs(), style,
+                      642, 738, 102);
+  }
+  void drawOpenMenu_style(drawing::Attrs attrs, const drawing::Style &style) {
+
+    if (_openMenu <= 0 || _menuItemCount == 0)
+      return;
+    std::array<drawing::String, kLayoutMenuCount> layoutItems{};
+    for (uint32_t i = 0; i < kLayoutMenuCount; ++i)
+      layoutItems[i] =
+          drawing::stringFromUtf8(layoutName(layoutPresetForMenuIndex(i)));
+    drawing::String modeItems[] = {"BASIC", "EPAD", "MMD"};
+    drawing::String orderItems[] = {"1OA", "2OA", "3OA", "4OA",
+                                    "5OA", "6OA", "7OA"};
+    drawing::String weightItems[] = {"NONE", "MAXRE", "INPHASE"};
+    drawing::String *items = layoutItems.data();
+    int selected = 0;
+    double y = 162.0;
+    double w = _openMenu == 1 ? 150.0 : 124.0;
+    if (_openMenu == 1) {
+      items = layoutItems.data();
+      selected = static_cast<int>(menuIndexForLayoutPreset(
+          static_cast<uint32_t>(guiParams.decoder.layout)));
+      _menuItemCount = kLayoutMenuCount;
+    } else if (_openMenu == 2) {
+      items = modeItems;
+      selected =
+          static_cast<int>(static_cast<uint32_t>(guiParams.decoder.mode));
+      _menuItemCount = 3;
+      y = 188.0;
+    } else if (_openMenu == 3) {
+      items = orderItems;
+      selected = static_cast<int>(
+          std::clamp<uint32_t>(guiParams.decoder.order, 1u,
+                               s3g::kAmbiSpeakerDecoderMaxOrder) -
+          1u);
+      _menuItemCount = s3g::kAmbiSpeakerDecoderMaxOrder;
+      y = 214.0;
+    } else if (_openMenu == 4) {
+      items = weightItems;
+      selected =
+          static_cast<int>(static_cast<uint32_t>(guiParams.decoder.weighting));
+      _menuItemCount = 3;
+      y = 240.0;
+    }
+    const double itemH = 18.0;
+    drawing::Rect menuRect =
+        drawing::makeRect(738, y, w, itemH * _menuItemCount);
+    drawing::drawDropdownMenu(menuRect, itemH, items, _menuItemCount, selected,
+                              _hoverMenuItem, attrs, style);
+  }
+  void drawSlider_value_min_max_y_suffix_attrs_style(
+      drawing::String name, double value, double min, double max, double y,
+      drawing::String suffix, drawing::Attrs attrs,
+      const drawing::Style &style) {
+
+    const double norm = (value - min) / std::max(0.000001, max - min);
+    drawing::String text;
+    if (suffix == "OA")
+      text = drawing::stringFormat("%.0fOA", value);
+    else if (suffix == "ms")
+      text = drawing::stringFormat("%.0fms", value);
+    else if (suffix == "Hz")
+      text = drawing::stringFormat("%.0fHz", value);
+    else if (suffix == "%")
+      text = drawing::stringFormat("%.0f%%", value * 100.0);
+    else if (suffix == "dB")
+      text = drawing::stringFormat("%+.1f dB", value);
+    else
+      text = drawing::stringFormat("%.2f", value);
+    drawing::drawSlider(name, text, norm, y, attrs, drawing::softValueAttrs(),
+                        style, 642, 738, 826, 82);
+  }
+  void paint() override {
+    drawing::DrawingScope scope(*this, context, font, titleFont, &error);
+    service();
+
+    const drawing::Style style = drawing::softTextStyle();
+    drawing::setFill(style.bg);
+    drawing::rectFill(bounds());
+    drawing::Attrs attrs = drawing::softLabelAttrs();
+    drawing::Attrs dimAttrs = drawing::softValueAttrs();
+    drawing::Attrs titleAttrs = drawing::softTitleAttrs();
+
+    const float peak = _plugin->outputPeak.load(std::memory_order_relaxed);
+    drawing::drawDecoderTitleBand(
+        "s3g AMBI DECODER ADAPTIVE", drawing::stringFromUtf8(_titlePresetName),
+        drawing::peakDbText(peak), drawing::encoderTitleBand(900.0, 620.0),
+        titleAttrs, attrs, dimAttrs, style);
+
+    const drawing::Rect fieldPanel = drawing::makeRect(18, 42, 596, 556);
+    const drawing::Rect fieldRect = drawing::makeRect(34, 76, 564, 506);
+    drawing::drawPanelFrame(fieldPanel.origin.x, fieldPanel.origin.y,
+                            fieldPanel.size.width, fieldPanel.size.height,
+                            style);
+    drawing::drawPanelHeader("SPEAKER FIELD", true, fieldPanel.origin.x,
+                             fieldPanel.origin.y, fieldPanel.size.width, 21,
+                             attrs, style);
+    drawZoomButtonsInRect_attrs(fieldPanel, dimAttrs);
+    drawViewButtonsInRect_attrs(fieldPanel, dimAttrs);
+    drawLayout_attrs_style(fieldRect, dimAttrs, style);
+
+    drawing::drawPanelFrame(630, 42, 250, 54, style);
+    drawing::drawPanelHeader("OUTPUT", true, 630, 42, 250, 21, attrs, style);
+    drawing::drawPanelFrame(630, 108, 250, 132, style);
+    drawing::drawPanelHeader("DECODER", true, 630, 108, 250, 21, attrs, style);
+    drawing::drawPanelFrame(630, 252, 250, 184, style);
+    drawing::drawPanelHeader("ADAPTIVE", true, 630, 252, 250, 21, attrs, style);
+
+    const auto params = guiParams;
+    drawSlider_value_min_max_y_suffix_attrs_style(
+        "OUT", params.decoder.outputGainDb, -60.0, 12.0, 78, "dB", attrs,
+        style);
+    drawMenu_value_y_attrs_style(
+        "LAYOUT",
+        drawing::stringFromUtf8(
+            layoutName(static_cast<uint32_t>(params.decoder.layout))),
+        144, attrs, style);
+    drawMenu_value_y_attrs_style(
+        "MODE", drawing::stringFromUtf8(modeName(params.decoder.mode)), 170,
+        attrs, style);
+    drawMenu_value_y_attrs_style(
+        "ORDER", drawing::stringFormat("%uOA", params.decoder.order), 196,
+        attrs, style);
+    drawMenu_value_y_attrs_style(
+        "WGT", drawing::stringFromUtf8(weightingName(params.decoder.weighting)),
+        222, attrs, style);
+    drawSlider_value_min_max_y_suffix_attrs_style("FOCUS", params.focus, 0.0,
+                                                  1.0, 288, "%", attrs, style);
+    drawSlider_value_min_max_y_suffix_attrs_style("DIFF", params.diffuse, 0.0,
+                                                  1.0, 314, "%", attrs, style);
+    drawSlider_value_min_max_y_suffix_attrs_style(
+        "CONF", params.confidence, 0.0, 1.0, 340, "%", attrs, style);
+    drawSlider_value_min_max_y_suffix_attrs_style("TRAN", params.transient, 0.0,
+                                                  1.0, 366, "%", attrs, style);
+    drawSlider_value_min_max_y_suffix_attrs_style(
+        "XOVR", params.crossoverHz, 20.0, 5000.0, 392, "Hz", attrs, style);
+    drawSlider_value_min_max_y_suffix_attrs_style(
+        "SMTH", params.smoothingMs, 0.0, 500.0, 418, "ms", attrs, style);
+
+    drawOpenMenu_style(attrs, style);
+  }
+  void setParam_fromPoint(clap_id param, drawing::Point pt) {
+
+    auto slider = [&](double min, double max) {
+      const double norm =
+          std::clamp((static_cast<double>(pt.x) - 738.0) / 82.0, 0.0, 1.0);
+      guiApplyParam(*_plugin, param, min + norm * (max - min));
+    };
+    switch (param) {
+    case kFocusParamId:
+      slider(0.0, 1.0);
+      break;
+    case kDiffuseParamId:
+      slider(0.0, 1.0);
+      break;
+    case kConfidenceParamId:
+      slider(0.0, 1.0);
+      break;
+    case kTransientParamId:
+      slider(0.0, 1.0);
+      break;
+    case kCrossoverParamId:
+      slider(20.0, 5000.0);
+      break;
+    case kSmoothingParamId:
+      slider(0.0, 500.0);
+      break;
+    case kOutputParamId:
+      slider(-60.0, 12.0);
+      break;
+    default:
+      break;
+    }
+    setNeedsDisplay(true);
+  }
+  void mouseDown(drawing::Event *event) {
+
+    drawing::Point pt =
+        convertPoint_fromView(event->locationInWindow(), nullptr);
+    const auto titleBand = drawing::encoderTitleBand(900.0, 620.0);
+    if (handleTitleClick(pt, titleBand))
+      return;
+    if (_openMenu > 0) {
+      double y =
+          _openMenu == 1
+              ? 162.0
+              : (_openMenu == 2
+                     ? 188.0
+                     : (_openMenu == 3 ? 214.0
+                                       : (_openMenu == 4 ? 240.0 : 306.0)));
+      const double itemH = 18.0;
+      const double menuW = _openMenu == 1 ? 150.0 : 124.0;
+      drawing::Rect menuRect =
+          drawing::makeRect(738, y, menuW, itemH * _menuItemCount);
+      const int hit =
+          drawing::dropdownHitIndex(pt, menuRect, itemH, _menuItemCount);
+      if (hit >= 0) {
+        if (_openMenu == 1)
+          guiApplyParam(*_plugin, kLayoutParamId, hit);
+        else if (_openMenu == 2)
+          guiApplyParam(*_plugin, kModeParamId, hit);
+        else if (_openMenu == 3)
+          guiApplyParam(*_plugin, kOrderParamId, hit + 1);
+        else if (_openMenu == 4)
+          guiApplyParam(*_plugin, kWeightingParamId, hit);
+      }
+      _openMenu = 0;
+      _hoverMenuItem = -1;
+      setNeedsDisplay(true);
+      return;
+    }
+    auto openMenu = [&](int menu, uint32_t count) {
+      _openMenu = menu;
+      _menuItemCount = count;
+      _hoverMenuItem = -1;
+      setNeedsDisplay(true);
+    };
+    const drawing::Rect fieldPanel = drawing::makeRect(18, 42, 596, 556);
+    const drawing::Rect fieldRect = drawing::makeRect(34, 76, 564, 506);
+    if (drawing::contains(pt, fieldPanel)) {
+      for (int i = 0; i < 2; ++i) {
+        if (drawing::contains(pt, zoomButtonRect_inRect(i, fieldPanel))) {
+          const double step = i == 0 ? -0.15 : 0.15;
+          _viewZoom = std::clamp(_viewZoom + step, 0.55, 2.20);
+          storeViewState();
+          setNeedsDisplay(true);
+          return;
+        }
+      }
+      for (int i = 0; i < 3; ++i) {
+        if (drawing::contains(pt, viewButtonRect_inRect(i, fieldPanel))) {
+          setViewPreset(i);
+          return;
+        }
+      }
+      if (drawing::contains(pt, fieldRect)) {
+        _dragView = true;
+        _lastDragPoint = pt;
+        setNeedsDisplay(true);
+        return;
+      }
+    }
+    if (drawing::contains(pt, drawing::makeRect(738, 143, 102, 17))) {
+      openMenu(1, kLayoutMenuCount);
+      return;
+    }
+    if (drawing::contains(pt, drawing::makeRect(738, 169, 102, 17))) {
+      openMenu(2, 3);
+      return;
+    }
+    if (drawing::contains(pt, drawing::makeRect(738, 195, 102, 17))) {
+      openMenu(3, s3g::kAmbiSpeakerDecoderMaxOrder);
+      return;
+    }
+    if (drawing::contains(pt, drawing::makeRect(738, 221, 102, 17))) {
+      openMenu(4, 3);
+      return;
+    }
+    _dragParam = 0;
+    if (drawing::contains(pt, drawing::makeRect(638, 70, 230, 24)))
+      _dragParam = kOutputParamId;
+    else if (drawing::contains(pt, drawing::makeRect(638, 280, 230, 24)))
+      _dragParam = kFocusParamId;
+    else if (drawing::contains(pt, drawing::makeRect(638, 306, 230, 24)))
+      _dragParam = kDiffuseParamId;
+    else if (drawing::contains(pt, drawing::makeRect(638, 332, 230, 24)))
+      _dragParam = kConfidenceParamId;
+    else if (drawing::contains(pt, drawing::makeRect(638, 358, 230, 24)))
+      _dragParam = kTransientParamId;
+    else if (drawing::contains(pt, drawing::makeRect(638, 384, 230, 24)))
+      _dragParam = kCrossoverParamId;
+    else if (drawing::contains(pt, drawing::makeRect(638, 410, 230, 24)))
+      _dragParam = kSmoothingParamId;
+    if (_dragParam) {
+      double defaultValue = 0.0;
+      if (drawing::sliderDoubleClickDefault(event, &_plugin->plugin,
+                                            static_cast<clap_id>(_dragParam),
+                                            &defaultValue)) {
+        guiApplyParam(*_plugin, static_cast<clap_id>(_dragParam), defaultValue);
+        _dragParam = 0;
+        setNeedsDisplay(true);
+        return;
+      }
+      setParam_fromPoint(static_cast<clap_id>(_dragParam), pt);
+    }
+  }
+  void mouseDragged(drawing::Event *event) {
+
+    drawing::Point pt =
+        convertPoint_fromView(event->locationInWindow(), nullptr);
+    if (_dragView) {
+      const double dx = pt.x - _lastDragPoint.x;
+      const double dy = pt.y - _lastDragPoint.y;
+      _viewAzDeg += dx * 0.35;
+      _viewElDeg = std::clamp(_viewElDeg + dy * 0.35, -85.0, 85.0);
+      _viewMode = -1;
+      _lastDragPoint = pt;
+      storeViewState();
+      setNeedsDisplay(true);
+      return;
+    }
+    if (!_dragParam)
+      return;
+    setParam_fromPoint(static_cast<clap_id>(_dragParam), pt);
+  }
+  void mouseUp(drawing::Event *event) {
+
+    (void)event;
+    _dragParam = 0;
+    _dragView = false;
+  }
+  void mouseMoved(drawing::Event *event) {
+
+    if (_openMenu <= 0)
+      return;
+    drawing::Point pt =
+        convertPoint_fromView(event->locationInWindow(), nullptr);
+    double y =
+        _openMenu == 1
+            ? 162.0
+            : (_openMenu == 2
+                   ? 188.0
+                   : (_openMenu == 3 ? 214.0
+                                     : (_openMenu == 4 ? 240.0 : 306.0)));
+    const double menuW = _openMenu == 1 ? 150.0 : 124.0;
+    const int next = drawing::dropdownHitIndex(
+        pt, drawing::makeRect(738, y, menuW, 18.0 * _menuItemCount), 18.0,
+        _menuItemCount);
+    if (next != _hoverMenuItem) {
+      _hoverMenuItem = next;
+      setNeedsDisplay(true);
+    }
+  }
+  void markStateDirty() {
+    if (p.host && p.host->get_extension) {
+      auto *state = static_cast<const clap_host_state_t *>(
+          p.host->get_extension(p.host, CLAP_EXT_STATE));
+      if (state && state->mark_dirty)
+        state->mark_dirty(p.host);
+    }
+  }
+  bool handleTitleClick(drawing::Point point,
+                        const s3g::gui_layout::EncoderTitleBand &band) {
+    if (drawing::contains(point, drawing::cocoaRect(band.presetMenu)))
+      resetDecoder();
+    else if (drawing::contains(point, drawing::cocoaRect(band.loadButton)))
+      presetDialog(false);
+    else if (drawing::contains(point, drawing::cocoaRect(band.saveButton)))
+      presetDialog(true);
+    else
+      return false;
+    std::snprintf(_titlePresetName, sizeof(_titlePresetName), "%s",
+                  presetName.c_str());
+    service();
+    invalid();
+    return true;
+  }
+  void resetDecoder() {
+    const double out = value(preservedOutput);
+    DecoderParams defaults{};
+    std::vector<std::pair<clap_id, double>> values;
+    for (const auto &i : infos)
+      if (i.id != preservedOutput)
+        values.emplace_back(i.id, readDecoderScalar(defaults, i.id));
+    if (batch(values)) {
+      setDecoderScalar(defaults, preservedOutput, out);
+      publishDecoderStateBase(p, defaults);
+      p.decoderLayoutCount.store(decoderHiddenCount(defaults));
+      presetName = "INIT";
+    }
+  }
+};
+} // namespace decoder_canvas
+s3g::portable_gui::foundation::ContentView *makePortableCanvas(Plugin &p) {
+  return new decoder_canvas::Editor(p);
+}
+#include "s3g_clap_canvas_gui.inc"
