@@ -844,7 +844,9 @@ int main(int argc, char** argv)
     ok &= expect(state->load(plugin, &saved.input),
         "current Relay state did not restore after migration test");
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_RELAY_PORTABLE_GUI)
+    // Cocoa selector checks remain for the reference editor. The VSTGUI build
+    // runs the direct midi_tool_canvas_smoke and CLAP frame lifecycle tests.
     [NSApplication sharedApplication];
     ok &= exerciseGui(plugin, argc == 3 ? argv[2] : nullptr);
     InputEvents presetFlushInput;

@@ -3,6 +3,14 @@ add_library(s3g_processor_lowform_clap MODULE
 )
 
 target_link_libraries(s3g_processor_lowform_clap PRIVATE s3g_dsp)
+if(S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE)
+ s3g_enable_vstgui_gui(s3g_processor_lowform_clap
+  "${PROJECT_SOURCE_DIR}/plugins/common/s3g_stereo_processor_lowform_canvas.inc"
+  S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+ set_target_properties(s3g_processor_lowform_clap PROPERTIES SUFFIX ".clap")
+endif()
 target_include_directories(s3g_processor_lowform_clap PRIVATE
   ${S3G_CLAP_INCLUDE_DIR}
 )
@@ -27,7 +35,7 @@ if(BUILD_TESTING)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
         $<TARGET_FILE:s3g_processor_lowform_clap>
         org.s3g.s3g-dsp.processor-lowform
-        1100 720 "s3g Processor Lowform 2" responsive)
+        1100 720 "s3g Processor Lowform 2" ${s3g_stereo_processors_gui_smoke_mode})
     set_tests_properties(s3g_processor_lowform_gui_smoke PROPERTIES
       LABELS "non_nim;clap;gui" TIMEOUT 120)
   endif()

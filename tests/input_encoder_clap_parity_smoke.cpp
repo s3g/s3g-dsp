@@ -138,6 +138,14 @@ void exchangeState(Module &a, Module &b) {
   Stream stream;
   check(a.state->save(a.plugin, &stream.out), "chunked state save");
   check(b.state->load(b.plugin, &stream.in), "cross-build chunked state load");
+  if (std::strcmp(a.plugin->desc->id,
+                  "org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16") == 0) {
+    // Trigger is a momentary action deliberately omitted from project state.
+    // Match the original state loader's gate release on the source too.
+    Events release;
+    release.add(20u, 0.);
+    a.params->flush(a.plugin, &release.input, nullptr);
+  }
   compareParams(a, b);
   std::vector<double> before;
   for (const auto &i : b.infos) {
@@ -163,8 +171,10 @@ void exchangeState(Module &a, Module &b) {
 template <typename Sample>
 void compareAudio(Module &a, Module &b, unsigned scene) {
   clap_audio_port_info_t port{};
-  check(a.ports->get(a.plugin, 0, true, &port), "input port");
-  const unsigned inputs = port.channel_count;
+  const bool hasInput = a.ports->count(a.plugin, true) > 0;
+  if (hasInput)
+    check(a.ports->get(a.plugin, 0, true, &port), "input port");
+  const unsigned inputs = hasInput ? port.channel_count : 0u;
   check(a.ports->get(a.plugin, 0, false, &port), "output port");
   const unsigned outputs = port.channel_count, frames = 64;
   std::vector<std::vector<Sample>> in(inputs, std::vector<Sample>(frames)),
@@ -201,10 +211,16 @@ void compareAudio(Module &a, Module &b, unsigned scene) {
   check(a.state->save(a.plugin, &sceneState.out) &&
             b.state->load(b.plugin, &sceneState.in),
         "same post-activation scene");
+  if (std::strcmp(a.plugin->desc->id,
+                  "org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16") == 0) {
+    Events release;
+    release.add(20u, 0.);
+    a.params->flush(a.plugin, &release.input, nullptr);
+  }
   check(a.plugin->start_processing(a.plugin) &&
             b.plugin->start_processing(b.plugin),
         "start both builds");
-  double maximumError = 0.;
+  double maximumError = 0., maximumSignal = 0.;
   for (unsigned block = 0; block < 80; ++block) {
     for (unsigned c = 0; c < inputs; ++c)
       for (unsigned f = 0; f < frames; ++f)
@@ -228,7 +244,31 @@ void compareAudio(Module &a, Module &b, unsigned scene) {
     proc.frames_count = frames;
     proc.audio_inputs = &ib;
     proc.audio_outputs = &ab;
-    proc.audio_inputs_count = proc.audio_outputs_count = 1;
+    proc.audio_inputs_count = hasInput ? 1u : 0u;
+    proc.audio_outputs_count = 1;
+    clap_event_note_t note{};
+    note.header = {sizeof(note), 0, CLAP_CORE_EVENT_SPACE_ID,
+                   uint16_t(block == 1 || block == 25 || block == 55
+                                ? CLAP_EVENT_NOTE_ON
+                                : CLAP_EVENT_NOTE_OFF),
+                   0};
+    note.note_id = -1;
+    note.port_index = 0;
+    note.channel = 0;
+    note.key = 60;
+    note.velocity = .7;
+    clap_input_events_t notes{
+        &note, [](const clap_input_events_t *) -> uint32_t { return 1; },
+        [](const clap_input_events_t *list,
+           uint32_t) -> const clap_event_header_t * {
+          return &static_cast<const clap_event_note_t *>(list->ctx)->header;
+        }};
+    const auto *notePorts = static_cast<const clap_plugin_note_ports_t *>(
+        a.plugin->get_extension(a.plugin, CLAP_EXT_NOTE_PORTS));
+    if (notePorts && notePorts->count(a.plugin, true) &&
+        (block == 1 || block == 19 || block == 25 || block == 49 ||
+         block == 55 || block == 79))
+      proc.in_events = &notes;
     // Speaker rebuilds matrices asynchronously. Settle both workers before
     // comparing sample output; scheduling differences are not DSP differences.
     a.params->flush(a.plugin, &automation.input, nullptr);
@@ -245,11 +285,16 @@ void compareAudio(Module &a, Module &b, unsigned scene) {
               "finite output");
         maximumError = std::max(maximumError,
                                 std::abs(double(ao[c][f]) - double(bo[c][f])));
+        maximumSignal = std::max(maximumSignal, std::abs(double(ao[c][f])));
       }
   }
   if (maximumError > 1.e-6)
     std::cerr << "audio max error " << maximumError << '\n';
   check(maximumError <= 1.e-6, "audio matches retained Cocoa build");
+  if (scene == 0)
+    check(maximumSignal > 1.e-9, "default scene actually produces audio");
+  std::cout << "scene " << scene << " maximum sample difference "
+            << maximumError << "; signal peak " << maximumSignal << '\n';
   a.plugin->stop_processing(a.plugin);
   b.plugin->stop_processing(b.plugin);
   a.plugin->deactivate(a.plugin);
@@ -297,11 +342,38 @@ int main(int argc, char **argv) {
     compareParams(a, b);
     exchangeState(a, b);
     exchangeState(b, a);
-    compareAudio<float>(a, b, scene);
-    // Only Stereo and Speaker advertise/implement the original double path.
+    // Exercise the supported original double-precision processing paths too.
     const std::string id = argv[3];
-    if (id.find("ambi-ray") != std::string::npos)
+    const bool supportsDouble =
+        id.find("ambi-ray") != std::string::npos ||
+        id.find("accelerometer-field") != std::string::npos ||
+        id.find("ambi-encoder-medium") != std::string::npos ||
+        id.find("ambi-encoder-membrane-kick") != std::string::npos ||
+        id.find("low-frequency-synth") != std::string::npos ||
+        id.find("processor-lowform") != std::string::npos ||
+        id.find("processor-stack") != std::string::npos ||
+        id.find("processor-conduit") != std::string::npos ||
+        id.find("processor-errant") != std::string::npos ||
+        id.find("feedback-shift") != std::string::npos ||
+        id.find("processor-fissure") != std::string::npos ||
+        id == "org.s3g.s3g-dsp.fault";
+    Stream beforeFloatA, beforeFloatB;
+    if (supportsDouble) {
+      check(a.state->save(a.plugin, &beforeFloatA.out) &&
+                b.state->save(b.plugin, &beforeFloatB.out),
+            "save initial scene for both sample formats");
+    }
+    compareAudio<float>(a, b, scene);
+    if (supportsDouble) {
+      // The float pass automates every parameter, including MIDI receive.
+      // Restore the scene so double starts with the same defaults/edits,
+      // rather than potentially filtering out all of the test's note events.
+      check(a.state->load(a.plugin, &beforeFloatA.in) &&
+                b.state->load(b.plugin, &beforeFloatB.in),
+            "restore initial scene before double processing");
+      compareParams(a, b);
       compareAudio<double>(a, b, scene);
+    }
   }
   if (ok)
     std::cout << argv[3]

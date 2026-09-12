@@ -2,6 +2,7 @@ add_library(s3g_ambi_wrangler_encoder_clap MODULE
   s3g_ambi_wrangler_encoder_clap.cpp
 )
 
+if(BUILD_TESTING AND UNIX)
 add_executable(s3g_ambi_wrangler_clap_smoke
   ../../tests/ambi_wrangler_clap_smoke.cpp
 )
@@ -17,7 +18,17 @@ if(BUILD_TESTING)
     LABELS "non_nim;clap;smoke" TIMEOUT 120)
 endif()
 
+endif()
+
 target_link_libraries(s3g_ambi_wrangler_encoder_clap PRIVATE s3g_dsp)
+if(S3G_CIRCUIT_ENCODERS_VSTGUI_AVAILABLE)
+ s3g_enable_vstgui_gui(s3g_ambi_wrangler_encoder_clap
+  "${PROJECT_SOURCE_DIR}/plugins/common/s3g_circuit_encoder_wrangler_canvas.inc"
+  S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+ set_target_properties(s3g_ambi_wrangler_encoder_clap PROPERTIES SUFFIX ".clap")
+endif()
 target_include_directories(s3g_ambi_wrangler_encoder_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
 
 if(APPLE)

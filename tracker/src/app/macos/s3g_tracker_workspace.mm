@@ -11,6 +11,11 @@
 #include "s3g_cocoa_gui.h"
 #undef S3G_COCOA_GUI_DRAWING_ONLY
 
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+#include "s3g_tracker_vstgui_pilot.h"
+namespace trackerDrawing = s3g::tracker::editor;
+#endif
+
 #include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/geometry_edit.h"
 #include "s3g/tracker/command.h"
@@ -107,12 +112,26 @@ NSFont* trackerFont(CGFloat size, NSFontWeight weight = NSFontWeightRegular)
 
 void fillRect(NSRect rect, NSColor* color)
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (auto* list = trackerDrawing::activeDisplayList()) {
+        list->shape(trackerDrawing::Primitive::FillRect,
+            trackerDrawing::logicalRect(rect), trackerDrawing::resolvedColor(color));
+        return;
+    }
+#endif
     [color setFill];
     NSRectFill(rect);
 }
 
 void strokeRect(NSRect rect, NSColor* color, CGFloat width = 1.0)
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (auto* list = trackerDrawing::activeDisplayList()) {
+        list->shape(trackerDrawing::Primitive::StrokeRect,
+            trackerDrawing::logicalRect(rect), trackerDrawing::resolvedColor(color), width);
+        return;
+    }
+#endif
     [color setStroke];
     NSBezierPath* path = [NSBezierPath bezierPathWithRect:rect];
     path.lineWidth = width;
@@ -123,6 +142,13 @@ void drawText(NSString* text, NSRect rect, NSColor* color, CGFloat size,
     NSFontWeight weight = NSFontWeightRegular,
     NSTextAlignment alignment = NSTextAlignmentLeft)
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (trackerDrawing::activeDisplayList()) {
+        trackerDrawing::recordText(text, rect, color, trackerFont(size, weight),
+            alignment, false);
+        return;
+    }
+#endif
     NSMutableParagraphStyle* style = [[NSMutableParagraphStyle alloc] init];
     style.alignment = alignment;
     style.lineBreakMode = NSLineBreakByClipping;
@@ -148,11 +174,51 @@ void drawCenteredText(NSString* text, NSRect rect, NSColor* color,
     const NSRect lineRect = NSMakeRect(NSMinX(rect),
         std::floor(NSMidY(rect) - lineHeight * 0.5), NSWidth(rect),
         lineHeight);
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (trackerDrawing::activeDisplayList()) {
+        trackerDrawing::recordText(text, lineRect, color, font, alignment, true);
+        return;
+    }
+#endif
     [text drawInRect:lineRect withAttributes:@{
         NSForegroundColorAttributeName: color,
         NSFontAttributeName: font,
         NSParagraphStyleAttributeName: style,
     }];
+}
+
+void fillTrackerEllipse(NSRect rect, NSColor* color)
+{
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (auto* list = trackerDrawing::activeDisplayList()) {
+        list->shape(trackerDrawing::Primitive::FillEllipse,
+            trackerDrawing::logicalRect(rect), trackerDrawing::resolvedColor(color));
+        return;
+    }
+#endif
+    [color setFill];
+    [[NSBezierPath bezierPathWithOvalInRect:rect] fill];
+}
+
+void strokeTrackerPolyline(const std::vector<NSPoint>& points,
+    NSColor* color, CGFloat width)
+{
+    if (points.size() < 2u) return;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (auto* list = trackerDrawing::activeDisplayList()) {
+        std::vector<trackerDrawing::Point> logicalPoints;
+        logicalPoints.reserve(points.size());
+        for (auto point : points) logicalPoints.push_back({point.x, point.y});
+        list->polyline(std::move(logicalPoints), trackerDrawing::resolvedColor(color), width);
+        return;
+    }
+#endif
+    NSBezierPath* path = [NSBezierPath bezierPath];
+    [path moveToPoint:points.front()];
+    for (std::size_t i = 1u; i < points.size(); ++i) [path lineToPoint:points[i]];
+    path.lineWidth = width;
+    [color setStroke];
+    [path stroke];
 }
 
 void drawTrackerProcessorMenu(NSString* name, NSString* value, CGFloat y,
@@ -6443,6 +6509,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     auto* model = self.trackerState;
     const auto* pattern = playbackFollowPattern(model);
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    trackerDrawing::MacDrawScope drawing(self, dirtyRect, trackerDrawing::PilotSurface::Grid);
+#endif
     fillRect(self.bounds, S3GTrackerThemeColor(
         S3GTrackerThemeRole::Workspace));
     fillRect(NSMakeRect(0.0, 0.0, NSWidth(self.bounds), 2.0),
@@ -6897,6 +6966,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     (void)dirtyRect;
     auto* model = self.gridView.trackerState;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    trackerDrawing::MacDrawScope drawing(self, dirtyRect, trackerDrawing::PilotSurface::Gutter);
+#endif
     fillRect(self.bounds, S3GTrackerThemeColor(
         S3GTrackerThemeRole::Workspace));
     if (!model || !playbackFollowPattern(model)) return;
@@ -13586,6 +13658,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)drawRect:(NSRect)dirtyRect
 {
     (void)dirtyRect;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    trackerDrawing::MacDrawScope drawing(self, dirtyRect, trackerDrawing::PilotSurface::Envelope);
+#endif
     fillRect(self.bounds, trackerColor(0x1d1d1d));
     strokeRect(NSInsetRect(self.bounds, 0.5, 0.5), trackerColor(0x565656));
     fillRect(NSMakeRect(0.0, 0.0, NSWidth(self.bounds), 24.0),
@@ -13633,7 +13708,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     drawText(@"0", NSMakeRect(2.0, top + height - 6.0, 25.0, 12.0),
         trackerColor(0x737a80), 7.0, NSFontWeightRegular,
         NSTextAlignmentRight);
-    NSBezierPath* curve = [NSBezierPath bezierPath];
+    std::vector<NSPoint> curve;
+    curve.reserve(rows);
     for (std::size_t row = 0u; row < rows; ++row) {
         const CGFloat x = left + (static_cast<CGFloat>(row) + 0.5)
             * width / static_cast<CGFloat>(rows);
@@ -13647,13 +13723,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             : !sequenceValue ? resolvedVelocity(track, row)
             : resolvedFxValue(track, pairIndex, row);
         const CGFloat y = top + (1.0 - value) * height;
-        if (row == 0u) [curve moveToPoint:NSMakePoint(x, y)];
-        else [curve lineToPoint:NSMakePoint(x, y)];
+        curve.push_back(NSMakePoint(x, y));
     }
     NSColor* curveColor = trackerColor(0xb8b8b8, 0.8);
-    [curveColor setStroke];
-    curve.lineWidth = 1.2;
-    [curve stroke];
+    strokeTrackerPolyline(curve, curveColor, 1.2);
     for (std::size_t row = 0u; row < rows; ++row) {
         const bool explicitValue = gateField
             ? row < track.gates.size() && track.gates[row].voiceCount > 0u
@@ -13680,19 +13753,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             && noteCellIsActivePulse(track.notes[row]);
         const bool selected = row == model->session.selectedRow;
         if (selected) {
-            NSBezierPath* selection = [NSBezierPath bezierPathWithOvalInRect:
-                NSMakeRect(x - 4.5, y - 4.5, 9.0, 9.0)];
-            [S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary) setFill];
-            [selection fill];
+            fillTrackerEllipse(NSMakeRect(x - 4.5, y - 4.5, 9.0, 9.0),
+                S3GTrackerThemeColor(S3GTrackerThemeRole::TextPrimary));
         }
         const CGFloat pointSize = notePresent ? 7.0 : 4.0;
-        NSBezierPath* point = [NSBezierPath bezierPathWithOvalInRect:
-            NSMakeRect(x - pointSize * 0.5, y - pointSize * 0.5,
-                pointSize, pointSize)];
+        const NSRect point = NSMakeRect(x - pointSize * 0.5,
+            y - pointSize * 0.5, pointSize, pointSize);
         NSColor* pointColor = notePresent
             ? trackerColor(0x14c7eb) : trackerColor(0x4c4c4c);
-        [pointColor setFill];
-        [point fill];
+        fillTrackerEllipse(point, pointColor);
     }
     if (model->songPlaybackActive) {
         drawText(@"SONG PLAYBACK FOLLOW  /  READ ONLY",
@@ -13749,6 +13818,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         CGContextClearRect(NSGraphicsContext.currentContext.CGContext,
             NSRectToCGRect(dirtyRect));
     }
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    trackerDrawing::MacDrawScope drawing(self, dirtyRect,
+        trackerDrawing::PilotSurface::PlaybackOverlay);
+#endif
     [self.envelopeView drawPlaybackOverlay];
 }
 

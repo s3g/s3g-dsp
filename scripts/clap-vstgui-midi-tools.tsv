@@ -1,0 +1,3 @@
+# build path	canonical installed filename	CLAP ID	host name
+clap_nim_gesture/s3g_nim_gesture.clap	s3g_utility_nim_gesture.clap	org.s3g.s3g-dsp.nim-gesture	s3g Utility NIM Gesture
+clap_relay/s3g_relay.clap	s3g_relay.clap	org.s3g.s3g-dsp.relay	s3g Relay

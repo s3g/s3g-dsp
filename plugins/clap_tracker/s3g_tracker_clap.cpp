@@ -1,4 +1,8 @@
 #include "s3g_cocoa_gui.h"
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+#include "s3g_vstgui_foundation.h"
+#include "s3g_tracker_scaled_view.h"
+#endif
 
 #import "s3g_song_window.h"
 #import "s3g_tracker_controls.h"
@@ -84,6 +88,24 @@ constexpr uint32_t kNativeWidth = 1320u;
 constexpr uint32_t kNativeHeight = 860u;
 constexpr uint32_t kMinimumWidth = 760u;
 constexpr uint32_t kMinimumHeight = 620u;
+
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+bool adjustTrackerSize(uint32_t* width, uint32_t* height)
+{
+    using namespace s3g::portable_gui::foundation;
+    if (!width || !height) return false;
+    // Preserve an already rounded proportional size. Reapplying min(w/x,h/y)
+    // can otherwise shed a pixel on every adjust_size / set_size round trip.
+    const double sx = static_cast<double>(*width) / kNativeWidth;
+    const double sy = static_cast<double>(*height) / kNativeHeight;
+    if (sx >= kMinimumEditorScale && sx <= kMaximumEditorScale
+        && sy >= kMinimumEditorScale && sy <= kMaximumEditorScale
+        && std::abs(sx - sy) <= 0.5 / kNativeWidth + 0.5 / kNativeHeight)
+        return true;
+    return s3g::clap_gui::portable::adjustSize(
+        kNativeWidth, kNativeHeight, width, height);
+}
+#endif
 
 double normalizedTempoScale(double value) noexcept
 {
@@ -1098,7 +1120,11 @@ struct Plugin {
     std::atomic<uint64_t> runtimeBuildCount { 0u };
     S3GTrackerClapCoordinator* coordinator = nil;
     void* guiView = nullptr;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    S3GTrackerClapScaledView* guiContainer = nil;
+#else
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
 };
 
 // The audio callback commonly renders a block shortly before the downstream
@@ -4793,12 +4819,41 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
     if (!guiIsApiSupported(plugin, api, floating)) return false;
     auto* instance = self(plugin);
     if (instance->guiView) return true;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (!s3g::portable_gui::foundation::acquireRuntime()) return false;
+#endif
     instance->coordinator = [[S3GTrackerClapCoordinator alloc]
         initWithPlugin:instance];
-    if (!instance->coordinator) return false;
+    if (!instance->coordinator) {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+        s3g::portable_gui::foundation::releaseRuntime();
+#endif
+        return false;
+    }
     NSView* view = instance->coordinator.pageView;
     view.frame = NSMakeRect(0.0, 0.0, kNativeWidth, kNativeHeight);
     instance->guiView = (__bridge_retained void*)view;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    instance->guiContainer = [[S3GTrackerClapScaledView alloc]
+        initWithContent:view nativeSize:NSMakeSize(kNativeWidth, kNativeHeight)];
+    if (!instance->guiContainer) {
+        CFBridgingRelease(instance->guiView);
+        instance->guiView = nullptr;
+        instance->coordinator = nil;
+        s3g::portable_gui::foundation::releaseRuntime();
+        return false;
+    }
+    const NSSize fit = s3g::clap_gui::responsiveViewportSizeForScreen(
+        kNativeWidth, kNativeHeight,
+        static_cast<uint32_t>(std::lround(kNativeWidth
+            * s3g::portable_gui::foundation::kMinimumEditorScale)),
+        static_cast<uint32_t>(std::lround(kNativeHeight
+            * s3g::portable_gui::foundation::kMinimumEditorScale)));
+    uint32_t width = static_cast<uint32_t>(fit.width);
+    uint32_t height = static_cast<uint32_t>(fit.height);
+    adjustTrackerSize(&width, &height);
+    [instance->guiContainer setFrameSize:NSMakeSize(width, height)];
+#else
     if (!s3g::clap_gui::createResponsiveViewport(instance->guiViewport,
             view, kNativeWidth, kNativeHeight, kMinimumWidth,
             kMinimumHeight)) {
@@ -4809,6 +4864,7 @@ bool guiCreate(const clap_plugin_t* plugin, const char* api, bool floating)
     }
     view.frame = NSMakeRect(0.0, 0.0,
         instance->guiViewport.width, instance->guiViewport.height);
+#endif
     return true;
 }
 
@@ -4817,44 +4873,79 @@ void guiDestroy(const clap_plugin_t* plugin)
     auto* instance = self(plugin);
     if (!instance || !instance->guiView) return;
     [instance->coordinator stopTimer];
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    [instance->guiContainer removeFromSuperview];
+    [instance->guiContainer.content removeFromSuperview];
+    instance->guiContainer = nil;
+    CFBridgingRelease(instance->guiView);
+    instance->guiView = nullptr;
+#else
     s3g::clap_gui::destroyResponsiveViewport(instance->guiViewport,
         instance->guiView);
+#endif
     instance->coordinator = nil;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    s3g::portable_gui::foundation::releaseRuntime();
+#endif
 }
 
-bool guiSetScale(const clap_plugin_t*, double) { return true; }
+// Cocoa supplies logical points and handles Retina backing scale itself.
+// User zoom comes from set_size, not a second OS/DPI multiplier.
+bool guiSetScale(const clap_plugin_t*, double) { return false; }
 
 bool guiGetSize(const clap_plugin_t* plugin, uint32_t* width,
     uint32_t* height)
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    auto* container = self(plugin)->guiContainer;
+    return container && s3g::clap_gui::portable::getSize(
+        static_cast<uint32_t>(std::lround(container.frame.size.width)),
+        static_cast<uint32_t>(std::lround(container.frame.size.height)), width, height);
+#else
     return s3g::clap_gui::getResponsiveViewportSize(
         self(plugin)->guiViewport, kNativeWidth, kNativeHeight,
         width, height, kMinimumWidth, kMinimumHeight);
+#endif
 }
 
 bool guiCanResize(const clap_plugin_t*) { return true; }
 
 bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints)
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    return s3g::clap_gui::portable::getResizeHints(
+        kNativeWidth, kNativeHeight, hints);
+#else
     return s3g::clap_gui::getResponsiveResizeHints(hints);
+#endif
 }
 
 bool guiAdjustSize(const clap_plugin_t* plugin, uint32_t* width,
     uint32_t* height)
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    (void)plugin;
+    return adjustTrackerSize(width, height);
+#else
     return s3g::clap_gui::adjustResponsiveViewportSize(
         self(plugin)->guiViewport, kNativeWidth, kNativeHeight,
         width, height, kMinimumWidth, kMinimumHeight);
+#endif
 }
 
 bool guiSetSize(const clap_plugin_t* plugin, uint32_t width, uint32_t height)
 {
     auto* instance = self(plugin);
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (!instance->guiContainer || !adjustTrackerSize(&width, &height)) return false;
+    [instance->guiContainer setFrameSize:NSMakeSize(width, height)];
+#else
     if (!s3g::clap_gui::setResponsiveViewportSize(
             instance->guiViewport, width, height)) return false;
     if (instance->coordinator)
         instance->coordinator.pageView.frame = NSMakeRect(
             0.0, 0.0, width, height);
+#endif
     return true;
 }
 
@@ -4864,9 +4955,15 @@ bool guiSetParent(const clap_plugin_t* plugin, const clap_window_t* window)
         || std::strcmp(window->api, CLAP_WINDOW_API_COCOA) != 0
         || !window->cocoa) return false;
     auto* instance = self(plugin);
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (!instance->guiContainer) return false;
+    [(__bridge NSView*)window->cocoa addSubview:instance->guiContainer];
+    return true;
+#else
     return s3g::clap_gui::setResponsiveViewportParent(
         instance->guiViewport, (__bridge NSView*)window->cocoa,
         instance->host);
+#endif
 }
 
 bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
@@ -4875,8 +4972,13 @@ void guiSuggestTitle(const clap_plugin_t*, const char*) {}
 bool guiShow(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (!instance->guiView || !instance->guiContainer) return false;
+    instance->guiContainer.hidden = NO;
+#else
     if (!instance->guiView || !s3g::clap_gui::setResponsiveViewportHidden(
             instance->guiViewport, false)) return false;
+#endif
     [instance->coordinator startTimer];
     [instance->coordinator.pageView showPage:S3GTrackerClapPageTracker];
     [instance->coordinator.workspace focusTracker];
@@ -4889,8 +4991,13 @@ bool guiHide(const clap_plugin_t* plugin)
     if (!instance->guiView) return false;
     [instance->coordinator disarmMidiStepRecording];
     [instance->coordinator stopTimer];
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    instance->guiContainer.hidden = YES;
+    return true;
+#else
     return s3g::clap_gui::setResponsiveViewportHidden(
         instance->guiViewport, true);
+#endif
 }
 
 const clap_plugin_gui_t guiExtension {

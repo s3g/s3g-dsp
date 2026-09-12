@@ -10,7 +10,7 @@
 
 #include "../common/s3g_clap_gui_param_queue.h"
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_gui_layout.h"
@@ -25,7 +25,19 @@
 #include <cstring>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_resonator_encoder_drawing.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#define S3G_SCORE_KIND 2
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Ambi Encoder Horizon";
+constexpr uint32_t kGuiWidth=1160, kGuiHeight=760;
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiHorizonMaxChannels;
 constexpr uint32_t kStateVersion = 5u;
@@ -434,15 +446,22 @@ struct PresetFileV4 {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    std::atomic<bool> guiVisible { false };
     const clap_host_params_t* hostParams = nullptr;
     double sampleRate = 48000.0;
     s3g::AmbiHorizonEncoder engine {};
     s3g::AmbiHorizonEncoderParams params {};
     std::array<std::atomic<double>, kParamCount + 1u> visible {};
     std::atomic<uint32_t> presetIndex { 0u };
-    s3g::clap_gui::ParamEventQueue<512u> guiEvents {};
+    s3g::clap_gui::ParamEventQueue<4096> guiEvents {};
     std::atomic<bool> active { false };
     std::atomic<bool> pendingRescan { false };
     std::atomic<float> outputPeak { 0.0f };
@@ -460,13 +479,20 @@ struct Plugin {
     std::atomic<float> guiViewAzDeg { 38.0f };
     std::atomic<float> guiViewElDeg { 30.0f };
     std::atomic<float> guiViewZoom { 1.0f };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    std::atomic<bool> guiVisible { false };
+
 #endif
 };
 
+FILE* openPresetFile(const char* path, const char* mode) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ return s3g::portable_gui::foundation::openFileUtf8(path,mode);
+#else
+ return std::fopen(path,mode);
+#endif
+}
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
@@ -787,8 +813,11 @@ bool init(const clap_plugin_t* plugin)
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (p && p->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
@@ -851,7 +880,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     const float previous = p->outputPeak.load(std::memory_order_relaxed);
     p->outputPeak.store(std::max(peak, previous * 0.94f), std::memory_order_relaxed);
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (p->guiVisible.load(std::memory_order_relaxed)) {
         const uint32_t entities = p->engine.activeEntities();
         p->guiEntityCount.store(entities, std::memory_order_relaxed);
@@ -1174,7 +1203,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 namespace {
 
@@ -1370,7 +1399,7 @@ double sliderValue(const GuiSliderSpec& spec, NSPoint point)
 bool savePresetFile(const char* path, const PresetFile& preset)
 {
     if (!path) return false;
-    std::FILE* file = std::fopen(path, "wb");
+    std::FILE* file = openPresetFile(path, "wb");
     if (!file) return false;
     const bool ok = std::fwrite(&preset, sizeof(preset), 1u, file) == 1u;
     std::fclose(file);
@@ -1380,7 +1409,7 @@ bool savePresetFile(const char* path, const PresetFile& preset)
 bool loadPresetFile(const char* path, PresetFile& preset)
 {
     if (!path) return false;
-    std::FILE* file = std::fopen(path, "rb");
+    std::FILE* file = openPresetFile(path, "rb");
     if (!file) return false;
     uint32_t header[2] {};
     bool ok = std::fread(header, sizeof(header), 1u, file) == 1u
@@ -2214,12 +2243,18 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_score_encoder_horizon_canvas.inc"
+#endif
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ if(std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

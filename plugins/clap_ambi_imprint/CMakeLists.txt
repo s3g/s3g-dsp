@@ -4,6 +4,18 @@ add_library(s3g_ambi_imprint_clap MODULE
 
 target_link_libraries(s3g_ambi_imprint_clap PRIVATE s3g_dsp)
 target_include_directories(s3g_ambi_imprint_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+if(S3G_COMPLEX_PROCESSORS_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_ambi_imprint_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_complex_processor_imprint_canvas.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_ambi_imprint_clap PROPERTIES SUFFIX ".clap")
+  add_custom_command(TARGET s3g_ambi_imprint_clap POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/atlas"
+      "$<TARGET_FILE_DIR:s3g_ambi_imprint_clap>/Resources/Imprint Atlas"
+    VERBATIM)
+endif()
 
 if(APPLE)
   file(GLOB S3G_AMBI_IMPRINT_ATLAS_FILES CONFIGURE_DEPENDS

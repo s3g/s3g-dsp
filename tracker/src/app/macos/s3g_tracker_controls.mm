@@ -962,6 +962,12 @@ void S3GTrackerConfigureProcessorSlider(
         return;
     }
     NSView* root = self.window.contentView;
+    for (NSView* ancestor = self.superview; ancestor; ancestor = ancestor.superview) {
+        if ([ancestor.identifier isEqualToString:S3GTrackerScaledWorkspaceIdentifier]) {
+            root = ancestor;
+            break;
+        }
+    }
     const NSRect source = [root convertRect:self.bounds fromView:self];
     constexpr CGFloat itemHeight = 21.0;
     constexpr CGFloat outerInset = 8.0;

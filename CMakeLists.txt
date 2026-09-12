@@ -710,6 +710,8 @@ option(S3G_BUILD_STANDALONE_APPS "Build experimental standalone app targets" OFF
 option(S3G_FETCH_CLAP "Fetch the CLAP headers when S3G_CLAP_INCLUDE_DIR is not set" ON)
 option(S3G_ENABLE_PORTABLE_CLAP_GUI
   "Build the VSTGUI-backed portable CLAP editors" ON)
+option(S3G_ENABLE_TRACKER_VSTGUI_PILOT_ON_MACOS
+  "Opt in to Tracker's Mac-only VSTGUI drawing pilot; native editing stays intact" OFF)
 option(S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS
   "Use the in-progress Sample-family VSTGUI ports on macOS" OFF)
 option(S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS
@@ -730,6 +732,24 @@ option(S3G_ENABLE_DECODERS_VSTGUI_ON_MACOS
   "Use Ambisonic Decoder VSTGUI parity ports on macOS" OFF)
 option(S3G_ENABLE_INPUT_ENCODERS_VSTGUI_ON_MACOS
   "Use Cloud, Path, Ray and Ray Bilocation VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_MAP_ENCODERS_VSTGUI_ON_MACOS
+  "Use Surface Terrain, Wave Terrain and Cartography VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_CIRCUIT_ENCODERS_VSTGUI_ON_MACOS
+  "Use Pulsar, Neural Ecology and Wrangler VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_RESONATOR_ENCODERS_VSTGUI_ON_MACOS
+  "Use Modal, Medium and Membrane Kick VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_FEEDBACK_PROCESSORS_VSTGUI_ON_MACOS
+  "Use Errant, Feedback Shift, Fissure and Fault VSTGUI editors on macOS" OFF)
+option(S3G_ENABLE_MIDI_TOOLS_VSTGUI_ON_MACOS
+  "Use NIM Gesture and Relay VSTGUI parity editors on macOS" OFF)
+option(S3G_ENABLE_COMPLEX_PROCESSORS_VSTGUI_ON_MACOS
+  "Use No Input Mixer, Formant Matrix, Vox and Imprint VSTGUI parity editors on macOS" OFF)
+option(S3G_ENABLE_STEREO_PROCESSORS_VSTGUI_ON_MACOS
+  "Use LF Synth, Lowform, Stack and Conduit VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_SCORE_ENCODERS_VSTGUI_ON_MACOS
+  "Use Acid, Horizon and VOT VSTGUI parity ports on macOS" OFF)
+option(S3G_ENABLE_ENVIRONMENT_ENCODERS_VSTGUI_ON_MACOS
+  "Use Wind, Water, Insect, Cryosphere and Pyrosphere VSTGUI parity ports on macOS" OFF)
 option(S3G_BUILD_DRUM_GUI_PILOTS
   "Build Drum Kick/Hi-Hat without enabling unrelated future components" OFF)
 option(S3G_BUILD_DRUM_GUI_FAMILY
@@ -934,9 +954,84 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GAmbiBusTests.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GAmbiEffectTests.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GDecoderTests.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GInputEncoderTests.cmake")
+set(S3G_ENVIRONMENT_ENCODERS_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE
+    AND (WIN32 OR S3G_ENABLE_ENVIRONMENT_ENCODERS_VSTGUI_ON_MACOS))
+  set(S3G_ENVIRONMENT_ENCODERS_VSTGUI_AVAILABLE ON)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GEnvironmentEncoderTests.cmake")
+set(S3G_MAP_ENCODERS_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_MAP_ENCODERS_VSTGUI_ON_MACOS))
+  set(S3G_MAP_ENCODERS_VSTGUI_AVAILABLE ON)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GMapEncoderTests.cmake")
+set(S3G_CIRCUIT_ENCODERS_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_CIRCUIT_ENCODERS_VSTGUI_ON_MACOS))
+  set(S3G_CIRCUIT_ENCODERS_VSTGUI_AVAILABLE ON)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GCircuitEncoderTests.cmake")
+set(S3G_RESONATOR_ENCODERS_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_RESONATOR_ENCODERS_VSTGUI_ON_MACOS))
+  set(S3G_RESONATOR_ENCODERS_VSTGUI_AVAILABLE ON)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GResonatorEncoderTests.cmake")
+set(S3G_FEEDBACK_PROCESSORS_VSTGUI_AVAILABLE OFF)
+set(s3g_feedback_processors_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_FEEDBACK_PROCESSORS_VSTGUI_ON_MACOS))
+  set(S3G_FEEDBACK_PROCESSORS_VSTGUI_AVAILABLE ON)
+  set(s3g_feedback_processors_gui_smoke_mode proportional)
+endif()
+
+include(cmake/S3GFeedbackProcessorTests.cmake)
+
+set(S3G_MIDI_TOOLS_VSTGUI_AVAILABLE OFF)
+set(s3g_midi_tools_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_MIDI_TOOLS_VSTGUI_ON_MACOS))
+  set(S3G_MIDI_TOOLS_VSTGUI_AVAILABLE ON)
+  set(s3g_midi_tools_gui_smoke_mode proportional)
+endif()
+include(cmake/S3GMidiToolTests.cmake)
+set(S3G_COMPLEX_PROCESSORS_VSTGUI_AVAILABLE OFF)
+set(s3g_complex_processors_gui_smoke_mode responsive)
+set(s3g_complex_mixer_gui_smoke_mode responsive-wide)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_COMPLEX_PROCESSORS_VSTGUI_ON_MACOS))
+  set(S3G_COMPLEX_PROCESSORS_VSTGUI_AVAILABLE ON)
+  set(s3g_complex_processors_gui_smoke_mode proportional)
+  set(s3g_complex_mixer_gui_smoke_mode proportional)
+endif()
+include(cmake/S3GComplexProcessorTests.cmake)
+
+set(S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE OFF)
+set(s3g_stereo_processors_gui_smoke_mode responsive)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_STEREO_PROCESSORS_VSTGUI_ON_MACOS))
+  set(S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE ON)
+  set(s3g_stereo_processors_gui_smoke_mode proportional)
+endif()
+include(cmake/S3GStereoProcessorTests.cmake)
+
+set(S3G_SCORE_ENCODERS_VSTGUI_AVAILABLE OFF)
+if(S3G_VSTGUI_AVAILABLE AND (WIN32 OR S3G_ENABLE_SCORE_ENCODERS_VSTGUI_ON_MACOS))
+  set(S3G_SCORE_ENCODERS_VSTGUI_AVAILABLE ON)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GScoreEncoderTests.cmake")
 
 if(S3G_BUILD_CLAP_PLUGIN)
   if(BUILD_TESTING)
+    if(S3G_VSTGUI_AVAILABLE)
+      add_executable(s3g_vstgui_dropdown_smoke tests/vstgui_dropdown_smoke.cpp)
+      target_link_libraries(s3g_vstgui_dropdown_smoke PRIVATE s3g_dsp)
+      target_include_directories(s3g_vstgui_dropdown_smoke PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+      s3g_enable_vstgui_gui(s3g_vstgui_dropdown_smoke
+        "${PROJECT_SOURCE_DIR}/plugins/common/s3g_ambi_effect_drawing.h"
+        S3G_ENABLE_VSTGUI_CANVAS_GUI)
+      if(APPLE)
+        set_source_files_properties(tests/vstgui_dropdown_smoke.cpp PROPERTIES LANGUAGE OBJCXX)
+        set_target_properties(s3g_vstgui_dropdown_smoke PROPERTIES MACOSX_BUNDLE TRUE)
+        target_link_libraries(s3g_vstgui_dropdown_smoke PRIVATE "-framework Cocoa")
+      endif()
+      add_test(NAME s3g_vstgui_dropdown_smoke COMMAND $<TARGET_FILE:s3g_vstgui_dropdown_smoke>)
+      set_tests_properties(s3g_vstgui_dropdown_smoke PROPERTIES LABELS "non_nim;gui;smoke" TIMEOUT 30)
+    endif()
     if(S3G_ROUTING_VSTGUI_AVAILABLE)
       set(s3g_panner_variant 0)
       foreach(s3g_panner_name layout dbap lbap vbap)
@@ -1285,7 +1380,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       VERBATIM)
   endif()
 
-  if(S3G_BUILD_TRACKER_PREVIEW)
+  if(S3G_BUILD_TRACKER_PREVIEW AND APPLE)
     add_executable(s3g_tracker_clap_smoke tests/tracker_clap_smoke.cpp)
     target_include_directories(s3g_tracker_clap_smoke PRIVATE
       ${S3G_CLAP_INCLUDE_DIR})
@@ -1298,12 +1393,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
     endif()
   endif()
 
-  if(S3G_BUILD_RELAY_PREVIEW)
+  if(S3G_BUILD_RELAY_PREVIEW OR S3G_MIDI_TOOLS_VSTGUI_AVAILABLE)
     add_executable(s3g_relay_clap_smoke
       tests/relay_clap_smoke.cpp)
     target_include_directories(s3g_relay_clap_smoke PRIVATE
       ${S3G_CLAP_INCLUDE_DIR})
     target_link_libraries(s3g_relay_clap_smoke PRIVATE ${CMAKE_DL_LIBS})
+    if(S3G_MIDI_TOOLS_VSTGUI_AVAILABLE)
+      target_compile_definitions(s3g_relay_clap_smoke PRIVATE S3G_RELAY_PORTABLE_GUI=1)
+    endif()
     if(APPLE)
       set_source_files_properties(tests/relay_clap_smoke.cpp
         PROPERTIES LANGUAGE OBJCXX)
@@ -1782,7 +1880,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_acapella_source_synth_clap>
           org.s3g.s3g-dsp.formant-matrix
-          1356 968 "s3g Processor Formant Matrix 2" responsive)
+          1356 968 "s3g Processor Formant Matrix 2" ${s3g_complex_processors_gui_smoke_mode})
       set_tests_properties(s3g_formant_matrix_gui_smoke PROPERTIES
         LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
@@ -1839,34 +1937,34 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_BUILD_DRUM_GUI_FAMILY)
     add_subdirectory(plugins/clap_drum_break)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_RESONATOR_ENCODERS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_ambi_membrane_kick)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_SCORE_ENCODERS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_ambi_acid_encoder)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_low_frequency_synth)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_processor_lowform)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_processor_stack)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_processor_conduit)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_SCORE_ENCODERS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_ambi_horizon_encoder)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_FEEDBACK_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_processor_errant)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_FEEDBACK_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_feedback_shift)
   endif()
-  if(S3G_BUILD_FUTURE_COMPONENTS)
+  if(S3G_BUILD_FUTURE_COMPONENTS OR S3G_FEEDBACK_PROCESSORS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_processor_fissure)
   endif()
   if(S3G_BUILD_FUTURE_COMPONENTS AND BUILD_TESTING)
@@ -1880,7 +1978,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_feedback_shift_clap>
           org.s3g.s3g-dsp.feedback-shift
-          1100 760 "s3g Processor Feedback Shift 8" responsive)
+          1100 760 "s3g Processor Feedback Shift 8" ${s3g_feedback_processors_gui_smoke_mode})
       set_tests_properties(s3g_feedback_shift_gui_smoke PROPERTIES
         LABELS "non_nim;clap;gui" TIMEOUT 120)
     endif()
@@ -1889,10 +1987,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
   add_subdirectory(plugins/clap_no_input_mixer)
   add_subdirectory(plugins/clap_nim_gesture)
-  if(S3G_BUILD_TRACKER_PREVIEW)
+  if(S3G_BUILD_TRACKER_PREVIEW AND APPLE)
     add_subdirectory(plugins/clap_tracker)
   endif()
-  if(S3G_BUILD_RELAY_PREVIEW)
+  if(S3G_BUILD_RELAY_PREVIEW OR S3G_MIDI_TOOLS_VSTGUI_AVAILABLE)
     add_subdirectory(plugins/clap_relay)
   endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW)
@@ -1919,19 +2017,30 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_SAMPLE_CUTUPS_PREVIEW)
     add_subdirectory(plugins/clap_sample_cutups)
   endif()
-  if(S3G_BUILD_TRACKER_PREVIEW AND BUILD_TESTING)
+  if(S3G_BUILD_TRACKER_PREVIEW AND APPLE AND BUILD_TESTING)
     add_test(NAME s3g_tracker_clap_smoke
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
         $<TARGET_FILE:s3g_tracker_clap>)
     set_tests_properties(s3g_tracker_clap_smoke PROPERTIES
       LABELS "non_nim;tracker;clap;smoke" TIMEOUT 120)
+    if(S3G_ENABLE_TRACKER_VSTGUI_PILOT_ON_MACOS)
+      set_tests_properties(s3g_tracker_clap_smoke PROPERTIES
+        ENVIRONMENT "S3G_TRACKER_EXPECT_VSTGUI=1")
+    endif()
   endif()
-  if(S3G_BUILD_RELAY_PREVIEW AND BUILD_TESTING)
+  if((S3G_BUILD_RELAY_PREVIEW OR S3G_MIDI_TOOLS_VSTGUI_AVAILABLE) AND BUILD_TESTING)
     add_test(NAME s3g_relay_clap_smoke
       COMMAND $<TARGET_FILE:s3g_relay_clap_smoke>
         $<TARGET_FILE:s3g_relay_clap>)
     set_tests_properties(s3g_relay_clap_smoke PROPERTIES
       LABELS "non_nim;relay;clap;smoke" TIMEOUT 120)
+    if(APPLE AND S3G_MIDI_TOOLS_VSTGUI_AVAILABLE)
+      add_test(NAME s3g_midi_relay_gui_smoke
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_relay_clap> org.s3g.s3g-dsp.relay
+          1240 900 "s3g Relay" proportional)
+      set_tests_properties(s3g_midi_relay_gui_smoke PROPERTIES LABELS "midi;gui;smoke" TIMEOUT 120)
+    endif()
   endif()
   if(S3G_BUILD_BREAKBEAT_SLICER_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_breakbeat_slicer_clap_smoke
@@ -2205,7 +2314,10 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_buffer_processor)
   add_subdirectory(plugins/clap_wave_geometry_processor)
   add_subdirectory(plugins/clap_multichannel_meter)
-  add_subdirectory(plugins/clap_ambisonic_energy_visualizer)
+  # Tracker and the Metal Energy visualizer remain Mac-only for this release.
+  if(APPLE)
+    add_subdirectory(plugins/clap_ambisonic_energy_visualizer)
+  endif()
   add_subdirectory(plugins/clap_ambisonic_stereo_decoder)
   add_subdirectory(plugins/clap_ambisonic_head_decoder)
   add_subdirectory(plugins/clap_ambisonic_sub_decoder)
@@ -2949,7 +3061,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_low_frequency_synth_clap>
           org.s3g.s3g-dsp.low-frequency-synth
-          980 672 "s3g Processor LF Synth 2" responsive
+          980 672 "s3g Processor LF Synth 2" ${s3g_stereo_processors_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_low_frequency_synth_clap
@@ -2978,7 +3090,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_lowform_clap>
           org.s3g.s3g-dsp.processor-lowform
-          1100 720 "s3g Processor Lowform 2" responsive
+          1100 720 "s3g Processor Lowform 2" ${s3g_stereo_processors_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_lowform_clap
@@ -3006,7 +3118,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_stack_clap>
           org.s3g.s3g-dsp.processor-stack
-          980 774 "s3g Processor Stack 2" responsive
+          980 774 "s3g Processor Stack 2" ${s3g_stereo_processors_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_stack_clap
@@ -3035,7 +3147,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
           $<TARGET_FILE:s3g_processor_conduit_clap>
           org.s3g.s3g-dsp.processor-conduit
-          760 620 "s3g Processor Conduit 2" responsive
+          760 620 "s3g Processor Conduit 2" ${s3g_stereo_processors_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_processor_conduit_clap
@@ -3328,7 +3440,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pulsar_encoder_clap> org.s3g.s3g-dsp.ambi-pulsar-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap> org.s3g.s3g-dsp.ambi-stochastic-encoder-64 1160 860
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vot_encoder_clap> org.s3g.s3g-dsp.ambi-vot-encoder-64 1160 894
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vox_encoder_clap> org.s3g.s3g-dsp.ambi-vox-encoder-64 1160 920
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vox_encoder_clap> org.s3g.s3g-dsp.ambi-vox-encoder-64 1160 920 "s3g Ambi Encoder Vox" ${s3g_complex_processors_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_water_encoder_clap> org.s3g.s3g-dsp.ambi-water-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pyrosphere_encoder_clap> org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_cryosphere_encoder_clap> org.s3g.s3g-dsp.ambi-cryosphere-encoder-64 1160 858
@@ -3410,9 +3522,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_buffer_processor_clap> org.s3g.s3g-dsp.buffer-processor 760 584 "s3g Processor " ${s3g_memory_effects_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_wave_geometry_processor_clap> org.s3g.s3g-dsp.wave-geometry-processor 1356 788 "s3g Processor " ${s3g_topology_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_sample_rings_clap> org.s3g.s3g-dsp.sample-rings-8 1356 820 "s3g Sample Rings 8" ${s3g_sample_rings_gui_smoke_mode}
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_psd_raw_field_clap> org.s3g.s3g-dsp.fault 1356 720 "s3g Processor " ${s3g_feedback_processors_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_grain_processor_clap> org.s3g.s3g-dsp.ambi-grain-processor 920 640 "s3g Processor " ${s3g_sample_family_gui_smoke_mode}
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " responsive-wide
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_no_input_mixer_clap> org.s3g.s3g-dsp.no-input-mixer-8ch 1356 820 "s3g Processor " ${s3g_complex_mixer_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor 1356 820 "s3g Processor " ${s3g_topology_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_24ch_spectral_topology_processor_clap> org.s3g.s3g-dsp.spectral-topology-processor-24ch 1356 ${s3g_spectral_24_gui_height} "s3g Processor " ${s3g_topology_gui_smoke_mode}
       DEPENDS
@@ -3431,7 +3543,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     if(S3G_BUILD_FUTURE_COMPONENTS)
       add_custom_target(audit_gui_processor_feedback_shift
-        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_feedback_shift_clap> org.s3g.s3g-dsp.feedback-shift 1100 760 "s3g Processor " responsive
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_feedback_shift_clap> org.s3g.s3g-dsp.feedback-shift 1100 760 "s3g Processor " ${s3g_feedback_processors_gui_smoke_mode}
         DEPENDS
           s3g_encoder_family_gui_smoke
           s3g_feedback_shift_clap
@@ -3651,7 +3763,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
 
     add_custom_target(audit_gui_imprint
       COMMAND $<TARGET_FILE:s3g_gui_layout_contract_smoke>
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_imprint_clap> org.s3g.s3g-dsp.ambi-imprint-64 900 480 "s3g Processor Ambi Imprint " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_imprint_clap> org.s3g.s3g-dsp.ambi-imprint-64 900 480 "s3g Processor Ambi Imprint " ${s3g_complex_processors_gui_smoke_mode}
       DEPENDS
         s3g_gui_layout_contract_smoke
         s3g_encoder_family_gui_smoke
@@ -3659,7 +3771,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMENT "Rendering and validating the Ambi Imprint GUI")
 
     add_custom_target(audit_gui_nim_gesture
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_nim_gesture_clap> org.s3g.s3g-dsp.nim-gesture 1180 820 "s3g Utility " responsive
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_nim_gesture_clap> org.s3g.s3g-dsp.nim-gesture 1180 820 "s3g Utility " ${s3g_midi_tools_gui_smoke_mode}
       DEPENDS
         s3g_encoder_family_gui_smoke
         s3g_nim_gesture_clap

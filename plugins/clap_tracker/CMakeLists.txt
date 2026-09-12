@@ -11,6 +11,7 @@ add_library(s3g_tracker_clap MODULE
   ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Regular.ttf
   ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Medium.ttf
   ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-SemiBold.ttf
+  ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/OFL.txt
 )
 
 target_link_libraries(s3g_tracker_clap PRIVATE
@@ -40,6 +41,7 @@ if(APPLE)
     ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Regular.ttf
     ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Medium.ttf
     ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-SemiBold.ttf
+    ${CMAKE_SOURCE_DIR}/tracker/resources/fonts/OFL.txt
     PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Fonts")
   set_target_properties(s3g_tracker_clap PROPERTIES
     BUNDLE TRUE
@@ -49,4 +51,12 @@ if(APPLE)
     MACOSX_BUNDLE_BUNDLE_VERSION "0.4.0"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.0"
   )
+
+  if(S3G_ENABLE_TRACKER_VSTGUI_PILOT_ON_MACOS)
+    s3g_enable_vstgui_gui(s3g_tracker_clap
+      "${CMAKE_SOURCE_DIR}/tracker/src/editor/s3g_tracker_vstgui_drawing.cpp"
+      S3G_TRACKER_VSTGUI_PILOT)
+    target_sources(s3g_tracker_clap PRIVATE
+      "${CMAKE_SOURCE_DIR}/tracker/src/app/macos/s3g_tracker_vstgui_pilot.mm")
+  endif()
 endif()

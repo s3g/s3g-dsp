@@ -4,6 +4,10 @@
 
 #include <cstdint>
 
+// Optional logical root for menus inside the scaled Mac CLAP workspace.
+// Standalone and detached windows continue using their native content view.
+inline NSString* const S3GTrackerScaledWorkspaceIdentifier = @"s3g.tracker.scaled-workspace";
+
 // Night Tracker is a semantic palette, not a bag of per-view literals.  The
 // roles keep navigation, playback, data columns, and warnings recognizable in
 // every editor while neutral tones remain quiet.

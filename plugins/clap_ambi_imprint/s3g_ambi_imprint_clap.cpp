@@ -8,7 +8,7 @@
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #include <clap/ext/gui.h>
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
@@ -31,7 +31,15 @@
 #include <utility>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_drawing.h"
+#include "../common/s3g_input_encoder_files.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct Plugin;void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kChannels = 64u;
 constexpr uint32_t kGuiWidth = 900u;
@@ -157,6 +165,13 @@ struct GuiSnapshot {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+    uint32_t portableGuiWidth=kGuiWidth,portableGuiHeight=kGuiHeight;
+    bool portableGuiVisible=false;
+    s3g::clap_gui::ParamEventQueue<1024> guiParamEvents;
+    std::array<std::atomic<double>,7> publishedParams{{7.,.5,1.,1.,0.,0.,0.}};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_tail_t* hostTail = nullptr;
@@ -175,15 +190,15 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiImprintMaxProfiles> listenEnvelope {};
     std::array<std::atomic<float>, s3g::kAmbiImprintMaxProfiles> listenWeight {};
     double sampleRate = 48000.0;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     std::atomic<bool> guiVisible { false };
+#endif
     int guiViewMode = 2;
     double guiViewAzimuthDeg = 35.0;
     double guiViewElevationDeg = 34.0;
     double guiViewZoom = 1.0;
-#endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
@@ -214,6 +229,7 @@ bool streamReadAll(const clap_istream_t* stream, void* destination, uint64_t byt
 
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
+    if (!std::isfinite(value)) return;
     switch (id) {
     case kParamOrder: plugin.params.order = static_cast<uint32_t>(std::lround(value)); break;
     case kParamMix: plugin.params.mix = static_cast<float>(value); break;
@@ -228,11 +244,21 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     default: return;
     }
     plugin.params = s3g::sanitizeAmbiImprintParams(plugin.params);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const auto& p = plugin.params;
+    const double values[] = {double(p.order),p.mix,p.focus,p.width,p.outputGainDb,
+        p.bypass ? 1. : 0.,double(p.fieldListenMode)};
+    for(size_t i=0;i<7;++i) plugin.publishedParams[i].store(values[i],std::memory_order_release);
+#endif
     if (auto* processor = plugin.activeProcessor.load(std::memory_order_acquire)) processor->setParams(plugin.params);
 }
 
 double getParam(const Plugin& plugin, clap_id id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(id>=kParamOrder && id<=kParamFieldListen)
+        return plugin.publishedParams[id-1].load(std::memory_order_acquire);
+#endif
     switch (id) {
     case kParamOrder: return plugin.params.order;
     case kParamMix: return plugin.params.mix;
@@ -246,10 +272,33 @@ double getParam(const Plugin& plugin, clap_id id)
     }
 }
 
+s3g::AmbiImprintParams visibleImprintParams(const Plugin& plugin)
+{
+    s3g::AmbiImprintParams p;
+    p.order=static_cast<uint32_t>(getParam(plugin,kParamOrder));
+    p.mix=static_cast<float>(getParam(plugin,kParamMix));
+    p.focus=static_cast<float>(getParam(plugin,kParamFocus));
+    p.width=static_cast<float>(getParam(plugin,kParamWidth));
+    p.outputGainDb=static_cast<float>(getParam(plugin,kParamOutput));
+    p.bypass=getParam(plugin,kParamBypass)>=.5;
+    p.fieldListenMode=static_cast<s3g::AmbiFieldListenMode>(static_cast<uint32_t>(getParam(plugin,kParamFieldListen)));
+    return p;
+}
+
+void serviceImprintGuiEvents(Plugin& plugin,const clap_output_events_t* output)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::clap_gui::serviceParamEvents(plugin.guiParamEvents,output,
+        [&](clap_id id,double value){applyParam(plugin,id,value);});
+#else
+    (void)plugin;(void)output;
+#endif
+}
+
 bool buildRuntime(Plugin& plugin, const s3g::AmbiImprintDescriptor& descriptor, std::string& error)
 {
     auto runtime = std::make_unique<s3g::AmbiImprintProcessor>();
-    runtime->setParams(plugin.params);
+    runtime->setParams(visibleImprintParams(plugin));
     if (!runtime->prepare(plugin.sampleRate, descriptor)) {
         error = "FFT KERNEL BUILD FAILED";
         return false;
@@ -325,7 +374,7 @@ GuiSnapshot guiSnapshot(Plugin& plugin)
     return result;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 float numberValue(NSDictionary* dictionary, NSString* key, float fallback)
 {
     id value = [dictionary objectForKey:key];
@@ -610,6 +659,8 @@ bool parseImprintData(NSData* data,
     json.assign([text UTF8String], [text lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
     return true;
 }
+#elif defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_imprint_files.inc"
 #endif
 
 bool init(const clap_plugin_t*) { return true; }
@@ -617,7 +668,10 @@ bool init(const clap_plugin_t*) { return true; }
 void destroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*instance);
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (instance->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(
             instance->guiViewport, instance->guiView);
@@ -712,6 +766,7 @@ clap_process_status processTyped(Plugin& plugin,
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
     auto* instance = self(plugin);
+    serviceImprintGuiEvents(*instance,process->out_events);
     readParamEvents(*instance, process->in_events);
     if (process->audio_inputs_count == 0u || process->audio_outputs_count == 0u) return CLAP_PROCESS_CONTINUE;
     const auto& input = process->audio_inputs[0];
@@ -808,8 +863,9 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id paramId, const char* displa
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t* output)
 {
+    serviceImprintGuiEvents(*self(plugin),output);
     readParamEvents(*self(plugin), input);
 }
 
@@ -842,7 +898,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         json = instance->imprintJson;
     }
     if (json.size() > kMaximumStateJsonBytes) return false;
-    const SavedStateHeader header { kStateMagic, kStateVersion, instance->params, static_cast<uint32_t>(json.size()) };
+    const SavedStateHeader header { kStateMagic, kStateVersion, visibleImprintParams(*instance), static_cast<uint32_t>(json.size()) };
     SavedGuiStateTail guiState;
     std::memset(&guiState, 0, sizeof(guiState));
     guiState.magic = kGuiStateMagic;
@@ -851,12 +907,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     guiState.viewAzimuthDeg = 35.0;
     guiState.viewElevationDeg = 34.0;
     guiState.viewZoom = 1.0;
-#if defined(__APPLE__)
     guiState.viewMode = instance->guiViewMode;
     guiState.viewAzimuthDeg = instance->guiViewAzimuthDeg;
     guiState.viewElevationDeg = instance->guiViewElevationDeg;
     guiState.viewZoom = instance->guiViewZoom;
-#endif
     return streamWriteAll(stream, &header, sizeof(header))
         && (json.empty() || streamWriteAll(stream, json.data(), json.size()))
         && streamWriteAll(stream, &guiState, sizeof(guiState));
@@ -896,34 +950,38 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     if (header.jsonBytes > kMaximumStateJsonBytes) return false;
     auto* instance = self(plugin);
-    instance->params = s3g::sanitizeAmbiImprintParams(header.params);
+    s3g::AmbiImprintDescriptor descriptor;
+    GuiSpaceGeometry geometry;
+    std::string canonical;
+    std::string error;
     if (header.jsonBytes > 0u) {
         std::string json(header.jsonBytes, '\0');
         if (!streamReadAll(stream, json.data(), json.size())) return false;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         NSData* data = [NSData dataWithBytes:json.data() length:json.size()];
-        s3g::AmbiImprintDescriptor descriptor;
-        GuiSpaceGeometry geometry;
-        std::string canonical;
-        std::string error;
         if (!parseImprintData(data, descriptor, geometry, canonical, error)) return false;
-        if (!installDescriptor(*instance, std::move(descriptor), std::move(geometry), std::move(canonical), "PROJECT STATE", error)) return false;
+#elif defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (!parseImprintData(json, descriptor, geometry, canonical, error)) return false;
 #else
         return false;
 #endif
     }
-    if (auto* processor = instance->activeProcessor.load(std::memory_order_acquire)) processor->setParams(instance->params);
     SavedGuiStateTail guiState;
     bool hasGuiState = false;
     if (!readOptionalGuiState(stream, guiState, hasGuiState)) return false;
-#if defined(__APPLE__)
+    // Commit only after every required byte, JSON field and camera tail validates.
+    if (hasGuiState && (!std::isfinite(guiState.viewAzimuthDeg)
+        || !std::isfinite(guiState.viewElevationDeg) || !std::isfinite(guiState.viewZoom))) return false;
+    if (header.jsonBytes && !installDescriptor(*instance, std::move(descriptor),
+            std::move(geometry), std::move(canonical), "PROJECT STATE", error)) return false;
+    instance->params = s3g::sanitizeAmbiImprintParams(header.params);
+    applyParam(*instance,kParamOrder,instance->params.order);
     if (hasGuiState) {
         instance->guiViewMode = std::clamp<int>(guiState.viewMode, -1, 2);
         instance->guiViewAzimuthDeg = std::clamp(guiState.viewAzimuthDeg, -180.0, 180.0);
         instance->guiViewElevationDeg = std::clamp(guiState.viewElevationDeg, -89.0, 89.0);
         instance->guiViewZoom = std::clamp(guiState.viewZoom, 0.55, 2.20);
     }
-#endif
     return true;
 }
 
@@ -944,7 +1002,7 @@ const clap_plugin_tail_t tailExt { tailGet };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 constexpr auto kImprintOutputPanel = s3g::gui_layout::imprintPanel(
     s3g::gui_layout::PanelRole::Output, 42.0, 2u);
 constexpr s3g::gui_layout::Panel kImprintSourcePanel {
@@ -1862,14 +1920,21 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_imprint_canvas.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(id && std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) return &latencyExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -1925,4 +1990,4 @@ const void* entryGetFactory(const char* factoryId) { return std::strcmp(factoryI
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

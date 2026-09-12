@@ -9,7 +9,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #endif
@@ -26,7 +26,18 @@
 #include <new>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_map_encoder_drawing.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_MAP_KIND 2
+constexpr uint32_t kGuiWidth = 1158, kGuiHeight = 828;
+constexpr const char* portablePresetDirectory = "Ambi Wave Terrain Encoder";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaveTerrainMaxChannels;
 constexpr uint32_t kStateVersion = 5u;
@@ -167,6 +178,12 @@ struct ControlSnapshot {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    std::atomic<bool>& portableGuiVisible = guiVisible;
+
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -209,7 +226,7 @@ struct Plugin {
     std::array<std::atomic<float>, 256> guiTerrainB {};
     std::array<std::atomic<float>, 256> guiTableA {};
     std::array<std::atomic<float>, 256> guiTableB {};
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
@@ -624,12 +641,15 @@ bool init(const clap_plugin_t* plugin)
     }
     return true;
 }
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -900,7 +920,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 
 struct GuiRow { const char* label; clap_id param; CGFloat panelX; CGFloat y; bool menu; };
@@ -1810,13 +1830,20 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_map_encoder_wave_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

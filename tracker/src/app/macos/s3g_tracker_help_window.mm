@@ -343,9 +343,18 @@ NSAttributedString* helpDocument()
     [_helpPanel addSubview:scroll];
 
     NSSize contentSize = scroll.contentSize;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    // The embedded help document is a traditional NSTextStorage/NSLayoutManager
+    // view. Keep that explicit when it lives inside a magnified CLAP viewport;
+    // TextKit 2's automatic viewport layout can continually invalidate the
+    // enclosing window at fractional editor scales.
+    _helpTextView = [[S3GTrackerHelpTextView alloc] initUsingTextLayoutManager:NO];
+    _helpTextView.frame = NSMakeRect(0.0, 0.0, contentSize.width, contentSize.height);
+#else
     _helpTextView = [[S3GTrackerHelpTextView alloc]
         initWithFrame:NSMakeRect(0.0, 0.0, contentSize.width,
             contentSize.height)];
+#endif
     _helpTextView.minSize = NSMakeSize(0.0, contentSize.height);
     _helpTextView.maxSize = NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
     _helpTextView.verticallyResizable = YES;

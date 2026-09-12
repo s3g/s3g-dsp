@@ -1,4 +1,5 @@
 #include "s3g_ambi_vox_encoder.h"
+#include "s3g_ambi_effect_fft.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 #include "s3g_realtime.h"
 
@@ -9,7 +10,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include <Accelerate/Accelerate.h>
 #include "../common/s3g_clap_macos.h"
@@ -47,7 +48,24 @@
 #include <world/synthesis.h>
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_drawing.h"
+#include "../common/s3g_input_encoder_files.h"
+#include "../common/s3g_clap_atomic_pod.h"
+#include "vstgui/lib/ctexteditor.h"
+#include "vstgui/lib/cscrollview.h"
+#include "vstgui/lib/controls/cscrollbar.h"
+#if defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#elif defined(_WIN32)
+#include <windows.h>
+#endif
+#endif
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct Plugin;void destroyPortableGui(Plugin&);void publishVoxParams(Plugin&);
+void servicePortableVox(Plugin&,const clap_output_events_t*);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiVotMaxChannels;
 constexpr uint32_t kStateVersion = 24;
@@ -1199,8 +1217,8 @@ class VoxPvocProcessor {
 public:
     ~VoxPvocProcessor()
     {
-#if defined(__APPLE__)
-        if (fftSetup_) vDSP_destroy_fftsetup(fftSetup_);
+#if 1
+        if (fftSetup_) s3g::ambi_effect_fft::vDSP_destroy_fftsetup(fftSetup_);
 #endif
     }
 
@@ -1215,8 +1233,8 @@ public:
             window_[i] = 0.5f - 0.5f * std::cos(
                 2.0f * s3g::kPi * static_cast<float>(i) / static_cast<float>(kVoxPvocFftSize));
         }
-#if defined(__APPLE__)
-        fftSetup_ = vDSP_create_fftsetup(9u, kFFTRadix2);
+#if 1
+        fftSetup_ = s3g::ambi_effect_fft::vDSP_create_fftsetup(9u, s3g::ambi_effect_fft::radix2);
         ready_ = fftSetup_ != nullptr;
 #else
         ready_ = false;
@@ -1430,7 +1448,7 @@ private:
                     bool loop,
                     const VoxPvocSpectralControl& spectral)
     {
-#if defined(__APPLE__)
+#if 1
         sourceRateRatio = std::clamp(sourceRateRatio, 0.125f, 8.0f);
         timelineRate = std::clamp(timelineRate, 0.125f, 4.0f);
         stretch = std::clamp(stretch, 0.25f, 4.0f);
@@ -1451,9 +1469,9 @@ private:
                 : sampleAtOneShot(samples, position, rangeStart, rangeEnd)) * window_[i];
         }
 
-        DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
-        vDSP_ctoz(reinterpret_cast<const DSPComplex*>(frame_.data()), 2, &split, 1, kVoxPvocHalfSize);
-        vDSP_fft_zrip(fftSetup_, &split, 1, 9u, FFT_FORWARD);
+        s3g::ambi_effect_fft::DSPSplitComplex split { splitReal_.data(), splitImag_.data() };
+        s3g::ambi_effect_fft::vDSP_ctoz(reinterpret_cast<const s3g::ambi_effect_fft::DSPComplex*>(frame_.data()), 2, &split, 1, kVoxPvocHalfSize);
+        s3g::ambi_effect_fft::vDSP_fft_zrip(fftSetup_, &split, 1, 9u, s3g::ambi_effect_fft::forward);
         inputReal_[0] = splitReal_[0];
         inputImag_[0] = 0.0f;
         inputReal_[kVoxPvocHalfSize] = splitImag_[0];
@@ -1557,8 +1575,8 @@ private:
             splitReal_[bin] = outputReal_[bin];
             splitImag_[bin] = outputImag_[bin];
         }
-        vDSP_fft_zrip(fftSetup_, &split, 1, 9u, FFT_INVERSE);
-        vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(frame_.data()), 2, kVoxPvocHalfSize);
+        s3g::ambi_effect_fft::vDSP_fft_zrip(fftSetup_, &split, 1, 9u, s3g::ambi_effect_fft::inverse);
+        s3g::ambi_effect_fft::vDSP_ztoc(&split, 1, reinterpret_cast<s3g::ambi_effect_fft::DSPComplex*>(frame_.data()), 2, kVoxPvocHalfSize);
         constexpr float synthesisScale = (4.0f / 12.0f) / static_cast<float>(kVoxPvocFftSize);
         for (uint32_t i = 0u; i < kVoxPvocFftSize; ++i) {
             const uint32_t outputPosition = (state.outputReadPosition + i) % kVoxPvocFftSize;
@@ -1588,8 +1606,8 @@ private:
 #endif
     }
 
-#if defined(__APPLE__)
-    FFTSetup fftSetup_ = nullptr;
+#if 1
+    s3g::ambi_effect_fft::FFTSetup fftSetup_ = nullptr;
 #endif
     bool ready_ = false;
     std::array<float, kVoxPvocFftSize> window_ {};
@@ -1731,6 +1749,15 @@ struct VoxLyricScore {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+    uint32_t portableGuiWidth=kGuiW,portableGuiHeight=kGuiH;
+    bool portableGuiVisible=false;
+    s3g::clap_gui::ParamEventQueue<8192> guiParamEvents;
+    std::array<std::atomic<double>,kPopFilterParamId+1u> publishedParams{};
+    s3g::clap_gui::AtomicPod<VoxPresetSnapshot> publishedSnapshot;
+    std::atomic<bool> sourceResetPending{false};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -1909,9 +1936,11 @@ struct Plugin {
     double lyricAutoSamplesElapsed = 0.0;
     std::array<std::atomic<uint8_t>, kVoxLoadedNameMaxChars> voxLoadedName {};
     std::atomic<uint32_t> voxLoadedNameLength { 0u };
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
     std::atomic<bool> guiVisible { false };
     std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiAzimuth {};
     std::array<std::atomic<float>, s3g::kAmbiVoxMaxVoices> guiElevation {};
@@ -2189,7 +2218,7 @@ void resetVoxMidiVoices(Plugin& plugin)
     plugin.voxMidiAge.fill(0u);
     plugin.voxMidiGate.fill(false);
     plugin.voxMidiRetrigger.fill(false);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     for (auto& gate : plugin.guiMidiGate) gate.store(0u, std::memory_order_relaxed);
 #endif
     plugin.voxMidiAgeCounter = 1u;
@@ -2222,7 +2251,7 @@ uint32_t allocateVoxMidiVoice(Plugin& plugin, int16_t channel, int32_t noteId, i
     plugin.voxMidiAge[selected] = plugin.voxMidiAgeCounter++;
     plugin.voxMidiGate[selected] = true;
     plugin.voxMidiRetrigger[selected] = true;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     plugin.guiMidiGate[selected].store(1u, std::memory_order_relaxed);
 #endif
     plugin.lastMidiNote.store(static_cast<uint32_t>(std::max<int16_t>(0, note)), std::memory_order_relaxed);
@@ -2254,7 +2283,7 @@ void releaseVoxMidiVoice(Plugin& plugin, int16_t channel, int32_t noteId, int16_
         if (noteId >= 0 && plugin.voxMidiNoteId[voice] >= 0 && plugin.voxMidiNoteId[voice] != noteId) continue;
         plugin.voxMidiGate[voice] = false;
         plugin.voxMidiVelocity[voice] = 0.0f;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         plugin.guiMidiGate[voice].store(0u, std::memory_order_relaxed);
 #endif
     }
@@ -2546,8 +2575,14 @@ void storeScore(Plugin& plugin, s3g::AmbiVotVectorScore score)
     plugin.scoreNodeCount.store(score.nodeCount, std::memory_order_release);
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool queuePortableVoxPreset(Plugin&,const VoxPresetSnapshot&);
+#endif
 bool queueVoxPreset(Plugin& plugin, const VoxPresetSnapshot& preset)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return queuePortableVoxPreset(plugin,preset);
+#else
     if (!plugin.presetMailbox.push(preset)) return false;
     if (plugin.hostParams && plugin.hostParams->request_flush) {
         plugin.hostParams->request_flush(plugin.host);
@@ -2555,6 +2590,7 @@ bool queueVoxPreset(Plugin& plugin, const VoxPresetSnapshot& preset)
         plugin.host->request_process(plugin.host);
     }
     return true;
+#endif
 }
 
 void applyPendingVoxPreset(Plugin& plugin)
@@ -2565,6 +2601,9 @@ void applyPendingVoxPreset(Plugin& plugin)
     while (plugin.presetMailbox.pop(pending)) {
         latest = pending;
         hasPreset = true;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        break; // one snapshot per ordered GUI commit marker
+#endif
     }
     if (!hasPreset) return;
 
@@ -4984,7 +5023,7 @@ bool applyWorldPostProcess(Plugin& plugin, const VoxWorldSample& sample, float* 
         }
     }
     plugin.voxNoiseState = noiseState;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const double guiLoopStart = sampleLength * static_cast<double>(plugin.voxWorldLoopStartSmooth);
     const double guiLoopEnd = sampleLength * static_cast<double>(plugin.voxWorldLoopEndSmooth);
     const double guiLoopLength = std::max(1.0, guiLoopEnd - guiLoopStart);
@@ -5190,7 +5229,7 @@ bool applyVoicebankPostProcess(Plugin& plugin, const VoxVoicebank& bank, float* 
         }
     }
     plugin.voxNoiseState = noiseState;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const uint32_t phraseCount = std::min<uint32_t>(
         plugin.voxBankCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
     if (phraseCount > 0u) {
@@ -5418,7 +5457,7 @@ void applyVoxPostProcess(Plugin& plugin, float* const* outputs, uint32_t channel
         if (plugin.voxPhraseVowelEnv < 0.000001f) plugin.voxPhraseVowelEnv = 0.0f;
     }
     plugin.voxNoiseState = noiseState;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const uint32_t phraseCount = std::min<uint32_t>(
         plugin.voxCompiledCount.load(std::memory_order_acquire), kVoxCompiledMaxFrames);
     for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
@@ -5940,6 +5979,7 @@ void migrateVoxV20(Plugin& plugin, const VoxParamsV20& old)
 
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
+    if(!std::isfinite(value))return;
     switch (id) {
     case kOrderParamId: plugin.params.order = static_cast<uint32_t>(std::lround(value)); break;
     case kVoicesParamId:
@@ -6090,6 +6130,9 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
     plugin.engine.setParams(plugin.params);
     plugin.params = plugin.engine.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishVoxParams(plugin);
+#endif
 }
 
 uint32_t voxLyricCueCount(const Plugin& plugin)
@@ -6172,7 +6215,7 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
                 for (uint32_t voice = 0u; voice < s3g::kAmbiVoxMaxVoices; ++voice) {
                     plugin.voxMidiGate[voice] = false;
                     plugin.voxMidiVelocity[voice] = 0.0f;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
                     plugin.guiMidiGate[voice].store(0u, std::memory_order_relaxed);
 #endif
                 }
@@ -6312,7 +6355,7 @@ void updateTransportPhase(Plugin& plugin, const clap_event_transport_t* transpor
     }
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void publishMotionSnapshot(Plugin& plugin)
 {
     if (!plugin.guiVisible.load(std::memory_order_relaxed)) return;
@@ -6331,7 +6374,9 @@ void publishMotionSnapshot(Plugin& plugin)
     plugin.guiMotionPhase.store(plugin.engine.motionPhase(), std::memory_order_relaxed);
 }
 
+#if !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
+#endif
 #endif
 
 bool init(const clap_plugin_t* plugin)
@@ -6346,7 +6391,9 @@ bool init(const clap_plugin_t* plugin)
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#elif defined(__APPLE__)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -6494,7 +6541,11 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* state = self(plugin);
     if (!processData) return CLAP_PROCESS_CONTINUE;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableVox(*state,processData->out_events);
+#else
     applyPendingVoxPreset(*state);
+#endif
     readEvents(*state, processData->in_events);
     updateVoxLyricTransport(*state, processData->transport);
     updateVoxLyricAuto(*state, processData->transport, processData->frames_count);
@@ -6533,7 +6584,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         for (uint32_t frame = 0; frame < frames; ++frame) peak = std::max(peak, std::fabs(output.data32[ch][frame]));
     }
     state->outputPeak.store(std::max(state->outputPeak.load(std::memory_order_relaxed) * 0.92f, peak), std::memory_order_relaxed);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     publishMotionSnapshot(*state);
 #endif
     return CLAP_PROCESS_CONTINUE;
@@ -6837,7 +6888,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
-bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+bool ownedVoxParamValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
     const auto* state = self(plugin);
@@ -6929,6 +6980,12 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     default: return false;
     }
 }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_vox_parameters.inc"
+#else
+bool paramsGetValue(const clap_plugin_t* p,clap_id id,double* value){return ownedVoxParamValue(p,id,value);}
+#endif
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
@@ -7114,10 +7171,14 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* events, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* events, const clap_output_events_t* output)
 {
     auto* state = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableVox(*state,output);
+#else
     applyPendingVoxPreset(*state);
+#endif
     readEvents(*state, events);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
@@ -7127,11 +7188,20 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     auto* state = self(plugin);
     SavedState saved {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const auto published = visibleVoxSnapshot(*state);
+    saved.params = published.params;
+    saved.score = published.score;
+    saved.vox = published.vox;
+    saved.lyric = published.lyric;
+    saved.popFilter = published.popFilter;
+#else
     saved.params = state->params;
     saved.score = loadScore(*state);
     saved.vox = state->vox;
     saved.lyric = state->lyric;
     saved.popFilter = state->popFilter;
+#endif
     saved.generator = state->generator;
     saved.factoryPresetIndex = state->factoryPresetIndex;
     std::strncpy(saved.presetName.data(), state->presetName, saved.presetName.size() - 1u);
@@ -7154,7 +7224,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
                       saved.userAtlas.begin() + table * s3g::kAmbiVotTableSize);
         }
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     saved.guiPage = state->guiPage;
     saved.guiViewMode = state->guiViewMode;
     saved.guiViewAzDeg = state->guiViewAzDeg;
@@ -7164,7 +7234,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return writeExact(stream, &saved, sizeof(saved));
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+bool readCompleteVoxState(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     uint32_t version = 0;
@@ -7188,7 +7258,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = migrateV2(legacy.params);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7200,7 +7270,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = migrateV3(legacy.params);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7212,7 +7282,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = migrateV4(legacy.params);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7225,7 +7295,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = legacy.params;
         storeScore(*state, legacy.score);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7241,7 +7311,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7265,7 +7335,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7282,7 +7352,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7305,7 +7375,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7328,7 +7398,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7351,7 +7421,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7374,7 +7444,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7397,7 +7467,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7420,7 +7490,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7443,7 +7513,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7466,7 +7536,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (legacy.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(legacy.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -7489,7 +7559,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (saved.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(saved.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 2);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7512,7 +7582,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (saved.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(saved.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 2);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7537,7 +7607,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (saved.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(saved.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 2);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7560,7 +7630,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         loadedPresetIndex = saved.factoryPresetIndex;
         std::strncpy(loadedPresetName, saved.presetName.data(), sizeof(loadedPresetName) - 1u);
         if (saved.hasUserAtlas != 0u) restoredUserBank = restoreUserAtlas(saved.userAtlas);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 2);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7593,7 +7663,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (saved.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(saved.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 3);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7631,7 +7701,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (saved.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(saved.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 3);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7666,7 +7736,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (saved.hasUserAtlas != 0u) {
             restoredUserBank = restoreUserAtlas(saved.userAtlas);
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 3);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -7738,11 +7808,52 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     state->params = state->engine.params();
     return true;
 }
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!stream || !stream->read) return false;
+    uint32_t version = 0;
+    if (!readExact(stream, &version, sizeof(version))) return false;
+    size_t size = 0;
+#define S3G_VOX_STATE_SIZE(n) case n: size = sizeof(SavedStateV##n); break
+    switch (version) {
+        S3G_VOX_STATE_SIZE(1); S3G_VOX_STATE_SIZE(2); S3G_VOX_STATE_SIZE(3);
+        S3G_VOX_STATE_SIZE(4); S3G_VOX_STATE_SIZE(5); S3G_VOX_STATE_SIZE(6);
+        S3G_VOX_STATE_SIZE(7); S3G_VOX_STATE_SIZE(8); S3G_VOX_STATE_SIZE(9);
+        S3G_VOX_STATE_SIZE(10); S3G_VOX_STATE_SIZE(11); S3G_VOX_STATE_SIZE(12);
+        S3G_VOX_STATE_SIZE(13); S3G_VOX_STATE_SIZE(14); S3G_VOX_STATE_SIZE(15);
+        S3G_VOX_STATE_SIZE(16);
+        case 17: case 18: size = sizeof(SavedStateV18); break;
+        S3G_VOX_STATE_SIZE(19); S3G_VOX_STATE_SIZE(20); S3G_VOX_STATE_SIZE(21);
+        S3G_VOX_STATE_SIZE(22); S3G_VOX_STATE_SIZE(23);
+        case kStateVersion: size = sizeof(SavedState); break;
+        default: return false;
+    }
+#undef S3G_VOX_STATE_SIZE
+    // Validate the complete payload before any of the legacy migrations mutate
+    // live state. Hosts may deliver arbitrarily short stream reads.
+    struct BufferedState { std::vector<uint8_t> bytes; size_t position = 0; } buffered;
+    buffered.bytes.resize(size);
+    std::memcpy(buffered.bytes.data(), &version, sizeof(version));
+    if (!readExact(stream, buffered.bytes.data() + sizeof(version), size - sizeof(version))) return false;
+    const clap_istream_t input { &buffered,
+        [](const clap_istream_t* input, void* data, uint64_t count) -> int64_t {
+            auto& buffer = *static_cast<BufferedState*>(input->ctx);
+            count = std::min<uint64_t>(count, buffer.bytes.size() - buffer.position);
+            std::memcpy(data, buffer.bytes.data() + buffer.position, count);
+            buffer.position += count;
+            return static_cast<int64_t>(count);
+        } };
+    if (!readCompleteVoxState(plugin, &input)) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishVoxParams(*self(plugin));
+#endif
+    return true;
+}
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 static NSColor* votColor(int rgb, double alpha = 1.0)
 {
@@ -11088,13 +11199,20 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr uint32_t kGuiWidth=kGuiW,kGuiHeight=kGuiH;
+#include "../common/s3g_complex_processor_vox_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(id&&std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -11167,7 +11285,7 @@ const clap_plugin_t* create(const clap_host_t* host)
     state->engine.setParams(state->params);
     state->engine.setScore(loadScore(*state));
     state->params = state->engine.params();
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const auto& points = state->engine.motionPoints();
     for (uint32_t i = 0; i < s3g::kAmbiVoxMaxVoices; ++i) {
         state->guiAzimuth[i].store(points[i].azimuthDeg, std::memory_order_relaxed);
@@ -11178,6 +11296,9 @@ const clap_plugin_t* create(const clap_host_t* host)
         state->guiNeighborCount[i].store(0u, std::memory_order_relaxed);
         state->guiNeighborGate[i].store(0u, std::memory_order_relaxed);
     }
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    state->plugin.plugin_data=state;publishVoxParams(*state);
 #endif
     state->plugin.desc = &descriptor;
     state->plugin.plugin_data = state;

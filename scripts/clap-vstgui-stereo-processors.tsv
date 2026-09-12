@@ -1,0 +1,5 @@
+# LF Synth, Lowform, Stack and Conduit only: source, canonical bundle, ID, host name
+clap_low_frequency_synth/s3g_processor_lf_synth.clap	s3g_processor_lf_synth_2.clap	org.s3g.s3g-dsp.low-frequency-synth	s3g Processor LF Synth 2
+clap_processor_lowform/s3g_processor_lowform.clap	s3g_processor_lowform_2.clap	org.s3g.s3g-dsp.processor-lowform	s3g Processor Lowform 2
+clap_processor_stack/s3g_processor_stack.clap	s3g_processor_stack_2.clap	org.s3g.s3g-dsp.processor-stack	s3g Processor Stack 2
+clap_processor_conduit/s3g_processor_conduit.clap	s3g_processor_conduit_2.clap	org.s3g.s3g-dsp.processor-conduit	s3g Processor Conduit 2

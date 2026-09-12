@@ -8,7 +8,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <new>
@@ -29,7 +30,19 @@
 #include <utility>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_feedback_processor_drawing.h"
+#include "../common/s3g_clap_atomic_pod.h"
+#include <optional>
+#define S3G_FEEDBACK_KIND 4
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Processor Fault";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kPsdRawFieldChannels;
 constexpr uint32_t kCodecModeCount = s3g::kPsdRawFieldCodecModeCount;
@@ -579,7 +592,56 @@ struct LegacyParamsV9 {
 };
 static_assert(sizeof(LegacyParamsV9) == 64u, "Unexpected version-9 state layout");
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr clap_id kPortableFaultCommandId = CLAP_INVALID_ID;
+constexpr uint32_t kPortableFaultParamSlots = 256u;
+struct PortableFaultCommand;
+struct PortableFaultSourceInfo {
+  bool waveform = false;
+  uint32_t sourceSampleRate = 0, sourceChannelCount = 0, sourceBitsPerSample = 0;
+};
+struct PortableFaultSnapshot {
+  SavedState state{};
+  bool hasSource = false;
+  PortableFaultSourceInfo source{};
+  char sourceStatus[512]{};
+  double sampleRate = 48000.;
+};
+template<class T> struct FaultReadValue {
+  T data{};
+  T load(std::memory_order = std::memory_order_seq_cst) const { return data; }
+};
+struct FaultReadout {
+  clap_plugin_t plugin{};
+  s3g::PsdRawFieldParams params{};
+  double sampleRate = 48000., midiReceive = 0.;
+  uint32_t selectedPreset = 0;
+  PerformanceMode performanceMode = PerformanceMode::Free;
+  OutputFormat outputFormat = OutputFormat::Direct8;
+  float outputRotationDeg = 0., attackMs = 12., decayMs = 280., sustain = .72f, releaseMs = 850.;
+  FaultReadValue<bool> playing;
+  FaultReadValue<int32_t> displayNote;
+  FaultReadValue<float> displayEnvelope, outputPeak;
+  FaultReadValue<uint32_t> displayEnvelopeStage, waveWrite;
+  std::optional<PortableFaultSourceInfo> rawSource;
+  std::string sourceStatus;
+  std::array<std::array<float, kWaveHistory>, kOutputChannels> waveHistory{};
+};
+void publishFault(Plugin&);
+void servicePortableFault(Plugin&, const clap_output_events_t*);
+#endif
+
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+bool portableGuiVisible=false;
+s3g::clap_gui::ParamEventQueue<8192> guiParamEvents{};
+std::array<std::atomic<double>, kPortableFaultParamSlots> publishedParams{};
+s3g::clap_gui::AtomicPod<PortableFaultSnapshot> portableSnapshot;
+std::unique_ptr<PortableFaultCommand> portableCommand;
+std::atomic<bool> portableCommandPending{false}, portableRescan{false};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -627,14 +689,34 @@ struct Plugin {
     std::vector<float> modulationEnvelope;
     std::vector<float> renderGain;
     std::atomic<float> outputPeak { 0.0f };
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    std::array<std::array<std::atomic<float>, kWaveHistory>, kOutputChannels> waveHistory {};
+#else
     std::array<std::array<float, kWaveHistory>, kOutputChannels> waveHistory {};
+#endif
     std::atomic<uint32_t> waveWrite { 0u };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
 #endif
 };
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct PortableFaultCommand {
+  enum Kind { Import, Preset, Algorithm } kind = Import;
+  std::unique_ptr<Plugin> staged;
+  std::shared_ptr<const s3g::PsdRawFieldSource> source;
+  std::string path;
+  SourceInterpretation interpretation = SourceInterpretation::Generated;
+  uint32_t algorithm = 0;
+  clap_id preserve = CLAP_INVALID_ID;
+};
+struct FaultPublishOnExit {
+  Plugin& plugin;
+  ~FaultPublishOnExit() { publishFault(plugin); }
+};
+#endif
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
@@ -838,7 +920,7 @@ bool inspectWaveFile(const std::string& path, WaveFileInfo& info, std::string& e
 {
     info = {};
     error.clear();
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    std::ifstream input(std::filesystem::u8path(path), std::ios::binary | std::ios::ate);
     if (!input) {
         error = "FILE NOT FOUND";
         return false;
@@ -974,7 +1056,7 @@ bool readRawByteSource(
 {
     source.reset();
     error.clear();
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    std::ifstream input(std::filesystem::u8path(path), std::ios::binary | std::ios::ate);
     if (!input) {
         error = "FILE NOT FOUND";
         return false;
@@ -1034,7 +1116,7 @@ bool readWaveformSource(
         error = "NOT ENOUGH MEMORY";
         return false;
     }
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(std::filesystem::u8path(path), std::ios::binary);
     input.seekg(static_cast<std::streamoff>(info.dataOffset), std::ios::beg);
     input.read(reinterpret_cast<char*>(inputBytes.data()), static_cast<std::streamsize>(inputBytes.size()));
     if (input.gcount() != static_cast<std::streamsize>(inputBytes.size())) {
@@ -2015,6 +2097,9 @@ void undoPatch(Plugin& p)
 
 void applyParam(Plugin& p, clap_id id, double value)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    FaultPublishOnExit publish{p};
+#endif
     if (id == kOutputFormatParamId) {
         const double finiteValue = std::isfinite(value) ? value : 0.0;
         p.outputFormat = static_cast<OutputFormat>(static_cast<uint32_t>(
@@ -2214,12 +2299,15 @@ void applyParam(Plugin& p, clap_id id, double value)
 }
 
 bool init(const clap_plugin_t*) { return true; }
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -2229,6 +2317,9 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t, uint32_t
 {
     auto* p = self(plugin);
     p->sampleRate = sampleRate;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    FaultPublishOnExit publish{*p};
+#endif
     p->maxFrames = std::max<uint32_t>(1u, maxFrames);
     p->output32.assign(kOutputChannels, std::vector<float>(p->maxFrames, 0.0f));
     p->outputPtrs.assign(kOutputChannels, nullptr);
@@ -2403,6 +2494,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* p = self(plugin);
     if (!proc) return CLAP_PROCESS_ERROR;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableFault(*p, proc->out_events);
+#endif
     if (proc->audio_outputs_count == 0u) {
         if (proc->in_events) {
             const uint32_t count = proc->in_events->size(proc->in_events);
@@ -2452,7 +2546,15 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  auto& p = *self(plugin);
+  if (p.portableRescan.exchange(false, std::memory_order_acq_rel) && p.host && p.host->get_extension) {
+    const auto* params = static_cast<const clap_host_params_t*>(p.host->get_extension(p.host, CLAP_EXT_PARAMS));
+    if (params && params->rescan) params->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
+  }
+#endif
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 0u : 1u; }
 bool audioPortsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audio_port_info_t* info)
@@ -2598,7 +2700,7 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
-bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+bool faultOwnerParamValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
     const auto* instance = self(plugin);
@@ -2675,6 +2777,20 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kSeedParamId: *value = p.seed; return true;
     default: return false;
     }
+}
+
+bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  if (!value || id >= kPortableFaultParamSlots) return false;
+  for (const auto& def : kParamDefs) if (def.id == id) {
+    *value = self(plugin)->publishedParams[id].load(std::memory_order_acquire);
+    return true;
+  }
+  return false;
+#else
+  return faultOwnerParamValue(plugin, id, value);
+#endif
 }
 
 const char* codecModeName(uint32_t mode)
@@ -2950,7 +3066,13 @@ bool paramsValueToText(const clap_plugin_t* plugin, clap_id id, double value, ch
     const double sampleRate = plugin ? self(plugin)->sampleRate : 48000.0;
     if (id == kScanRateParamId) {
         const auto* instance = plugin ? self(plugin) : nullptr;
+        #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        PortableFaultSnapshot snapshot{};
+        const bool waveform = instance && instance->portableSnapshot.load(snapshot)
+            && snapshot.hasSource && snapshot.source.waveform;
+#else
         const bool waveform = instance && instance->rawSource && instance->rawSource->waveform;
+#endif
         std::snprintf(display, size, "%s", waveform
             ? waveformSpeedText(value).c_str()
             : rateText(scanBytesPerSecond(value, sampleRate), "B/s").c_str());
@@ -3166,8 +3288,11 @@ bool paramsTextToValue(const clap_plugin_t* plugin, clap_id id, const char* disp
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableFault(*self(plugin), out);
+#endif
     readParamEvents(*self(plugin), in);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
@@ -3196,11 +3321,10 @@ bool readFully(const clap_istream_t* stream, void* data, size_t size)
     return true;
 }
 
-bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
-{
-    if (!stream || !stream->write) return false;
+SavedState faultOwnerState(const Plugin* p) {
+
     SavedState state {};
-    const auto* p = self(plugin);
+
     state.params = p->params;
     state.selectedPreset = p->selectedPreset;
     state.runState = p->playing.load(std::memory_order_relaxed) ? 1u : 0u;
@@ -3217,7 +3341,95 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         state.sourceMode = static_cast<uint32_t>(p->sourceInterpretation);
         std::snprintf(state.sourcePath, sizeof(state.sourcePath), "%s", p->sourcePath.c_str());
     }
-    return writeFully(stream, &state, sizeof(state));
+    return state;
+}
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void assignFaultSavedValue(SavedState& state, clap_id id, double value) {
+ switch(id) {
+ case kScanRateParamId: state.params.scanRate = static_cast<decltype(state.params.scanRate)>(value); break;
+ case kTextureParamId: state.params.texture = static_cast<decltype(state.params.texture)>(value); break;
+ case kGeometryParamId: state.params.geometry = static_cast<decltype(state.params.geometry)>(value); break;
+ case kChaosParamId: state.params.chaos = static_cast<decltype(state.params.chaos)>(value); break;
+ case kFoldParamId: state.params.fold = static_cast<decltype(state.params.fold)>(value); break;
+ case kEvolveParamId: state.params.evolve = static_cast<decltype(state.params.evolve)>(value); break;
+ case kChannelSchemeParamId: state.params.channelScheme = static_cast<decltype(state.params.channelScheme)>(value); break;
+ case kChannelSpreadParamId: state.params.channelSpread = static_cast<decltype(state.params.channelSpread)>(value); break;
+ case kCodecModeParamId: state.params.codecMode = static_cast<decltype(state.params.codecMode)>(value); break;
+ case kCodecRateParamId: state.params.codecRate = static_cast<decltype(state.params.codecRate)>(value); break;
+ case kBitDepthParamId: state.params.bitDepth = static_cast<decltype(state.params.bitDepth)>(value); break;
+ case kCodecDamageParamId: state.params.codecDamage = static_cast<decltype(state.params.codecDamage)>(value); break;
+ case kCarrierTuneParamId: state.params.carrierTune = static_cast<decltype(state.params.carrierTune)>(value); break;
+ case kModSourceParamId: state.params.modSource = static_cast<decltype(state.params.modSource)>(value); break;
+ case kModTargetParamId: state.params.modTarget = static_cast<decltype(state.params.modTarget)>(value); break;
+ case kModRateParamId: state.params.modRate = static_cast<decltype(state.params.modRate)>(value); break;
+ case kModRatioParamId: state.params.modRatio = static_cast<decltype(state.params.modRatio)>(value); break;
+ case kModIndexParamId: state.params.modIndex = static_cast<decltype(state.params.modIndex)>(value); break;
+ case kModFeedbackParamId: state.params.modFeedback = static_cast<decltype(state.params.modFeedback)>(value); break;
+ case kModClockLockParamId: state.params.modClockLock = static_cast<decltype(state.params.modClockLock)>(value); break;
+ case kModAlgorithmParamId: state.params.modAlgorithm = static_cast<decltype(state.params.modAlgorithm)>(value); break;
+ case kModSource2ParamId: state.params.modSource2 = static_cast<decltype(state.params.modSource2)>(value); break;
+ case kModRate2ParamId: state.params.modRate2 = static_cast<decltype(state.params.modRate2)>(value); break;
+ case kModRatio2ParamId: state.params.modRatio2 = static_cast<decltype(state.params.modRatio2)>(value); break;
+ case kModIndex2ParamId: state.params.modIndex2 = static_cast<decltype(state.params.modIndex2)>(value); break;
+ case kModFeedback2ParamId: state.params.modFeedback2 = static_cast<decltype(state.params.modFeedback2)>(value); break;
+ case kModClockLock2ParamId: state.params.modClockLock2 = static_cast<decltype(state.params.modClockLock2)>(value); break;
+ case kModTarget2ParamId: state.params.modTarget2 = static_cast<decltype(state.params.modTarget2)>(value); break;
+ case kModSource3ParamId: state.params.modSource3 = static_cast<decltype(state.params.modSource3)>(value); break;
+ case kModTarget3ParamId: state.params.modTarget3 = static_cast<decltype(state.params.modTarget3)>(value); break;
+ case kModRate3ParamId: state.params.modRate3 = static_cast<decltype(state.params.modRate3)>(value); break;
+ case kModRatio3ParamId: state.params.modRatio3 = static_cast<decltype(state.params.modRatio3)>(value); break;
+ case kModIndex3ParamId: state.params.modIndex3 = static_cast<decltype(state.params.modIndex3)>(value); break;
+ case kModFeedback3ParamId: state.params.modFeedback3 = static_cast<decltype(state.params.modFeedback3)>(value); break;
+ case kModClockLock3ParamId: state.params.modClockLock3 = static_cast<decltype(state.params.modClockLock3)>(value); break;
+ case kModEnvelope1ParamId: state.params.modEnvelope1 = static_cast<decltype(state.params.modEnvelope1)>(value); break;
+ case kModEnvelope2ParamId: state.params.modEnvelope2 = static_cast<decltype(state.params.modEnvelope2)>(value); break;
+ case kModEnvelope3ParamId: state.params.modEnvelope3 = static_cast<decltype(state.params.modEnvelope3)>(value); break;
+ case kModulationEnabledParamId: state.params.modulationEnabled = static_cast<decltype(state.params.modulationEnabled)>(value); break;
+ case kBassReceiverParamId: state.params.bassReceiver = static_cast<decltype(state.params.bassReceiver)>(value); break;
+ case kBassBodyParamId: state.params.bassBody = static_cast<decltype(state.params.bassBody)>(value); break;
+ case kBassPunchParamId: state.params.bassPunch = static_cast<decltype(state.params.bassPunch)>(value); break;
+ case kBassTraceParamId: state.params.bassTrace = static_cast<decltype(state.params.bassTrace)>(value); break;
+ case kBassPitchTrackingParamId: state.params.bassPitchTracking = static_cast<decltype(state.params.bassPitchTracking)>(value); break;
+ case kBassGlideParamId: state.params.bassGlide = static_cast<decltype(state.params.bassGlide)>(value); break;
+ case kBassOctaveParamId: state.params.bassOctave = static_cast<decltype(state.params.bassOctave)>(value); break;
+ case kBassLowWidthParamId: state.params.bassLowWidth = static_cast<decltype(state.params.bassLowWidth)>(value); break;
+ case kBassFuzzParamId: state.params.bassFuzz = static_cast<decltype(state.params.bassFuzz)>(value); break;
+ case kBassMetalParamId: state.params.bassMetal = static_cast<decltype(state.params.bassMetal)>(value); break;
+ case kBassFeedbackParamId: state.params.bassFeedback = static_cast<decltype(state.params.bassFeedback)>(value); break;
+ case kDriveParamId: state.params.drive = static_cast<decltype(state.params.drive)>(value); break;
+ case kShredParamId: state.params.shred = static_cast<decltype(state.params.shred)>(value); break;
+ case kResonanceParamId: state.params.resonance = static_cast<decltype(state.params.resonance)>(value); break;
+ case kGainParamId: state.params.gainDb = static_cast<decltype(state.params.gainDb)>(value); break;
+ case kRunParamId: state.runState = static_cast<decltype(state.runState)>(value); break;
+ case kPerformanceModeParamId: state.performanceMode = static_cast<decltype(state.performanceMode)>(value); break;
+ case kMidiReceiveParamId: state.midiReceive = static_cast<decltype(state.midiReceive)>(value); break;
+ case kOutputFormatParamId: state.outputFormat = static_cast<decltype(state.outputFormat)>(value); break;
+ case kOutputRotationParamId: state.outputRotationDeg = static_cast<decltype(state.outputRotationDeg)>(value); break;
+ case kAttackParamId: state.attackMs = static_cast<decltype(state.attackMs)>(value); break;
+ case kDecayParamId: state.decayMs = static_cast<decltype(state.decayMs)>(value); break;
+ case kSustainParamId: state.sustain = static_cast<decltype(state.sustain)>(value); break;
+ case kReleaseParamId: state.releaseMs = static_cast<decltype(state.releaseMs)>(value); break;
+ case kPresetParamId: state.selectedPreset = static_cast<decltype(state.selectedPreset)>(value); break;
+ case kSeedParamId: state.params.seed = static_cast<decltype(state.params.seed)>(value); break;
+ default: break;
+ }
+}
+#endif
+
+bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+{
+  if (!stream || !stream->write) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  PortableFaultSnapshot snapshot{};
+  if (!self(plugin)->portableSnapshot.load(snapshot)) return false;
+  auto state = snapshot.state;
+  for (const auto& def : kParamDefs)
+    assignFaultSavedValue(state, def.id, self(plugin)->publishedParams[def.id].load(std::memory_order_acquire));
+#else
+  const auto state = faultOwnerState(self(plugin));
+#endif
+  return writeFully(stream, &state, sizeof(state));
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -3227,6 +3439,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0u;
     if (!readFully(stream, &version, sizeof(version))) return false;
     bool restoredPlaying = true;
+    // Apply legacy defaults only after a complete, supported state is read.
+    const auto restoreLegacyDefaults = [&] {
     p->performanceMode = PerformanceMode::Free;
     p->attackMs = 12.0f;
     p->decayMs = 280.0f;
@@ -3235,11 +3449,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->midiReceive = 0.0;
     p->outputFormat = OutputFormat::Direct8;
     p->outputRotationDeg = 0.0f;
+    };
     if (version == kStateVersion) {
         SavedState state {};
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = state.params;
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3276,6 +3492,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset,
                 sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = state.params;
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3313,6 +3530,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset,
                 sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = state.params;
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3348,6 +3566,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset,
                 sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3382,6 +3601,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3410,6 +3630,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3438,6 +3659,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3466,6 +3688,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3494,6 +3717,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3522,6 +3746,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3550,6 +3775,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3578,6 +3804,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3601,6 +3828,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         restoredPlaying = state.runState != 0u;
@@ -3624,6 +3852,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = std::min(state.selectedPreset, kCustomPreset);
         p->rawSource.reset();
@@ -3646,6 +3875,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = state.selectedPreset == 12u
             ? kCustomPreset
@@ -3668,6 +3898,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         state.version = version;
         constexpr size_t offset = sizeof(state.version);
         if (!readFully(stream, reinterpret_cast<uint8_t*>(&state) + offset, sizeof(state) - offset)) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(state.params);
         p->selectedPreset = state.selectedPreset == 12u
             ? kCustomPreset
@@ -3682,6 +3913,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         LegacyParamsV9 legacy {};
         if (!readFully(stream, &selectedPreset, sizeof(selectedPreset))) return false;
         if (!readFully(stream, &legacy, sizeof(legacy))) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(legacy);
         p->selectedPreset = selectedPreset == 5u ? kCustomPreset : std::min(selectedPreset, 4u);
         p->rawSource.reset();
@@ -3692,6 +3924,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     } else if (version == 8u) {
         LegacyParamsV8 legacy {};
         if (!readFully(stream, &legacy, sizeof(legacy))) return false;
+        restoreLegacyDefaults();
         p->params = migrateLegacyParams(legacy);
         p->selectedPreset = kCustomPreset;
         p->rawSource.reset();
@@ -3711,6 +3944,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->field.setSource(p->rawSource);
     p->field.setParams(p->params);
     p->field.reset();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishFault(*p);
+#endif
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
@@ -3932,9 +4168,13 @@ std::string midiNoteName(int32_t key)
     return text;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_feedback_processor_fault_support.inc"
+#endif
+
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 
 struct EnvelopeGraphGeometry {
@@ -5494,15 +5734,24 @@ const clap_plugin_gui_t guiExt {
     guiGetSize, guiCanResize, guiGetResizeHints, guiAdjustSize, guiSetSize,
     guiSetParent, guiSetTransient, guiSuggestTitle, guiShow, guiHide
 };
+#else
+namespace {
+#endif
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_feedback_processor_fault_canvas.inc"
 #endif
 
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ if (id && std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -5546,6 +5795,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     p->plugin.process = process;
     p->plugin.get_extension = pluginGetExtension;
     p->plugin.on_main_thread = onMainThread;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishFault(*p);
+#endif
     return &p->plugin;
 }
 
@@ -5564,4 +5816,4 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry { CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory };

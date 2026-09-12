@@ -8,7 +8,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -26,7 +26,17 @@
 #include <new>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_resonator_encoder_drawing.h"
+#define S3G_RESONATOR_KIND 1
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory = "Ambi Encoder Modal";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAccelerometerFieldMaxChannels;
 constexpr uint32_t kInputChannels = 1u;
@@ -635,8 +645,16 @@ void focusModalParams(s3g::AccelerometerFieldParams& params)
 }
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+    std::atomic<bool> guiVisible { false };
+    char presetName[64] { "Deep Field" };
     double sampleRate = 48000.0;
     uint32_t maxFrames = 0u;
     std::atomic<bool> active { false };
@@ -709,11 +727,9 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAccelerometerFieldMaxBodyCount>
         bodyDistance {};
     SavedGuiState guiState {};
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    std::atomic<bool> guiVisible { false };
-    char presetName[64] { "Deep Field" };
 #endif
 };
 
@@ -739,6 +755,17 @@ struct ProcessEventBatch {
     uint32_t outputStageChangeCount = 0u;
 };
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+// Notifications only: control edits already travel through Modal's mailbox.
+void drainGuiNotifications(Plugin& p, const clap_output_events_t* output)
+{
+    s3g::clap_gui::ParamEvent event;
+    while (p.guiParamEvents.peek(event)) {
+        if (!s3g::clap_gui::pushParamEvent(output, event)) break;
+        p.guiParamEvents.pop();
+    }
+}
+#endif
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
@@ -953,7 +980,7 @@ struct ControlStateSnapshot {
 
 void updatePresetName(Plugin& plugin)
 {
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     std::snprintf(plugin.presetName, sizeof(plugin.presetName), "%s",
         menuName(kParamPreset, plugin.presetIndex));
 #else
@@ -1239,7 +1266,10 @@ bool init(const clap_plugin_t* plugin)
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     auto* p = self(plugin);
     if (p->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(
@@ -1587,6 +1617,9 @@ clap_process_status processDouble(Plugin& plugin,
 clap_process_status process(const clap_plugin_t* plugin,
     const clap_process_t* process)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (process) drainGuiNotifications(*self(plugin), process->out_events);
+#endif
     if (!process || process->audio_outputs_count == 0u) {
         return CLAP_PROCESS_CONTINUE;
     }
@@ -1746,8 +1779,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* input, const clap_output_events_t*)
+    const clap_input_events_t* input, const clap_output_events_t* output)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainGuiNotifications(*self(plugin), output);
+#endif
     auto* p = self(plugin);
     if (p->active.load(std::memory_order_acquire)) {
         (void)tryConsumeControlParams(*p);
@@ -1905,7 +1941,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->presetIndex = std::min<uint32_t>(
             header.presetIndex, kCustomPresetIndex);
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     std::snprintf(p->presetName, sizeof(p->presetName), "%s",
         menuName(kParamPreset, p->presetIndex));
 #endif
@@ -1918,7 +1954,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 
 constexpr s3g::gui_layout::Canvas kGuiCanvas {
@@ -3634,13 +3670,19 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_resonator_encoder_modal_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (id && std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

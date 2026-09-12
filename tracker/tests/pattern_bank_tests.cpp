@@ -104,10 +104,13 @@ void testSongReferences()
     bank.entries.push_back(std::move(second));
 
     SongArrangement song;
-    song.rows.push_back({ "A02", 16u, 1u });
+    SongRow row;
+    row.patternId = "A02";
+    song.rows.push_back(row);
     check(validateSongPatternReferences(song, bank).ok(),
         "Song rows should resolve any pattern in bank order");
-    song.rows.push_back({ "MISSING", 16u, 1u });
+    row.patternId = "MISSING";
+    song.rows.push_back(row);
     const auto missing = validateSongPatternReferences(song, bank);
     check(missing.code == SongPatternReferenceCode::PatternMissing
             && missing.row == 1u,

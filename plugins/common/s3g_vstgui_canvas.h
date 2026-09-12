@@ -181,8 +181,11 @@ public:
   }
   void openPopup(CRect anchor, std::vector<std::string> items, int selected,
                  std::function<void(int)> apply, int columns = 1,
-                 CRect desired = {}, double itemHeight = 20) {
+                 CRect desired = {}, double itemHeight = 20,
+                 std::vector<bool> selectable = {}) {
     popupItems = std::move(items);
+    popupSelectable = std::move(selectable);
+    popupSelectable.resize(popupItems.size(), true);
     popupApply = std::move(apply);
     popupItemHeight = itemHeight;
     popupSelected = selected;
@@ -275,6 +278,13 @@ public:
     finishNumeric();
     if (!popupItems.empty()) {
       const int index = popupIndex(e.mousePosition);
+      // Non-selectable context/group headings remain open, like native menus.
+      if (index < 0 && e.buttonState.isLeft()
+          && foundation::contains(popupBounds,e.mousePosition)
+          && std::find(popupSelectable.begin(),popupSelectable.end(),false)!=popupSelectable.end()) {
+        e.consumed=true;
+        return;
+      }
       auto apply = popupApply;
       popupItems.clear();
       if (index >= 0 && e.buttonState.isLeft() && apply)
@@ -401,7 +411,7 @@ private:
         std::clamp(static_cast<int>((p.y - popupBounds.top) / popupItemHeight),
                    0, popupVisibleRows - 1);
     const int i = (row + popupScroll) * popupColumns + col;
-    return i < static_cast<int>(popupItems.size()) ? i : -1;
+    return i < static_cast<int>(popupItems.size()) && popupSelectable[size_t(i)] ? i : -1;
   }
   void drawPopup() {
     if (popupItems.empty())
@@ -429,13 +439,15 @@ private:
           line({b.left, b.top}, {b.right, b.top}, color(0x3a3a3a));
         b.left += 9;
         b.right -= 5;
-        text(popupItems[static_cast<size_t>(i)], b, style.label);
+        text(popupItems[static_cast<size_t>(i)], b,
+             popupSelectable[size_t(i)] ? style.label : style.dim);
       }
   }
   std::vector<Hit> hits;
   Hit currentDrag;
   SharedPointer<CVSTGUITimer> timer;
   std::vector<std::string> popupItems;
+  std::vector<bool> popupSelectable;
   std::function<void(int)> popupApply;
   CRect popupBounds;
   int popupSelected = -1, popupHover = -1, popupColumns = 1, popupRows = 1,

@@ -89,17 +89,38 @@ void drawButton(VSTGUI::CDrawContext& context, const VSTGUI::CRect& bounds,
 void drawMenuBox(VSTGUI::CDrawContext& context,
     const VSTGUI::CRect& bounds, const std::string& value,
     VSTGUI::CFontRef font, const Palette& style = palette());
+// Call after the row background/selection fill and before its text. Row zero
+// has no internal rule; subsequent rows retain the original Cocoa separator.
+inline void drawDropdownItemSeparator(VSTGUI::CDrawContext& context,
+    const VSTGUI::CRect& row, uint32_t index,
+    VSTGUI::CColor separator = color(0x3a3a3a))
+{
+    if (index == 0u) return;
+    const auto previousWidth = context.getLineWidth();
+    const auto previousColor = context.getFrameColor();
+    const auto previousStyle = context.getLineStyle();
+    context.setLineWidth(1.0);
+    context.setLineStyle(VSTGUI::kLineSolid);
+    context.setFrameColor(separator);
+    context.drawLine({row.left, row.top}, {row.right, row.top});
+    context.setFrameColor(previousColor);
+    context.setLineWidth(previousWidth);
+    context.setLineStyle(previousStyle);
+}
 void drawHorizontalSlider(VSTGUI::CDrawContext& context,
     const VSTGUI::CRect& track, double normalized,
     double handleTop, double handleHeight, const Palette& style = palette());
 
 struct FileDialogOptions {
     bool save = false;
+    bool directory = false;
     std::string title;
     std::string extensionDescription;
     std::string extension;
     std::string defaultSaveName;
     std::filesystem::path initialDirectory;
+    // Optional additional suffixes for one file type (for example wav/wave).
+    std::vector<std::string> extensions;
 };
 
 std::string runFileDialog(

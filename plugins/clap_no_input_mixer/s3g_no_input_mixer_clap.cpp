@@ -9,7 +9,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -25,7 +25,14 @@
 #include <cstring>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_drawing.h"
+#include "../common/s3g_vstgui_auxiliary_window.h"
+#endif
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct Plugin;void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kStateVersion = 15u;
 constexpr uint32_t kChannelCount = s3g::kNoInputMixerChannels;
@@ -920,6 +927,8 @@ enum class GuiCommandType : uint8_t {
     Panic,
     KillLane,
     ApplyUiSnapshot,
+    GestureBegin,
+    GestureEnd,
 };
 
 // GUI commands are intentionally compact and trivially copyable. Complete
@@ -936,6 +945,11 @@ struct GuiCommand {
 constexpr uint32_t kGuiCommandCapacity = 2048u;
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+    uint32_t portableGuiWidth=kGuiWidth,portableGuiHeight=kGuiHeight;
+    bool portableGuiVisible=false;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -1039,7 +1053,7 @@ struct Plugin {
         bool hasParameterLsb = false;
         bool hasDataMsb = false;
     } nrpn {};
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -2294,13 +2308,16 @@ bool paramValue(const Plugin& plugin, clap_id id, double& value)
 
 bool init(const clap_plugin_t*) { return true; }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -2646,14 +2663,27 @@ void applyUiSnapshotOnAudioThread(Plugin& plugin, float seedAmount)
     resetMeters(plugin);
 }
 
-void drainGuiCommands(Plugin& plugin)
+void drainGuiCommands(Plugin& plugin, const clap_output_events_t* output = nullptr)
 {
     constexpr uint32_t kMaximumCommandsPerBlock = 256u;
     bool needsSync = false;
     GuiCommand command;
-    for (uint32_t count = 0u;
-         count < kMaximumCommandsPerBlock
-            && dequeueGuiCommand(plugin, command); ++count) {
+    for (uint32_t count = 0u; count < kMaximumCommandsPerBlock; ++count) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        const auto read=plugin.guiCommandRead.load(std::memory_order_relaxed);
+        if(read==plugin.guiCommandWrite.load(std::memory_order_acquire))break;
+        command=plugin.guiCommands[read%kGuiCommandCapacity];
+        if(command.type==GuiCommandType::ParamValue || command.type==GuiCommandType::GestureBegin
+            || command.type==GuiCommandType::GestureEnd){
+            using Kind=s3g::clap_gui::ParamEventKind;
+            const Kind kind=command.type==GuiCommandType::ParamValue?Kind::Value:
+                command.type==GuiCommandType::GestureBegin?Kind::GestureBegin:Kind::GestureEnd;
+            if(!s3g::clap_gui::pushParamEvent(output,{kind,command.paramId,command.value}))break;
+        }
+#else
+        (void)output;
+#endif
+        if(!dequeueGuiCommand(plugin,command))break;
         if (command.type == GuiCommandType::ParamValue) {
             applyParam(plugin, command.paramId, command.value,
                 false, false);
@@ -2724,6 +2754,8 @@ void drainGuiCommands(Plugin& plugin)
                 static_cast<float>(command.value));
             break;
         case GuiCommandType::ParamValue:
+        case GuiCommandType::GestureBegin:
+        case GuiCommandType::GestureEnd:
             break;
         }
     }
@@ -3201,7 +3233,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     auto* p = self(plugin);
     if (!process) return CLAP_PROCESS_CONTINUE;
     applyFeedbackConfigurationChange(*p);
-    drainGuiCommands(*p);
+    drainGuiCommands(*p,process->out_events);
     if (process->transport) {
         const bool hasTempo = (process->transport->flags
             & CLAP_TRANSPORT_HAS_TEMPO) != 0;
@@ -3860,7 +3892,7 @@ void paramsFlush(const clap_plugin_t* plugin,
 {
     auto& p = *self(plugin);
     applyFeedbackConfigurationChange(p);
-    drainGuiCommands(p);
+    drainGuiCommands(p,out);
     readInputEvents(p, in, out);
     emitNrpnFeedback(p, out, 0u);
     emitMatrixFeedback(p, out, 0u, 0u);
@@ -4352,7 +4384,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 namespace {
 
@@ -8556,15 +8588,21 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_nim_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(id && std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, S3G_NIM_MIDI_FEEDBACK_EXTENSION_ID) == 0)
         return &midiFeedbackExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

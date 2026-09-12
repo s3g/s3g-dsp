@@ -6,10 +6,11 @@
 #include <clap/clap.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/params.h>
+#include <clap/ext/gui.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -24,7 +25,18 @@
 #include <cstring>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_stereo_processor_drawing.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#define S3G_STEREO_KIND 4
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Processor Conduit";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kStateVersion = 5u;
 constexpr uint32_t kGuiWidth = 760u;
@@ -162,6 +174,13 @@ static_assert(sizeof(SavedState) == 96u,
     "Unexpected Processor Conduit v5 state layout.");
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+ std::array<std::atomic<double>,24u> publishedParams {};
+ s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_tail_t* hostTail = nullptr;
@@ -180,7 +199,7 @@ struct Plugin {
     std::atomic<float> propagationMs { 8.0f };
     std::atomic<float> octaveWindowMs { 120.0f };
     std::atomic<bool> panicRequested { false };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -191,6 +210,147 @@ Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
 }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool conduitParamsValue(const s3g::ProcessorConduitParams& params, clap_id id, double* value) {
+    if (!value) return false;
+
+    switch (id) {
+    case kMaterialParamId:
+        *value = static_cast<uint32_t>(params.material); return true;
+    case kInputParamId: *value = params.inputGainDb; return true;
+    case kDriverParamId: *value = params.driver; return true;
+    case kSizeParamId: *value = params.size; return true;
+    case kTensionParamId: *value = params.tension; return true;
+    case kDampingParamId: *value = params.damping; return true;
+    case kPickupParamId: *value = params.pickup; return true;
+    case kContactParamId: *value = params.contact; return true;
+    case kFeedbackParamId: *value = params.feedback; return true;
+    case kMixParamId: *value = params.mix; return true;
+    case kOutputParamId: *value = params.outputGainDb; return true;
+    case kPedalParamId:
+        *value = static_cast<uint32_t>(params.pedal); return true;
+    case kPedalDriveParamId: *value = params.pedalDrive; return true;
+    case kPedalToneParamId: *value = params.pedalTone; return true;
+    case kOctaveDownParamId: *value = params.octaveDown; return true;
+    case kOctaveDragParamId: *value = params.octaveDrag; return true;
+    case kPaDriveParamId: *value = params.paDrive; return true;
+    case kMicMotionParamId: *value = params.micMotion; return true;
+    case kChamberParamId: *value = params.chamber; return true;
+    case kStereoWidthParamId: *value = params.stereoWidth; return true;
+    case kPedalPositionParamId:
+        *value = static_cast<uint32_t>(params.pedalPosition); return true;
+    case kPedalMixParamId: *value = params.pedalMix; return true;
+    case kInputListenParamId:
+        *value = static_cast<uint32_t>(params.inputListen); return true;
+    default: return false;
+    }
+}
+
+void portableConduitAssign(s3g::ProcessorConduitParams& params, clap_id id, double value) {
+    switch (id) {
+    case kMaterialParamId:
+        params.material = static_cast<s3g::ProcessorConduitMaterial>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                0u, s3g::kProcessorConduitMaterialCount - 1u));
+        break;
+    case kInputParamId:
+        params.inputGainDb = static_cast<float>(
+            std::clamp(value, -24.0, 36.0));
+        break;
+    case kDriverParamId:
+        params.driver = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kSizeParamId:
+        params.size = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kTensionParamId:
+        params.tension = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kDampingParamId:
+        params.damping = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kPickupParamId:
+        params.pickup = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kContactParamId:
+        params.contact = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kFeedbackParamId:
+        params.feedback = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kMixParamId:
+        params.mix = static_cast<float>(std::clamp(value, 0.0, 1.0));
+        break;
+    case kOutputParamId:
+        params.outputGainDb = static_cast<float>(
+            std::clamp(value, -60.0, 6.0));
+        break;
+    case kPedalParamId:
+        params.pedal = static_cast<s3g::ProcessorConduitPedal>(
+            std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(value)),
+                0u, s3g::kProcessorConduitPedalCount - 1u));
+        break;
+    case kPedalDriveParamId:
+        params.pedalDrive = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kPedalToneParamId:
+        params.pedalTone = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kOctaveDownParamId:
+        params.octaveDown = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kOctaveDragParamId:
+        params.octaveDrag = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kPaDriveParamId:
+        params.paDrive = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kMicMotionParamId:
+        params.micMotion = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kChamberParamId:
+        params.chamber = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kStereoWidthParamId:
+        params.stereoWidth = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kPedalPositionParamId:
+        params.pedalPosition =
+            static_cast<s3g::ProcessorConduitPedalPosition>(
+                std::clamp<uint32_t>(
+                    static_cast<uint32_t>(std::lround(value)), 0u,
+                    s3g::kProcessorConduitPedalPositionCount - 1u));
+        break;
+    case kPedalMixParamId:
+        params.pedalMix = static_cast<float>(
+            std::clamp(value, 0.0, 1.0));
+        break;
+    case kInputListenParamId:
+        params.inputListen = static_cast<s3g::ProcessorConduitInputListen>(
+            std::clamp<uint32_t>(
+                static_cast<uint32_t>(std::lround(value)), 0u,
+                s3g::kProcessorConduitInputListenCount - 1u));
+        break;
+    default:
+        return;
+    }
+}
+
+void publishParam(Plugin& p,clap_id id,double value) { if(id>0 && id<24) p.publishedParams[id].store(value,std::memory_order_release); }
+void publishConduit(Plugin& p) { for(clap_id id=1;id<24;++id) {double v=0.;conduitParamsValue(p.params,id,&v);publishParam(p,id,v);} }
+s3g::ProcessorConduitParams portableConduitSnapshot(const Plugin& p) {
+ s3g::ProcessorConduitParams params{};for(clap_id id=1;id<24;++id) portableConduitAssign(params,id,p.publishedParams[id].load(std::memory_order_acquire));return params;
+}
+#endif
 
 bool paramAffectsTail(clap_id id)
 {
@@ -318,20 +478,32 @@ void applyParam(Plugin& p, clap_id id, double value)
     p.conduit.setParams(p.params);
     p.params = p.conduit.params();
     p.conduitRight.setParams(p.params);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    double published=0.; conduitParamsValue(p.params,id,&published); publishParam(p,id,published);
+#endif
     if (paramAffectsTail(id) && p.hostTail && p.hostTail->changed) {
         p.hostTail->changed(p.host);
     }
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void drainPortableConduit(Plugin& p,const clap_output_events_t* out) {
+ s3g::clap_gui::serviceParamEvents(p.guiParamEvents,out,[&](clap_id id,double value){applyParam(p,id,value);});
+}
+#endif
+
 bool init(const clap_plugin_t*) { return true; }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -441,6 +613,9 @@ clap_process_status process(const clap_plugin_t* plugin,
     const clap_process_t* processData)
 {
     auto* p = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainPortableConduit(*p,processData->out_events);
+#endif
     readParamEvents(*p, processData->in_events);
     if (p->panicRequested.exchange(false, std::memory_order_acq_rel)) {
         p->conduit.panic();
@@ -676,7 +851,11 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index,
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const auto params=portableConduitSnapshot(*self(plugin));
+#else
     const auto& params = self(plugin)->params;
+#endif
     switch (id) {
     case kMaterialParamId:
         *value = static_cast<uint32_t>(params.material); return true;
@@ -807,8 +986,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
 }
 
 void paramsFlush(const clap_plugin_t* plugin,
-    const clap_input_events_t* input, const clap_output_events_t*)
+    const clap_input_events_t* input, const clap_output_events_t* output)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainPortableConduit(*self(plugin),output);
+#endif
     readParamEvents(*self(plugin), input);
 }
 
@@ -820,7 +1002,11 @@ const clap_plugin_params_t paramsExt {
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const SavedState state {kStateVersion,portableConduitSnapshot(*self(plugin))};
+#else
     const SavedState state { kStateVersion, self(plugin)->params };
+#endif
     return s3g::clap_state::writeAll(stream, &state, sizeof(state));
 }
 
@@ -960,6 +1146,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     p->conduit.setParams(loaded);
     p->params = p->conduit.params();
     p->conduitRight.setParams(p->params);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishConduit(*p);
+#endif
     return true;
 }
 
@@ -985,7 +1174,7 @@ const clap_plugin_tail_t tailExt { tailGet };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 constexpr uint32_t kContainmentHistorySize = 160u;
 constexpr int kMaterialMenuId = 1;
 constexpr int kPedalMenuId = 2;
@@ -1982,8 +2171,14 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_stereo_processor_conduit_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (id && std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG) == 0)
         return &audioPortsConfig;
@@ -1993,7 +2188,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2026,6 +2221,9 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     if (std::strcmp(pluginId, descriptor.id) != 0) return nullptr;
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishConduit(*p);
+#endif
     p->host = host;
     p->hostTail = host && host->get_extension
         ? static_cast<const clap_host_tail_t*>(
@@ -2069,6 +2267,6 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory
 };

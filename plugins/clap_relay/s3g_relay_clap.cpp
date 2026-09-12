@@ -7,7 +7,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -28,7 +28,16 @@
 #include <utility>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_midi_tool_drawing.h"
+#define S3G_MIDI_TOOL_KIND 2
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 using s3g::relay::Config;
 using s3g::relay::Engine;
@@ -448,6 +457,14 @@ struct MidiTraceSlot {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+ SavedState portablePendingState {};
+ std::atomic<bool> portablePresetPending {false};
+ std::atomic<bool> portableRescan {false};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -490,7 +507,7 @@ struct Plugin {
     std::atomic<bool> formHold { false };
     std::array<MidiTraceSlot, kMidiTraceCapacity> midiTrace {};
     std::atomic<uint64_t> midiTraceWrite { 0u };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -705,13 +722,16 @@ void queueGuiEnd(Plugin& plugin, clap_id id)
         s3g::clap_gui::ParamEventKind::GestureEnd, id);
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -819,11 +839,23 @@ bool pushGuiParamEvent(const clap_output_events_t* output,
     return output->try_push(output, &event.header);
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void applyPortableMidiPreset(Plugin&);
+void publishPortableMidiParam(Plugin& p,clap_id id,double value) {
+    uint32_t index=0;
+    if(paramIndex(id,index))p.publishedParams[index].store(value,std::memory_order_release);
+}
+#endif
 void serviceGuiParamEvents(Plugin& plugin,
     const clap_output_events_t* output)
 {
     s3g::clap_gui::ParamEvent pending {};
     while (plugin.guiParamEvents.peek(pending)) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if(pending.paramId==CLAP_INVALID_ID) {
+            applyPortableMidiPreset(plugin);plugin.guiParamEvents.pop();continue;
+        }
+#endif
         if (!pushGuiParamEvent(output, pending)) break;
         if (pending.kind == s3g::clap_gui::ParamEventKind::Value)
             applyParam(plugin, pending.paramId, pending.value);
@@ -1005,7 +1037,15 @@ clap_process_status process(const clap_plugin_t* plugin,
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto& p=*self(plugin);
+    if(p.portableRescan.exchange(false,std::memory_order_acq_rel) && p.hostParams && p.hostParams->rescan)
+        p.hostParams->rescan(p.host,CLAP_PARAM_RESCAN_VALUES);
+#else
+    (void)plugin;
+#endif
+}
 
 uint32_t notePortsCount(const clap_plugin_t*, bool isInput)
 {
@@ -1618,9 +1658,35 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 
 const clap_plugin_state_t stateExtension { stateSave, stateLoad };
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool queuePortableMidiPreset(Plugin& p, const Plugin& staged) {
+    if(p.portablePresetPending.load(std::memory_order_acquire) || p.guiParamEvents.available()==0)return false;
+    SavedState state{};
+    for(uint32_t n=0;n<kParamCount;++n)state.values[n]=publishedValue(staged,n);
+    state.thawMemory=staged.thawMemory.load(std::memory_order_relaxed);
+    state.heldFormBeat=staged.heldFormBeat.load(std::memory_order_relaxed);
+    if(staged.hasThawMemory.load(std::memory_order_relaxed))state.runtimeFlags|=kStateHasThawMemory;
+    if(staged.formHold.load(std::memory_order_relaxed))state.runtimeFlags|=kStateFormHold;
+    p.portablePendingState=state;p.portablePresetPending.store(true,std::memory_order_release);
+    p.guiParamEvents.push({s3g::clap_gui::ParamEventKind::Value,CLAP_INVALID_ID,0.});
+    requestGuiParamService(p);return true;
+}
+void applyPortableMidiPreset(Plugin& p) {
+    struct Reader { const SavedState& state; size_t offset=0; } reader{p.portablePendingState};
+    clap_istream_t input{&reader,[](const clap_istream_t* stream,void* data,uint64_t size)->int64_t {
+        auto& r=*static_cast<Reader*>(stream->ctx);size=std::min<uint64_t>(size,sizeof(r.state)-r.offset);
+        std::memcpy(data,reinterpret_cast<const uint8_t*>(&r.state)+r.offset,size);r.offset+=size;return static_cast<int64_t>(size);
+    }};
+    stateLoad(&p.plugin,&input);
+    p.portablePresetPending.store(false,std::memory_order_release);
+    p.portableRescan.store(true,std::memory_order_release);
+    if(p.host && p.host->request_callback)p.host->request_callback(p.host);
+}
+#endif
+
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 namespace {
 
@@ -3918,13 +3984,20 @@ const clap_plugin_gui_t guiExtension {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_midi_tool_relay_canvas.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ if (id && std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (!id) return nullptr;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;
@@ -4007,7 +4080,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

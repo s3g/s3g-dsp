@@ -6,7 +6,7 @@
 #include "../common/s3g_nim_gesture_midi.h"
 #include "../common/s3g_nim_gesture_session.h"
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -24,7 +24,16 @@
 #include <new>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_midi_tool_drawing.h"
+#define S3G_MIDI_TOOL_KIND 1
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint8_t kControlChannel = s3g::nim_gesture_midi::kCommandChannel;
 constexpr uint8_t kRecordNote = s3g::nim_gesture_midi::kRecordNote;
@@ -143,6 +152,13 @@ struct NrpnDecoder {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+ s3g::clap_gui::ParamEventQueue<1024> guiParamEvents;
+ std::atomic<bool> portableRescan {false};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -174,7 +190,7 @@ struct Plugin {
     // File operations may happen while the standalone audio callback runs.
     // The callback never blocks: it passes input through if this lock is held.
     mutable std::mutex sessionMutex;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     std::atomic<bool> guiVisible { false };
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -822,6 +838,40 @@ bool applyParamEvent(Plugin& plugin, const clap_event_header_t* event,
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr clap_id kPortableClearSelected = CLAP_INVALID_ID - 1u;
+constexpr clap_id kPortableCancelRecord = CLAP_INVALID_ID - 2u;
+void publishPortableMidiParam(Plugin& p, clap_id id, double value) {
+    if (id == kRecordParamId) p.uiRecording.store(value >= .5, std::memory_order_relaxed);
+    else if (id == kPlayParamId) p.uiPlaying.store(value >= .5, std::memory_order_relaxed);
+    else if (id == kTakeoverParamId) p.uiTakeoverMs.store(value, std::memory_order_relaxed);
+}
+void servicePortableMidiEvents(Plugin& p, const clap_output_events_t* output) {
+    s3g::clap_gui::ParamEvent pending{};
+    bool changed = false;
+    while (p.guiParamEvents.peek(pending)) {
+        auto sent = pending;
+        if (pending.paramId == kPortableClearSelected) { sent.paramId=kClearLastParamId;sent.value=1.; }
+        else if (pending.paramId == kPortableCancelRecord) { sent.paramId=kRecordParamId;sent.value=0.; }
+        if (output && output->try_push && !s3g::clap_gui::pushParamEvent(output, sent)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            if (pending.paramId == kPortableClearSelected) {
+                const auto selected = static_cast<int32_t>(pending.value);
+                if (selected >= 0 && selected < static_cast<int32_t>(kNimParameterCount)) clearLoop(p, static_cast<uint32_t>(selected));
+                else clearLastLoop(p);
+            } else if (pending.paramId == kPortableCancelRecord) cancelRecording(p);
+            else applyParameter(p, pending.paramId, pending.value, p.framePosition);
+            changed = true;
+        }
+        p.guiParamEvents.pop();
+    }
+    if (changed) {
+        p.portableRescan.store(true,std::memory_order_release);
+        if(p.host && p.host->request_callback)p.host->request_callback(p.host);
+    }
+}
+#endif
+
 void processInputEvent(Plugin& plugin, const clap_event_header_t* event,
     uint64_t blockStart, const clap_output_events_t* output)
 {
@@ -939,13 +989,16 @@ void dispatchScheduledLoop(Plugin& plugin, uint32_t index,
 
 bool init(const clap_plugin_t*) { return true; }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -1001,6 +1054,9 @@ clap_process_status process(const clap_plugin_t* plugin,
         return CLAP_PROCESS_CONTINUE;
     }
     const uint64_t blockStart = p->framePosition;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableMidiEvents(*p, processData->out_events);
+#endif
     applyGuiCommands(*p, blockStart, processData->out_events);
     const uint32_t eventCount = processData->in_events
         ? processData->in_events->size(processData->in_events) : 0u;
@@ -1058,7 +1114,17 @@ clap_process_status process(const clap_plugin_t* plugin,
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto& p=*self(plugin);
+    if(p.portableRescan.exchange(false,std::memory_order_acq_rel) && p.host && p.host->get_extension) {
+        const auto* params=static_cast<const clap_host_params_t*>(p.host->get_extension(p.host,CLAP_EXT_PARAMS));
+        if(params && params->rescan)params->rescan(p.host,CLAP_PARAM_RESCAN_VALUES);
+    }
+#else
+    (void)plugin;
+#endif
+}
 
 uint32_t notePortsCount(const clap_plugin_t*, bool) { return 1u; }
 
@@ -1220,6 +1286,9 @@ void paramsFlush(const clap_plugin_t* plugin,
         passThroughWhileSessionBusy(input, output);
         return;
     }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableMidiEvents(*p, output);
+#endif
     applyGuiCommands(*p, p->framePosition, output);
     if (!input) return;
     const uint32_t count = input->size(input);
@@ -1854,7 +1923,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 struct GuiControl {
     char name[20] {};
@@ -2647,14 +2716,21 @@ const clap_plugin_gui_t guiExt {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_midi_tool_nim_gesture_canvas.inc"
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ if (id && std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, S3G_NIM_GESTURE_SESSION_EXTENSION) == 0)
         return &sessionExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

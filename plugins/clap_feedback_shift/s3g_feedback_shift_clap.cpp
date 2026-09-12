@@ -10,7 +10,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -26,7 +26,17 @@
 #include <cstring>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_feedback_processor_drawing.h"
+#define S3G_FEEDBACK_KIND 2
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Feedback Shift";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kStateMagic = 0x4d463353u; // "S3FM"
 constexpr uint32_t kStateVersion = 8u;
@@ -150,6 +160,11 @@ struct SavedState {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -159,7 +174,11 @@ struct Plugin {
     s3g::FeedbackShiftParams params { s3g::defaultFeedbackShiftParams() };
     s3g::FeedbackShift dsp {};
     std::array<std::atomic<double>, kParamCount> publishedParams {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::clap_gui::ParamEventQueue<8192> guiParamEvents {};
+#else
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+#endif
     std::atomic<bool> guiRetryPending { false };
     std::atomic<bool> activated { false };
     std::atomic<bool> panicRequested { false };
@@ -195,7 +214,7 @@ struct Plugin {
     std::atomic<float> auxActivity { 0.0f };
     std::atomic<float> auxGainReductionDb { 0.0f };
     std::atomic<float> auxGrainActivity { 0.0f };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -950,13 +969,16 @@ bool init(const clap_plugin_t* plugin)
     return true;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -1629,7 +1651,7 @@ const clap_plugin_state_t stateExtension { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 #include "s3g_feedback_shift_gui.inc"
 
@@ -1757,14 +1779,21 @@ const clap_plugin_gui_t guiExtension {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_feedback_processor_shift_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ if (id && std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (!id) return nullptr;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;
@@ -1848,6 +1877,6 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT, entryInit, entryDeinit, entryGetFactory,
 };

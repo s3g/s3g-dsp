@@ -9,7 +9,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_gui_layout.h"
@@ -26,7 +26,19 @@
 #include <limits>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_resonator_encoder_drawing.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#define S3G_SCORE_KIND 1
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Ambi Encoder Acid";
+
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiAcidChannels;
 constexpr uint32_t kStateVersion = 5u;
@@ -197,6 +209,12 @@ struct SavedState {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -217,7 +235,7 @@ struct Plugin {
     uint64_t midiNoteCounter = 0u;
     int32_t activeMidiNote = -1;
     std::array<std::atomic<double>, kParamCount> publishedParams {};
-    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::ParamEventQueue<4096> guiParamEvents {};
     std::atomic<uint32_t> visualCurrentStep { 0u };
     std::atomic<float> visualActivity { 0.0f };
     std::atomic<int32_t> visualMidiNote { -1 };
@@ -225,7 +243,7 @@ struct Plugin {
     std::atomic<float> visualDirectionY { 0.0f };
     std::atomic<float> visualDirectionZ { 0.0f };
     std::atomic<bool> visualTransportPlaying { false };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -741,13 +759,16 @@ void serviceGuiParamEvents(Plugin& plugin, const clap_output_events_t* output)
     }
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -1380,7 +1401,21 @@ const clap_plugin_params_t params {
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    // Capture the GUI-visible state without reading the audio-owned engine.
+    // Reuse the existing ID-to-state mapping on an isolated inactive instance.
+    auto captured = std::make_unique<Plugin>();
+    for (uint32_t n = 0; n < kParamCount; ++n) {
+        clap_param_info_t info{};
+        if (paramsGetInfo(plugin,n,&info))
+            applyParam(*captured,info.id,paramValue(*self(plugin),info.id));
+    }
+    captured->engine.setParams(captured->params);
+    captured->params = captured->engine.params();
+    const auto* p = captured.get();
+#else
     const auto* p = self(plugin);
+#endif
     const SavedState state {
         kStateVersion,
         p->params,
@@ -1500,7 +1535,7 @@ const clap_plugin_state_t state {
     stateLoad,
 };
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 // GUI-only aggregate that maps the stable Order and Output Mode parameters to
 // the same FORMAT menu used by the Membrane Kick family member.
@@ -3044,13 +3079,19 @@ const clap_plugin_gui_t gui {
 
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_score_encoder_acid_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &state;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &gui;
 #endif
     return nullptr;

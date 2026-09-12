@@ -9,7 +9,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_parameter_surface_cocoa.h"
@@ -27,7 +27,20 @@
 #include <new>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_circuit_encoder_drawing.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_CIRCUIT_KIND 3
+constexpr uint32_t kGuiWidth=1160, kGuiHeight=858;
+constexpr const char* portablePresetDirectory="Ambi Wrangler Encoder";
+constexpr const char* portablePresetExtension="s3gawp";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWranglerMaxChannels;
 constexpr uint32_t kStateVersion = 17;
@@ -158,6 +171,13 @@ static_assert(std::atomic<uint64_t>::is_always_lock_free,
     "Wrangler real-time snapshot revisions require lock-free atomics");
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+ std::atomic<bool> guiTelemetryReady{false};
+ s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -222,10 +242,12 @@ struct Plugin {
     bool pendingAudioReportSurfaceCursorChanged = false;
 
     std::atomic<float> outputPeak { 0.0f };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
+#endif
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     int guiViewMode = 0;
     float guiViewAzDeg = 38.0f;
     float guiViewElDeg = 32.0f;
@@ -259,6 +281,24 @@ struct Plugin {
 #endif
 };
 
+FILE* openPresetFile(const char* path, const char* mode) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ return s3g::portable_gui::foundation::openFileUtf8(path, mode);
+#else
+ return std::fopen(path, mode);
+#endif
+}
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+// Notifications only: the retained main-thread control API already publishes
+// each edit to the audio engine. Never apply it a second time while flushing.
+void drainGuiNotifications(Plugin& p, const clap_output_events_t* output) {
+ s3g::clap_gui::ParamEvent event;
+ while (p.guiParamEvents.peek(event)) {
+  if (!s3g::clap_gui::pushParamEvent(output,event)) break;
+  p.guiParamEvents.pop();
+ }
+}
+#endif
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
 class AtomicFlagGuard {
@@ -939,7 +979,7 @@ bool saveCustomPresetFile(const char* path, Plugin& plugin, const char* name)
     std::snprintf(file.name, sizeof(file.name), "%s", name && *name ? name : "Custom");
     file.params = controlStateSnapshot(plugin).params;
     canonicalizeParamsPadding(file.params);
-    FILE* handle = std::fopen(path, "wb");
+    FILE* handle = openPresetFile(path, "wb");
     if (!handle) return false;
     const bool ok = std::fwrite(&file, 1, sizeof(file), handle) == sizeof(file);
     std::fclose(handle);
@@ -949,7 +989,7 @@ bool saveCustomPresetFile(const char* path, Plugin& plugin, const char* name)
 bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
 {
     if (!path || !*path) return false;
-    FILE* handle = std::fopen(path, "rb");
+    FILE* handle = openPresetFile(path, "rb");
     if (!handle) return false;
     file = {};
     bool ok = std::fread(&file.magic, 1, sizeof(file.magic), handle)
@@ -1725,8 +1765,11 @@ void applyControlEvents(Plugin& plugin, const clap_input_events_t* in)
 bool init(const clap_plugin_t*) { return true; }
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (p && p->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
@@ -1866,6 +1909,9 @@ void publishAudioReportTry(Plugin& plugin)
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainGuiNotifications(*self(plugin), proc->out_events);
+#endif
     auto* p = self(plugin);
     const uint32_t frames = proc->frames_count;
     clap_audio_buffer_t* output =
@@ -2027,7 +2073,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const uint32_t voices = std::min<uint32_t>(
         p->engine.processingVoiceCount(),
         s3g::kAmbiWranglerMaxVoices);
@@ -2075,6 +2121,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->engine.listenerTopologyRate(), std::memory_order_relaxed);
     p->guiListenerEnableGain.store(p->engine.listenerEnableGain(), std::memory_order_relaxed);
     p->guiReturnEnableGain.store(p->engine.returnEnableGain(), std::memory_order_relaxed);
+#endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    p->guiTelemetryReady.store(true,std::memory_order_release);
 #endif
     return CLAP_PROCESS_CONTINUE;
 }
@@ -2536,8 +2585,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
 
 void paramsFlush(
     const clap_plugin_t* plugin, const clap_input_events_t* in,
-    const clap_output_events_t*)
+    const clap_output_events_t* output)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainGuiNotifications(*self(plugin), output);
+#endif
     auto* p = self(plugin);
     if (!p->active.load(std::memory_order_acquire)) {
         applyControlEvents(*p, in);
@@ -2678,7 +2730,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 constexpr uint32_t kGuiWidth = 1160;
 constexpr uint32_t kGuiHeight = 858;
@@ -5015,12 +5067,19 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_circuit_encoder_wrangler_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

@@ -5,12 +5,9 @@
 #include "s3g_math.h"
 #include "s3g_realtime.h"
 
-#if defined(__APPLE__)
+// Retain Accelerate on Mac and the same packed-real FFT convention elsewhere.
+#include "s3g_ambi_effect_fft.h"
 #define S3G_HAS_AMBI_IMPRINT_FFT 1
-#include <Accelerate/Accelerate.h>
-#else
-#define S3G_HAS_AMBI_IMPRINT_FFT 0
-#endif
 
 #include <algorithm>
 #include <array>
@@ -300,7 +297,7 @@ public:
         halfSize_ = fftSize_ / 2u;
         uint32_t value = fftSize_;
         while (value > 1u) { value >>= 1u; ++log2Size_; }
-        setup_ = vDSP_create_fftsetup(log2Size_, kFFTRadix2);
+        setup_ = ambi_effect_fft::vDSP_create_fftsetup(log2Size_, ambi_effect_fft::radix2);
         if (!setup_) { release(); return false; }
         partitions_ = static_cast<uint32_t>((kernel.size() + partitionSize_ - 1u) / partitionSize_);
         overlap_.assign(partitionSize_, 0.0f);
@@ -368,7 +365,7 @@ private:
     void release()
     {
 #if S3G_HAS_AMBI_IMPRINT_FFT
-        if (setup_) vDSP_destroy_fftsetup(setup_);
+        if (setup_) ambi_effect_fft::vDSP_destroy_fftsetup(setup_);
         setup_ = nullptr;
 #endif
         partitionSize_ = 0u;
@@ -395,16 +392,16 @@ private:
 #if S3G_HAS_AMBI_IMPRINT_FFT
     void forward(float* time, float* real, float* imag)
     {
-        DSPSplitComplex split { real, imag };
-        vDSP_ctoz(reinterpret_cast<const DSPComplex*>(time), 2, &split, 1, halfSize_);
-        vDSP_fft_zrip(setup_, &split, 1, log2Size_, FFT_FORWARD);
+        ambi_effect_fft::DSPSplitComplex split { real, imag };
+        ambi_effect_fft::vDSP_ctoz(reinterpret_cast<const ambi_effect_fft::DSPComplex*>(time), 2, &split, 1, halfSize_);
+        ambi_effect_fft::vDSP_fft_zrip(setup_, &split, 1, log2Size_, ambi_effect_fft::forward);
     }
 
     void inverse(float* real, float* imag, float* time)
     {
-        DSPSplitComplex split { real, imag };
-        vDSP_fft_zrip(setup_, &split, 1, log2Size_, FFT_INVERSE);
-        vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(time), 2, halfSize_);
+        ambi_effect_fft::DSPSplitComplex split { real, imag };
+        ambi_effect_fft::vDSP_fft_zrip(setup_, &split, 1, log2Size_, ambi_effect_fft::inverse);
+        ambi_effect_fft::vDSP_ztoc(&split, 1, reinterpret_cast<ambi_effect_fft::DSPComplex*>(time), 2, halfSize_);
     }
 
     void processBlock()
@@ -428,10 +425,10 @@ private:
             accumulatorReal_[0] += xr[0] * hr[0];
             accumulatorImag_[0] += xi[0] * hi[0];
             if (halfSize_ > 1u) {
-                DSPSplitComplex x { xr + 1u, xi + 1u };
-                DSPSplitComplex h { hr + 1u, hi + 1u };
-                DSPSplitComplex accumulator { accumulatorReal_.data() + 1u, accumulatorImag_.data() + 1u };
-                vDSP_zvma(&x, 1, &h, 1, &accumulator, 1, &accumulator, 1, halfSize_ - 1u);
+                ambi_effect_fft::DSPSplitComplex x { xr + 1u, xi + 1u };
+                ambi_effect_fft::DSPSplitComplex h { hr + 1u, hi + 1u };
+                ambi_effect_fft::DSPSplitComplex accumulator { accumulatorReal_.data() + 1u, accumulatorImag_.data() + 1u };
+                ambi_effect_fft::vDSP_zvma(&x, 1, &h, 1, &accumulator, 1, &accumulator, 1, halfSize_ - 1u);
             }
         }
 
@@ -441,7 +438,7 @@ private:
         historyPosition_ = (historyPosition_ + 1u) % partitions_;
     }
 
-    FFTSetup setup_ = nullptr;
+    ambi_effect_fft::FFTSetup setup_ = nullptr;
 #endif
     uint32_t partitionSize_ = 0u;
     uint32_t fftSize_ = 0u;

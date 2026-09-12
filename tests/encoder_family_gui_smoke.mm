@@ -2178,7 +2178,9 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && formantMatrix && !documentationCapture) {
+        // The direct complex-processor suite covers the portable hit maps and
+        // text controls. These checks below require retained Cocoa selectors.
+        if (ok && formantMatrix && !documentationCapture && !portableVstguiRoot) {
             failureStage = "Formant Matrix effect identity and MIDI note input";
             const auto hasDescriptorFeature = [&](const char* expectedFeature) {
                 if (!requestedDescriptor->features || !expectedFeature) {
@@ -4559,7 +4561,7 @@ int main(int argc, char** argv)
             || std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64") == 0;
         if (ok && environmentalInstrumentEncoder
-            && !documentationCapture) {
+            && !documentationCapture && !portableVstguiRoot) {
             failureStage = "environmental Voices slider hit map";
             @try {
                 clap_id voicesId = CLAP_INVALID_ID;
@@ -7285,7 +7287,9 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && horizonEncoder) {
+        if (ok && horizonEncoder && !portableVstguiRoot) {
+            // Portable canvas hit maps and controls are tested directly by
+            // score_encoder_canvas_smoke; these selectors are Cocoa-only.
             // Reproduce a host such as REAPER that drains the Cocoa
             // autorelease pool between opening a menu and redrawing it.
             // Dynamically generated static labels must own their strings.
@@ -7615,11 +7619,25 @@ int main(int argc, char** argv)
                     break;
                 }
             }
-            const NSPoint outputPoint = NSMakePoint(760.0, 78.0);
+            NSPoint outputPoint = NSMakePoint(760.0, 78.0);
+            if (portableVstguiRoot) {
+                // VSTGUI receives coordinates in the resized native view;
+                // Cocoa's document view remains in unscaled logical units.
+                // Sending the latter to a hidden, scaled portable view never
+                // reached OUT and falsely reported a missing edit gesture.
+                uint32_t currentWidth = 0u, currentHeight = 0u;
+                ok = gui->get_size(plugin, &currentWidth, &currentHeight)
+                    && gui->show(plugin);
+                const double scale = std::min(
+                    static_cast<double>(currentWidth) / nativeWidth,
+                    static_cast<double>(currentHeight) / nativeHeight);
+                outputPoint.x *= scale;
+                outputPoint.y *= scale;
+            }
             NSView* hit = document;
             hostContext.deferParamFlush = true;
             hostContext.paramFlushRequested = false;
-            if (foundOutput && hit == document) {
+            if (ok && foundOutput && hit == document) {
                 [hit mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, outputPoint)];
                 [hit mouseUp:mouseEvent(
@@ -7889,7 +7907,7 @@ int main(int argc, char** argv)
         const bool ambiEncoderAcid = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-encoder-acid-16") == 0;
-        if (ok && ambiEncoderAcid && !documentationCapture) {
+        if (ok && ambiEncoderAcid && !documentationCapture && !portableVstguiRoot) {
             failureStage = "Ambi Encoder Acid compact note interaction";
             constexpr clap_id noteId = 112u;
             constexpr clap_id gateId = 113u;
@@ -8285,7 +8303,9 @@ int main(int argc, char** argv)
         const bool ambiEncoderMedium = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-encoder-medium-16") == 0;
-        if (ok && ambiEncoderMedium && !documentationCapture) {
+        // Cocoa ivar/selector assertions below apply only to the retained NSView.
+        // Portable page/menu/strike coverage lives in resonator_encoder_canvas_smoke.
+        if (ok && ambiEncoderMedium && !documentationCapture && !portableVstguiRoot) {
             failureStage = "Ambi Encoder Medium camera and dropdown contract";
             @try {
                 ok = [document respondsToSelector:@selector(setViewPreset:)];
@@ -8528,7 +8548,7 @@ int main(int argc, char** argv)
         const bool ambiEncoderMembraneKick = std::strcmp(
             pluginId,
             "org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16") == 0;
-        if (ok && ambiEncoderMembraneKick && !documentationCapture) {
+        if (ok && ambiEncoderMembraneKick && !documentationCapture && !portableVstguiRoot) {
             failureStage =
                 "Ambi Encoder Membrane Kick factory preset dropdown";
             @try {
@@ -8737,7 +8757,7 @@ int main(int argc, char** argv)
         const bool documentationAmbiImprint = documentationCapture
             && std::strcmp(pluginId,
                 "org.s3g.s3g-dsp.ambi-imprint-64") == 0;
-        if (ok && documentationAmbiImprint) {
+        if (ok && documentationAmbiImprint && !portableVstguiRoot) {
             failureStage = "documentation Ambi Imprint atlas";
             ok = [document respondsToSelector:@selector(loadAtlasAtIndex:)];
             if (ok) {
@@ -8798,7 +8818,10 @@ int main(int argc, char** argv)
                 [scroll reflectScrolledClipView:[scroll contentView]];
             }
         }
-        if (ok && environmentalSurface) {
+        // The literal portable canvases have independent pointer/queue/SURF
+        // tests in environment_encoder_canvas_smoke.cpp. This block uses
+        // Cocoa-only selectors/KVC and synchronous Cocoa mouse dispatch.
+        if (ok && environmentalSurface && !portableVstguiRoot) {
             failureStage = "environmental RANDOM and SURF contract";
             const auto* pluginState =
                 static_cast<const clap_plugin_state_t*>(
@@ -10415,7 +10438,9 @@ int main(int argc, char** argv)
                 [scroll reflectScrolledClipView:[scroll contentView]];
             }
         }
-        if (ok && feedbackShift) {
+        // Cocoa KVC/accessory tests stay on the retained native editor. The
+        // portable canvas has direct page/menu/matrix tests in its own target.
+        if (ok && feedbackShift && !portableVstguiRoot) {
             const auto clickFeedback = [&](NSPoint point) {
                 [document mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, point)];
@@ -10465,7 +10490,7 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && noInputMixer) {
+        if (ok && noInputMixer && !portableVstguiRoot) {
             const auto clickNoInput = [&](NSPoint point) {
                 [document mouseDown:mouseEvent(
                     NSEventTypeLeftMouseDown, point)];
@@ -11487,7 +11512,7 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && faultProcessor) {
+        if (ok && faultProcessor && !portableVstguiRoot) {
             failureStage = "Processor Fault page tabs";
             auto clickFaultPage = [&](NSPoint point) {
                 [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown, point)];
@@ -11617,7 +11642,9 @@ int main(int argc, char** argv)
                 ok = false;
             }
         }
-        if (ok && lowform) {
+        // Cocoa selectors belong to the reference view. The portable editor's
+        // equivalent hit maps are covered by stereo_processor_canvas_smoke.
+        if (ok && lowform && !portableVstguiRoot) {
             failureStage = "Lowform workspace pages";
             auto selectBassWorkspacePage = [&](NSPoint point, int expected) {
                 [document mouseDown:mouseEvent(

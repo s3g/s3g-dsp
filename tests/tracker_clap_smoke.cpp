@@ -4,10 +4,12 @@
 
 #if defined(__APPLE__)
 #import <Cocoa/Cocoa.h>
+#import <objc/runtime.h>
 #endif
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
@@ -454,13 +456,51 @@ bool selectTrackerGridVolumeField(NSView* root)
     return false;
 }
 
+using NativeDrawRect = void (*)(id, SEL, NSRect);
+NativeDrawRect referenceGridDraw = nullptr;
+NativeDrawRect referenceGutterDraw = nullptr;
+
+void printClippedGrid(id object, SEL selector, NSRect dirty)
+{
+    NSView* view = static_cast<NSView*>(object);
+    NSClipView* clip = view.enclosingScrollView.contentView;
+    [NSGraphicsContext saveGraphicsState];
+    NSRectClip(clip ? [view convertRect:clip.bounds fromView:clip] : view.bounds);
+    referenceGridDraw(object, selector, dirty);
+    [NSGraphicsContext restoreGraphicsState];
+}
+
+void printClippedGutter(id object, SEL selector, NSRect dirty)
+{
+    NSView* view = static_cast<NSView*>(object);
+    [NSGraphicsContext saveGraphicsState];
+    NSRectClip(view.bounds);
+    referenceGutterDraw(object, selector, dirty);
+    [NSGraphicsContext restoreGraphicsState];
+}
+
 bool writeDocumentationPage(NSView* root, NSString* directory,
     NSString* variant)
 {
     [root setNeedsDisplay:YES];
     [root layoutSubtreeIfNeeded];
     [root displayIfNeeded];
+    // AppKit's PDF path omits the layer-backed viewport clip at >100% zoom;
+    // clipsToBounds alone does not fix that print path. Apply the actual
+    // viewport clip around the unchanged native drawing method for this test
+    // capture only, then immediately restore the methods. Both bundles get
+    // the same treatment. No plugin code or normal on-screen drawing changes.
+    NSView* grid = findAccessibleView(root, @"Editable tracker lanes");
+    NSView* gutter = findAccessibleView(root, @"Frozen tracker row numbers");
+    Method gridDraw = grid ? class_getInstanceMethod(grid.class, @selector(drawRect:)) : nullptr;
+    Method gutterDraw = gutter ? class_getInstanceMethod(gutter.class, @selector(drawRect:)) : nullptr;
+    if (gridDraw) referenceGridDraw = reinterpret_cast<NativeDrawRect>(
+        method_setImplementation(gridDraw, reinterpret_cast<IMP>(printClippedGrid)));
+    if (gutterDraw) referenceGutterDraw = reinterpret_cast<NativeDrawRect>(
+        method_setImplementation(gutterDraw, reinterpret_cast<IMP>(printClippedGutter)));
     NSData* rendered = [root dataWithPDFInsideRect:root.bounds];
+    if (gridDraw) method_setImplementation(gridDraw, reinterpret_cast<IMP>(referenceGridDraw));
+    if (gutterDraw) method_setImplementation(gutterDraw, reinterpret_cast<IMP>(referenceGutterDraw));
     if (!rendered || rendered.length == 0u) return false;
     if (!directory) return true;
     [[NSFileManager defaultManager]
@@ -472,9 +512,166 @@ bool writeDocumentationPage(NSView* root, NSString* directory,
         ? @"org.s3g.s3g-dsp.tracker.pdf"
         : [NSString stringWithFormat:@"org.s3g.s3g-dsp.tracker.%@.pdf",
             variant];
-    return [rendered writeToFile:
-        [directory stringByAppendingPathComponent:fileName]
-        atomically:YES];
+    NSString* path = [directory stringByAppendingPathComponent:fileName];
+    bool written = [rendered writeToFile:path atomically:YES];
+    NSClipView* viewport = grid.enclosingScrollView.contentView;
+    if (viewport) {
+        const NSRect rect = [viewport convertRect:viewport.bounds toView:root];
+        const double top = root.isFlipped ? NSMinY(rect) - NSMinY(root.bounds)
+            : NSMaxY(root.bounds) - NSMaxY(rect);
+        // PDF text extraction includes glyphs hidden by clipping paths. Record
+        // the actual viewport so the checker compares visible grid text while
+        // still comparing the complete page raster (all controls/panels).
+        NSDictionary* metadata = @{@"trackerViewport": @[
+            @(rect.origin.x - NSMinX(root.bounds)), @(top),
+            @(rect.size.width), @(rect.size.height)]};
+        NSData* json = [NSJSONSerialization dataWithJSONObject:metadata options:0 error:nil];
+        written &= [json writeToFile:[path stringByAppendingString:@".json"] atomically:YES];
+    }
+    return written;
+}
+
+// Check geometry and native event coordinates, not just a stored zoom value.
+bool checkWholeInterfaceScaling(const clap_plugin_gui_t* gui,
+    const clap_plugin_t* plugin, NSView* root, NSWindow* hostWindow)
+{
+    clap_gui_resize_hints_t hints {};
+    if (!gui->get_resize_hints(plugin, &hints)) return false;
+    if (!hints.preserve_aspect_ratio)
+        return expect(!std::getenv("S3G_TRACKER_EXPECT_VSTGUI"),
+            "VSTGUI Tracker must advertise proportional resizing");
+    bool ok = expect(hints.can_resize_horizontally && hints.can_resize_vertically
+        && hints.aspect_ratio_width == 1320u && hints.aspect_ratio_height == 860u,
+        "Tracker aspect-ratio hints changed");
+    uint32_t savedWidth = 0u, savedHeight = 0u;
+    gui->get_size(plugin, &savedWidth, &savedHeight);
+    ok &= expect(!gui->set_scale(plugin, 2.0),
+        "Cocoa must not apply Retina DPI as a second user zoom");
+    NSView* workspace = findAccessibleView(root, @"s3g Tracker REAPER page workspace");
+    NSView* grid = findAccessibleView(root, @"Editable tracker lanes");
+    NSScrollView* scroll = grid.enclosingScrollView;
+    const CGFloat savedGridZoom = scroll.magnification;
+    const char* capturePath = std::getenv("S3G_TRACKER_SCALE_CAPTURE_DIR");
+    NSString* captureDir = capturePath && capturePath[0]
+        ? [NSString stringWithUTF8String:capturePath] : nil;
+    const auto resize = [&](uint32_t w, uint32_t h, bool hostFirst) {
+        if (hostFirst) [hostWindow setContentSize:NSMakeSize(w, h)];
+        bool result = gui->set_size(plugin, w, h);
+        if (!hostFirst) [hostWindow setContentSize:NSMakeSize(w, h)];
+        [root layoutSubtreeIfNeeded];
+        [root displayIfNeeded];
+        uint32_t actualW = 0u, actualH = 0u;
+        return result && gui->get_size(plugin, &actualW, &actualH)
+            && actualW == w && actualH == h;
+    };
+    const auto eventAt = [&](NSView* view, NSPoint point, NSInteger clicks) {
+        return [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+            location:[view convertPoint:point toView:nil] modifierFlags:0
+            timestamp:0 windowNumber:hostWindow.windowNumber context:nil
+            eventNumber:0 clickCount:clicks pressure:1.0];
+    };
+    const auto hits = [&](NSView* view, NSPoint point) {
+        NSPoint inParent = [view convertPoint:point toView:root.superview];
+        NSView* hit = [root hitTest:inParent];
+        if (hit != view && ![hit isDescendantOf:view]) std::fprintf(stderr,
+            "hit-test %s at %.1f,%.1f -> %s (root %s)\n",
+            view.accessibilityLabel.UTF8String, inParent.x, inParent.y,
+            NSStringFromClass(hit.class).UTF8String,
+            NSStringFromRect(root.frame).UTF8String);
+        return hit == view || [hit isDescendantOf:view];
+    };
+    const std::array<std::array<uint32_t, 2>, 7> sizes {{
+        {{858, 559}}, {{1320, 860}}, {{1980, 1290}}, {{2640, 1720}},
+        {{900, 620}}, {{1, 1}}, {{5000, 5000}}
+    }};
+    for (std::size_t index = 0; index < sizes.size(); ++index) {
+        uint32_t w = sizes[index][0], h = sizes[index][1];
+        ok &= expect(gui->adjust_size(plugin, &w, &h), "Tracker size negotiation failed");
+        if (index == 0 || index == 5)
+            ok &= expect(w == 858u && h == 559u, "65% lower resize limit changed");
+        if (index == 3 || index == 6)
+            ok &= expect(w == 2640u && h == 1720u, "200% upper resize limit changed");
+        const double retainedZoom = index % 2 == 0 ? 0.8 : 1.4;
+        [scroll setMagnification:retainedZoom centeredAtPoint:NSZeroPoint];
+        const double scale = std::min(w / 1320.0, h / 860.0);
+        uint32_t repeatedW = w, repeatedH = h;
+        for (int repeat = 0; repeat < 8; ++repeat)
+            gui->adjust_size(plugin, &repeatedW, &repeatedH);
+        ok &= expect(scale >= 0.65 && scale <= 2.0
+                && repeatedW == w && repeatedH == h
+                && resize(w, h, index % 2 == 0),
+            "Tracker resize limits, rounding or host resize ordering failed");
+        const NSRect physical = [workspace convertRect:workspace.bounds toView:root];
+        NSButton* page = findButton(root, nil, @"TRACKER page", nil);
+        NSTextField* bpm = static_cast<NSTextField*>(findAccessibleView(root,
+            @"Host tempo in beats per minute"));
+        ok &= expect(NSEqualSizes(workspace.bounds.size, NSMakeSize(1320, 860))
+                && std::abs(NSWidth(physical) - 1320 * scale) < 0.01
+                && std::abs(NSHeight(physical) - 860 * scale) < 0.01
+                && std::abs([page convertSize:page.bounds.size toView:root].width
+                    - page.bounds.size.width * scale) < 0.01
+                && std::abs([bpm convertSize:NSMakeSize(0, bpm.font.pointSize)
+                    toView:root].height - bpm.font.pointSize * scale) < 0.01
+                && hits(page, NSMakePoint(NSMidX(page.bounds), NSMidY(page.bounds)))
+                && std::abs(scroll.magnification - retainedZoom) < 0.0001,
+            "whole-interface geometry, typography, button hit area or independent grid zoom failed");
+        for (double gridZoom : {0.55, 1.0, 1.8}) {
+            [scroll setMagnification:gridZoom centeredAtPoint:NSZeroPoint];
+            [grid scrollPoint:NSZeroPoint];
+            [root layoutSubtreeIfNeeded];
+            // Original geometry: NOTE lane 1, row 2 (86 header + 25 per row).
+            const NSPoint cell = NSMakePoint(60, 123.5);
+            ok &= expect(hits(grid, cell), "scaled grid cell hit test failed");
+            [grid mouseDown:eventAt(grid, cell, 2)];
+            NSTextField* editor = [grid valueForKey:@"cellEditor"];
+            const NSSize physicalEditor = [editor convertSize:editor.bounds.size toView:root];
+            ok &= expect(editor && [[grid valueForKey:@"editingTrack"] unsignedIntegerValue] == 0
+                    && [[grid valueForKey:@"editingRow"] unsignedIntegerValue] == 1
+                    && [[grid valueForKey:@"editingField"] unsignedIntegerValue] == 0
+                    && std::abs(physicalEditor.width
+                        - editor.bounds.size.width * scale * gridZoom) < 0.01
+                    && [hostWindow.firstResponder isKindOfClass:NSTextView.class],
+                "scaled double-click or inline cell editor failed");
+            if (editor) [(id<NSTextFieldDelegate>)grid control:editor
+                textView:static_cast<NSTextView*>(hostWindow.firstResponder)
+                doCommandBySelector:@selector(cancelOperation:)];
+        }
+        [scroll setMagnification:savedGridZoom centeredAtPoint:NSZeroPoint];
+        [grid scrollPoint:NSZeroPoint];
+        if (captureDir && index < 4)
+            ok &= expect(writeDocumentationPage(root, captureDir,
+                [NSString stringWithFormat:@"interface-%03d", static_cast<int>(std::lround(scale * 100))]),
+                "whole-interface capture failed");
+
+        // Canvas dropdowns must stay inside the scaled hierarchy as well.
+        [root layoutSubtreeIfNeeded];
+        NSPopUpButton* menu = static_cast<NSPopUpButton*>(
+            findAccessibleView(root, @"Active pattern"));
+        const NSPoint center = NSMakePoint(NSMidX(menu.bounds), NSMidY(menu.bounds));
+        ok &= expect(hits(menu, center), "scaled dropdown hit test failed");
+        [menu mouseDown:eventAt(menu, center, 1)];
+        NSView* overlay = [menu valueForKey:@"s3gMenuOverlay"];
+        ok &= expect(overlay && [overlay isDescendantOf:workspace]
+                && std::abs([overlay convertSize:NSMakeSize(21, 21) toView:root].height
+                    - 21 * scale) < 0.01,
+            "canvas dropdown did not inherit whole-interface zoom");
+        if (overlay) {
+            // Select the current item through window coordinates, without
+            // changing the pattern used by the MIDI fixture after this test.
+            NSRect menuRect = [[overlay valueForKey:@"menuRect"] rectValue];
+            const NSInteger columns = [[overlay valueForKey:@"columns"] integerValue];
+            const NSInteger rows = (menu.numberOfItems + columns - 1) / columns;
+            const NSInteger item = menu.indexOfSelectedItem;
+            [overlay mouseDown:eventAt(overlay,
+                NSMakePoint(NSMinX(menuRect) + (item / rows) * NSWidth(menuRect) / columns + 10,
+                    NSMinY(menuRect) + (item % rows) * 21 + 10), 1)];
+            ok &= expect([menu valueForKey:@"s3gMenuOverlay"] == nil,
+                "scaled dropdown selection did not dismiss the menu");
+        }
+    }
+    ok &= expect(resize(savedWidth, savedHeight, true), "Tracker size restore failed");
+    if (ok) std::puts("Tracker whole-interface 65–200% scaling / nested zoom / input: ok");
+    return ok;
 }
 
 } // namespace
@@ -502,7 +699,7 @@ int main(int argc, char** argv)
         const unsigned long parsedHeight = std::strtoul(argv[4], &heightEnd, 10);
         if (!widthEnd || *widthEnd || !heightEnd || *heightEnd
             || parsedWidth < 760u || parsedWidth > UINT32_MAX
-            || parsedHeight < 560u || parsedHeight > UINT32_MAX) {
+            || parsedHeight < 559u || parsedHeight > UINT32_MAX) {
             std::fprintf(stderr, "tracker CLAP: invalid capture size %s x %s\n",
                 argv[3], argv[4]);
             return 2;
@@ -648,6 +845,11 @@ int main(int argc, char** argv)
             ok &= expect(shown,
                 "full tracker workspace lifecycle failed");
             if (shown) {
+                // Use the accepted dimensions throughout, including later
+                // mock-window creation and capture. The pilot now negotiates
+                // a proportional size rather than a responsive canvas.
+                requestedWidth = resizedWidth;
+                requestedHeight = resizedHeight;
                 [parent setFrameSize:NSMakeSize(resizedWidth, resizedHeight)];
                 [parent layoutSubtreeIfNeeded];
                 NSView* midiEventView = findAccessibleView(parent,
@@ -675,7 +877,8 @@ int main(int argc, char** argv)
                     "the obsolete Tracker route line remained or MIDI event statistics did not move beside HOST BPM");
                 ok &= expect([hostBpm.stringValue hasPrefix:@"HOST BPM"]
                         && NSMaxX(hostBpmFrame)
-                            >= NSWidth(parent.bounds) - 20.0,
+                            >= NSWidth(parent.bounds) - [hostBpm
+                                convertSize:NSMakeSize(20.0, 0.0) toView:parent].width,
                     "host BPM should use the shared passive top-right status position");
                 context.masterTempo = 97.5;
                 NSDate* tempoDeadline = [NSDate
@@ -1090,6 +1293,54 @@ int main(int argc, char** argv)
                     plugin, requestedWidth, requestedHeight);
                 [parent layoutSubtreeIfNeeded];
                 [parent displayIfNeeded];
+                NSView* grid = findAccessibleView(parent, @"Editable tracker lanes");
+                // Earlier MIDI tests leave a pending GUI transport update.
+                // Freeze the mock host before paired captures so a timer tick
+                // cannot add/remove the playback row halfway through a matrix.
+                const int playStateBeforeZoom = context.playState;
+                context.playState = 0;
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.10]];
+                NSScrollView* gridScroll = grid.enclosingScrollView;
+                NSView* gutter = findAccessibleView(parent, @"Frozen tracker row numbers");
+                bool zoomControls = grid && gridScroll && gutter
+                    && clickButton(parent, nil, @"100 percent Tracker zoom", nil);
+                const char* pilotCapturePath = std::getenv("S3G_TRACKER_PILOT_CAPTURE_DIR");
+                NSString* pilotCaptureDir = pilotCapturePath && pilotCapturePath[0]
+                    ? [NSString stringWithUTF8String:pilotCapturePath] : nil;
+                if (pilotCaptureDir) ok &= expect(writeDocumentationPage(parent,
+                    pilotCaptureDir, @"compact-100"), "compact grid capture failed");
+                zoomControls &= clickButton(parent, nil,
+                    @"Expand tracker sequencing columns", nil);
+                if (pilotCaptureDir) ok &= expect(writeDocumentationPage(parent,
+                    pilotCaptureDir, @"expanded-100"), "expanded grid capture failed");
+                for (int step = 0; step < 30 && gridScroll.magnification > 0.5501; ++step)
+                    zoomControls &= clickButton(parent, nil, @"Zoom Tracker out", nil);
+                zoomControls &= std::abs(gridScroll.magnification - 0.55) < 0.0001;
+                if (pilotCaptureDir) ok &= expect(writeDocumentationPage(parent,
+                    pilotCaptureDir, @"expanded-55"), "minimum zoom capture failed");
+                for (int step = 0; step < 30 && gridScroll.magnification < 1.7999; ++step)
+                    zoomControls &= clickButton(parent, nil, @"Zoom Tracker in", nil);
+                zoomControls &= std::abs(gridScroll.magnification - 1.80) < 0.0001;
+                if (pilotCaptureDir) ok &= expect(writeDocumentationPage(parent,
+                    pilotCaptureDir, @"expanded-180"), "maximum zoom capture failed");
+                const double gutterX = [gutter convertRect:gutter.bounds toView:parent].origin.x;
+                [grid scrollPoint:NSMakePoint(160.0, 75.0)];
+                [gridScroll reflectScrolledClipView:gridScroll.contentView];
+                zoomControls &= std::abs([gutter convertRect:gutter.bounds
+                    toView:parent].origin.x - gutterX) < 0.0001;
+                if (pilotCaptureDir) ok &= expect(writeDocumentationPage(parent,
+                    pilotCaptureDir, @"scrolled-180"), "scrolled grid capture failed");
+                zoomControls &= clickButton(parent, nil, @"100 percent Tracker zoom", nil)
+                    && clickButton(parent, nil, @"Collapse tracker sequencing columns", nil);
+                [grid scrollPoint:NSZeroPoint];
+                [gridScroll reflectScrolledClipView:gridScroll.contentView];
+                ok &= expect(zoomControls && std::abs(gridScroll.magnification - 1.0) < 0.0001,
+                    "Tracker grid zoom limits/reset or frozen row gutter changed");
+                ok &= checkWholeInterfaceScaling(gui, plugin, parent, hostWindow);
+                context.playState = playStateBeforeZoom;
+                [[NSRunLoop currentRunLoop] runUntilDate:
+                    [NSDate dateWithTimeIntervalSinceNow:0.10]];
                 NSButton* trackerPageButton = findButton(
                     parent, nil, @"TRACKER page", nil);
                 ok &= expect(trackerPageButton
@@ -1302,6 +1553,14 @@ int main(int argc, char** argv)
                 [parent layoutSubtreeIfNeeded];
                 NSView* helpTextView = findAccessibleView(parent,
                     @"All console commands, grouped by function");
+                if (std::getenv("S3G_TRACKER_EXPECT_VSTGUI"))
+                    ok &= expect([helpTextView isKindOfClass:NSTextView.class]
+                            && static_cast<NSTextView*>(helpTextView).textLayoutManager == nil,
+                        "magnified Help must use stable TextKit 1 layout");
+                if (const char* helpCapture = std::getenv("S3G_TRACKER_HELP_CAPTURE_DIR"))
+                    ok &= expect(writeDocumentationPage(parent,
+                        [NSString stringWithUTF8String:helpCapture], @"help"),
+                        "Help layout capture failed");
                 NSView* helpPanel = findAccessibleView(parent,
                     @"Help command reference panel");
                 const bool helpHeadingMatches = [helpPanel
@@ -1588,10 +1847,32 @@ int main(int argc, char** argv)
                     [[NSRunLoop currentRunLoop] runUntilDate:
                         [NSDate dateWithTimeIntervalSinceNow:0.05]];
                 }
+                if (std::getenv("S3G_TRACKER_EXPECT_VSTGUI")) {
+                    using DrawCount = uint64_t (*)(unsigned);
+                    auto drawCount = reinterpret_cast<DrawCount>(dlsym(library,
+                        "s3g_tracker_vstgui_pilot_draw_count"));
+                    ok &= expect(drawCount != nullptr,
+                        "expected Tracker VSTGUI pilot, but loaded a Cocoa-only build");
+                    for (unsigned surface = 0u; drawCount && surface < 4u; ++surface) {
+                        ok &= expect(drawCount(surface) > 0u,
+                            "a Tracker pilot surface never drew through VSTGUI");
+                    }
+                }
                 ok &= expect(gui->hide(plugin),
                     "full tracker workspace hide failed");
             }
             gui->destroy(plugin);
+            if (shown && std::getenv("S3G_TRACKER_EXPECT_VSTGUI")) {
+                ok &= expect(parent.subviews.count == 0u
+                        && gui->create(plugin, CLAP_WINDOW_API_COCOA, false)
+                        && gui->set_parent(plugin, &window)
+                        && gui->set_size(plugin, requestedWidth, requestedHeight)
+                        && gui->show(plugin) && gui->hide(plugin),
+                    "scaled Tracker editor did not cleanly close/reopen");
+                gui->destroy(plugin);
+                ok &= expect(parent.subviews.count == 0u,
+                    "scaled Tracker viewport remained attached after destroy");
+            }
             [hostWindow close];
         }
     }

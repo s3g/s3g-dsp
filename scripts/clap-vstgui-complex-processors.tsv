@@ -1,0 +1,5 @@
+# build path	canonical installed filename	CLAP ID	host name
+clap_ambi_vox_encoder/s3g_ambi_vox_encoder.clap	s3g_ambi_encoder_vox_64.clap	org.s3g.s3g-dsp.ambi-vox-encoder-64	s3g Ambi Encoder Vox 64
+clap_acapella_source_synth/s3g_formant_matrix.clap	s3g_processor_formant_matrix_2.clap	org.s3g.s3g-dsp.formant-matrix	s3g Processor Formant Matrix 2
+clap_ambi_imprint/s3g_ambi_imprint.clap	s3g_processor_ambi_imprint_64.clap	org.s3g.s3g-dsp.ambi-imprint-64	s3g Processor Ambi Imprint 64
+clap_no_input_mixer/s3g_no_input_mixer.clap	s3g_processor_no_input_mixer_8.clap	org.s3g.s3g-dsp.no-input-mixer-8ch	s3g Processor No Input Mixer 8

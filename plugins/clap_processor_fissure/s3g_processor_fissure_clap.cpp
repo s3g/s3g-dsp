@@ -18,14 +18,25 @@
 #include <cstring>
 #include <new>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_gui_layout.h"
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_feedback_processor_drawing.h"
+#include "../common/s3g_clap_atomic_pod.h"
+#define S3G_FEEDBACK_KIND 3
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Processor Fissure";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = 8u;
 constexpr uint32_t kStateMagic = 0x53494653u; // "SFIS"
@@ -444,6 +455,26 @@ struct SavedStatePayload {
     std::array<double, kSceneValueCount * 4u> scenes {};
 };
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct PortablePresetBytes {
+    std::array<uint8_t, sizeof(SavedStateHeader) + sizeof(SavedStatePayload)> bytes {};
+    size_t cursor = 0;
+    clap_ostream_t output {this, [](const clap_ostream_t* stream, const void* data, uint64_t size) -> int64_t {
+        auto& buffer = *static_cast<PortablePresetBytes*>(stream->ctx);
+        if (size > buffer.bytes.size() - buffer.cursor) return -1;
+        std::memcpy(buffer.bytes.data() + buffer.cursor, data, size);
+        buffer.cursor += size; return static_cast<int64_t>(size);
+    }};
+    clap_istream_t input {this, [](const clap_istream_t* stream, void* data, uint64_t size) -> int64_t {
+        auto& buffer = *static_cast<PortablePresetBytes*>(stream->ctx);
+        size = std::min<uint64_t>(size, buffer.bytes.size() - buffer.cursor);
+        std::memcpy(data, buffer.bytes.data() + buffer.cursor, size);
+        buffer.cursor += size; return static_cast<int64_t>(size);
+    }};
+};
+bool stateLoad(const clap_plugin_t*, const clap_istream_t*);
+#endif
+
 struct PreviousSavedStatePayload {
     std::array<double, kPreviousPersistentParamCount> live {};
     std::array<double, kSceneValueCount * 4u> scenes {};
@@ -460,6 +491,11 @@ struct OlderSavedStatePayload {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -495,7 +531,14 @@ struct Plugin {
     uint32_t presetIndex = 0u;
     s3g::ProcessorFissure engine {};
     std::array<std::atomic<double>, kParamCount> publishedParams {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::clap_gui::ParamEventQueue<8192> guiParamEvents {};
+    s3g::clap_gui::AtomicPod<std::array<SceneSnapshot, 4u>> portableScenes;
+    PortablePresetBytes portablePendingPreset;
+    std::atomic<bool> portablePresetPending { false };
+#else
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+#endif
     std::atomic<uint32_t> pendingActions { 0u };
     std::atomic<bool> pendingRescan { false };
     std::array<bool, 8u> actionGates {};
@@ -526,7 +569,7 @@ struct Plugin {
     std::array<float, 8u> frameOutput {};
     double sampleRate = 48000.0;
     bool prepared = false;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -1071,6 +1114,9 @@ void applyFactoryPreset(Plugin& p, uint32_t presetIndex)
     for (uint32_t scene = 0u; scene < p.scenes.size(); ++scene) {
         p.scenes[scene] = factoryPresetScene(presetIndex, scene);
     }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    p.portableScenes.store(p.scenes);
+#endif
     loadSnapshotSurface(p, p.scenes[0u]);
     p.params.inputGainDb = spec.inputGainDb;
     p.params.outputGainDb = spec.outputGainDb;
@@ -1261,6 +1307,9 @@ void performAction(Plugin& p, clap_id id)
         const uint32_t scene = static_cast<uint32_t>(std::clamp(
             std::round(paramValue(p, kSceneParamId)), 1.0, 4.0));
         p.scenes[scene - 1u] = snapshotFromPlugin(p);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        p.portableScenes.store(p.scenes);
+#endif
         return;
     }
     if (!p.prepared) return;
@@ -1683,6 +1732,16 @@ void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* output,
 {
     s3g::clap_gui::ParamEvent pending {};
     while (p.guiParamEvents.peek(pending)) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (pending.paramId == CLAP_INVALID_ID) {
+            // Replay the validated state, not a sequence of scene/morph
+            // gestures: those actions would overwrite saved live edits.
+            stateLoad(&p.plugin, &p.portablePendingPreset.input);
+            p.portablePresetPending.store(false, std::memory_order_release);
+            p.guiParamEvents.pop();
+            continue;
+        }
+#endif
         if (!pushGuiParamEvent(output, pending)) break;
         if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
             applyParam(p, pending.paramId, pending.value, actionImmediately);
@@ -1691,13 +1750,16 @@ void serviceGuiParamEvents(Plugin& p, const clap_output_events_t* output,
     }
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -2321,8 +2383,14 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     for (uint32_t index = 0u; index < state.live.size(); ++index) {
         state.live[index] = paramValue(*p, persistentParamIdAt(index));
     }
-    for (uint32_t scene = 0u; scene < p->scenes.size(); ++scene) {
-        writeSceneValues(p->scenes[scene],
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    std::array<SceneSnapshot, 4u> scenes {};
+    if (!p->portableScenes.load(scenes)) return false;
+#else
+    const auto& scenes = p->scenes;
+#endif
+    for (uint32_t scene = 0u; scene < scenes.size(); ++scene) {
+        writeSceneValues(scenes[scene],
             state.scenes.data() + scene * kSceneValueCount);
     }
     return s3g::clap_state::writeAll(stream, &header, sizeof(header))
@@ -2464,6 +2532,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             publishParam(*p, id, 0.0);
         }
     }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    p->portableScenes.store(p->scenes);
+#endif
     requestValueRescan(*p);
     if (p->host && p->hostParams && p->hostParams->request_flush) {
         p->hostParams->request_flush(p->host);
@@ -2475,20 +2546,44 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #include "s3g_processor_fissure_gui.inc"
 #endif
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool queuePortablePreset(Plugin&, Plugin&, clap_id);
+#include "../common/s3g_feedback_processor_fissure_canvas.inc"
+#endif
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool queuePortablePreset(Plugin& p, Plugin& staged, clap_id preserve)
+{
+    if (p.portablePresetPending.load(std::memory_order_acquire)
+        || p.guiParamEvents.available() == 0u) return false;
+    if (preserve != CLAP_INVALID_ID) applyParam(staged, preserve, paramValue(p, preserve), false);
+    p.portablePendingPreset.cursor = 0;
+    if (!stateSave(&staged.plugin, &p.portablePendingPreset.output)) return false;
+    p.portablePendingPreset.cursor = 0;
+    p.portablePresetPending.store(true, std::memory_order_release);
+    p.guiParamEvents.push({s3g::clap_gui::ParamEventKind::Value, CLAP_INVALID_ID, 0.});
+    requestGuiParamService(p);
+    return true;
+}
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ if (id && std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (!id) return nullptr;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2586,7 +2681,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

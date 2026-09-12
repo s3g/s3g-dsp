@@ -342,14 +342,23 @@ inline void drawDropdownMenu(Rect b, double h, const String *items,
                              unsigned count, int selected, int hover, Attrs,
                              const Style &) {
   auto &v = current->view;
-  v.fill(b, f::palette().strip);
+  // Match the established Cocoa/custom-popup grammar, including the item
+  // rules. All literal effect, decoder, input and environmental ports share
+  // this painter; a flat fill here had silently removed their separators.
+  v.fill(inset(b, -2., -2.), f::color(0x080808));
+  v.fill(b, f::color(0x151515));
+  v.stroke(b, f::color(0x6c6c6c));
   for (unsigned n = 0; n < count; ++n) {
     const auto row = f::rect(b.origin.x, b.origin.y + n * h, b.size.width, h);
-    if (int(n) == hover)
-      v.fill(row, f::palette().button);
-    if (int(n) == selected)
-      v.fill(f::rect(row.left + 1., row.top + 2., 2., h - 4.),
+    if (int(n) == hover || int(n) == selected)
+      v.fill(VSTGUI::CRect(row).inset(1., 1.),
+             f::color(int(n) == hover ? 0x343434 : 0x292929));
+    else if (n % 2u)
+      v.fill(VSTGUI::CRect(row).inset(1., 1.), f::palette().strip);
+    if (int(n) == selected || int(n) == hover)
+      v.fill(f::rect(row.left + 2., row.top + 2., 3., h - 4.),
              f::palette().fill);
+    f::drawDropdownItemSeparator(*current->context, row, n);
     v.text(items[n], f::rect(row.left + 8., row.top, row.getWidth() - 12., h),
            f::palette().value);
   }

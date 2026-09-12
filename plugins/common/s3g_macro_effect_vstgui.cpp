@@ -776,6 +776,8 @@ private:
                 context.drawRect(rect(row.left + 2.0, row.top + 2.0,
                     3.0, row.getHeight() - 4.0), kDrawFilled);
             }
+            foundation::drawDropdownItemSeparator(context, row, index,
+                color(0x4b4b4b));
             text(context, menuItem(index), row.left + 9.0,
                 row.top + 3.0, row.getWidth() - 18.0, style.value);
         }

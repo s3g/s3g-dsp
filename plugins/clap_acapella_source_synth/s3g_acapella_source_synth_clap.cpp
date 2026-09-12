@@ -14,7 +14,7 @@
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -32,7 +32,13 @@
 #include <iterator>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_drawing.h"
+#endif
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+struct Plugin;void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kStateVersion = 27u;
 constexpr uint32_t kOutputChannels = 2u;
@@ -428,6 +434,11 @@ struct TextProgramMessage {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+    uint32_t portableGuiWidth=kGuiWidth,portableGuiHeight=kGuiHeight;
+    bool portableGuiVisible=false;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -471,9 +482,9 @@ struct Plugin {
     // because several migration/state messages preceded playback.
     s3g::clap_gui::SpscEventQueue<TextProgramMessage, 32u>
         textProgramEvents {};
-    s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
+    s3g::clap_gui::ParamEventQueue<8192> guiParamEvents {};
     s3g::AcapellaGestureProgram activeTextProgram {};
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     bool guiVisible = false;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
@@ -783,6 +794,8 @@ bool queueGuiMatrixValues(Plugin& plugin, bool sceneB,
 
 bool publishTextPhrase(Plugin& plugin, const char* text)
 {
+    // The UI and compiled phrase must commit together under queue pressure.
+    if (plugin.textProgramEvents.available() == 0u) return false;
     storePhrase(plugin, text);
     const auto phrase = loadPhrase(plugin);
     const auto compiled = s3g::compileAcapellaText(phrase.text.data());
@@ -1572,13 +1585,16 @@ bool init(const clap_plugin_t* plugin)
     return true;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -2619,7 +2635,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         && s3g::clap_state::writeAll(stream, &phrase, sizeof(phrase));
 }
 
-bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+bool readFormantState(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     StateHeader header;
@@ -3082,6 +3098,24 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!plugin || !stream || !stream->read) return false;
+    auto* instance = self(plugin);
+    auto staged = std::make_unique<Plugin>();
+    staged->plugin.plugin_data = staged.get();
+    for (const auto& def : kParamDefs) storeValue(*staged, def.id, loadValue(*instance, def.id));
+    if (!publishTextPhrase(*staged, loadPhrase(*instance).text.data())
+        || !readFormantState(&staged->plugin, stream)
+        || !publishTextPhrase(*instance, loadPhrase(*staged).text.data())) return false;
+    for (const auto& def : kParamDefs) storeValue(*instance, def.id, loadValue(*staged, def.id));
+    instance->controlAuditionGate.store(false, std::memory_order_release);
+    instance->routingControlDirty.store(true, std::memory_order_release);
+    markTailChanged(*instance);
+    requestParamValuesRescan(*instance);
+    if (instance->host && instance->host->request_process) instance->host->request_process(instance->host);
+    return true;
+}
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 uint32_t latencyGet(const clap_plugin_t* plugin)
@@ -3098,7 +3132,7 @@ uint32_t tailGet(const clap_plugin_t* plugin)
 
 const clap_plugin_tail_t tailExt { tailGet };
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 } // namespace
 #if 0
 constexpr auto kArticulatorCanvas =
@@ -4250,8 +4284,14 @@ const clap_plugin_gui_t guiExt {
 };
 #endif
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_complex_processor_formant_canvas.inc"
+#endif
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(id && std::strcmp(id,CLAP_EXT_GUI)==0)return &portableGui;
+#endif
     if (!id) return nullptr;
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
@@ -4259,7 +4299,7 @@ const void* getExtension(const clap_plugin_t*, const char* id)
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
     if (std::strcmp(id, CLAP_EXT_LATENCY) == 0) return &latencyExt;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -4356,7 +4396,7 @@ const void* entryGetFactory(const char* factoryId)
 
 } // namespace
 
-extern "C" const clap_plugin_entry_t clap_entry {
+extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,
     entryInit,
     entryDeinit,

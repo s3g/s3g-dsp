@@ -1004,6 +1004,8 @@ private:
                 context.setFillColor(color(0x303030));
                 context.drawRect(row, kDrawFilled);
             }
+            foundation::drawDropdownItemSeparator(context, row, index,
+                color(0x4b4b4b));
             textInRect(context, items.first[index],
                 rect(row.left + 7.0, row.top, row.getWidth() - 14.0,
                     row.getHeight()), style.text, kLeftText);

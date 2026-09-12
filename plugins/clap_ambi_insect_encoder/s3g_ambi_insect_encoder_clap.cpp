@@ -9,7 +9,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_parameter_surface_cocoa.h"
@@ -25,7 +25,27 @@
 #include <cstring>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_environment_encoder_drawing.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr uint32_t kGuiWidth = 1160, kGuiHeight = 858;
+constexpr const char* portableTitle = "s3g AMBI ENCODER INSECT";
+constexpr const char* portablePresetDirectory = "Ambi Insect Encoder";
+constexpr const char* portablePresetExtension = "s3ginsect";
+#define S3G_ENVIRONMENT_KIND 2
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
+std::FILE* openPresetFile(const char* path, const char* mode) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  return s3g::portable_gui::foundation::openFileUtf8(path, mode);
+#else
+  return std::fopen(path, mode);
+#endif
+}
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiInsectMaxChannels;
 constexpr uint32_t kStateVersion = 6;
@@ -159,9 +179,123 @@ struct CustomPresetFile {
     s3g::AmbiInsectParams params {};
 };
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr clap_id kRandomizeActionId = CLAP_INVALID_ID - 1u;
+constexpr clap_id kReplaceCustomStateActionId = CLAP_INVALID_ID - 3u;
+constexpr clap_id kReplaceSavedStateActionId = CLAP_INVALID_ID - 4u;
+constexpr uint32_t kParamCount = 43u;
+struct ControlSnapshot {
+    s3g::AmbiInsectParams params {};
+    s3g::AmbiInsectParams effectiveParams {};
+    InsectSurface surface {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+};
+
+struct StateCommand {
+    s3g::AmbiInsectParams params {};
+    InsectSurface surface {};
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+};
+
+template <typename T, uint32_t Capacity>
+class GuiCommandQueue {
+public:
+    bool canPush(uint32_t count = 1u) const noexcept
+    {
+        const uint32_t write = writeIndex_.load(std::memory_order_relaxed);
+        const uint32_t read = readIndex_.load(std::memory_order_acquire);
+        const uint32_t used = write >= read
+            ? write - read : Capacity - (read - write);
+        return count <= Capacity - 1u - used;
+    }
+
+    bool push(const T& command) noexcept
+    {
+        const uint32_t write = writeIndex_.load(std::memory_order_relaxed);
+        const uint32_t next = (write + 1u) % Capacity;
+        if (next == readIndex_.load(std::memory_order_acquire)) return false;
+        commands_[write] = command;
+        writeIndex_.store(next, std::memory_order_release);
+        return true;
+    }
+
+    bool peek(T& command) const noexcept
+    {
+        const uint32_t read = readIndex_.load(std::memory_order_relaxed);
+        if (read == writeIndex_.load(std::memory_order_acquire)) return false;
+        command = commands_[read];
+        return true;
+    }
+
+    const T* front() const noexcept
+    {
+        const uint32_t read = readIndex_.load(std::memory_order_relaxed);
+        if (read == writeIndex_.load(std::memory_order_acquire)) return nullptr;
+        return &commands_[read];
+    }
+
+    void pop() noexcept
+    {
+        const uint32_t read = readIndex_.load(std::memory_order_relaxed);
+        if (read != writeIndex_.load(std::memory_order_acquire)) {
+            readIndex_.store((read + 1u) % Capacity,
+                std::memory_order_release);
+        }
+    }
+
+private:
+    std::array<T, Capacity> commands_ {};
+    std::atomic<uint32_t> readIndex_ { 0u };
+    std::atomic<uint32_t> writeIndex_ { 0u };
+};
+
+struct OrderedParamEvent {
+    uint64_t sequence = 0u;
+    s3g::clap_gui::ParamEvent event {};
+};
+
+struct OrderedSurfaceCommand {
+    uint64_t sequence = 0u;
+    InsectSurface surface {};
+};
+
+struct OrderedStateCommand {
+    uint64_t sequence = 0u;
+    clap_id actionId = CLAP_INVALID_ID;
+    StateCommand state {};
+};
+
+struct OrderedMetadataCommand {
+    uint64_t sequence = 0u;
+    uint32_t presetIndex = 0u;
+    char customPresetName[64] {};
+};
+
+
+#endif
+
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const clap_host_params_t* hostParams = nullptr;
+    GuiCommandQueue<OrderedParamEvent, 512u> guiParamEvents {};
+    GuiCommandQueue<OrderedSurfaceCommand, 32u> guiSurfaceCommands {};
+    GuiCommandQueue<OrderedStateCommand, 8u> guiStateCommands {};
+    GuiCommandQueue<OrderedMetadataCommand, 32u> guiMetadataCommands {};
+    std::atomic<uint64_t> nextGuiCommandSequence { 1u };
+    std::atomic<uint64_t> queuedSurfaceCommandSequence { 0u };
+    std::atomic<uint64_t> appliedSurfaceCommandSequence { 0u };
+    uint64_t pendingSurfacePublicationSequence = 0u;
+    std::atomic_flag guiCommandProducerLock = ATOMIC_FLAG_INIT;
+    std::atomic_flag controlSnapshotLock = ATOMIC_FLAG_INIT;
+    ControlSnapshot publishedControl {};
+    std::atomic<bool> publishedParamsDirty { true };
+    std::atomic<bool> publishedSurfaceDirty { true };
+    std::atomic<bool> pendingParamValuesRescan { false };
+#endif
     double sampleRate = 48000.0;
     s3g::AmbiInsectEncoder engine {};
     s3g::AmbiInsectParams params {};
@@ -174,9 +308,11 @@ struct Plugin {
     char customPresetName[64] {};
     uint32_t randomSeed = 0x6d2b79f5u;
     std::atomic<float> outputPeak { 0.0f };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     std::atomic<bool> guiVisible { false };
     uint32_t guiTelemetryFramesUntilPublish = 0u;
     bool guiTelemetryWasVisible = false;
@@ -198,9 +334,178 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiFieldListenerMaxLobes>
         guiListenWeight {};
 #endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    std::atomic<bool>& portableGuiVisible = guiVisible;
+#endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void publishInactiveTelemetry(Plugin& instance)
+{
+    auto* p = &instance;
+    const uint32_t voices =
+        std::min<uint32_t>(p->engine.processingVoiceCount(), s3g::kAmbiInsectMaxVoices);
+    p->guiVoiceCount.store(voices, std::memory_order_relaxed);
+    for (uint32_t voice = 0u; voice < voices; ++voice)
+    {
+        const auto point = p->engine.voicePoint(voice);
+        p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
+        p->guiElevation[voice].store(point.elevationDeg, std::memory_order_relaxed);
+        p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
+        p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
+        p->guiCall[voice].store(p->engine.voiceCallLevel(voice), std::memory_order_relaxed);
+        p->guiRenderGain[voice].store(p->engine.voiceRenderGain(voice), std::memory_order_relaxed);
+        p->guiMethod[voice].store(p->engine.voiceProductionMethod(voice),
+                                  std::memory_order_relaxed);
+    }
+    for (uint32_t lobe = 0u; lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe)
+    {
+        p->guiListenEnvelope[lobe].store(p->engine.fieldListenEnvelope(lobe),
+                                         std::memory_order_relaxed);
+        p->guiListenWeight[lobe].store(p->engine.fieldListenWeight(lobe),
+                                       std::memory_order_relaxed);
+    }
+}
+#endif
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void lockNonAudio(std::atomic_flag& lock)
+{
+    while (lock.test_and_set(std::memory_order_acquire)) {
+        // Fixed-size snapshots are only waited on by non-audio threads.
+    }
+}
+
+template <size_t Capacity>
+void copyFixedName(char (&destination)[Capacity], const char* source) noexcept
+{
+    static_assert(Capacity > 0u);
+    const char* safe = source ? source : "";
+    size_t index = 0u;
+    for (; index + 1u < Capacity && safe[index] != '\0'; ++index) {
+        destination[index] = safe[index];
+    }
+    destination[index] = '\0';
+}
+
+void publishControlSnapshot(Plugin& plugin)
+{
+    plugin.publishedParamsDirty.store(true, std::memory_order_release);
+    plugin.publishedSurfaceDirty.store(true, std::memory_order_release);
+    if (plugin.controlSnapshotLock.test_and_set(
+            std::memory_order_acquire)) return;
+    plugin.publishedControl.params = plugin.params;
+    plugin.publishedControl.effectiveParams = plugin.effectiveParams;
+    plugin.publishedControl.surface = plugin.surface;
+    plugin.publishedControl.presetIndex = plugin.presetIndex;
+    copyFixedName(plugin.publishedControl.customPresetName,
+        plugin.customPresetName);
+    if (plugin.pendingSurfacePublicationSequence != 0u) {
+        plugin.appliedSurfaceCommandSequence.store(
+            plugin.pendingSurfacePublicationSequence,
+            std::memory_order_release);
+    }
+    plugin.publishedParamsDirty.store(false, std::memory_order_release);
+    plugin.publishedSurfaceDirty.store(false, std::memory_order_release);
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+}
+
+void publishParamSnapshot(Plugin& plugin)
+{
+    plugin.publishedParamsDirty.store(true, std::memory_order_release);
+    if (plugin.controlSnapshotLock.test_and_set(
+            std::memory_order_acquire)) return;
+    plugin.publishedControl.params = plugin.params;
+    plugin.publishedControl.effectiveParams = plugin.effectiveParams;
+    plugin.publishedControl.presetIndex = plugin.presetIndex;
+    copyFixedName(plugin.publishedControl.customPresetName,
+        plugin.customPresetName);
+    plugin.publishedParamsDirty.store(false, std::memory_order_release);
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+}
+
+void retryControlSnapshotPublication(Plugin& plugin)
+{
+    if (plugin.publishedSurfaceDirty.load(std::memory_order_acquire)) {
+        publishControlSnapshot(plugin);
+    } else if (plugin.publishedParamsDirty.load(std::memory_order_acquire)) {
+        publishParamSnapshot(plugin);
+    }
+}
+
+ControlSnapshot controlSnapshot(Plugin& plugin)
+{
+    lockNonAudio(plugin.controlSnapshotLock);
+    const auto result = plugin.publishedControl;
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+    return result;
+}
+
+void requestGuiParamService(Plugin& plugin);
+
+void queueGuiSurface(Plugin& plugin, const InsectSurface& surface)
+{
+    lockNonAudio(plugin.guiCommandProducerLock);
+    const uint64_t sequence = plugin.nextGuiCommandSequence.fetch_add(
+        1u, std::memory_order_relaxed);
+    const bool queued = plugin.guiSurfaceCommands.push({ sequence, surface });
+    if (queued) plugin.queuedSurfaceCommandSequence.store(
+        sequence, std::memory_order_release);
+    plugin.guiCommandProducerLock.clear(std::memory_order_release);
+    if (!queued) return;
+    requestGuiParamService(plugin);
+}
+
+void sanitizeStatePayload(s3g::AmbiInsectParams& params,
+    InsectSurface& surface)
+{
+    s3g::AmbiInsectEncoder sanitizer {};
+    sanitizer.setParams(params);
+    params = sanitizer.params();
+    s3g::sanitizeParameterSurface(surface);
+    for (uint32_t index = 0u; index < surface.cellCount; ++index) {
+        sanitizer.setParams(surface.cells[index].params);
+        surface.cells[index].params = sanitizer.params();
+    }
+}
+
+bool queueStateCommand(Plugin& plugin,
+    s3g::AmbiInsectParams params, InsectSurface surface,
+    uint32_t presetIndex, const char* customName, clap_id actionId)
+{
+    sanitizeStatePayload(params, surface);
+    StateCommand state {};
+    state.params = params;
+    state.surface = surface;
+    state.presetIndex = std::min<uint32_t>(presetIndex,
+        s3g::kAmbiInsectFactoryPresetCount - 1u);
+    copyFixedName(state.customPresetName, customName);
+
+    lockNonAudio(plugin.controlSnapshotLock);
+    lockNonAudio(plugin.guiCommandProducerLock);
+    const uint64_t sequence = plugin.nextGuiCommandSequence.fetch_add(
+        1u, std::memory_order_relaxed);
+    const bool queued = plugin.guiStateCommands.push(
+        { sequence, actionId, state });
+    if (queued) {
+        plugin.publishedControl.params = state.params;
+        plugin.publishedControl.effectiveParams = state.params;
+        plugin.publishedControl.surface = state.surface;
+        plugin.publishedControl.presetIndex = state.presetIndex;
+        copyFixedName(plugin.publishedControl.customPresetName,
+            state.customPresetName);
+    }
+    plugin.guiCommandProducerLock.clear(std::memory_order_release);
+    plugin.controlSnapshotLock.clear(std::memory_order_release);
+    if (queued) requestGuiParamService(plugin);
+    return queued;
+}
+
+
+#endif
 
 bool writeExact(const clap_ostream_t* stream, const void* data, size_t size)
 {
@@ -232,17 +537,34 @@ bool saveCustomPresetFile(const char* path, const Plugin& plugin, const char* na
     CustomPresetFile file {};
     std::snprintf(file.name, sizeof(file.name), "%s", name && *name ? name : "Custom");
     file.params = plugin.params;
-    FILE* handle = std::fopen(path, "wb");
+    FILE* handle = openPresetFile(path, "wb");
     if (!handle) return false;
     const bool ok = std::fwrite(&file, 1, sizeof(file), handle) == sizeof(file);
     std::fclose(handle);
     return ok;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool saveCustomPresetFile(const char* path, const s3g::AmbiInsectParams& params, const char* name)
+{
+    if (!path || !*path) return false;
+    CustomPresetFile file {};
+    std::snprintf(file.name, sizeof(file.name), "%s", name && *name ? name : "Custom");
+    file.params = params;
+    FILE* handle = openPresetFile(path, "wb");
+    if (!handle) return false;
+    const bool ok = std::fwrite(&file, 1, sizeof(file), handle) == sizeof(file);
+    std::fclose(handle);
+    return ok;
+}
+
+
+#endif
+
 bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
 {
     if (!path || !*path) return false;
-    FILE* handle = std::fopen(path, "rb");
+    FILE* handle = openPresetFile(path, "rb");
     if (!handle) return false;
     file = {};
     bool ok = std::fread(&file.magic, 1, sizeof(file.magic), handle) == sizeof(file.magic)
@@ -562,6 +884,10 @@ void applyEffectiveParams(Plugin& plugin)
     }
     if (topologyChanged) plugin.engine.beginTransition();
     plugin.effectiveParams = plugin.engine.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishParamSnapshot(plugin);
+#endif
+
 }
 
 void sanitizeInsectState(Plugin& plugin)
@@ -574,6 +900,9 @@ void sanitizeInsectState(Plugin& plugin)
         plugin.surface.cells[index].params = plugin.engine.params();
     }
     applyEffectiveParams(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishControlSnapshot(plugin);
+#endif
 }
 
 void requestSurfaceProcess(Plugin& plugin)
@@ -608,11 +937,195 @@ void applyParam(Plugin& p, clap_id id, double value)
     if (transitionRequested) p.engine.beginTransition();
 }
 
-bool init(const clap_plugin_t*) { return true; }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void requestGuiParamService(Plugin& plugin)
+{
+    if (plugin.hostParams && plugin.hostParams->request_flush) {
+        plugin.hostParams->request_flush(plugin.host);
+    } else if (plugin.host && plugin.host->request_process) {
+        plugin.host->request_process(plugin.host);
+    }
+}
+
+bool queueGuiParamEvent(Plugin& plugin,
+    s3g::clap_gui::ParamEventKind kind, clap_id id, double value = 0.0)
+{
+    lockNonAudio(plugin.guiCommandProducerLock);
+    const uint64_t sequence = plugin.nextGuiCommandSequence.fetch_add(
+        1u, std::memory_order_relaxed);
+    const bool queued = plugin.guiParamEvents.push(
+        { sequence, { kind, id, value } });
+    plugin.guiCommandProducerLock.clear(std::memory_order_release);
+    if (!queued) return false;
+    requestGuiParamService(plugin);
+    return true;
+}
+
+void queueGuiParamValue(Plugin& plugin, clap_id id, double value)
+{
+    if (id >= kReplaceSavedStateActionId) {
+        (void)queueGuiParamEvent(plugin,
+            s3g::clap_gui::ParamEventKind::Value, id, value);
+        return;
+    }
+    lockNonAudio(plugin.guiCommandProducerLock);
+    const uint64_t first = plugin.nextGuiCommandSequence.fetch_add(
+        3u, std::memory_order_relaxed);
+    const bool queued = plugin.guiParamEvents.canPush(3u)
+        && plugin.guiParamEvents.push(
+            { first, { s3g::clap_gui::ParamEventKind::GestureBegin,
+                         id, 0.0 } })
+        && plugin.guiParamEvents.push(
+            { first + 1u, { s3g::clap_gui::ParamEventKind::Value,
+                              id, value } })
+        && plugin.guiParamEvents.push(
+            { first + 2u, { s3g::clap_gui::ParamEventKind::GestureEnd,
+                              id, 0.0 } });
+    plugin.guiCommandProducerLock.clear(std::memory_order_release);
+    if (queued) requestGuiParamService(plugin);
+}
+
+bool queueMetadataCommand(Plugin& plugin, uint32_t presetIndex,
+    const char* customName)
+{
+    OrderedMetadataCommand command {};
+    command.presetIndex = presetIndex;
+    copyFixedName(command.customPresetName, customName);
+    lockNonAudio(plugin.guiCommandProducerLock);
+    command.sequence = plugin.nextGuiCommandSequence.fetch_add(
+        1u, std::memory_order_relaxed);
+    const bool queued = plugin.guiMetadataCommands.push(command);
+    plugin.guiCommandProducerLock.clear(std::memory_order_release);
+    if (queued) requestGuiParamService(plugin);
+    return queued;
+}
+
+bool pushGuiParamEvent(const clap_output_events_t* out,
+    const s3g::clap_gui::ParamEvent& pending)
+{
+    if (pending.paramId > kParamCount) return true;
+    if (!out || !out->try_push) return true;
+    if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+        clap_event_param_value_t event {};
+        event.header.size = sizeof(event);
+        event.header.time = 0u;
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_PARAM_VALUE;
+        event.header.flags = CLAP_EVENT_IS_LIVE;
+        event.param_id = pending.paramId;
+        event.note_id = -1;
+        event.port_index = -1;
+        event.channel = -1;
+        event.key = -1;
+        event.value = pending.value;
+        return out->try_push(out, &event.header);
+    }
+    clap_event_param_gesture_t event {};
+    event.header.size = sizeof(event);
+    event.header.time = 0u;
+    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    event.header.type = pending.kind
+            == s3g::clap_gui::ParamEventKind::GestureBegin
+        ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+    event.header.flags = CLAP_EVENT_IS_LIVE;
+    event.param_id = pending.paramId;
+    return out->try_push(out, &event.header);
+}
+
+void requestParamValuesRescan(Plugin& plugin)
+{
+    plugin.pendingParamValuesRescan.store(true, std::memory_order_release);
+    if (plugin.host && plugin.host->request_callback) {
+        plugin.host->request_callback(plugin.host);
+    }
+}
+
+void applyStateCommand(Plugin& plugin, const StateCommand& command)
+{
+    plugin.params = command.params;
+    plugin.surface = command.surface;
+    plugin.presetIndex = std::min<uint32_t>(command.presetIndex,
+        s3g::kAmbiInsectFactoryPresetCount - 1u);
+    copyFixedName(plugin.customPresetName, command.customPresetName);
+    snapSurfaceCursor(plugin);
+    sanitizeInsectState(plugin);
+    plugin.engine.beginTransition();
+    publishControlSnapshot(plugin);
+    requestParamValuesRescan(plugin);
+}
+
+void serviceGuiParamEvents(Plugin& plugin,
+    const clap_output_events_t* out)
+{
+    for (;;) {
+        const auto* paramCommand = plugin.guiParamEvents.front();
+        const auto* surfaceCommand = plugin.guiSurfaceCommands.front();
+        const auto* stateCommand = plugin.guiStateCommands.front();
+        const auto* metadataCommand = plugin.guiMetadataCommands.front();
+        if (!paramCommand && !surfaceCommand && !stateCommand
+            && !metadataCommand) break;
+        const uint64_t paramSequence = paramCommand ? paramCommand->sequence : UINT64_MAX;
+        const uint64_t surfaceSequence = surfaceCommand ? surfaceCommand->sequence : UINT64_MAX;
+        const uint64_t stateSequence = stateCommand ? stateCommand->sequence : UINT64_MAX;
+        const uint64_t metadataSequence = metadataCommand
+            ? metadataCommand->sequence : UINT64_MAX;
+        if (surfaceSequence < paramSequence && surfaceSequence < stateSequence
+            && surfaceSequence < metadataSequence) {
+            plugin.surface = surfaceCommand->surface;
+            s3g::sanitizeParameterSurface(plugin.surface);
+            applyEffectiveParams(plugin);
+            plugin.pendingSurfacePublicationSequence = surfaceSequence;
+            publishControlSnapshot(plugin);
+            plugin.guiSurfaceCommands.pop();
+            continue;
+        }
+        if (stateSequence < paramSequence && stateSequence < metadataSequence) {
+            applyStateCommand(plugin, stateCommand->state);
+            plugin.guiStateCommands.pop();
+            continue;
+        }
+        if (metadataSequence < paramSequence) {
+            plugin.presetIndex = metadataCommand->presetIndex;
+            copyFixedName(plugin.customPresetName,
+                metadataCommand->customPresetName);
+            publishControlSnapshot(plugin);
+            requestParamValuesRescan(plugin);
+            plugin.guiMetadataCommands.pop();
+            continue;
+        }
+
+        const auto& pending = paramCommand->event;
+        const bool internalAction = pending.paramId >= kReplaceSavedStateActionId;
+        if (!internalAction && !pushGuiParamEvent(out, pending)) break;
+        if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
+            if (pending.paramId == kRandomizeActionId) {
+                randomizeSafe(plugin);
+                publishControlSnapshot(plugin);
+                requestParamValuesRescan(plugin);
+            } else {
+                applyParam(plugin, pending.paramId, pending.value);
+            }
+        }
+        plugin.guiParamEvents.pop();
+    }
+}
+
+
+#endif
+bool init(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* p = self(plugin);
+    if (p->host && p->host->get_extension)
+        p->hostParams = static_cast<const clap_host_params_t*>(p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+#endif
+    return true;
+}
 void destroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (p) destroyPortableGui(*p);
+#elif defined(__APPLE__)
     if (p && p->guiView) {
         p->guiVisible.store(false, std::memory_order_release);
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
@@ -646,7 +1159,7 @@ void reset(const clap_plugin_t* plugin)
     applyEffectiveParams(*p);
     p->engine.reset();
     p->outputPeak.store(0.0f, std::memory_order_relaxed);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     for (uint32_t lobe = 0u; lobe < s3g::kAmbiFieldListenerMaxLobes; ++lobe) {
         p->guiListenEnvelope[lobe].store(0.0f, std::memory_order_relaxed);
         p->guiListenWeight[lobe].store(1.0f, std::memory_order_relaxed);
@@ -678,6 +1191,11 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* p = self(plugin);
     readParamEvents(*p, proc->in_events);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceGuiParamEvents(*p, proc->out_events);
+    retryControlSnapshotPublication(*p);
+#endif
+
     if (proc->audio_outputs_count == 0) return CLAP_PROCESS_CONTINUE;
     auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
@@ -688,7 +1206,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
 
     bool guiVisible = false;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiVisible = p->guiVisible.load(std::memory_order_acquire);
 #endif
     p->engine.setListenerTelemetryEnabled(guiVisible);
@@ -735,7 +1253,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->effectiveParams = p->engine.params();
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const bool becameVisible = guiVisible && !p->guiTelemetryWasVisible;
     p->guiTelemetryWasVisible = guiVisible;
     if (!guiVisible) {
@@ -799,10 +1317,21 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
 #endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishParamSnapshot(*p);
+    retryControlSnapshotPublication(*p);
+#endif
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto* p = self(plugin);
+    if (p->pendingParamValuesRescan.exchange(false, std::memory_order_acq_rel)
+        && p->hostParams && p->hostParams->rescan)
+        p->hostParams->rescan(p->host, CLAP_PARAM_RESCAN_VALUES);
+#endif
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool isInput) { return isInput ? 0u : 1u; }
 
@@ -933,6 +1462,68 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
     return true;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
+{
+    if (!value) return false;
+    const auto snapshot = controlSnapshot(*self(plugin));
+    const auto* p = &snapshot;
+    const auto params = p->params;
+    switch (id) {
+    case kPresetParamId: *value = p->presetIndex; return true;
+    case kOrderParamId: *value = params.order; return true;
+    case kVoicesParamId: *value = params.voices; return true;
+    case kRegimeParamId: *value = params.regime; return true;
+    case kActivityParamId: *value = params.activity; return true;
+    case kTemperatureParamId: *value = params.temperature; return true;
+    case kVariationParamId: *value = params.variation; return true;
+    case kCouplingParamId: *value = params.coupling; return true;
+    case kPhraseRateParamId: *value = params.phraseRateHz; return true;
+    case kChirpRateParamId: *value = params.chirpRateHz; return true;
+    case kPulseRateParamId: *value = params.pulseRateHz; return true;
+    case kCallLengthParamId: *value = params.callLength; return true;
+    case kRestParamId: *value = params.rest; return true;
+    case kBodyPitchParamId: *value = params.bodyPitchHz; return true;
+    case kBodySizeParamId: *value = params.bodySize; return true;
+    case kRaspParamId: *value = params.rasp; return true;
+    case kWingParamId: *value = params.wing; return true;
+    case kBrightnessParamId: *value = params.brightness; return true;
+    case kResonanceParamId: *value = params.resonance; return true;
+    case kAirParamId: *value = params.air; return true;
+    case kFieldRateParamId: *value = params.fieldRateHz; return true;
+    case kRoamParamId: *value = params.roam; return true;
+    case kCohesionParamId: *value = params.cohesion; return true;
+    case kScatterParamId: *value = params.scatter; return true;
+    case kOrbitParamId: *value = params.orbit; return true;
+    case kLiftParamId: *value = params.lift; return true;
+    case kNearPassParamId: *value = params.nearPass; return true;
+    case kInertiaParamId: *value = params.spatialFollow; return true;
+    case kDirectionParamId: *value = params.centerAzimuthDeg; return true;
+    case kElevationParamId: *value = params.centerElevationDeg; return true;
+    case kRangeParamId: *value = params.centerDistance; return true;
+    case kOutputParamId: *value = params.outputGainDb; return true;
+    case kPlaceParamId: *value = params.place; return true;
+    case kEnvironmentReturnParamId: *value = params.space; return true;
+    case kEnvironmentSizeParamId: *value = params.environmentSize; return true;
+    case kEnvironmentDecayParamId: *value = params.environmentDecay; return true;
+    case kEnvironmentDampingParamId: *value = params.environmentDamping; return true;
+    case kCallTypeParamId: *value = params.callType; return true;
+    case kFieldListenModeParamId:
+        *value = static_cast<uint32_t>(params.fieldListenMode);
+        return true;
+    case kFieldListenAmountParamId:
+        *value = params.fieldListenAmount;
+        return true;
+    case kFieldListenResponseParamId:
+        *value = static_cast<uint32_t>(params.fieldListenResponse);
+        return true;
+    case kSurfaceXParamId: *value = params.surfaceX; return true;
+    case kSurfaceYParamId: *value = params.surfaceY; return true;
+    default: return false;
+    }
+}
+
+#else
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
@@ -991,6 +1582,8 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     default: return false;
     }
 }
+
+#endif
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
 {
@@ -1131,9 +1724,31 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) { readParamEvents(*self(plugin), in); }
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) {
+    readParamEvents(*self(plugin), in);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    serviceGuiParamEvents(*self(plugin), out);
+    retryControlSnapshotPublication(*self(plugin));
+#endif
+}
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
+{
+    if (!stream || !stream->write) return false;
+    const auto snapshot = controlSnapshot(*self(plugin));
+    const auto* p = &snapshot;
+    SavedState state {};
+    state.version = kStateVersion;
+    state.params = p->params;
+    state.presetIndex = p->presetIndex;
+    std::snprintf(state.customPresetName, sizeof(state.customPresetName), "%s", p->customPresetName);
+    state.surface = p->surface;
+    return writeExact(stream, &state, sizeof(state));
+}
+
+#else
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
@@ -1147,6 +1762,122 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     return writeExact(stream, &state, sizeof(state));
 }
 
+#endif
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
+{
+    if (!stream || !stream->read) return false;
+    uint32_t version = 0u;
+    if (!readExact(stream, &version, sizeof(version))) return false;
+    auto* instance = self(plugin);
+    const auto previous = controlSnapshot(*instance);
+    SavedState loaded{};
+    loaded.params = previous.params; loaded.surface = previous.surface;
+    loaded.presetIndex = previous.presetIndex;
+    copyFixedName(loaded.customPresetName, previous.customPresetName);
+    auto* p = &loaded;
+    if (version == 1u) {
+        SavedStateV1 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = {};
+        std::memcpy(&p->params, state.params.data(), state.params.size());
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 2u) {
+        SavedStateV2 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = {};
+        std::memcpy(&p->params, state.params.data(), state.params.size());
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 3u) {
+        SavedStateV3 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = {};
+        std::memcpy(&p->params, state.params.data(), state.params.size());
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 4u) {
+        SavedStateV4 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = {};
+        std::memcpy(&p->params, state.params.data(), state.params.size());
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == 5u) {
+        SavedStateV5 state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = {};
+        std::memcpy(&p->params, state.params.data(), state.params.size());
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
+    } else if (version == kStateVersion) {
+        SavedState state {};
+        state.version = version;
+        if (!readExact(stream,
+                reinterpret_cast<uint8_t*>(&state) + sizeof(state.version),
+                sizeof(state) - sizeof(state.version))) {
+            return false;
+        }
+        p->params = state.params;
+        p->presetIndex = std::min<uint32_t>(
+            state.presetIndex, s3g::kAmbiInsectFactoryPresetCount - 1u);
+        std::snprintf(p->customPresetName,
+            sizeof(p->customPresetName), "%s", state.customPresetName);
+        p->surface = state.surface;
+    } else {
+        return false;
+    }
+    loaded.customPresetName[sizeof(loaded.customPresetName)-1] = '\0';
+    if (instance->active.load(std::memory_order_acquire))
+        return queueStateCommand(*instance, loaded.params, loaded.surface,
+            loaded.presetIndex, loaded.customPresetName, kReplaceSavedStateActionId);
+    instance->params = loaded.params; instance->surface = loaded.surface;
+    instance->presetIndex = loaded.presetIndex;
+    copyFixedName(instance->customPresetName, loaded.customPresetName);
+    snapSurfaceCursor(*instance);
+    sanitizeInsectState(*instance);
+    instance->engine.beginTransition();
+    return true;
+}
+
+#else
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
@@ -1246,11 +1977,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     return true;
 }
 
+#endif
+
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 constexpr uint32_t kGuiWidth = 1160;
 constexpr uint32_t kGuiHeight = 858;
@@ -2614,12 +3347,18 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_environment_encoder_insect_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2648,7 +3387,7 @@ const clap_plugin_t* create(const clap_host_t* host)
     p->engine.prepare(p->sampleRate);
     snapSurfaceCursor(*p);
     sanitizeInsectState(*p);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     for (auto& weight : p->guiListenWeight) {
         weight.store(1.0f, std::memory_order_relaxed);
     }

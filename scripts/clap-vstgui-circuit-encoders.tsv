@@ -1,0 +1,4 @@
+# source-relative-bundle	canonical-bundle	plugin-id	host-name
+clap_ambi_pulsar_encoder/s3g_ambi_pulsar_encoder.clap	s3g_ambi_encoder_pulsar_64.clap	org.s3g.s3g-dsp.ambi-pulsar-encoder-64	s3g Ambi Encoder Pulsar 64
+clap_ambi_neural_ecology/s3g_ambi_neural_ecology.clap	s3g_ambi_encoder_neural_ecology_64.clap	org.s3g.s3g-dsp.ambi-neural-ecology-64	s3g Ambi Encoder Neural Ecology 64
+clap_ambi_wrangler_encoder/s3g_ambi_wrangler_encoder.clap	s3g_ambi_encoder_wrangler_64.clap	org.s3g.s3g-dsp.ambi-wrangler-encoder-64	s3g Ambi Encoder Wrangler 64

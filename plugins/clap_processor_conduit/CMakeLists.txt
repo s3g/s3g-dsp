@@ -3,6 +3,14 @@ add_library(s3g_processor_conduit_clap MODULE
 )
 
 target_link_libraries(s3g_processor_conduit_clap PRIVATE s3g_dsp)
+if(S3G_STEREO_PROCESSORS_VSTGUI_AVAILABLE)
+ s3g_enable_vstgui_gui(s3g_processor_conduit_clap
+  "${PROJECT_SOURCE_DIR}/plugins/common/s3g_stereo_processor_conduit_canvas.inc"
+  S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+ set_target_properties(s3g_processor_conduit_clap PROPERTIES SUFFIX ".clap")
+endif()
 target_include_directories(s3g_processor_conduit_clap PRIVATE
   ${S3G_CLAP_INCLUDE_DIR}
 )

@@ -1,0 +1,5 @@
+# Source bundle	Canonical bundle	CLAP ID	Host name
+clap_ambi_membrane_kick/s3g_ambi_encoder_membrane_kick.clap	s3g_ambi_encoder_membrane_kick_16.clap	org.s3g.s3g-dsp.ambi-encoder-membrane-kick-16	s3g Ambi Encoder Membrane Kick 16
+clap_accelerometer_field_encoder/s3g_ambi_encoder_modal.clap	s3g_ambi_encoder_modal_16.clap	org.s3g.s3g-dsp.accelerometer-field-encoder-16	s3g Ambi Encoder Modal 16
+clap_ambi_encoder_medium/s3g_ambi_encoder_medium.clap	s3g_ambi_encoder_medium_16.clap	org.s3g.s3g-dsp.ambi-encoder-medium-16	s3g Ambi Encoder Medium 16
+

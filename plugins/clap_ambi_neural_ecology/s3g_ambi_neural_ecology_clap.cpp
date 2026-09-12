@@ -10,7 +10,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #endif
@@ -27,7 +27,20 @@
 #include <limits>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_circuit_encoder_drawing.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_CIRCUIT_KIND 2
+constexpr uint32_t kGuiWidth=1160, kGuiHeight=858;
+constexpr const char* portablePresetDirectory="Ambi Neural Ecology";
+constexpr const char* portablePresetExtension="s3gne";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiNeuralEcologyMaxChannels;
 constexpr uint32_t kStateVersion = 11u;
@@ -578,6 +591,13 @@ struct CustomPresetFileV4 {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+ std::atomic<bool> guiTelemetryReady{false};
+ s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -680,13 +700,31 @@ struct Plugin {
     uint32_t guiScorePage = 0u;
     uint32_t guiSelectedLatticeCell = 5u;
     uint32_t guiLatticeViewPlane = 0u;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
 #endif
 };
 
+FILE* openPresetFile(const char* path, const char* mode) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ return s3g::portable_gui::foundation::openFileUtf8(path, mode);
+#else
+ return std::fopen(path, mode);
+#endif
+}
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+// Notifications only: the retained main-thread control API already publishes
+// each edit to the audio engine. Never apply it a second time while flushing.
+void drainGuiNotifications(Plugin& p, const clap_output_events_t* output) {
+ s3g::clap_gui::ParamEvent event;
+ while (p.guiParamEvents.peek(event)) {
+  if (!s3g::clap_gui::pushParamEvent(output,event)) break;
+  p.guiParamEvents.pop();
+ }
+}
+#endif
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
 s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin);
@@ -1416,7 +1454,7 @@ bool saveCustomPresetFile(const char* path, const Plugin& plugin, const char* na
     file.genomeAValid = plugin.genomeAValid.load(std::memory_order_relaxed);
     file.genomeBValid = plugin.genomeBValid.load(std::memory_order_relaxed);
     file.lattice = snapshotLattice(plugin);
-    FILE* handle = std::fopen(path, "wb");
+    FILE* handle = openPresetFile(path, "wb");
     if (!handle) return false;
     const bool ok = std::fwrite(&file, 1u, sizeof(file), handle) == sizeof(file);
     std::fclose(handle);
@@ -1426,7 +1464,7 @@ bool saveCustomPresetFile(const char* path, const Plugin& plugin, const char* na
 bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
 {
     if (!path || !*path) return false;
-    FILE* handle = std::fopen(path, "rb");
+    FILE* handle = openPresetFile(path, "rb");
     if (!handle) return false;
     file = {};
     uint32_t header[2] {};
@@ -1608,8 +1646,11 @@ bool init(const clap_plugin_t*) { return true; }
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (p && p->guiView) s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
 #endif
     delete p;
@@ -1894,6 +1935,9 @@ void publishLatticeMeters(Plugin& plugin)
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* process)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainGuiNotifications(*self(plugin), process->out_events);
+#endif
     auto* p = self(plugin);
     syncAudioParams(*p);
     syncAudioLattice(*p);
@@ -2053,6 +2097,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->guiGenome[index].store(genome[index], std::memory_order_relaxed);
     }
     publishLatticeMeters(*p);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    p->guiTelemetryReady.store(true,std::memory_order_release);
+#endif
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -2247,8 +2294,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* input, const clap_output_events_t* output)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    drainGuiNotifications(*self(plugin), output);
+#endif
     if (!input) return;
     auto* p = self(plugin);
     const uint32_t count = input->size(input);
@@ -2450,7 +2500,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 constexpr uint32_t kGuiWidth = 1160u;
 constexpr uint32_t kGuiHeight = 858u;
@@ -4016,13 +4066,20 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_circuit_encoder_neural_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

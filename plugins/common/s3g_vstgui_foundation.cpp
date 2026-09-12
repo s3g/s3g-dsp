@@ -189,6 +189,7 @@ std::vector<std::string> runWindowsFileDialog(CFrame* parent,
     if (SUCCEEDED(dialog->GetOptions(&flags))) {
         flags |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST;
         flags |= options.save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST;
+        if (options.directory && !options.save) flags |= FOS_PICKFOLDERS;
         if (multiple && !options.save) flags |= FOS_ALLOWMULTISELECT;
         dialog->SetOptions(flags);
     }
@@ -206,12 +207,16 @@ std::vector<std::string> runWindowsFileDialog(CFrame* parent,
         if (description.empty()) description = extension;
         description += L" (*." + extension + L")";
         pattern = L"*." + extension;
+        for (const auto& suffix : options.extensions) {
+            const auto extra = normalizedExtension(suffix);
+            if (!extra.empty() && extra != extension) pattern += L";*." + extra;
+        }
         filters[filterCount++] = { description.c_str(), pattern.c_str() };
     }
     static constexpr wchar_t kAllFilesName[] = L"All files (*.*)";
     static constexpr wchar_t kAllFilesPattern[] = L"*.*";
     filters[filterCount++] = { kAllFilesName, kAllFilesPattern };
-    if (SUCCEEDED(dialog->SetFileTypes(filterCount, filters.data())))
+    if (!options.directory && SUCCEEDED(dialog->SetFileTypes(filterCount, filters.data())))
         dialog->SetFileTypeIndex(1u);
 
     if (options.save) {
@@ -603,7 +608,8 @@ std::string runFileDialog(CFrame* parent, const FileDialogOptions& options)
 #else
     auto selector = owned(CNewFileSelector::create(parent,
         options.save ? CNewFileSelector::kSelectSaveFile
-                     : CNewFileSelector::kSelectFile));
+                     : options.directory ? CNewFileSelector::kSelectDirectory
+                                         : CNewFileSelector::kSelectFile));
     if (!selector) return {};
     if (!options.extension.empty()) {
         const CFileExtension extension(
@@ -614,6 +620,8 @@ std::string runFileDialog(CFrame* parent, const FileDialogOptions& options)
         selector->addFileExtension(extension);
         selector->setDefaultExtension(extension);
     }
+    for (const auto& suffix : options.extensions)
+        selector->addFileExtension(CFileExtension(options.extensionDescription.c_str(), suffix.c_str()));
     if (!options.title.empty()) selector->setTitle(options.title.c_str());
     if (options.save && !options.defaultSaveName.empty())
         selector->setDefaultSaveName(options.defaultSaveName.c_str());
@@ -646,6 +654,8 @@ std::vector<std::string> runFileDialogs(CFrame* parent, const FileDialogOptions&
         selector->addFileExtension(extension);
         selector->setDefaultExtension(extension);
     }
+    for (const auto& suffix : options.extensions)
+        selector->addFileExtension(CFileExtension(options.extensionDescription.c_str(), suffix.c_str()));
     if (!options.initialDirectory.empty()) {
         const auto path = pathToUtf8(options.initialDirectory);
         selector->setInitialDirectory(path.c_str());

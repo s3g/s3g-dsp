@@ -10,7 +10,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_cocoa_gui.h"
 #include "../common/s3g_parameter_surface_cocoa.h"
@@ -26,7 +26,27 @@
 #include <cstring>
 #include <new>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_environment_encoder_drawing.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr uint32_t kGuiWidth = 1160, kGuiHeight = 858;
+constexpr const char* portableTitle = "s3g AMBI ENCODER WATER";
+constexpr const char* portablePresetDirectory = "Ambi Water Encoder";
+constexpr const char* portablePresetExtension = "s3gwater";
+#define S3G_ENVIRONMENT_KIND 1
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
+std::FILE* openPresetFile(const char* path, const char* mode) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  return s3g::portable_gui::foundation::openFileUtf8(path, mode);
+#else
+  return std::fopen(path, mode);
+#endif
+}
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiWaterMaxChannels;
 constexpr uint32_t kStateVersion = 6;
@@ -144,9 +164,16 @@ struct Plugin {
     std::atomic<bool> publishedParamsDirty { true };
     std::atomic<bool> publishedSurfaceDirty { true };
     std::atomic<bool> paramsRescanRequested { false };
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    std::atomic<uint64_t> queuedSurfaceRevision { 0u };
+    std::atomic<uint64_t> appliedSurfaceRevision { 0u };
+    uint64_t pendingSurfaceRevision = 0u;
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     std::atomic<bool> guiVisible { false };
     uint32_t guiTelemetryCountdown = 0u;
     int guiViewMode = 0;
@@ -161,9 +188,33 @@ struct Plugin {
     std::array<std::atomic<float>, s3g::kAmbiWaterMaxVoices> guiRenderGain {};
     std::atomic<uint32_t> guiVoiceCount { 1u };
 #endif
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    std::atomic<bool>& portableGuiVisible = guiVisible;
+#endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void publishInactiveTelemetry(Plugin& instance)
+{
+    auto* p = &instance;
+    const uint32_t voices =
+        std::min<uint32_t>(p->engine.processingVoiceCount(), s3g::kAmbiWaterMaxVoices);
+    p->guiVoiceCount.store(voices, std::memory_order_relaxed);
+    for (uint32_t voice = 0u; voice < voices; ++voice)
+    {
+        const auto point = p->engine.voicePoint(voice);
+        p->guiAzimuth[voice].store(point.azimuthDeg, std::memory_order_relaxed);
+        p->guiElevation[voice].store(point.elevationDeg, std::memory_order_relaxed);
+        p->guiDistance[voice].store(point.distance, std::memory_order_relaxed);
+        p->guiEnergy[voice].store(p->engine.voiceEnergy(voice), std::memory_order_relaxed);
+        p->guiEvent[voice].store(p->engine.voiceEventLevel(voice), std::memory_order_relaxed);
+        p->guiRenderGain[voice].store(p->engine.voiceRenderGain(voice), std::memory_order_relaxed);
+    }
+}
+#endif
 
 bool writeExact(const clap_ostream_t* stream, const void* data, size_t size)
 {
@@ -196,7 +247,7 @@ bool saveCustomPresetFile(const char* path,
     CustomPresetFile file {};
     std::snprintf(file.name, sizeof(file.name), "%s", name && *name ? name : "Custom");
     file.params = params;
-    FILE* handle = std::fopen(path, "wb");
+    FILE* handle = openPresetFile(path, "wb");
     if (!handle) return false;
     const bool ok = std::fwrite(&file, 1, sizeof(file), handle) == sizeof(file);
     std::fclose(handle);
@@ -206,7 +257,7 @@ bool saveCustomPresetFile(const char* path,
 bool loadCustomPresetFile(const char* path, CustomPresetFile& file)
 {
     if (!path || !*path) return false;
-    FILE* handle = std::fopen(path, "rb");
+    FILE* handle = openPresetFile(path, "rb");
     if (!handle) return false;
     file = {};
     bool ok = std::fread(&file.magic, 1, sizeof(file.magic), handle) == sizeof(file.magic)
@@ -577,6 +628,10 @@ void publishControlSnapshot(Plugin& plugin)
     plugin.publishedControl.params = plugin.params;
     plugin.publishedControl.effectiveParams = plugin.effectiveParams;
     plugin.publishedControl.surface = plugin.surface;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    plugin.appliedSurfaceRevision.store(plugin.pendingSurfaceRevision,
+        std::memory_order_release);
+#endif
     plugin.publishedControl.presetIndex = plugin.presetIndex;
     copyName(plugin.publishedControl.customPresetName,
         sizeof(plugin.publishedControl.customPresetName),
@@ -652,6 +707,9 @@ bool queueGuiSurface(Plugin& plugin, const WaterSurface& surface)
     if (plugin.guiSurfaceCommands.available() == 0u
         || plugin.guiParamEvents.available() == 0u) return false;
     if (!plugin.guiSurfaceCommands.push(surface)) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    plugin.queuedSurfaceRevision.fetch_add(1u, std::memory_order_release);
+#endif
     const s3g::clap_gui::ParamEvent action {
         s3g::clap_gui::ParamEventKind::Value,
         kApplySurfaceActionId, 0.0
@@ -953,6 +1011,9 @@ bool applyPendingSurface(Plugin& plugin)
     s3g::sanitizeParameterSurface(surface);
     plugin.surface = surface;
     applyEffectiveParams(plugin, false);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    ++plugin.pendingSurfaceRevision;
+#endif
     publishControlSnapshot(plugin);
     plugin.guiSurfaceCommands.pop();
     return true;
@@ -1015,7 +1076,9 @@ bool init(const clap_plugin_t* plugin)
 void destroy(const clap_plugin_t* plugin)
 {
     auto* p = self(plugin);
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (p) destroyPortableGui(*p);
+#elif defined(__APPLE__)
     if (p && p->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(p->guiViewport, p->guiView);
     }
@@ -1128,7 +1191,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     p->effectiveParams = p->engine.params();
     s3g::clearAudioBufferFromChannel(output, outChannels, frames);
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const bool guiIsVisible = p->guiVisible.load(std::memory_order_acquire);
     if (guiIsVisible && p->guiTelemetryCountdown <= frames) {
         float peak = 0.0f;
@@ -1561,7 +1624,7 @@ const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 constexpr uint32_t kGuiWidth = 1160;
 constexpr uint32_t kGuiHeight = 858;
@@ -2843,12 +2906,18 @@ const clap_plugin_gui_t guiExt { guiIsApiSupported, guiGetPreferredApi, guiCreat
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_environment_encoder_water_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#elif defined(__APPLE__)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;

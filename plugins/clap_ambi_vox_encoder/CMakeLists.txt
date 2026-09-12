@@ -3,11 +3,31 @@ add_library(s3g_ambi_vox_encoder_clap MODULE
 )
 
 target_link_libraries(s3g_ambi_vox_encoder_clap PRIVATE s3g_dsp)
+if(S3G_COMPLEX_PROCESSORS_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_ambi_vox_encoder_clap
+    "${PROJECT_SOURCE_DIR}/plugins/common/s3g_complex_processor_vox_canvas.inc"
+    S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+  set_target_properties(s3g_ambi_vox_encoder_clap PROPERTIES SUFFIX ".clap")
+endif()
 target_include_directories(s3g_ambi_vox_encoder_clap PRIVATE ${S3G_CLAP_INCLUDE_DIR})
 
 if(TARGET world::core)
   target_link_libraries(s3g_ambi_vox_encoder_clap PRIVATE world::core)
   target_compile_definitions(s3g_ambi_vox_encoder_clap PRIVATE S3G_HAS_WORLD=1)
+  set(world_license "${PROJECT_BINARY_DIR}/vstgui-resources/WORLD-LICENSE.txt")
+  configure_file("${world_SOURCE_DIR}/LICENSE.txt" "${world_license}" COPYONLY)
+  if(APPLE)
+    set_source_files_properties("${world_license}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")
+    target_sources(s3g_ambi_vox_encoder_clap PRIVATE "${world_license}")
+  elseif(WIN32)
+    add_custom_command(TARGET s3g_ambi_vox_encoder_clap POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:s3g_ambi_vox_encoder_clap>/Resources/Licenses"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${world_license}"
+        "$<TARGET_FILE_DIR:s3g_ambi_vox_encoder_clap>/Resources/Licenses/WORLD-LICENSE.txt"
+      VERBATIM)
+  endif()
 endif()
 
 if(APPLE)

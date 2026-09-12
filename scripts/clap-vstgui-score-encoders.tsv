@@ -1,0 +1,5 @@
+# Acid, Horizon and VOT only: source bundle, canonical name, ID, host name
+clap_ambi_acid_encoder/s3g_ambi_encoder_acid.clap	s3g_ambi_encoder_acid_16.clap	org.s3g.s3g-dsp.ambi-encoder-acid-16	s3g Ambi Encoder Acid 16
+clap_ambi_horizon_encoder/s3g_ambi_horizon_encoder.clap	s3g_ambi_encoder_horizon_64.clap	org.s3g.s3g-dsp.ambi-horizon-encoder-64	s3g Ambi Encoder Horizon 64
+clap_ambi_vot_encoder/s3g_ambi_vot_encoder.clap	s3g_ambi_encoder_vot_64.clap	org.s3g.s3g-dsp.ambi-vot-encoder-64	s3g Ambi Encoder VOT 64
+

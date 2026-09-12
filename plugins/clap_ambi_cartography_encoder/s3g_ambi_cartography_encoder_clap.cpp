@@ -9,7 +9,7 @@
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -26,7 +26,18 @@
 #include <new>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_map_encoder_drawing.h"
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_MAP_KIND 3
+constexpr uint32_t kGuiWidth = 1356, kGuiHeight = 760;
+constexpr const char* portablePresetDirectory = "Ambi Cartography Encoder";
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kInputChannels = 2u;
 constexpr uint32_t kOutputChannels = s3g::kAmbiCartographyMaxChannels;
@@ -194,7 +205,44 @@ struct CameraSavedState {
 
 static_assert(sizeof(CameraSavedState) == 24u);
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr clap_id kMapReplaceStateAction = CLAP_INVALID_ID - 1u;
+constexpr clap_id kMapResetLayoutAction = CLAP_INVALID_ID - 2u;
+struct MapStateCommand {
+    SavedState state{};
+    s3g::AmbiCartographyLandscapeParams landscape{};
+    s3g::AmbiCartographySiteProcessOptions process{};
+};
+struct CartographyDisplaySnapshot {
+    s3g::AmbiCartographyEncoderParams params{};
+    s3g::AmbiCartographyLandscapeParams landscape{};
+    s3g::AmbiCartographySiteProcessOptions process{};
+    std::array<s3g::AmbiCartographySite, s3g::kAmbiCartographyMaxSites> authored{};
+    std::array<s3g::Vec3, s3g::kAmbiCartographyMaxSites> positions{};
+    std::array<float, s3g::kAmbiCartographyMaxSites> level{}, arrival{}, distance{}, occlusion{};
+    s3g::Vec3 listener{};
+    const auto& sites() const { return authored; }
+    s3g::Vec3 renderedSitePosition(uint32_t i) const { return positions[i]; }
+    s3g::Vec3 renderedListenerPosition() const { return listener; }
+    float siteLevel(uint32_t i) const { return level[i]; }
+    float siteArrivalSeconds(uint32_t i) const { return arrival[i]; }
+    float siteDistanceMeters(uint32_t i) const { return distance[i]; }
+    float siteOcclusion(uint32_t i) const { return occlusion[i]; }
+};
+#endif
+
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
+    uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
+    bool portableGuiVisible = false;
+    int guiLandscapePage = 0, guiProcessPage = 0;
+    std::atomic<bool> active{false};
+    std::atomic<bool> pendingMapRescan{false};
+    std::atomic_flag mapSnapshotLock = ATOMIC_FLAG_INIT;
+    CartographyDisplaySnapshot mapSnapshot{};
+    s3g::clap_gui::SpscEventQueue<MapStateCommand, 8u> mapStateCommands{};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -233,7 +281,7 @@ struct Plugin {
     std::atomic<float> guiViewElDeg { 0.0f };
     std::atomic<float> guiViewZoom { 1.0f };
     std::atomic<uint32_t> guiViewRevision { 0u };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
     bool guiVisible = false;
@@ -246,6 +294,34 @@ Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
 }
+
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void publishMapSnapshot(Plugin& p) {
+    // The audio thread never spins or allocates. A contended publication is
+    // retried at the next process/flush boundary.
+    if (p.mapSnapshotLock.test_and_set(std::memory_order_acquire)) return;
+    auto& out = p.mapSnapshot;
+    out.params = p.params;
+    out.landscape = p.landscape;
+    out.process = p.siteProcess;
+    out.authored = p.encoder.sites();
+    out.listener = p.encoder.renderedListenerPosition();
+    for (uint32_t i = 0; i < s3g::kAmbiCartographyMaxSites; ++i) {
+        out.positions[i] = p.encoder.renderedSitePosition(i);
+        out.level[i] = p.encoder.siteLevel(i);
+        out.arrival[i] = p.encoder.siteArrivalSeconds(i);
+        out.distance[i] = p.encoder.siteDistanceMeters(i);
+        out.occlusion[i] = p.encoder.siteOcclusion(i);
+    }
+    p.mapSnapshotLock.clear(std::memory_order_release);
+}
+CartographyDisplaySnapshot readMapSnapshot(Plugin& p) {
+    while (p.mapSnapshotLock.test_and_set(std::memory_order_acquire)) {}
+    const auto result = p.mapSnapshot;
+    p.mapSnapshotLock.clear(std::memory_order_release);
+    return result;
+}
+#endif
 
 float smoothUnit(float value)
 {
@@ -441,6 +517,9 @@ void publishAllParams(Plugin& plugin)
     for (const auto& definition : kParams) {
         publishParam(plugin, definition.id);
     }
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishMapSnapshot(plugin);
+#endif
 }
 
 double publishedParamValue(const Plugin& plugin, clap_id id)
@@ -698,6 +777,33 @@ void serviceGuiParamEvents(Plugin& plugin,
 {
     s3g::clap_gui::ParamEvent pending {};
     while (plugin.guiParamEvents.peek(pending)) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        if (pending.paramId == kMapReplaceStateAction) {
+            MapStateCommand command{};
+            if (!plugin.mapStateCommands.peek(command)) break;
+            plugin.encoder.setParams(command.state.params);
+            plugin.encoder.setSites(command.state.sites);
+            plugin.encoder.setLandscapeParams(command.landscape);
+            plugin.encoder.setSiteProcessOptions(command.process);
+            plugin.params = plugin.encoder.params();
+            plugin.landscape = plugin.encoder.landscapeParams();
+            plugin.siteProcess = plugin.encoder.siteProcessOptions();
+            plugin.mapStateCommands.pop();
+            plugin.guiParamEvents.pop();
+            publishAllParams(plugin);
+            plugin.pendingMapRescan.store(true, std::memory_order_release);
+            if (plugin.host && plugin.host->request_callback)
+                plugin.host->request_callback(plugin.host);
+            continue;
+        }
+        if (pending.paramId == kMapResetLayoutAction) {
+            plugin.encoder.regenerateLayout();
+            plugin.params = plugin.encoder.params();
+            plugin.guiParamEvents.pop();
+            publishAllParams(plugin);
+            continue;
+        }
+#endif
         if (!pushGuiParamEvent(output, pending)) break;
         if (pending.kind == s3g::clap_gui::ParamEventKind::Value) {
             applyParam(plugin, pending.paramId, pending.value);
@@ -716,8 +822,11 @@ void serviceGuiParamEvents(Plugin& plugin,
 
 void destroy(const clap_plugin_t* plugin)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    destroyPortableGui(*self(plugin));
+#endif
     auto* instance = self(plugin);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (instance && instance->guiView) {
         s3g::clap_gui::destroyResponsiveViewport(
             instance->guiViewport, instance->guiView);
@@ -740,12 +849,18 @@ bool activate(const clap_plugin_t* plugin, double sampleRate,
     instance->landscape = instance->encoder.landscapeParams();
     instance->siteProcess = instance->encoder.siteProcessOptions();
     publishAllParams(*instance);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    instance->active.store(true, std::memory_order_release);
+#endif
     return true;
 }
 
 void deactivate(const clap_plugin_t* plugin)
 {
     self(plugin)->processing = false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    self(plugin)->active.store(false, std::memory_order_release);
+#endif
 }
 
 bool startProcessing(const clap_plugin_t* plugin)
@@ -996,13 +1111,22 @@ clap_process_status process(const clap_plugin_t* plugin,
     }
     instance->params = instance->encoder.params();
     s3g::clearAudioBufferFromChannel(output, outputCount, frames);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishMapSnapshot(*instance);
+#endif
     instance->outputPeak.store(std::max(
         instance->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
         std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
 
-void onMainThread(const clap_plugin_t*) {}
+void onMainThread(const clap_plugin_t* plugin) {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    auto& p = *self(plugin);
+    if (p.pendingMapRescan.exchange(false) && p.hostParams && p.hostParams->rescan)
+        p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
+#endif
+}
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool) { return 1u; }
 
@@ -1159,6 +1283,9 @@ void paramsFlush(const clap_plugin_t* plugin,
     auto* instance = self(plugin);
     serviceGuiParamEvents(*instance, output);
     readParamEvents(*instance, input);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishMapSnapshot(*instance);
+#endif
 }
 
 const clap_plugin_params_t paramsExtension {
@@ -1169,7 +1296,26 @@ const clap_plugin_params_t paramsExtension {
 bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
-    const auto* instance = self(plugin);
+    auto* instance = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const auto snapshot = readMapSnapshot(*instance);
+    SavedState state{kStateVersion, snapshot.params, snapshot.authored};
+    // This legacy wire format includes C++ struct padding. Snapshot copies can
+    // give those non-field bytes arbitrary values; never serialize them. Keep
+    // all field offsets and the complete old state size unchanged.
+    constexpr auto paramsEnd = offsetof(s3g::AmbiCartographyEncoderParams,
+        selectedEnabled) + sizeof(bool);
+    std::memset(reinterpret_cast<unsigned char*>(&state.params) + paramsEnd,
+        0, sizeof(state.params) - paramsEnd);
+    constexpr auto siteEnd = offsetof(s3g::AmbiCartographySite, enabled) + sizeof(bool);
+    for (auto& site : state.sites)
+        std::memset(reinterpret_cast<unsigned char*>(&site) + siteEnd,
+            0, sizeof(site) - siteEnd);
+    const LandscapeSavedState landscape{kLandscapeStateMagic, kLandscapeStateVersion, snapshot.landscape};
+    const SiteProcessSavedState siteProcess{kSiteProcessStateMagic, kSiteProcessStateVersion,
+        static_cast<uint32_t>(snapshot.process.shredCircuit),
+        static_cast<uint32_t>(snapshot.process.fractureProcessor)};
+#else
     SavedState state {
         kStateVersion, instance->params, instance->encoder.sites()
     };
@@ -1182,6 +1328,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         static_cast<uint32_t>(instance->siteProcess.shredCircuit),
         static_cast<uint32_t>(instance->siteProcess.fractureProcessor)
     };
+#endif
     const CameraSavedState camera {
         kCameraStateMagic,
         kCameraStateVersion,
@@ -1247,6 +1394,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         siteProcess.fractureProcessor);
 
     auto* instance = self(plugin);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    const bool queued = instance->active.load(std::memory_order_acquire);
+    if (queued) {
+        // Leave edit-gesture end slots available even under host backpressure.
+        if (instance->guiParamEvents.available() < 16u ||
+            !instance->mapStateCommands.available()) return false;
+        if (!instance->mapStateCommands.push({state, landscape.params, options})) return false;
+        if (!instance->guiParamEvents.push({s3g::clap_gui::ParamEventKind::Value,
+                kMapReplaceStateAction, 0.})) return false;
+        requestGuiParamService(*instance);
+    } else {
+#endif
     instance->encoder.setParams(state.params);
     instance->encoder.setSites(state.sites);
     instance->encoder.setLandscapeParams(landscape.params);
@@ -1254,6 +1413,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     instance->params = instance->encoder.params();
     instance->landscape = instance->encoder.landscapeParams();
     instance->siteProcess = instance->encoder.siteProcessOptions();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    }
+#endif
     const int32_t viewMode = std::clamp<int32_t>(
         camera.viewMode, -1, 2);
     float cameraAzimuth = camera.azimuthDeg;
@@ -1298,7 +1460,11 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             ? std::clamp(camera.zoom, 0.55f, 2.20f) : 1.0f,
         std::memory_order_release);
     instance->guiViewRevision.fetch_add(1u, std::memory_order_acq_rel);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (!queued) publishAllParams(*instance);
+#else
     publishAllParams(*instance);
+#endif
     return true;
 }
 
@@ -1320,7 +1486,7 @@ const clap_plugin_tail_t tailExtension { tailGet };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 namespace {
 
 constexpr CGFloat kGuiWidth = 1356.0;
@@ -2924,13 +3090,20 @@ const clap_plugin_gui_t guiExtension {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_map_encoder_cartography_canvas.inc"
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExtension;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExtension;
     if (std::strcmp(id, CLAP_EXT_TAIL) == 0) return &tailExtension;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExtension;
 #endif
     return nullptr;

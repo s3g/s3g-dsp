@@ -8,7 +8,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #import <Cocoa/Cocoa.h>
 #include "../common/s3g_clap_macos.h"
 #include "../common/s3g_cocoa_gui.h"
@@ -27,7 +27,19 @@
 #include <string>
 #include <vector>
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_resonator_encoder_drawing.h"
+#include "../common/s3g_clap_gui_param_queue.h"
+#define S3G_SCORE_KIND 3
+#endif
+
 namespace {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+constexpr const char* portablePresetDirectory="Ambi Encoder VOT";
+constexpr uint32_t kGuiWidth=1160, kGuiHeight=894;
+struct Plugin;
+void destroyPortableGui(Plugin&);
+#endif
 
 constexpr uint32_t kOutputChannels = s3g::kAmbiVotMaxChannels;
 constexpr uint32_t kStateVersion = 6;
@@ -253,6 +265,13 @@ struct SavedState {
 };
 
 struct Plugin {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
+ uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
+ bool portableGuiVisible=false;
+ s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
+ std::array<std::atomic<double>,40> portableValues{};
+#endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     double sampleRate = 48000.0;
@@ -269,9 +288,10 @@ struct Plugin {
     std::array<std::atomic<uint32_t>, s3g::kAmbiVotMaxScoreNodes> scoreCurve {};
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<uint32_t> lastMidiNote { 0u };
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
+#endif
     std::atomic<bool> guiVisible { false };
     std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiAzimuth {};
     std::array<std::atomic<float>, s3g::kAmbiVotMaxVoices> guiElevation {};
@@ -286,7 +306,6 @@ struct Plugin {
     float guiViewAzDeg = 90.0f;
     float guiViewElDeg = 0.0f;
     float guiViewZoom = 1.0f;
-#endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
@@ -504,6 +523,101 @@ s3g::AmbiVotParams migrateV4(const AmbiVotParamsV4& old)
     return params;
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+// Audio owns params/engine. The GUI reads only atomic display values and queues
+// edits for process/flush; no parameter edit touches a running DSP instance.
+double portableParamValue(const s3g::AmbiVotParams& params,clap_id id) {
+ switch(id) {
+ case kOrderParamId: return params.order;
+ case kVoicesParamId: return params.voices;
+ case kModeParamId: return static_cast<uint32_t>(params.mode);
+ case kPresetParamId: return static_cast<uint32_t>(params.preset);
+ case kBaseNoteParamId: return params.baseNote;
+ case kTuneParamId: return params.tuneCents;
+ case kVectorXParamId: return params.vectorX;
+ case kVectorYParamId: return params.vectorY;
+ case kScanParamId: return params.scan;
+ case kScanRateParamId: return params.scanRate;
+ case kMorphParamId: return params.morph;
+ case kDetuneParamId: return params.detune;
+ case kScaleParamId: return static_cast<uint32_t>(params.scale);
+ case kPitchSpreadParamId: return params.pitchSpread;
+ case kHarmonicsParamId: return params.harmonicAmount;
+ case kSubharmonicsParamId: return params.subharmonicAmount;
+ case kSpreadParamId: return params.motionSpread;
+ case kMotionRateParamId: return params.motionRateHz;
+ case kAttackParamId: return params.attackMs;
+ case kDecayParamId: return params.decayMs;
+ case kSustainParamId: return params.sustain;
+ case kReleaseParamId: return params.releaseMs;
+ case kOutputParamId: return params.outputGainDb;
+ case kMotionSceneParamId: return static_cast<uint32_t>(params.motionScene);
+ case kMotionClockParamId: return static_cast<uint32_t>(params.motionClock);
+ case kSyncDivisionParamId: return params.syncDivisionBeats;
+ case kMotionAmountParamId: return params.motionAmount;
+ case kCoherenceParamId: return params.motionCoherence;
+ case kChaosParamId: return params.motionChaos;
+ case kLinkParamId: return params.motionLink;
+ case kSmoothParamId: return params.motionSmooth;
+ case kCenterAzimuthParamId: return params.centerAzimuthDeg;
+ case kCenterElevationParamId: return params.centerElevationDeg;
+ case kCenterDistanceParamId: return params.centerDistance;
+ case kNeighborRadiusParamId: return params.neighborRadius;
+ case kRequiredNeighborsParamId: return params.requiredNeighbors;
+ case kScoreModeParamId: return static_cast<uint32_t>(params.scoreMode);
+ case kScoreDurationParamId: return params.scoreDurationSec;
+ case kScoreDepthParamId: return params.scoreDepth;
+ default:return 0.;
+ }
+}
+void publishPortableParams(Plugin& p) {
+ for(clap_id id=1;id<=39;++id) p.portableValues[id].store(portableParamValue(p.params,id),std::memory_order_release);
+}
+s3g::AmbiVotParams portableParamsSnapshot(const Plugin& p) {
+ s3g::AmbiVotParams params{};
+ params.order=static_cast<decltype(params.order)>(p.portableValues[kOrderParamId].load(std::memory_order_acquire));
+ params.voices=static_cast<decltype(params.voices)>(p.portableValues[kVoicesParamId].load(std::memory_order_acquire));
+ params.mode=static_cast<decltype(params.mode)>(p.portableValues[kModeParamId].load(std::memory_order_acquire));
+ params.preset=static_cast<decltype(params.preset)>(p.portableValues[kPresetParamId].load(std::memory_order_acquire));
+ params.baseNote=static_cast<decltype(params.baseNote)>(p.portableValues[kBaseNoteParamId].load(std::memory_order_acquire));
+ params.tuneCents=static_cast<decltype(params.tuneCents)>(p.portableValues[kTuneParamId].load(std::memory_order_acquire));
+ params.vectorX=static_cast<decltype(params.vectorX)>(p.portableValues[kVectorXParamId].load(std::memory_order_acquire));
+ params.vectorY=static_cast<decltype(params.vectorY)>(p.portableValues[kVectorYParamId].load(std::memory_order_acquire));
+ params.scan=static_cast<decltype(params.scan)>(p.portableValues[kScanParamId].load(std::memory_order_acquire));
+ params.scanRate=static_cast<decltype(params.scanRate)>(p.portableValues[kScanRateParamId].load(std::memory_order_acquire));
+ params.morph=static_cast<decltype(params.morph)>(p.portableValues[kMorphParamId].load(std::memory_order_acquire));
+ params.detune=static_cast<decltype(params.detune)>(p.portableValues[kDetuneParamId].load(std::memory_order_acquire));
+ params.scale=static_cast<decltype(params.scale)>(p.portableValues[kScaleParamId].load(std::memory_order_acquire));
+ params.pitchSpread=static_cast<decltype(params.pitchSpread)>(p.portableValues[kPitchSpreadParamId].load(std::memory_order_acquire));
+ params.harmonicAmount=static_cast<decltype(params.harmonicAmount)>(p.portableValues[kHarmonicsParamId].load(std::memory_order_acquire));
+ params.subharmonicAmount=static_cast<decltype(params.subharmonicAmount)>(p.portableValues[kSubharmonicsParamId].load(std::memory_order_acquire));
+ params.motionSpread=static_cast<decltype(params.motionSpread)>(p.portableValues[kSpreadParamId].load(std::memory_order_acquire));
+ params.motionRateHz=static_cast<decltype(params.motionRateHz)>(p.portableValues[kMotionRateParamId].load(std::memory_order_acquire));
+ params.attackMs=static_cast<decltype(params.attackMs)>(p.portableValues[kAttackParamId].load(std::memory_order_acquire));
+ params.decayMs=static_cast<decltype(params.decayMs)>(p.portableValues[kDecayParamId].load(std::memory_order_acquire));
+ params.sustain=static_cast<decltype(params.sustain)>(p.portableValues[kSustainParamId].load(std::memory_order_acquire));
+ params.releaseMs=static_cast<decltype(params.releaseMs)>(p.portableValues[kReleaseParamId].load(std::memory_order_acquire));
+ params.outputGainDb=static_cast<decltype(params.outputGainDb)>(p.portableValues[kOutputParamId].load(std::memory_order_acquire));
+ params.motionScene=static_cast<decltype(params.motionScene)>(p.portableValues[kMotionSceneParamId].load(std::memory_order_acquire));
+ params.motionClock=static_cast<decltype(params.motionClock)>(p.portableValues[kMotionClockParamId].load(std::memory_order_acquire));
+ params.syncDivisionBeats=static_cast<decltype(params.syncDivisionBeats)>(p.portableValues[kSyncDivisionParamId].load(std::memory_order_acquire));
+ params.motionAmount=static_cast<decltype(params.motionAmount)>(p.portableValues[kMotionAmountParamId].load(std::memory_order_acquire));
+ params.motionCoherence=static_cast<decltype(params.motionCoherence)>(p.portableValues[kCoherenceParamId].load(std::memory_order_acquire));
+ params.motionChaos=static_cast<decltype(params.motionChaos)>(p.portableValues[kChaosParamId].load(std::memory_order_acquire));
+ params.motionLink=static_cast<decltype(params.motionLink)>(p.portableValues[kLinkParamId].load(std::memory_order_acquire));
+ params.motionSmooth=static_cast<decltype(params.motionSmooth)>(p.portableValues[kSmoothParamId].load(std::memory_order_acquire));
+ params.centerAzimuthDeg=static_cast<decltype(params.centerAzimuthDeg)>(p.portableValues[kCenterAzimuthParamId].load(std::memory_order_acquire));
+ params.centerElevationDeg=static_cast<decltype(params.centerElevationDeg)>(p.portableValues[kCenterElevationParamId].load(std::memory_order_acquire));
+ params.centerDistance=static_cast<decltype(params.centerDistance)>(p.portableValues[kCenterDistanceParamId].load(std::memory_order_acquire));
+ params.neighborRadius=static_cast<decltype(params.neighborRadius)>(p.portableValues[kNeighborRadiusParamId].load(std::memory_order_acquire));
+ params.requiredNeighbors=static_cast<decltype(params.requiredNeighbors)>(p.portableValues[kRequiredNeighborsParamId].load(std::memory_order_acquire));
+ params.scoreMode=static_cast<decltype(params.scoreMode)>(p.portableValues[kScoreModeParamId].load(std::memory_order_acquire));
+ params.scoreDurationSec=static_cast<decltype(params.scoreDurationSec)>(p.portableValues[kScoreDurationParamId].load(std::memory_order_acquire));
+ params.scoreDepth=static_cast<decltype(params.scoreDepth)>(p.portableValues[kScoreDepthParamId].load(std::memory_order_acquire));
+ return params;
+}
+#endif
+
 void applyParam(Plugin& plugin, clap_id id, double value)
 {
     switch (id) {
@@ -555,8 +669,21 @@ void applyParam(Plugin& plugin, clap_id id, double value)
     }
     plugin.engine.setParams(plugin.params);
     plugin.params = plugin.engine.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishPortableParams(plugin);
+#endif
 }
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+void servicePortableEvents(Plugin& p,const clap_output_events_t* output) {
+ s3g::clap_gui::ParamEvent event{};
+ while(p.guiParamEvents.peek(event)) {
+  if(!s3g::clap_gui::pushParamEvent(output,event)) break;
+  if(event.kind==s3g::clap_gui::ParamEventKind::Value) applyParam(p,event.paramId,event.value);
+  p.guiParamEvents.pop();
+ }
+}
+#endif
 void readEvents(Plugin& plugin, const clap_input_events_t* events)
 {
     if (!events) return;
@@ -596,7 +723,7 @@ void updateTransportPhase(Plugin& plugin, const clap_event_transport_t* transpor
     }
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 void publishMotionSnapshot(Plugin& plugin)
 {
     if (!plugin.guiVisible.load(std::memory_order_relaxed)) return;
@@ -622,7 +749,10 @@ bool init(const clap_plugin_t*) { return true; }
 
 void destroy(const clap_plugin_t* plugin)
 {
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+ destroyPortableGui(*self(plugin));
+#endif
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     guiDestroy(plugin);
 #endif
     delete self(plugin);
@@ -653,6 +783,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 {
     auto* state = self(plugin);
     if (!processData) return CLAP_PROCESS_CONTINUE;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableEvents(*state,processData->out_events);
+#endif
     readEvents(*state, processData->in_events);
     updateTransportPhase(*state, processData->transport);
     if (processData->audio_outputs_count == 0u || !processData->audio_outputs) return CLAP_PROCESS_CONTINUE;
@@ -689,7 +822,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         for (uint32_t frame = 0; frame < frames; ++frame) peak = std::max(peak, std::fabs(output.data32[ch][frame]));
     }
     state->outputPeak.store(std::max(state->outputPeak.load(std::memory_order_relaxed) * 0.92f, peak), std::memory_order_relaxed);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     publishMotionSnapshot(*state);
 #endif
     return CLAP_PROCESS_CONTINUE;
@@ -796,6 +929,10 @@ bool paramsGetInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info
 bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
 {
     if (!value) return false;
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(id<1||id>39) return false;
+    *value=self(plugin)->portableValues[id].load(std::memory_order_acquire);return true;
+#else
     const auto params = self(plugin)->params;
     switch (id) {
     case kOrderParamId: *value = params.order; return true;
@@ -839,6 +976,7 @@ bool paramsGetValue(const clap_plugin_t* plugin, clap_id id, double* value)
     case kScoreDepthParamId: *value = params.scoreDepth; return true;
     default: return false;
     }
+#endif
 }
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value, char* display, uint32_t size)
@@ -902,8 +1040,11 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* display, do
     return true;
 }
 
-void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* events, const clap_output_events_t*)
+void paramsFlush(const clap_plugin_t* plugin, const clap_input_events_t* events, const clap_output_events_t* output)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    servicePortableEvents(*self(plugin),output);
+#endif
     readEvents(*self(plugin), events);
 }
 const clap_plugin_params_t paramsExt { paramsCount, paramsGetInfo, paramsGetValue, paramsValueToText, paramsTextToValue, paramsFlush };
@@ -913,7 +1054,11 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     auto* state = self(plugin);
     SavedState saved {};
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    saved.params = portableParamsSnapshot(*state);
+#else
     saved.params = state->params;
+#endif
     saved.score = loadScore(*state);
     auto userBank = std::atomic_load_explicit(&state->userBank, std::memory_order_acquire);
     if (userBank) {
@@ -924,7 +1069,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
                       saved.userAtlas.begin() + table * s3g::kAmbiVotTableSize);
         }
     }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     saved.guiPage = state->guiPage;
     saved.guiViewMode = state->guiViewMode;
     saved.guiViewAzDeg = state->guiViewAzDeg;
@@ -951,7 +1096,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = migrateV2(legacy.params);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -963,7 +1108,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = migrateV3(legacy.params);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -975,7 +1120,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         legacy.version = version;
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = migrateV4(legacy.params);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -988,7 +1133,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readExact(stream, reinterpret_cast<uint8_t*>(&legacy) + sizeof(version), sizeof(legacy) - sizeof(version))) return false;
         state->params = legacy.params;
         storeScore(*state, legacy.score);
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(legacy.guiPage, 0, 2);
         state->guiViewMode = std::clamp(legacy.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(legacy.guiViewAzDeg, -180.0f, 180.0f);
@@ -1005,7 +1150,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             std::vector<float> wave(saved.userAtlas.begin(), saved.userAtlas.end());
             restoredUserBank = std::make_shared<s3g::AmbiVotTableBank>(s3g::ambiVotBankFromWave(wave));
         }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
         state->guiPage = std::clamp(saved.guiPage, 0, 2);
         state->guiViewMode = std::clamp(saved.guiViewMode, -1, 2);
         state->guiViewAzDeg = std::clamp(saved.guiViewAzDeg, -180.0f, 180.0f);
@@ -1019,13 +1164,16 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     state->engine.setParams(state->params);
     state->engine.setScore(loadScore(*state));
     state->params = state->engine.params();
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishPortableParams(*state);
+#endif
     return true;
 }
 const clap_plugin_state_t stateExt { stateSave, stateLoad };
 
 } // namespace
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 
 constexpr s3g::gui_layout::Panel kSynthPanel {
     s3g::gui_layout::PluginClass::ProceduralEncoder,
@@ -2715,13 +2863,19 @@ const clap_plugin_gui_t guiExt {
 
 namespace {
 
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#include "../common/s3g_score_encoder_vot_canvas.inc"
+#endif
 const void* pluginGetExtension(const clap_plugin_t*, const char* id)
 {
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (std::strcmp(id,CLAP_EXT_GUI)==0) return &portableGui;
+#endif
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     if (std::strcmp(id, CLAP_EXT_GUI) == 0) return &guiExt;
 #endif
     return nullptr;
@@ -2763,7 +2917,10 @@ const clap_plugin_t* create(const clap_host_t* host)
     state->engine.setParams(state->params);
     state->engine.setScore(loadScore(*state));
     state->params = state->engine.params();
-#if defined(__APPLE__)
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    publishPortableParams(*state);
+#endif
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const auto& points = state->engine.motionPoints();
     for (uint32_t i = 0; i < s3g::kAmbiVotMaxVoices; ++i) {
         state->guiAzimuth[i].store(points[i].azimuthDeg, std::memory_order_relaxed);

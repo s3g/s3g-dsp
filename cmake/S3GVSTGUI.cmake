@@ -29,9 +29,22 @@ function(s3g_enable_vstgui_gui target gui_source compile_definition)
     VSTGUI_OPENGL_SUPPORT=0)
   target_link_libraries(${target} PRIVATE vstgui)
 
+  if(gui_source MATCHES "s3g_environment_encoder_.*_canvas[.]inc$" OR
+      gui_source MATCHES "s3g_complex_processor_.*_canvas[.]inc$" OR
+      gui_source MATCHES "s3g_circuit_encoder_wrangler_canvas[.]inc$")
+    target_sources(${target} PRIVATE "${common_dir}/s3g_vstgui_auxiliary_window.cpp")
+    if(APPLE)
+      set_source_files_properties("${common_dir}/s3g_vstgui_auxiliary_window.cpp"
+        PROPERTIES LANGUAGE OBJCXX)
+      target_compile_definitions(${target} PRIVATE
+        "S3GVstguiAuxiliaryDelegate=${target}_AuxiliaryDelegate")
+    endif()
+  endif()
+
   # The direct panners and input encoders use VSTGUI's pinned RapidJSON for portable
   # layout, path and field files. Ship its license with those products.
   if(gui_source MATCHES "s3g_panner_canvas[.]inc$" OR
+      gui_source MATCHES "s3g_complex_processor_.*_canvas[.]inc$" OR
       gui_source MATCHES "s3g_input_encoder_(path|ray|ray_bilocation)_canvas[.]inc$")
     set(json_license "${PROJECT_BINARY_DIR}/vstgui-resources/RapidJSON-LICENSE.txt")
     configure_file("${vstgui_SOURCE_DIR}/vstgui/thirdparty/rapidjson/license.txt"

@@ -1,0 +1,37 @@
+# Scoped September 2026 menu-parity rollout (including the three terrain/map ports).
+clap_ambi_point_encoder/s3g_ambi_point_encoder.clap	s3g_ambi_encoder_point_64.clap	org.s3g.s3g-dsp.ambi-point-encoder-64	s3g Ambi Encoder Point 64
+clap_ambi_cloud_encoder/s3g_ambi_cloud_encoder.clap	s3g_ambi_encoder_cloud_64.clap	org.s3g.s3g-dsp.ambi-cloud-encoder-64	s3g Ambi Encoder Cloud 64
+clap_ambi_cartography_encoder/s3g_ambi_cartography_encoder.clap	s3g_ambi_encoder_cartography_64.clap	org.s3g.s3g-dsp.ambi-cartography-encoder-64	s3g Ambi Encoder Cartography 64
+clap_ambi_terrain_navigator/s3g_ambi_terrain_navigator.clap	s3g_ambi_encoder_surface_terrain_64.clap	org.s3g.s3g-dsp.ambi-terrain-navigator-64	s3g Ambi Encoder Surface Terrain 64
+clap_ambi_wave_terrain_encoder/s3g_ambi_wave_terrain_encoder.clap	s3g_ambi_encoder_wave_terrain_64.clap	org.s3g.s3g-dsp.ambi-wave-terrain-encoder-64	s3g Ambi Encoder Wave Terrain 64
+clap_ambi_stochastic_encoder/s3g_ambi_stochastic_encoder.clap	s3g_ambi_encoder_stochastic_64.clap	org.s3g.s3g-dsp.ambi-stochastic-encoder-64	s3g Ambi Encoder Stochastic 64
+clap_ambi_wind_encoder/s3g_ambi_wind_encoder.clap	s3g_ambi_encoder_wind_64.clap	org.s3g.s3g-dsp.ambi-wind-encoder-64	s3g Ambi Encoder Wind 64
+clap_ambi_water_encoder/s3g_ambi_water_encoder.clap	s3g_ambi_encoder_water_64.clap	org.s3g.s3g-dsp.ambi-water-encoder-64	s3g Ambi Encoder Water 64
+clap_ambi_pyrosphere_encoder/s3g_ambi_pyrosphere_encoder.clap	s3g_ambi_encoder_pyrosphere_64.clap	org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64	s3g Ambi Encoder Pyrosphere 64
+clap_ambi_cryosphere_encoder/s3g_ambi_cryosphere_encoder.clap	s3g_ambi_encoder_cryosphere_64.clap	org.s3g.s3g-dsp.ambi-cryosphere-encoder-64	s3g Ambi Encoder Cryosphere 64
+clap_ambi_insect_encoder/s3g_ambi_insect_encoder.clap	s3g_ambi_encoder_insect_64.clap	org.s3g.s3g-dsp.ambi-insect-encoder-64	s3g Ambi Encoder Insect 64
+clap_ambi_ray_encoder/s3g_ambi_ray_encoder.clap	s3g_ambi_encoder_ray_64.clap	org.s3g.s3g-dsp.ambi-ray-encoder	s3g Ambi Encoder Ray 64
+clap_ambi_ray_bilocation_encoder/s3g_ambi_ray_bilocation_encoder.clap	s3g_ambi_encoder_ray_bilocation_64.clap	org.s3g.s3g-dsp.ambi-ray-bilocation-encoder	s3g Ambi Encoder Ray Bilocation 64
+clap_ambi_path_encoder/s3g_ambi_path_encoder.clap	s3g_ambi_encoder_path_64.clap	org.s3g.s3g-dsp.ambi-path-encoder-64	s3g Ambi Encoder Path 64
+clap_ambi_speaker_decoder/s3g_ambi_speaker_decoder.clap	s3g_ambi_decoder_speaker_64.clap	org.s3g.s3g-dsp.ambi-speaker-decoder-64	s3g Ambi Decoder Speaker 64
+clap_macro_pitch/s3g_macro_pitch.clap	s3g_macro_pitch_8.clap	org.s3g.s3g-dsp.macro-pitch-8ch	s3g Macro Pitch 8
+clap_macro_pitch/s3g_24ch_macro_pitch.clap	s3g_macro_pitch_24.clap	org.s3g.s3g-dsp.macro-pitch-24ch	s3g Macro Pitch 24
+clap_macro_shred/s3g_macro_shred_mono.clap	s3g_macro_shred_mono_1.clap	org.s3g.s3g-dsp.macro-shred-mono	s3g Macro Shred Mono 1
+clap_macro_shred/s3g_macro_shred.clap	s3g_macro_shred_8.clap	org.s3g.s3g-dsp.macro-shred-8ch	s3g Macro Shred 8
+clap_macro_shred/s3g_24ch_macro_shred.clap	s3g_macro_shred_24.clap	org.s3g.s3g-dsp.macro-shred-24ch	s3g Macro Shred 24
+clap_macro_fracture/s3g_macro_fracture_mono.clap	s3g_macro_fracture_mono_1.clap	org.s3g.s3g-dsp.macro-fracture-mono	s3g Macro Fracture Mono 1
+clap_macro_fracture/s3g_macro_fracture.clap	s3g_macro_fracture_8.clap	org.s3g.s3g-dsp.macro-fracture-8ch	s3g Macro Fracture 8
+clap_macro_fracture/s3g_24ch_macro_fracture.clap	s3g_macro_fracture_24.clap	org.s3g.s3g-dsp.macro-fracture-24ch	s3g Macro Fracture 24
+clap_ambisonic_stereo_decoder/s3g_ambisonic_stereo_decoder.clap	s3g_ambi_decoder_stereo_2.clap	org.s3g.s3g-dsp.ambisonic-stereo-decoder	s3g Ambi Decoder Stereo 2
+clap_ambisonic_head_decoder/s3g_ambisonic_head_decoder.clap	s3g_ambi_decoder_head_2.clap	org.s3g.s3g-dsp.ambisonic-head-decoder	s3g Ambi Decoder Head 2
+clap_ambisonic_sub_decoder/s3g_ambisonic_sub_decoder.clap	s3g_ambi_decoder_sub_8.clap	org.s3g.s3g-dsp.ambisonic-sub-decoder	s3g Ambi Decoder Sub 8
+clap_ambi_object_decoder/s3g_ambi_object_decoder.clap	s3g_ambi_decoder_object_64.clap	org.s3g.s3g-dsp.ambi-object-decoder-64	s3g Ambi Decoder Object 64
+clap_ambi_adaptive_decoder/s3g_ambi_adaptive_decoder.clap	s3g_ambi_decoder_adaptive_64.clap	org.s3g.s3g-dsp.ambi-adaptive-decoder-64	s3g Ambi Decoder Adaptive 64
+clap_ambi_effect_dj_filter/s3g_ambi_effect_dj_filter.clap	s3g_ambi_effect_dj_filter_64.clap	org.s3g.s3g-dsp.ambi-effect-dj-filter-64	s3g Ambi Effect DJ Filter 64
+clap_ambi_effect_delay/s3g_ambi_effect_delay.clap	s3g_ambi_effect_delay_64.clap	org.s3g.s3g-dsp.ambi-effect-delay-64	s3g Ambi Effect Delay 64
+clap_ambi_effect_pitch_gain/s3g_ambi_effect_pitch.clap	s3g_ambi_effect_pitch_64.clap	org.s3g.s3g-dsp.ambi-effect-pitch-64	s3g Ambi Effect Pitch 64
+clap_ambi_effect_pitch_gain/s3g_ambi_effect_gain.clap	s3g_ambi_effect_gain_64.clap	org.s3g.s3g-dsp.ambi-effect-gain-64	s3g Ambi Effect Gain 64
+clap_ambi_effect_resonance_print/s3g_ambi_effect_resonance_print.clap	s3g_ambi_effect_resonance_print_64.clap	org.s3g.s3g-dsp.ambi-effect-resonance-print-64	s3g Ambi Effect Resonance Print 64
+clap_ambi_effect_trace/s3g_ambi_effect_partial_trace.clap	s3g_ambi_effect_partial_trace_64.clap	org.s3g.s3g-dsp.ambi-effect-partial-trace-64	s3g Ambi Effect Partial Trace 64
+clap_ambi_effect_trace/s3g_ambi_effect_response_trace.clap	s3g_ambi_effect_response_trace_64.clap	org.s3g.s3g-dsp.ambi-effect-response-trace-64	s3g Ambi Effect Response Trace 64
+clap_ambi_effect_displacement/s3g_ambi_effect_displacement.clap	s3g_ambi_effect_displacement_64.clap	org.s3g.s3g-dsp.ambi-effect-displacement-64	s3g Ambi Effect Displacement 64

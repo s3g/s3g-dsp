@@ -52,6 +52,7 @@ if(BUILD_TESTING)
   endfunction()
 
   s3g_add_tracker_test(s3g_tracker_core_tests tests/sequencer_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_drawing_tests tests/editor_drawing_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_command_tests tests/command_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_geometry_edit_tests tests/geometry_edit_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_instrument_rack_tests tests/instrument_rack_tests.cpp)

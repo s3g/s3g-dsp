@@ -14,6 +14,7 @@ public:
   AuxiliaryWindow &operator=(const AuxiliaryWindow &) = delete;
   bool attach(ContentView *view);
   bool show(void *adjacentNativeView = nullptr);
+  void setTitle(const std::string& title);
   void hide();
   bool visible() const;
   ContentView *contentView() const;

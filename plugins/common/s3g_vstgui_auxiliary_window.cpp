@@ -250,6 +250,10 @@ bool AuxiliaryWindow::show(void *adjacentNativeView) {
 #elif defined(_WIN32)
   HWND adjacent = static_cast<HWND>(adjacentNativeView);
   if (adjacent) {
+    // An owned utility window remains above its REAPER FX window without
+    // becoming globally topmost over unrelated applications.
+    SetWindowLongPtrW(native_->window, GWLP_HWNDPARENT,
+        reinterpret_cast<LONG_PTR>(GetAncestor(adjacent, GA_ROOT)));
     RECT nearby{}, frame{};
     GetWindowRect(GetAncestor(adjacent, GA_ROOT), &nearby);
     GetWindowRect(native_->window, &frame);
@@ -273,6 +277,16 @@ bool AuxiliaryWindow::show(void *adjacentNativeView) {
 #endif
   return editor_->setVisible(true);
 }
+void AuxiliaryWindow::setTitle(const std::string& title) {
+#if defined(__APPLE__)
+  [native_->panel setTitle:[NSString stringWithUTF8String:title.c_str()]];
+#elif defined(_WIN32)
+  const auto wide=pathFromUtf8(title.c_str()).wstring();
+  SetWindowTextW(native_->window,wide.c_str());
+#else
+  (void)title;
+#endif
+}
 void AuxiliaryWindow::hide() {
   if (editor_)
     editor_->setVisible(false);
@@ -280,8 +294,10 @@ void AuxiliaryWindow::hide() {
   [[native_->panel parentWindow] removeChildWindow:native_->panel];
   [native_->panel orderOut:nil];
 #elif defined(_WIN32)
-  if (native_->window)
+  if (native_->window) {
     ShowWindow(native_->window, SW_HIDE);
+    SetWindowLongPtrW(native_->window, GWLP_HWNDPARENT, 0);
+  }
 #endif
 }
 bool AuxiliaryWindow::visible() const {

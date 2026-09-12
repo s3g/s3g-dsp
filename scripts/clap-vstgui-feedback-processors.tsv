@@ -1,0 +1,4 @@
+clap_processor_errant/s3g_processor_errant.clap	s3g_processor_errant_2.clap	org.s3g.s3g-dsp.processor-errant	s3g Processor Errant 2
+clap_feedback_shift/s3g_feedback_shift.clap	s3g_processor_feedback_shift_8.clap	org.s3g.s3g-dsp.feedback-shift	s3g Processor Feedback Shift 8
+clap_processor_fissure/s3g_processor_fissure.clap	s3g_processor_fissure_8.clap	org.s3g.s3g-dsp.processor-fissure	s3g Processor Fissure 8
+clap_psd_raw_field/s3g_fault.clap	s3g_processor_fault_8.clap	org.s3g.s3g-dsp.fault	s3g Processor Fault 8

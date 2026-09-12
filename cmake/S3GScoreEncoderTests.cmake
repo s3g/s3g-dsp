@@ -1,0 +1,22 @@
+if(S3G_SCORE_ENCODERS_VSTGUI_AVAILABLE AND BUILD_TESTING AND S3G_BUILD_CLAP_PLUGIN)
+  foreach(name acid horizon vot)
+    set(wrapper ambi_${name}_encoder)
+    set(target s3g_score_${name}_canvas_smoke)
+    add_executable(${target} "${PROJECT_SOURCE_DIR}/tests/score_encoder_canvas_smoke.cpp")
+    target_link_libraries(${target} PRIVATE s3g_dsp)
+    target_include_directories(${target} PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+    target_compile_definitions(${target} PRIVATE
+      "S3G_SCORE_SOURCE=\"../plugins/clap_${wrapper}/s3g_${wrapper}_clap.cpp\"")
+    s3g_enable_vstgui_gui(${target}
+      "${PROJECT_SOURCE_DIR}/plugins/common/s3g_score_encoder_${name}_canvas.inc"
+      S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if(APPLE)
+      set_source_files_properties("${PROJECT_SOURCE_DIR}/tests/score_encoder_canvas_smoke.cpp" PROPERTIES LANGUAGE OBJCXX)
+      set_target_properties(${target} PROPERTIES MACOSX_BUNDLE TRUE)
+      target_link_libraries(${target} PRIVATE "-framework Cocoa")
+    endif()
+    add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
+    set_tests_properties(${target} PROPERTIES LABELS "non_nim;encoder;gui;smoke" TIMEOUT 180)
+  endforeach()
+endif()
+

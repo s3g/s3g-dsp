@@ -3,6 +3,14 @@ add_library(s3g_processor_fissure_clap MODULE
 )
 
 target_link_libraries(s3g_processor_fissure_clap PRIVATE s3g_dsp)
+if(S3G_FEEDBACK_PROCESSORS_VSTGUI_AVAILABLE)
+ s3g_enable_vstgui_gui(s3g_processor_fissure_clap
+  "${PROJECT_SOURCE_DIR}/plugins/common/s3g_feedback_processor_fissure_canvas.inc"
+  S3G_ENABLE_VSTGUI_CANVAS_GUI)
+endif()
+if(WIN32)
+ set_target_properties(s3g_processor_fissure_clap PROPERTIES SUFFIX ".clap")
+endif()
 target_include_directories(s3g_processor_fissure_clap PRIVATE
   ${S3G_CLAP_INCLUDE_DIR})
 
@@ -49,7 +57,7 @@ if(BUILD_TESTING)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
         $<TARGET_FILE:s3g_processor_fissure_clap>
         org.s3g.s3g-dsp.processor-fissure
-        1356 770 "s3g Processor Fissure 8" responsive)
+        1356 770 "s3g Processor Fissure 8" ${s3g_feedback_processors_gui_smoke_mode})
     set_tests_properties(s3g_processor_fissure_gui_smoke PROPERTIES
       LABELS "non_nim;clap;gui" TIMEOUT 120)
   endif()
