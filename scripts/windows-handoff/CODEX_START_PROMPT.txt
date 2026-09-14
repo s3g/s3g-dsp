@@ -6,6 +6,8 @@ parent folder has SOURCE_SNAPSHOT.json and the exact Windows test packages.
 Source baseline: main, 892e0af704b5316fce6b1c388f96f6c49ed2389b; this is a
 source snapshot without .git, plus new handoff/packaging files. Verify transfer
 hashes before edits. Do not assume the old Mac chat or build caches are present.
+Before making source revisions, also read WINDOWS_CODE_INTEGRATION.md and use
+its fresh-clone, short-lived branch and reviewed integration workflow.
 
 First help me run the supplied Tracker integration checker from an ordinary
 interactive Windows desktop and verify the existing page-visibility correction

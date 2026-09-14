@@ -20,6 +20,8 @@
 Contents:
 
 - `s3g-dsp/`: source snapshot, documentation and build/test scripts; no `.git`.
+- `s3g-dsp/WINDOWS_CODE_INTEGRATION.md`: required Git workflow for source
+  revisions that must merge back into the shared repository.
 - `windows-test-packages/`: latest full suite (121 CLAPs, excluding Ambi Energy)
   and a Tracker-only alternative. **Install only one Tracker copy.**
 - `SOURCE_SNAPSHOT.json`: base commit, working-tree status, source file hashes

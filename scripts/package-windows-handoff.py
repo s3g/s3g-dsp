@@ -18,6 +18,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 KIT_ROOT = "s3g-dsp-windows-handoff"
 HANDOFF_FILES = {
+    "WINDOWS_CODE_INTEGRATION.md",
     "WINDOWS_TESTING_HANDOFF.md",
     "scripts/package-windows-handoff.py",
     "scripts/windows-handoff/START_HERE.md",

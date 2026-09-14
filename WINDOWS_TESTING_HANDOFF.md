@@ -220,6 +220,11 @@ Do not broaden this handoff into new migrations or an Ambi Energy port.
 
 ## Working safely and returning changes
 
+Before making source revisions, read `WINDOWS_CODE_INTEGRATION.md`. It defines
+the shared-branch workflow, conflict handling, pull-request path and offline
+patch fallback. Keep this no-Git snapshot for baseline testing, then make
+mergeable revisions in a real clone.
+
 This source snapshot is usable without Git but contains no `.git` history. Before
 changing source, either use an authenticated clone containing the recorded base
 commit and carefully compare/overlay the snapshot, or initialize a **new local
