@@ -32,16 +32,22 @@ void drawDisplayList(VSTGUI::CDrawContext& context, const DisplayList& list,
         context.setFillColor(color(command.color));
         context.setFrameColor(color(command.color));
         context.setLineWidth(command.lineWidth);
+        context.setLineStyle(command.dashes.empty() && !command.roundCaps ? kLineSolid
+            : CLineStyle(command.roundCaps ? CLineStyle::kLineCapRound : CLineStyle::kLineCapButt,
+                CLineStyle::kLineJoinMiter, 0,
+                command.dashes));
         switch (command.primitive) {
         case Primitive::FillRect:
             context.drawRect(rect, kDrawFilled);
             break;
+        case Primitive::StrokeEllipse:
         case Primitive::StrokeRect: {
             // CDrawContext::drawRect shrinks stroked rectangles by one point.
             // A path preserves the Cocoa rectangle's exact centerline.
             auto path = owned(context.createGraphicsPath());
             if (path) {
-                path->addRect(rect);
+                if (command.primitive == Primitive::StrokeEllipse) path->addEllipse(rect);
+                else path->addRect(rect);
                 context.drawGraphicsPath(path, CDrawContext::kPathStroked);
             }
             break;
@@ -49,11 +55,12 @@ void drawDisplayList(VSTGUI::CDrawContext& context, const DisplayList& list,
         case Primitive::FillEllipse:
             context.drawEllipse(rect, kDrawFilled);
             break;
+        case Primitive::FillPolygon:
         case Primitive::Polyline: {
             CDrawContext::PointList points;
             points.reserve(command.points.size());
             for (auto point : command.points) points.emplace_back(point.x, point.y);
-            context.drawPolygon(points, kDrawStroked);
+            context.drawPolygon(points, command.primitive == Primitive::FillPolygon ? kDrawFilled : kDrawStroked);
             break;
         }
         case Primitive::Text: {

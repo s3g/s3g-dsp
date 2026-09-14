@@ -49,6 +49,7 @@ typedef void (^S3GTrackerSongProjectFileHandler)(void);
 
 /// Shows the window without starting a modal session.
 - (void)showWindow:(nullable id)sender;
+- (void)suspendEditing;
 - (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds
     activePatternId:(NSString*)activePatternId;
 - (void)setAvailablePatternIds:(NSArray<NSString*>*)patternIds

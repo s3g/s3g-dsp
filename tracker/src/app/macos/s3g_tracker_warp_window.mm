@@ -2,6 +2,9 @@
 
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_workspace.h"
+#if defined(S3G_TRACKER_PORTABLE_WARP_PAGE)
+#include "s3g_tracker_warp_page_host.h"
+#endif
 
 #include "s3g_gui_layout.h"
 #define S3G_COCOA_GUI_DRAWING_ONLY 1
@@ -299,6 +302,9 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 @property(nonatomic, copy) NSArray<NSButton*>* stackButtons;
 @property(nonatomic) NSInteger selectedTransform;
 @property(nonatomic) NSInteger selectedLibrarySlot;
+#if defined(S3G_TRACKER_PORTABLE_WARP_PAGE)
+@property(nonatomic, strong) S3GTrackerWarpPageHost* portablePage;
+#endif
 @end
 
 @implementation S3GTrackerWarpWindowController
@@ -472,6 +478,15 @@ NSString* transformSummary(const TimingWarpTransform& transform,
     window.delegate = self;
     window.releasedWhenClosed = NO;
     window.minSize = NSMakeSize(720.0, 530.0);
+
+#if defined(S3G_TRACKER_PORTABLE_WARP_PAGE)
+    self.portablePage = [[S3GTrackerWarpPageHost alloc] initWithState:state callbacks:callbacks];
+    if (!self.portablePage) return nil;
+    window.contentView = self.portablePage;
+    S3GTrackerRestoreWindowFrame(window, @"S3GTrackerWarpWindow");
+    [self reloadModel];
+    return self;
+#endif
 
     self.rootView = [[S3GTrackerWarpRootView alloc]
         initWithFrame:window.contentView.bounds];
@@ -653,6 +668,9 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 
 - (void)reloadModel
 {
+#if defined(S3G_TRACKER_PORTABLE_WARP_PAGE)
+    if (self.portablePage) { self.portablePage.page->reloadModel(); return; }
+#endif
     if (!self.trackerState || !self.window) return;
     const auto& library = self.trackerState->session.warpLibrary;
     [self.libraryPopup removeAllItems];
@@ -761,7 +779,17 @@ NSString* transformSummary(const TimingWarpTransform& transform,
 
 - (void)refreshPlaybackDisplay
 {
+#if defined(S3G_TRACKER_PORTABLE_WARP_PAGE)
+    if (self.portablePage) { [self.portablePage refreshPlaybackDisplay]; return; }
+#endif
     [self.curveView refreshPlaybackDisplay];
+}
+
+- (void)suspendEditing
+{
+#if defined(S3G_TRACKER_PORTABLE_WARP_PAGE)
+    if (self.portablePage) self.portablePage.page->stopRefresh();
+#endif
 }
 
 - (void)librarySlotSelected:(id)sender

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>s3g Tracker - s3g-dsp</title>
-    <meta name="description" content="Use the s3g Tracker MIDI-generating CLAP in REAPER: routing, polymetric columns, sequencing actions, patterns, Live Code, timing warps, and keyboard editing.">
+    <meta name="description" content="Current s3g Tracker guide: VSTGUI workspace, playback follow, polymetric MIDI, Song, Geometry, Bursts, Phrases, Assemble, Reshape, Warps, project files, and Mac/Windows keyboard use.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -39,7 +39,8 @@
         </figure>
 
         <div class="callout">
-          <p>The tracker is a MIDI-only companion to the drum and sampler instruments in the collection.</p>
+          <p>This guide describes the current VSTGUI Tracker build, including the September 2026 updates. Older downloads may show earlier interfaces. Tracker is now a CLAP-only MIDI product; its former standalone Mac app is retired.</p>
+          <p>The Mac build has been locally tested. A Windows x64 test build contains the same ten pages, but native Windows/REAPER acceptance is still pending. Do not treat the test build as an accepted Windows release. See <a href="#platforms">Platform and resource setup</a>.</p>
         </div>
 
         <h2 id="workflow">Workflow</h2>
@@ -51,17 +52,30 @@
           <li>Enter notes and sequencing actions, then start REAPER's transport. The pattern is saved automatically with the REAPER project.</li>
         </ol>
 
+        <h2 id="workspace">Workspace and Resizing</h2>
+
+        <p>The ten top tabs select <code>TRACKER</code>, <code>SONG</code>, <code>GEOMETRY</code>, <code>BURSTS</code>, <code>PHRASES</code>, <code>ASSEMBLE</code>, <code>RESHAPE</code>, <code>WARPS</code>, <code>CONSOLE</code>, and <code>HELP</code>. These are views and tools for one composition, not independent plug-ins. Project edits share the same undo history.</p>
+        <p>There are two different kinds of zoom:</p>
+        <ul>
+          <li><strong>Whole-interface size:</strong> resize the REAPER plug-in window to scale the interface proportionally from 65% to 200%. This enlarges buttons, labels, menus, and graphics together. Use it for readability on a smaller display.</li>
+          <li><strong>Tracker grid zoom:</strong> the <code>− / 100% / +</code> controls in VIEW change only grid density, from 55% to 180%. Use the scrollbars or wheel to reach off-screen rows and lanes. This is independent of the outer window size.</li>
+        </ul>
+        <p>Geometry, Bursts, Phrases, Assemble, Reshape, Warps, Console, and Help can detach with the <code>↗</code> button; double-clicking a tool tab also toggles detachment. Close the detached window or use <code>↙</code> to reattach it. Tracker and Song stay embedded. Detached tools resize their workspace layout rather than applying Tracker's grid zoom, and continue to share the same live composition.</p>
+        <p>Drop-down and right-click menus use the s3g-dsp appearance, with item separators and compact nested submenus. Exact text entry uses the page's own text field: double-click a cell or an editable numeric value, type, then press Return/Enter to commit or Escape to cancel. A field that rejects a value stays open so it can be corrected.</p>
+
         <h2 id="host-transport">Host Transport and Timing</h2>
 
-        <p>REAPER owns the audio device, tempo, transport, rendering, instruments, effects, and final mix. <code>HOST BPM</code> is read-only. <code>RATE</code> scales the tracker clock by a musical ratio: <code>1/4×</code>, <code>1/2×</code>, <code>2/3×</code>, <code>1×</code>, <code>3/2×</code>, <code>2×</code>, or <code>4×</code>.</p>
+        <p>REAPER owns the audio device, tempo, transport, rendering, instruments, effects, and final mix. <code>HOST BPM</code> is read-only. The <code>BPM</code> multiplier in Tracker's TRANSPORT toolbox scales that tempo by <code>1/4×</code>, <code>1/2×</code>, <code>2/3×</code>, <code>1×</code>, <code>3/2×</code>, <code>2×</code>, or <code>4×</code>; it does not set REAPER's BPM.</p>
 
         <p>The play button requests host play or continue. <code>SYNC ALL</code> forces every lane column to row 1 without stopping or seeking REAPER; it ignores the columns' phase offsets for that launch. Click it while stopped to queue a synchronized start, or while playing to realign the tracker at the next processing boundary. The loop button applies the displayed row range across every track column. <code>PANIC</code> releases all notes tracked as active and sends MIDI CC 123 on channels 1–16.</p>
 
         <p>Normal host starts, seeks, and loop discontinuities remain host-timeline aligned and honor each column's phase. Pattern-boundary changes are prepared outside the audio callback and swapped at a safe musical boundary.</p>
+        <p>Graphics do not drive playback. The grid, Geometry, Warps, and audition cursors read audio-derived display snapshots; a slow display or a stalled GUI does not reschedule MIDI. Tracker retains its presentation holdback so the graphics follow the audible state. After a missed refresh, the display catches up to the current snapshot instead of playing back a queue of old frames.</p>
+        <p><code>SWING</code> supports 50–75%; drag or scroll for adjustment, use Option/Alt for finer steps, or Option/Alt-click to reset. <code>FILL</code> latches a live condition used by <code>CD FILL</code> and <code>CD !FILL</code>; Shift-hold makes it momentary. FILL is a performance control, not a saved note edit.</p>
 
         <h2 id="midi-routing">MIDI Routing</h2>
 
-        <p>Tracker exposes one CLAP note-output port because REAPER does not currently provide usable routing for its former multiple note-port layout. It also exposes one MIDI input dedicated to step recording. Every tracker lane owns a one-based output channel selected with its <code>CHxx</code> control. There is no tracker-global channel assignment and no direct CoreMIDI device selection: REAPER decides which inputs reach Tracker and which downstream track or plug-in receives its output.</p>
+        <p>Tracker exposes one channel-addressed CLAP note-output port and one MIDI input for authoring/recording. Every tracker lane owns a one-based output channel selected with its <code>CHxx</code> control. There is no tracker-global channel assignment and no direct CoreMIDI or Windows MIDI-device selection: REAPER decides which inputs reach Tracker and which downstream track or plug-in receives its output.</p>
 
         <p>Several downstream instrument instances may share one REAPER track and listen on different channels. For clearer mixing and plug-in chains, create MIDI sends from the Tracker track and filter channels at the receiving tracks or instruments. Use another Tracker instance when a project needs more than 16 independently addressed destinations.</p>
 
@@ -69,15 +83,15 @@
 
         <h2 id="step-recording">MIDI Step Recording</h2>
 
-        <p>Route a REAPER MIDI input to Tracker, place the tracker cursor on the destination lane, and choose <code>STEP</code>, <code>LIVE Q</code>, or <code>LIVE MT</code>. Armed MIDI is passed through immediately on the selected lane's output channel. The input channel is reported in Console but does not override the selected lane or its output channel.</p>
+        <p>Route a REAPER MIDI input to Tracker, choose the destination in the recording <code>LANE</code> menu, then choose <code>REC STEP</code>, <code>REC Q</code>, or <code>REC MT</code>. The armed lane is independent of the editing cursor and the playback-follow source. Armed MIDI is passed through on the destination lane's output channel. The input channel is reported in Console but does not override that destination.</p>
 
         <table class="readout-table">
           <thead><tr><th>Mode</th><th>Recorded result</th></tr></thead>
           <tbody>
-            <tr><td><code>OFF</code></td><td>Disarms input capture.</td></tr>
-            <tr><td><code>STEP</code></td><td>Writes note and velocity exactly on the cursor row, removes MT there, and advances one row. Note-off is not recorded.</td></tr>
-            <tr><td><code>LIVE Q</code></td><td>Writes onset and physical note-off at their nearest viable playback rows, filling crossed rows with <code>HLD</code> and ending on <code>KIL</code>.</td></tr>
-            <tr><td><code>LIVE MT</code></td><td>Uses the same NOTE duration cells and also writes the measured onset and release offsets as MicroTime in an existing MT cell or the first empty SEQ pair.</td></tr>
+            <tr><td><code>REC OFF</code></td><td>Disarms input capture.</td></tr>
+            <tr><td><code>REC STEP</code></td><td>Writes a paired NOTE/VOL stack on the editing row of the armed lane. A held chord is one step; releasing its final key advances by VIEW's <code>JUMP</code> amount. Physical note-off timing is not written as a duration.</td></tr>
+            <tr><td><code>REC Q</code></td><td>Quantized live recording: places notes at playback rows in the armed NOTE cycle, fills held duration with <code>HLD</code>, and ends it with <code>KIL</code>.</td></tr>
+            <tr><td><code>REC MT</code></td><td>Microtimed live recording: also writes onset and release offsets as MT in an existing MT cell or an available SEQ pair.</td></tr>
           </tbody>
         </table>
 
@@ -104,7 +118,8 @@
 
         <p>Each column advances independently and owns its length, stride, phase, direction, mute state, and playhead. One track can therefore combine a 16-row note pattern, a 7-row volume pattern, and a 5-row probability pattern.</p>
 
-        <p>The header gives every column four separate rows: label, length/stride, direction, and mute. Double-click the <code>L</code> row to type a length. Click <code>DIR</code> to cycle forward <code>&gt;</code>, reverse <code>&lt;</code>, palindrome <code>&lt;&gt;</code>, and random <code>RND</code>. The bottom <code>MUTE</code> row has an isolated click target. Double-click a track name to rename it.</p>
+        <p>Below the lane name, channel, and <code>SYNC</code> controls, each column has separate label, length/stride, <code>READ</code>, direction, and mute rows. Double-click length to enter <code>24</code> or <code>24x2</code>; double-click READ to set its one-based starting row. Click <code>DIR</code> to cycle forward <code>&gt;</code>, reverse <code>&lt;</code>, palindrome <code>&lt;&gt;</code>, and random <code>RND</code>. Click the bottom <code>MUTE</code> target independently. Double-click a lane name to rename it; right-click the name to move the complete lane or make it the playback-follow source.</p>
+        <p>NOTE supports stacks of up to eight pitches, for example <code>60+64+67</code>. Matching VOL, MT, and GATE stacks can address those voices individually; compact cells abbreviate stacks, while inline editing exposes the full token. <code>GATE DEF</code> uses the transport gate default; numeric gates are measured in rows, and <code>TIE</code> sustains rather than scheduling a fixed gate release. Bursts carry their own per-event gates.</p>
 
         <h2 id="sequencing-actions">Sequencing Actions</h2>
 
@@ -125,9 +140,13 @@
             <tr><td><code>OF</code></td><td>Note Offset</td><td>Read NOTE from four rows back to four ahead.</td></tr>
             <tr><td><code>RP</code></td><td>Repeat Previous</td><td>Chance of filling an empty source with the last emitted note.</td></tr>
             <tr><td><code>EU</code></td><td>Euclidean Gate</td><td>One through NOTE-length Euclidean hits.</td></tr>
+            <tr><td><code>CD</code></td><td>Condition</td><td>Local cycle, Song-row, Song-loop, or live FILL condition; right-click its value to choose by name.</td></tr>
+            <tr><td><code>EN</code></td><td>Song Energy</td><td>Play when the active Song row's energy meets the 0–1 threshold.</td></tr>
             <tr><td><code>CC0</code>–<code>CC127</code></td><td>MIDI Control Change</td><td>Send a 7-bit controller value on the lane's MIDI channel, including on NOTE rest rows.</td></tr>
           </tbody>
         </table>
+
+        <p><code>CD</code> accepts local ratios and named conditions such as <code>FIRST</code>, <code>LAST</code>, <code>FILL</code>, <code>!FILL</code>, <code>SFIRST</code>, <code>SLAST</code>, <code>RODD</code>, <code>REVEN</code>, and Song-loop ratios such as <code>S2:4</code>. Use the named menu rather than guessing the encoded value. Song's <code>EN %</code> column supplies the energy used by EN; it is a compositional gate, not an audio loudness meter.</p>
 
         <p>Each V lane has its own interpolation mode. Click its <code>V1 STP/LIN</code> or <code>V2 STP/LIN</code> header, or use <code>interp &lt;target&gt; &lt;v1|v2&gt; &lt;step|linear&gt;</code>. <code>STEP</code> sends only the authored value at each visited CC row. <code>LINEAR</code> sends intermediate integer CC values toward the next visited row when it contains the same controller. Direction, stride, phase, and polymetric lane traversal determine which row is “next”; empty rows, another controller, or another action end the ramp. Interpolation is capped at 200 messages per second and 128 generated events per tracker tick across the project, while every authored endpoint is preserved.</p>
 
@@ -152,6 +171,11 @@
 
         <p>For example, <code>vol @kick !+*.</code> writes four levels, while <code>fx1 @kick pr !.=-</code> writes probability 1.00, probability 0.55, previous, and empty. Numeric VOL entries are always MIDI integers or normalized decimals; numeric FX entries are always normalized decimals. Grid cell text also accepts <code>---</code>, <code>RPT</code>, <code>HLD</code>, and <code>KIL</code> in NOTE; <code>DEF</code> and <code>PRV</code> appear in value columns.</p>
 
+        <h2 id="playback-follow">Playback Row Follow</h2>
+        <p>The <code>VIEW</code> header has separate follow-mode and NOTE-source menus. <code>STATIC</code> is the default: the grid stays in place and the independent playback cursors advance as before. <code>CENTER</code> keeps the source NOTE row at the center of the row viewport, scrolling the grid beneath it. Blank padding at pattern boundaries keeps the guide stationary without duplicating rows. <code>PAGE</code> jumps between aligned groups of 16 rows, or the largest complete 8-, 4-, 2-, or 1-row group that fits at the current grid zoom. The control shows the actual group size (for example <code>PAGE 08</code> at 100% grid zoom and <code>PAGE 16</code> at 55%). Follow modes pin the lane headers; whole-plugin resizing still scales the existing layout proportionally.</p>
+        <p>The source defaults to <code>NOTE: L01</code>. Pin any NOTE lane, choose <code>SELECTED LANE</code>, or right-click a lane's name and choose <code>FOLLOW THIS LANE</code> (which enables CENTER if following was off). A pinned source does not change when another lane is selected and moves with a reordered lane. Across patterns, its number refers to the same lane slot; an absent slot shows <code>NO LANE</code> and does not choose a replacement. Deleting the pinned source returns to STATIC. The source's header reads <code>NOTE &gt;</code>; its stronger cell outline and subtle row band coexist with every other lane/column playhead. Muted lanes and rests remain valid sources: following tracks the NOTE row, not the latest note-on.</p>
+        <p>Manual scrolling, row/cell navigation, or text/cell editing holds following. Click <code>RESUME</code> in VIEW to rejoin playback; finishing an edit does not silently resume. Horizontal scrolling remains manual. CENTER/PAGE follow the published NOTE row directly through reverse, stride, random jumps and loop wraps, without animating through rows that did not play. Mode and source are saved with the REAPER project and <code>.s3gt</code> document; old documents load as STATIC. The temporary manual hold is not saved. Following reads Tracker's existing audio-stamped presentation snapshot and never changes MIDI scheduling or creates an independent GUI clock.</p>
+
         <h2 id="editing">Editing and Shortcuts</h2>
 
         <p>Double-click a cell to type an exact value. Drag <code>VOL</code>, <code>V1</code>, or <code>V2</code> vertically for continuous editing; Option-drag is fine and Shift-drag is coarse. Clicking blank workspace releases an active text field. Drag the row-number gutter to set a global loop region.</p>
@@ -169,7 +193,7 @@
             <tr><td>Control-P / Control-Shift-P</td><td>Copy the selected Phrase to the cursor, or capture the selected 2–64 row lane range as a Phrase.</td></tr>
             <tr><td>Control-Option-Up / Down</td><td>Transpose one NOTE-column selection by a semitone; add Shift for an octave.</td></tr>
             <tr><td>Control-Option-1…0</td><td>Set Tracker row jump to 1…10.</td></tr>
-            <tr><td>Control-Z / Control-Shift-Z</td><td>Undo or redo a persistent Tracker edit. Command-Z remains available to REAPER.</td></tr>
+            <tr><td>Control-Z / Control-Shift-Z</td><td>Undo or redo a persistent Tracker edit while the grid is focused.</td></tr>
             <tr><td>Control-= / − / 0</td><td>Zoom in, zoom out, or reset tracker zoom.</td></tr>
             <tr><td>Delete / Backspace</td><td>Clear the selected cell.</td></tr>
             <tr><td>X / R / H / K in NOTE</td><td>Toggle an anchored hit, write retrigger-previous, continue the active note, or write kill; each advances to the next row.</td></tr>
@@ -181,9 +205,9 @@
           </tbody>
         </table>
 
-        <p>Tracker editing deliberately uses Control-key combinations so REAPER retains its Command-key shortcuts.</p>
-
-        <p>The Phrase page is a compact Tracker grid, using the same NOTE, VOL, SEQ1/V1, SEQ2/V2, and GATE cell formats, colors, inline text-entry path, and SEQ context menus. VOL is displayed and entered as a normalized <code>0.000</code>–<code>1.000</code> value. The Phrase Library's optional <code>BPM</code> text field stores a 20–400 recommended authoring tempo alongside the Phrase name; it is informational and never overrides project or host playback. Drag cells or Shift-click within one column to select a range; Control-Shift-Arrows extends the selection. Control-A/C/X/V selects all, copies, cuts, and pastes compatible cells while preserving a multi-row, multi-column shape. Right-click <code>SEQ1</code>/<code>SEQ2</code> to choose an action or MIDI CC; right-click a CD value to choose its named condition. Capture comes from the main Tracker: select 2–64 rows in one lane, right-click, and choose <code>PHRASE → CAPTURE SELECTION</code>. Referenced Burst definitions travel with the Phrase and are safely imported or remapped when it is copied into another pattern. <code>PREVIEW CH</code> selects the MIDI channel used by stopped-transport preview only, while the green playhead advances through the Phrase at the project BPM. Copying a Phrase keeps the destination lane's channel.</p>
+        <p>In this table, <strong>Control</strong> means the Mac Control key or Windows Ctrl; <strong>Option</strong> means Mac Option or Windows Alt. These are Tracker grid shortcuts. On Mac, they deliberately leave Command combinations to REAPER when the grid is focused. Windows uses familiar Ctrl shortcuts while Tracker has focus; it does not provide a second modifier reserved for REAPER.</p>
+        <p>Inside a focused text field, ordinary text-editing shortcuts apply: Command-A/C/X/V/Z on Mac, Ctrl-A/C/X/V/Z on Windows. Space inserts a space in either Live Code field and must not start REAPER's transport. Return/Enter executes a command or commits a value; Escape closes the field. Click outside the plug-in to return shortcut focus to REAPER. These focus rules also apply to a detached Console.</p>
+        <p>Drag or Shift-extend selections before using right-click transformations. Clipboard operations preserve typed NOTE/VOL/SEQ/GATE values, including chords and qualified Burst references, when the source and destination are compatible. The lower envelope follows the selected value column; its larger cyan points mark rows with note hits. VIEW's <code>JUMP</code> menu sets a 1–16-row navigation/step-entry increment and is saved with the project.</p>
 
         <h2 id="patterns-song">Patterns and Song</h2>
 
@@ -200,9 +224,23 @@
 
         <p>Song mode arranges stable pattern references into a longer form. Each pattern menu shows both parts as <code>A01 · Pattern Name</code>: the ID is saved in the Song row, while the renameable pattern name is there for recognition. Pattern-bank editing is locked while Song playback is active so a playing arrangement cannot acquire unresolved references.</p>
 
-        <p>Turn on <code>SONG TRANSPORT</code> before starting REAPER. Playback begins at Song row 1. <code>TICKS</code> is the length of one pattern cycle for that Song row, and <code>REP</code> is the number of cycles before natural advance; repeats continue the current pattern phase, while entry into another Song row relaunches that row's pattern at its start. <code>BPM ×</code> interprets the observed REAPER tempo independently for each row, from <code>1/4×</code> through <code>4×</code>, and composes with the main Tracker BPM multiplier. <code>LOOP IN–OUT</code> is <code>OFF</code> by default. Enter an inclusive one-based range such as <code>5–8</code> to start at pattern row 5 and wrap after row 8 for the duration of that Song row. This makes short sub-patterns and their variations reusable without duplicating the source pattern; <code>TICKS</code> remains the independent row-duration control. The <code>WARP</code> column selects <code>OFF</code> or a named composition saved on the Warps page. Warp is global timing, so it belongs to the Song row rather than an individual tracker lane.</p>
+        <p>Set <code>SONG: ON</code> before starting REAPER. Playback begins at Song row 1. <code>TICKS / SPAN</code> determines the length of a pass and <code>REP</code> the number of passes before natural advance; repeats continue the current pattern phase, while entry into another Song row relaunches that row's pattern at its start. <code>BPM ×</code> applies a per-row tempo ratio from <code>1/4×</code> through <code>4×</code>, composed with Tracker's main BPM multiplier. <code>LOOP IN–OUT</code> is OFF by default: an inclusive one-based range such as <code>5–8</code> starts at pattern row 5 and wraps after row 8 while that Song row plays. This reuses a sub-pattern without duplicating its source. The row's duration remains a separate control.</p>
+        <p><code>WARP</code> selects OFF or a named Warps-library composition. <code>SWING %</code> and <code>EN %</code> set row swing and the energy used by EN conditions. The two rows of lane-mute buttons address lanes 1–16 and 17–32; slots absent from that row's selected pattern are inactive. Drag a row handle to reorder; ROW EDIT provides insertion, duplication, and removal. Scroll the arrangement for rows or columns that do not fit.</p>
 
-        <p>To jump during playback, select a target row, choose its launch boundary, and press <code>QUEUE SELECTED</code>. <code>NEXT TICK</code> waits at least one tracker tick; <code>NEXT BEAT</code> uses the Song beat grid (four tracker ticks by default); <code>NEXT CYCLE</code> waits for the end of the current <code>TICKS</code> cycle; and <code>NEXT SONG ROW</code> waits for the natural end of the current row, including its repeats. The target row is filled and outlined in yellow, and the queue readout states both the row and boundary. Queueing again replaces the earlier pending target. At the chosen boundary, pattern, BPM multiplier, WARP, swing, and lane mutes switch as one row launch; <code>OFF</code> restores identity timing instead of inheriting the previous row's warp.</p>
+        <p>To jump during playback, select a target row, choose a boundary, and press <code>SELECT QUEUE</code>. <code>NEXT TICK</code> waits at least one Tracker tick; <code>NEXT BEAT</code> uses the Song beat grid; <code>END OF PASS</code> waits for the current pass to finish; <code>END OF ROW</code> waits for the row's remaining repeats. The active row has a green marker, while the pending target has a warm amber outline and queue readout. Queueing again replaces the pending target. At launch, pattern, BPM multiplier, WARP, swing, energy, and lane mutes switch together. WARP OFF restores identity timing instead of inheriting the previous row's warp.</p>
+        <p>Edits to a playing arrangement are published at safe Song boundaries rather than partially changing the active row. In a final non-looping row with no future boundary, an edit can be saved immediately while its playback update waits until the host stops. Song LOOP repeats the arrangement; it is separate from a row's LOOP IN–OUT and Tracker's pattern-loop controls.</p>
+
+        <h2 id="project-files">Project Files and Asset Banks</h2>
+        <p>Saving the REAPER project stores Tracker's composition in the plug-in state. For a separate transferable file, open Song's <code>SONG FILE</code> menu and choose <code>SAVE SONG + PATTERNS…</code> or <code>LOAD SONG + PATTERNS…</code>. A <code>.s3gt</code> file holds the full MIDI composition, not just the visible Song row.</p>
+        <ul>
+          <li>Pattern bank, per-lane MIDI channels, note/value/SEQ/gate cells, column cycles, and aliases.</li>
+          <li>Song arrangement, loops, row timing/mutes/energy, transport settings, and named timing warps.</li>
+          <li>Project and imported Burst/Phrase banks, plus the saved Assemble staging recipe.</li>
+          <li>Project view preferences such as NOTE formatting, row JUMP, and playback-follow mode/source.</li>
+        </ul>
+        <p>Tracker generates MIDI and does not store instrument samples or render its own audio. Receiving instruments and their media are saved by REAPER and those instruments, not by Tracker. Imported Phrase/Burst data is copied into Tracker's document: keeping the original pack file beside a project is not required for playback.</p>
+        <p><code>.s3gpack</code> files exchange reusable assets rather than replacing the entire composition. Bursts and Phrases expose IMPORT PACK, EXPORT ONE, EXPORT BANK, and COPY PROJECT operations. Bank-qualified Burst references preserve identity when assets move between banks; referenced Burst definitions accompany a Phrase export. Review usage before clearing or deleting shared assets: editing a referenced Burst changes every place that uses it. The Project bank itself cannot be deleted.</p>
+        <p>Both platforms use the same current version-3 <code>.s3gt</code> and asset-pack formats, with Unicode-capable paths and file dialogs. Older version-3 files without follow settings open in STATIC mode. Max tracker files and the retired standalone schemas are not imported. Undo/redo is workspace history, not a substitute for keeping project-file backups; transient recording arm, FILL, text drafts, and manual follow hold are not saved.</p>
 
         <h2 id="live-code">Live Code</h2>
 
@@ -232,7 +270,7 @@ warp exp 2.0 mix .5</code></pre>
         <h2 id="tool-pages">Tool Pages</h2>
 
         <ul>
-          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles, using the same muted lane colors as the Tracker grid. Its right-side toolboxes use the repository's shared 42-pixel content top, 12-pixel panel gaps, static headers, thin sliders, in-canvas categorical menus, and compact action rows. <code>LANE / CYCLE</code> replaces the former bottom lane-button bank with one lane menu and repeats the selected NOTE cycle's default note, length, direction, phase, and density controls. <code>DEFAULT NOTE</code> displays both pitch name and MIDI number (for example <code>C-2 · 036</code>); dragging it sets the lane anchor and replaces every explicit pitch while preserving rests, retriggers, holds, and kills. Geometry density and newly painted hits then use that anchor deterministically. The equivalent Live Code command is <code>pitch &lt;lane|@alias&gt; &lt;MIDI|note name&gt;</code>. Default note, length, phase, and density sliders preview their result and publish one undo step on release. <code>EDIT / SHAPE</code> holds <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, <code>VELOCITY</code>, reverse, reflect, and morph. Velocity moves radially, <kbd>Shift</kbd> snaps it, and <kbd>Option</kbd> temporarily turns Paint into Erase. Drag the selected ring's <code>P</code> phase handle or <code>D</code> density handle for the same non-destructive previews, and double-click any note bead to reveal its exact lane and row in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. <code>ALL STEPS UNDERLAY</code> now exposes every tracker row as a hollow lane-colored cell with four-step accents, while active pulses remain filled on top, making it visibly distinct from the adjacent pulse and phase diagnostics.</li>
+          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles, using the same muted lane colors as the Tracker grid. Its right-side toolboxes use the repository's shared 42-pixel content top, 12-pixel panel gaps, static headers, thin sliders, in-canvas categorical menus, and compact action rows. <code>LANE / CYCLE</code> replaces the former bottom lane-button bank with one lane menu and repeats the selected NOTE cycle's default note, length, direction, row rotation, and density controls. <code>DEFAULT NOTE</code> displays both pitch name and MIDI number (for example <code>C-2 · 036</code>); dragging it sets the lane anchor and replaces every explicit pitch while preserving rests, retriggers, holds, and kills. Geometry density and newly painted hits then use that anchor deterministically. The equivalent Live Code command is <code>pitch &lt;lane|@alias&gt; &lt;MIDI|note name&gt;</code>. Default note, length, row rotation, and density sliders preview their result and publish one undo step on release. <code>EDIT / SHAPE</code> holds <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, <code>VELOCITY</code>, reverse, reflect, and morph. Velocity moves continuously along the radial drag, and <kbd>Option</kbd> temporarily turns Paint into Erase. Drag the selected ring's <code>R</code> row-rotation handle or <code>D</code> density handle for the same non-destructive previews, and double-click any note bead to reveal its exact lane and row in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. <code>ALL STEPS UNDERLAY</code> now exposes every tracker row as a hollow lane-colored cell with four-step accents, while active pulses remain filled on top, making it visibly distinct from the adjacent pulse and phase diagnostics.</li>
           <li><strong>Warps</strong> treats the composite curve as the primary workspace and groups editing into <code>WARP LIBRARY</code>, <code>SERIAL STACK</code>, and <code>SELECTED TRANSFORM</code> toolboxes. Its parameters use the suite's thin track plus right-aligned value pattern: drag horizontally for fast changes, or double-click to type an exact value. Save named exponential, stepped, Euclidean, or multipart compositions here, then select them per row in Song's <code>WARP</code> column.</li>
           <li><strong>Console</strong> displays Live Code results and errors and repeats the Live Code entry field, so commands remain available when Console is detached.</li>
           <li><strong>Help</strong> provides the categorized command and sequencing-action reference generated from the current command registry.</li>
@@ -293,6 +331,7 @@ warp exp 2.0 mix .5</code></pre>
           <a href="#grid">Tracker Grid</a>
           <a href="#sequencing-actions">Sequencing Actions</a>
           <a href="#editing">Editing</a>
+          <a href="#playback-follow">Playback Row Follow</a>
           <a href="#patterns-song">Patterns and Song</a>
           <a href="#live-code">Live Code</a>
           <a href="#tool-pages">Tool Pages</a>

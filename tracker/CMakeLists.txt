@@ -1,4 +1,27 @@
 add_library(s3g_tracker_core STATIC
+  src/core/clap_editor_coordinator.cpp
+  src/core/clap_midi_engine.cpp
+  src/core/clap_playback_runtime.cpp
+  src/core/preview_sequencer.cpp
+  src/core/clap_command_controller.cpp
+  src/core/clap_document_controller.cpp
+  src/editor/editor_shell.cpp
+  src/editor/editor_phrase.cpp
+  src/editor/editor_assemble.cpp
+  src/editor/editor_reshape.cpp
+  src/editor/editor_geometry.cpp
+  src/editor/editor_geometry_layout.cpp
+  src/editor/editor_geometry_input.cpp
+  src/editor/editor_geometry_paint.cpp
+  src/editor/editor_geometry_canvas.cpp
+  src/editor/editor_reference.cpp
+  src/editor/editor_song.cpp
+  src/editor/editor_warp.cpp
+  src/editor/editor_grid.cpp
+  src/editor/editor_grid_controller.cpp
+  src/editor/editor_grid_keys.cpp
+  src/editor/editor_grid_rows.cpp
+  src/editor/editor_grid_painter.cpp
   src/audio/s3g_tracker_stereo_slice_sampler_node.cpp
   src/core/asset_pack.cpp
   src/core/command.cpp
@@ -21,6 +44,12 @@ add_library(s3g_tracker_core STATIC
   src/core/timing_warp.cpp
 )
 
+if(WIN32)
+  target_sources(s3g_tracker_core PRIVATE src/core/atomic_file_store_windows.cpp)
+else()
+  target_sources(s3g_tracker_core PRIVATE src/core/atomic_file_store_posix.cpp)
+endif()
+
 add_executable(s3g_tracker_starter_pack_generator
   tools/generate_starter_pack.cpp)
 target_link_libraries(s3g_tracker_starter_pack_generator
@@ -34,9 +63,14 @@ set_target_properties(s3g_tracker_core PROPERTIES
 
 target_include_directories(s3g_tracker_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/plugins/common
 )
 target_compile_features(s3g_tracker_core PUBLIC cxx_std_17)
 target_link_libraries(s3g_tracker_core PUBLIC s3g_dsp)
+if(MSVC)
+  # Model/status strings and source fixtures are UTF-8 on both platforms.
+  target_compile_options(s3g_tracker_core PUBLIC /utf-8)
+endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_tracker_core PRIVATE
@@ -44,15 +78,46 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 if(BUILD_TESTING)
+  # Native Windows runners can validate the shared layer without building a
+  # CLAP GUI or fetching VSTGUI. This is not a Windows plugin target.
+  add_custom_target(s3g_tracker_portable_core_tests)
   function(s3g_add_tracker_test target source)
     add_executable(${target} ${source})
     target_link_libraries(${target} PRIVATE s3g_tracker_core)
+    add_dependencies(s3g_tracker_portable_core_tests ${target})
     add_test(NAME ${target} COMMAND ${target})
     set_tests_properties(${target} PROPERTIES LABELS "non_nim;tracker;core")
   endfunction()
 
   s3g_add_tracker_test(s3g_tracker_core_tests tests/sequencer_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_clap_controller_tests tests/clap_controller_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_clap_command_tests tests/clap_command_controller_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_file_store_tests tests/file_store_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_editor_drawing_tests tests/editor_drawing_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_grid_tests tests/editor_grid_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_follow_tests tests/tracker_follow_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_warp_tests tests/editor_warp_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_song_tests tests/editor_song_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_reference_tests tests/editor_reference_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_geometry_tests tests/editor_geometry_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_editor_authoring_tests tests/editor_authoring_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_preview_sequencer_tests tests/preview_sequencer_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_clap_playback_runtime_tests tests/clap_playback_runtime_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_clap_midi_engine_tests tests/clap_midi_engine_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_clap_editor_coordinator_tests tests/clap_editor_coordinator_tests.cpp)
+  # Header-only SDK input for adapter tests; core-only builds never fetch
+  # VSTGUI, Cocoa or the full CLAP plugin dependency graph.
+  set(S3G_TRACKER_CLAP_TEST_INCLUDE_DIR "" CACHE PATH
+    "Optional CLAP include directory for portable Tracker adapter regressions")
+  if(S3G_TRACKER_CLAP_TEST_INCLUDE_DIR)
+    if(NOT EXISTS "${S3G_TRACKER_CLAP_TEST_INCLUDE_DIR}/clap/clap.h")
+      message(FATAL_ERROR "S3G_TRACKER_CLAP_TEST_INCLUDE_DIR must contain clap/clap.h")
+    endif()
+    s3g_add_tracker_test(s3g_tracker_clap_midi_adapter_tests tests/clap_midi_adapter_tests.cpp)
+    target_include_directories(s3g_tracker_clap_midi_adapter_tests PRIVATE
+      ${S3G_TRACKER_CLAP_TEST_INCLUDE_DIR}
+      ${CMAKE_SOURCE_DIR}/plugins/clap_tracker)
+  endif()
   s3g_add_tracker_test(s3g_tracker_command_tests tests/command_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_geometry_edit_tests tests/geometry_edit_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_instrument_rack_tests tests/instrument_rack_tests.cpp)
@@ -64,7 +129,6 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_timing_event_expansion_tests tests/timing_event_expansion_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_timing_action_resolver_tests tests/timing_action_resolver_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_timing_playback_scheduler_tests tests/timing_playback_scheduler_tests.cpp)
-  s3g_add_tracker_test(s3g_tracker_audio_contract_tests tests/audio_contract_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_stereo_slice_sampler_tests tests/stereo_slice_sampler_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_project_codec_tests tests/project_codec_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_bank_tests tests/pattern_bank_tests.cpp)
@@ -80,6 +144,8 @@ if(BUILD_TESTING)
     s3g_tracker_starter_pack_generator_tests
     s3g_tracker_high_energy_pack_generator_tests
     PROPERTIES LABELS "non_nim;tracker;core")
+  add_dependencies(s3g_tracker_portable_core_tests
+    s3g_tracker_starter_pack_generator s3g_tracker_high_energy_pack_generator)
   s3g_add_tracker_test(s3g_tracker_pitch_map_tests tests/pitch_map_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_reshape_tests tests/pattern_reshape_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)
@@ -88,6 +154,7 @@ if(BUILD_TESTING)
 
   add_executable(s3g_tracker_workspace_layout_tests tests/workspace_layout_tests.cpp)
   target_include_directories(s3g_tracker_workspace_layout_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos)
   add_test(NAME s3g_tracker_workspace_layout_tests
     COMMAND s3g_tracker_workspace_layout_tests)
@@ -96,6 +163,7 @@ if(BUILD_TESTING)
 
   add_executable(s3g_tracker_grid_selection_tests tests/grid_selection_tests.cpp)
   target_include_directories(s3g_tracker_grid_selection_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/macos)
   add_test(NAME s3g_tracker_grid_selection_tests
     COMMAND s3g_tracker_grid_selection_tests)

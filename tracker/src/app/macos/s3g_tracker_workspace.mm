@@ -4,6 +4,16 @@
 #import "s3g_tracker_assemble_view.h"
 #import "s3g_tracker_reshape_window.h"
 #import "s3g_tracker_warp_window.h"
+#if defined(S3G_TRACKER_PORTABLE_AUTHORING_PAGES)
+#include "s3g_tracker_authoring_page_host.h"
+#define S3GTrackerHostedPhraseController S3GTrackerPortablePhraseController
+#define S3GTrackerHostedAssembleController S3GTrackerPortableAssembleController
+#define S3GTrackerHostedReshapeController S3GTrackerPortableReshapeController
+#else
+#define S3GTrackerHostedPhraseController S3GTrackerPhraseView
+#define S3GTrackerHostedAssembleController S3GTrackerAssembleView
+#define S3GTrackerHostedReshapeController S3GTrackerReshapeWindowController
+#endif
 #include "s3g_tracker_grid_input.h"
 #include "s3g_tracker_grid_selection.h"
 #include "s3g_tracker_workspace_layout.h"
@@ -14,6 +24,19 @@
 #if defined(S3G_TRACKER_VSTGUI_PILOT)
 #include "s3g_tracker_vstgui_pilot.h"
 namespace trackerDrawing = s3g::tracker::editor;
+#endif
+
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+#include "s3g_tracker_main_page_host.h"
+#endif
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+#include "s3g_tracker_reference_page_host.h"
+#endif
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+#include "s3g_tracker_geometry_page_host.h"
+#define S3GTrackerHostedGeometryView S3GTrackerGeometryPageHost
+#else
+#define S3GTrackerHostedGeometryView S3GTrackerGeometryView
 #endif
 
 #include "s3g/tracker/fx_catalog.h"
@@ -1300,6 +1323,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @end
 
 @interface S3GTrackerWorkspaceController () <NSTextFieldDelegate>
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+@property(nonatomic, strong) S3GTrackerMainPageHost* portableMainPage;
+#endif
 @property(nonatomic, assign) TrackerViewState* trackerState;
 @property(nonatomic, assign) WorkspaceCallbacks* trackerCallbacks;
 @property(nonatomic, strong) NSView* toolbar;
@@ -1315,19 +1341,22 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerGridScrollView* gridScroll;
 @property(nonatomic, strong) S3GTrackerGridView* gridView;
 @property(nonatomic, strong) S3GTrackerRowGutterView* rowGutterView;
-@property(nonatomic, strong) S3GTrackerGeometryView* geometryView;
-@property(nonatomic, strong) S3GTrackerGeometryView* burstView;
+@property(nonatomic, strong) S3GTrackerHostedGeometryView* geometryView;
+@property(nonatomic, strong) S3GTrackerHostedGeometryView* burstView;
 @property(nonatomic, strong) S3GTrackerGeometryWindowController*
     geometryWindowController;
-@property(nonatomic, strong) S3GTrackerReshapeWindowController*
+@property(nonatomic, strong) S3GTrackerHostedReshapeController*
     reshapeWindowController;
 @property(nonatomic, strong) S3GTrackerWarpWindowController*
     warpWindowController;
-@property(nonatomic, strong) S3GTrackerPhraseView* phraseView;
-@property(nonatomic, strong) S3GTrackerAssembleView* assembleView;
+@property(nonatomic, strong) S3GTrackerHostedPhraseController* phraseView;
+@property(nonatomic, strong) S3GTrackerHostedAssembleController* assembleView;
 @property(nonatomic, strong) S3GTrackerEnvelopeView* envelopeView;
 @property(nonatomic, strong) NSView* consolePanel;
 @property(nonatomic, strong) NSView* consolePageRoot;
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+@property(nonatomic, strong) S3GTrackerReferencePageHost* portableConsolePage;
+#endif
 @property(nonatomic, strong) S3GTrackerToolboxView* consoleOutputPanel;
 @property(nonatomic, strong) NSTextView* consoleOutput;
 @property(nonatomic, strong) NSTextField* consoleInput;
@@ -1361,7 +1390,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @property(nonatomic, strong) S3GTrackerPopupButton* gateField;
 @property(nonatomic, strong) S3GTrackerPopupButton* loopStartField;
 @property(nonatomic, strong) S3GTrackerPopupButton* loopEndField;
-@property(nonatomic, strong) NSPopUpButton* audioPopup;
 @property(nonatomic, strong) NSLayoutConstraint* envelopeHeightConstraint;
 - (void)modulePatternChanged;
 - (void)moduleTransportChanged;
@@ -1380,6 +1408,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (void)zoomActualPressed:(id)sender;
 - (void)zoomInPressed:(id)sender;
 - (void)moduleFocusConsole;
+- (void)consoleSubmitted:(id)sender;
 - (void)tempoScaleChanged:(id)sender;
 - (void)loopPressed:(id)sender;
 - (void)fillPressed:(id)sender;
@@ -6511,6 +6540,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     const auto* pattern = playbackFollowPattern(model);
 #if defined(S3G_TRACKER_VSTGUI_PILOT)
     trackerDrawing::MacDrawScope drawing(self, dirtyRect, trackerDrawing::PilotSurface::Grid);
+    if (auto* list = trackerDrawing::activeDisplayList(); list && model) {
+        trackerDrawing::GridPainter painter(*model, _gridSelection,
+            trackerDrawing::macGridPaintServices());
+        *list = painter.grid(trackerDrawing::logicalRect(self.bounds),
+            trackerDrawing::logicalRect(dirtyRect));
+        return;
+    }
 #endif
     fillRect(self.bounds, S3GTrackerThemeColor(
         S3GTrackerThemeRole::Workspace));
@@ -13460,7 +13496,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @end
 
 @interface S3GTrackerGeometryWindowController : NSWindowController
-@property(nonatomic, strong) S3GTrackerGeometryView* geometryView;
+@property(nonatomic, strong) S3GTrackerHostedGeometryView* geometryView;
 - (instancetype)initWithState:(TrackerViewState*)state
     owner:(S3GTrackerWorkspaceController*)owner;
 @end
@@ -13484,8 +13520,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
             appearanceNamed:NSAppearanceNameDarkAqua];
         window.releasedWhenClosed = NO;
         window.tabbingMode = NSWindowTabbingModeDisallowed;
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+        self.geometryView = [[S3GTrackerGeometryPageHost alloc]
+            initWithState:state callbacks:owner.trackerCallbacks owner:owner bursts:NO];
+#else
         self.geometryView = [[S3GTrackerGeometryView alloc]
             initWithState:state owner:owner];
+#endif
         self.geometryView.frame = frame;
         self.geometryView.autoresizingMask = NSViewWidthSizable
             | NSViewHeightSizable;
@@ -13660,6 +13701,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     (void)dirtyRect;
 #if defined(S3G_TRACKER_VSTGUI_PILOT)
     trackerDrawing::MacDrawScope drawing(self, dirtyRect, trackerDrawing::PilotSurface::Envelope);
+    if (auto* list = trackerDrawing::activeDisplayList(); list && self.trackerState) {
+        const s3g::tracker::app::GridSelection selection;
+        trackerDrawing::GridPainter painter(*self.trackerState, selection,
+            trackerDrawing::macGridPaintServices());
+        *list = painter.envelope(trackerDrawing::logicalRect(self.bounds));
+        return;
+    }
 #endif
     fillRect(self.bounds, trackerColor(0x1d1d1d));
     strokeRect(NSInsetRect(self.bounds, 0.5, 0.5), trackerColor(0x565656));
@@ -13828,6 +13876,89 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 @end
 
 @implementation S3GTrackerWorkspaceController
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+{
+    std::shared_ptr<trackerDrawing::ConsoleModel> _portableConsoleModel;
+}
+#endif
+
+- (NSView*)mainPageView
+{
+    (void)self.view;
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (!self.portableMainPage) {
+        __weak S3GTrackerWorkspaceController* owner = self;
+        trackerDrawing::MainPageServices services;
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+        auto model = _portableConsoleModel;
+        services.consoleDraft = [model] { return model->draft; };
+        services.consoleHistory = [model] { return model->history; };
+        services.consoleDraftChanged = [model](const std::string& text) { model->draft = text; };
+        services.submitConsole = [model](const std::string& text) { model->submit(text); };
+#else
+        services.consoleDraft = [owner] { return std::string(owner.consoleInput.stringValue.UTF8String ?: ""); };
+        services.consoleHistory = [owner] {
+            std::vector<std::string> history;
+            for (NSString* line in owner.consoleHistory) history.emplace_back(line.UTF8String ?: "");
+            return history;
+        };
+        services.consoleDraftChanged = [owner](const std::string& text) {
+            NSString* draft = [NSString stringWithUTF8String:text.c_str()];
+            owner.consoleInput.stringValue = draft ?: @"";
+            owner.consolePageInput.stringValue = draft ?: @"";
+        };
+        services.submitConsole = [owner](const std::string& text) {
+            owner.consoleInput.stringValue = [NSString stringWithUTF8String:text.c_str()] ?: @"";
+            [owner consoleSubmitted:owner.consoleInput];
+        };
+#endif
+        services.consoleMessage = [owner](const std::string& text) { [owner appendConsoleMessage:text error:NO]; };
+        services.grid.invalidEdit = [] { NSBeep(); };
+        services.grid.message = [owner](const std::string& text) {
+            [owner appendConsoleMessage:text error:NO];
+            NSAlert* alert = [[NSAlert alloc] init];
+            alert.messageText = @"Tracker";
+            alert.informativeText = [NSString stringWithUTF8String:text.c_str()];
+            [alert addButtonWithTitle:@"OK"];
+            if (owner.portableMainPage.window)
+                [alert beginSheetModalForWindow:owner.portableMainPage.window completionHandler:nil];
+        };
+        services.grid.capturePhrase = [owner](std::size_t track, std::size_t first, std::size_t last) {
+            [owner capturePhraseTrack:track firstRow:first lastRow:last];
+        };
+        services.grid.placePhrase = [owner](std::size_t track, std::size_t row, bool merge) {
+            [owner placeSelectedPhraseTrack:track row:row merge:merge];
+        };
+        services.pitchContour = [owner](PitchContour contour, std::size_t first, std::size_t last) {
+            [owner applyPitchMapContour:contour firstRow:first lastRow:last];
+        };
+        services.openPitchMap = [owner](std::size_t first, std::size_t last) {
+            [owner openPitchMapFirstRow:first lastRow:last];
+        };
+        services.editBurst = [owner](std::size_t slot) { [owner editBurstSlot:slot]; };
+        self.portableMainPage = [[S3GTrackerMainPageHost alloc]
+            initWithState:self.trackerState callbacks:self.trackerCallbacks services:std::move(services)];
+    }
+    return self.portableMainPage;
+#else
+    return self.view;
+#endif
+}
+
+- (void)suspendMainPage
+{
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+    [self.geometryView suspendEditing];
+    [self.burstView suspendEditing];
+#endif
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    if (self.portableConsolePage) self.portableConsolePage.page->stopRefresh();
+#endif
+    [self.warpWindowController suspendEditing];
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) page->stopRefresh();
+#endif
+}
 
 - (instancetype)initWithState:(TrackerViewState*)state
     callbacks:(WorkspaceCallbacks*)callbacks
@@ -13838,6 +13969,15 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         self.trackerCallbacks = callbacks;
         self.consoleHistory = [NSMutableArray array];
         self.consoleHistoryIndex = 0;
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+        _portableConsoleModel = std::make_shared<trackerDrawing::ConsoleModel>();
+        __weak S3GTrackerWorkspaceController* owner = self;
+        _portableConsoleModel->execute = [owner](const std::string& command) {
+            auto* workspace = owner;
+            if (workspace.trackerCallbacks && workspace.trackerCallbacks->executeCommand)
+                workspace.trackerCallbacks->executeCommand(command);
+        };
+#endif
     }
     return self;
 }
@@ -14341,6 +14481,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     self.geometryWindowController = [[S3GTrackerGeometryWindowController alloc]
         initWithState:self.trackerState owner:self];
     self.geometryView = self.geometryWindowController.geometryView;
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+    self.burstView = [[S3GTrackerGeometryPageHost alloc]
+        initWithState:self.trackerState callbacks:self.trackerCallbacks owner:self bursts:YES];
+#else
     self.burstView = [[S3GTrackerGeometryView alloc]
         initWithState:self.trackerState owner:self];
     self.burstView.burstLibraryOnly = YES;
@@ -14356,13 +14500,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
          index < self.burstView.viewModePopup.itemArray.count; ++index)
         self.burstView.viewModePopup.itemArray[index].hidden
             = index != S3GTrackerGeometryViewModeBurst;
-    self.reshapeWindowController = [[S3GTrackerReshapeWindowController alloc]
+#endif
+    self.reshapeWindowController = [[S3GTrackerHostedReshapeController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.warpWindowController = [[S3GTrackerWarpWindowController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
-    self.phraseView = [[S3GTrackerPhraseView alloc]
+    self.phraseView = [[S3GTrackerHostedPhraseController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
-    self.assembleView = [[S3GTrackerAssembleView alloc]
+    self.assembleView = [[S3GTrackerHostedAssembleController alloc]
         initWithState:self.trackerState callbacks:self.trackerCallbacks];
     self.envelopeView = [[S3GTrackerEnvelopeView alloc]
         initWithState:self.trackerState owner:self];
@@ -14819,6 +14964,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self.gridView refreshAccessibilityValue];
     [self.rowGutterView refreshFrameAndDisplay];
     [self applyWorkspaceMode];
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+    [self.geometryView reloadModel];
+    [self.burstView reloadModel];
+#endif
     [self.geometryView setNeedsDisplay:YES];
     [self.geometryView.playbackOverlay setNeedsDisplay:YES];
     [self.burstView setNeedsDisplay:YES];
@@ -14831,11 +14980,23 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self.envelopeView.playbackOverlay setNeedsDisplay:YES];
     [self.view setNeedsLayout:YES];
     [self.gridView scrollSelectionToVisible];
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) page->reloadModel();
+#endif
 }
 
 - (void)refreshPlaybackDisplay
 {
     if (!self.isViewLoaded || !self.trackerState) return;
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    [self.portableConsolePage refresh];
+#endif
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) {
+        if (viewCanPresentPlayback(self.portableMainPage)) page->refreshPlaybackDisplay();
+        else page->stopRefresh();
+    }
+#endif
     [self refreshPlaybackFollowControls];
     if (viewCanPresentPlayback(self.view)) {
         self.playButton.state = self.trackerState->playing
@@ -14853,44 +15014,35 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     }
     if (viewCanPresentPlayback(self.geometryView))
         [self.geometryView refreshPlaybackDisplay];
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+    else [self.geometryView suspendEditing];
+#endif
     if (viewCanPresentPlayback(self.burstView))
         [self.burstView refreshPlaybackDisplay];
+#if defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES)
+    else [self.burstView suspendEditing];
+#endif
     [self.reshapeWindowController refreshPlaybackDisplay];
     // The Warps content view is reparented into the CLAP page stack, so its
     // original controller window is not a reliable visibility signal. This
     // redraw is small and must run on every display tick for the curve marker.
     [self.warpWindowController refreshPlaybackDisplay];
     [self.assembleView refreshPlaybackDisplay];
+#if defined(S3G_TRACKER_PORTABLE_AUTHORING_PAGES)
+    [self.phraseView refreshPlaybackDisplay];
+#endif
 }
 
-- (void)setMidiDestinations:
-    (const std::vector<s3g::tracker::MidiDestination>&)destinations
-    selectedTarget:(const s3g::tracker::MidiOutputTarget&)target
-{
-    (void)destinations;
-    (void)target;
-}
-
-- (void)setAudioOutputDevices:
-    (const std::vector<s3g::tracker::app::AudioOutputDevice>&)devices
-    selectedDeviceId:(uint32_t)selectedDeviceId
-{
-    [self.audioPopup removeAllItems];
-    NSInteger selected = -1;
-    for (const auto& device : devices) {
-        NSString* title = [NSString stringWithFormat:@"%@%@",
-            nsString(device.name), device.isDefault ? @"  [DEFAULT]" : @""];
-        [self.audioPopup addItemWithTitle:title];
-        self.audioPopup.lastItem.representedObject = @(device.id);
-        if (device.id == selectedDeviceId)
-            selected = self.audioPopup.numberOfItems - 1;
-    }
-    if (selected >= 0) [self.audioPopup selectItemAtIndex:selected];
-    self.audioPopup.enabled = self.audioPopup.numberOfItems > 0;
-}
 
 - (void)appendConsoleMessage:(const std::string&)message error:(BOOL)isError
 {
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    if (_portableConsoleModel) {
+        _portableConsoleModel->append(message, isError);
+        [self.portableConsolePage refresh];
+    }
+    return;
+#endif
     if (!self.consoleOutput) return;
     NSString* line = [NSString stringWithFormat:@"%@%@\n",
         isError ? @"! " : @"> ", nsString(message)];
@@ -14912,11 +15064,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)focusConsole
 {
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) { page->focusConsole(); return; }
+#endif
     [self.view.window makeFirstResponder:self.consoleInput];
 }
 
 - (void)focusTracker
 {
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) { page->focusTracker(); return; }
+#endif
     [self.view.window makeFirstResponder:self.gridView];
 }
 
@@ -14980,7 +15138,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 {
     (void)self.view;
     [self.reshapeWindowController reloadModel];
+#if defined(S3G_TRACKER_PORTABLE_AUTHORING_PAGES)
+    return self.reshapeWindowController.pageView;
+#else
     return self.reshapeWindowController.window.contentView;
+#endif
 }
 
 - (NSView*)phrasePageView
@@ -15021,6 +15183,22 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 - (NSView*)consolePageView
 {
     (void)self.view;
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    if (!self.portableConsolePage) {
+        trackerDrawing::ReferencePageServices services;
+        __weak S3GTrackerWorkspaceController* owner = self;
+        services.returnToTracker = [owner] {
+            auto* workspace = owner;
+            if (workspace.trackerCallbacks && workspace.trackerCallbacks->showTrackerPage)
+                workspace.trackerCallbacks->showTrackerPage();
+            else
+                [workspace focusTracker];
+        };
+        self.portableConsolePage = [[S3GTrackerReferencePageHost alloc] initWithFrame:NSMakeRect(0, 0, 1320, 820)
+            console:_portableConsoleModel services:std::move(services)];
+    }
+    return self.portableConsolePage;
+#endif
     return self.consolePageRoot;
 }
 
@@ -15264,11 +15442,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)zoomTrackerIn
 {
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) { page->setGridZoom(page->gridZoom() * 1.16); return; }
+#endif
     [self setTrackerMagnification:self.gridScroll.magnification * 1.16];
 }
 
 - (void)zoomTrackerOut
 {
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) { page->setGridZoom(page->gridZoom() / 1.16); return; }
+#endif
     [self setTrackerMagnification:self.gridScroll.magnification / 1.16];
 }
 
@@ -15292,6 +15476,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
 
 - (void)resetTrackerZoom
 {
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+    if (auto* page = self.portableMainPage.page) { page->setGridZoom(s3g::tracker::app::kTrackerDefaultMagnification); return; }
+#endif
     [self setTrackerMagnification:static_cast<CGFloat>(
         s3g::tracker::app::kTrackerDefaultMagnification)];
 }
@@ -15469,24 +15656,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
     [self showWarpWindow:sender];
 }
 
-- (void)refreshMidiPressed:(id)sender
-{
-    (void)sender;
-    if (self.trackerCallbacks && self.trackerCallbacks->refreshMidiDestinations)
-        self.trackerCallbacks->refreshMidiDestinations();
-    if (self.trackerCallbacks && self.trackerCallbacks->refreshAudioOutputDevices)
-        self.trackerCallbacks->refreshAudioOutputDevices();
-}
-
-- (void)audioOutputDeviceChanged:(id)sender
-{
-    (void)sender;
-    if (!self.trackerCallbacks
-        || !self.trackerCallbacks->selectAudioOutputDevice) return;
-    NSNumber* value = self.audioPopup.selectedItem.representedObject;
-    if (value) self.trackerCallbacks->selectAudioOutputDevice(
-        static_cast<uint32_t>(value.unsignedIntValue));
-}
 
 - (void)transportFieldChanged:(id)sender
 {
@@ -15540,6 +15709,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         ? static_cast<NSTextField*>(sender) : self.consoleInput;
     NSString* input = [source.stringValue
         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    if (_portableConsoleModel->submit(input.UTF8String ?: "")) {
+        self.consoleInput.stringValue = @"";
+        self.consolePageInput.stringValue = @"";
+    }
+    return;
+#endif
     if (input.length == 0u) return;
     [self.consoleHistory addObject:input];
     if (self.consoleHistory.count > 100u)
@@ -15637,7 +15813,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerGeometryMenu) {
         return YES;
     }
     if (selector == @selector(cancelOperation:)) {
-        [self.view.window makeFirstResponder:self.gridView];
+        [self focusTracker];
         return YES;
     }
     return NO;

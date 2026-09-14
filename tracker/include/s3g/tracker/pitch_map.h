@@ -38,10 +38,10 @@ struct PitchMapSettings {
 };
 
 // Immutable UI-to-audio snapshot used by stopped-transport Pitch Map
-// audition. Row is relative to the first audible hit, so preview starts
-// immediately while retaining the authored gaps between later notes.
+// audition. Pitch Map uses rows relative to its first hit; Phrase/Assemble use
+// absolute authored rows, preserving leading rests and the full loop length.
 struct PitchPreviewEvent {
-    uint16_t row = 0u;
+    uint32_t row = 0u;
     uint8_t note = 60u;
     uint8_t velocity = 100u;
     uint8_t gatePercent = 70u;

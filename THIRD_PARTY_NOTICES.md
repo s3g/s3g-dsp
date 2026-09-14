@@ -78,6 +78,16 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+## IBM Plex Mono (Tracker)
+
+Tracker bundles IBM Plex Mono Regular, Medium and SemiBold for its grid and
+reference typography. The fonts are loaded privately on macOS and Windows.
+
+- Copyright: Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
+- License: SIL Open Font License 1.1
+- Full notice: `tracker/resources/fonts/OFL.txt` in source;
+  `Resources/Fonts/OFL.txt` in the Windows Tracker package.
+
 ## Source Code Pro
 
 Source Code Pro Regular is retained as a portable UI font candidate.

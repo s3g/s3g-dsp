@@ -5,10 +5,11 @@ the immediate future. Their completed Windows adaptations belong to a later
 release and are excluded from the current Windows package acceptance set.
 The canonical active Mac plugin manifest continues to include both products.
 
-- Tracker: the Mac-first VSTGUI drawing pilot is now opt-in, with native editing
-  and other pages retained. See `TRACKER_MAC_VSTGUI_MIGRATION.md` for the staged
-  plan and exact coverage. Windows still needs a dedicated application-scale
-  GUI/services port; this pilot does not constitute a Windows adaptation.
+- Tracker update, 2026-09-13: all ten portable VSTGUI pages, Win32 hosting,
+  platform services and the shared MIDI engine now link as a Windows x64 CLAP
+  test build. Native Windows/REAPER execution is still pending. See
+  `TRACKER_MAC_VSTGUI_MIGRATION.md` and `TRACKER_WINDOWS_README.txt`.
+  This dedicated test package is not yet in the accepted Windows release set.
 - Ambi Energy 64: preserve the current Metal-based analysis/visualization.
   A future release needs a tested portable rendering/analysis backend.
 

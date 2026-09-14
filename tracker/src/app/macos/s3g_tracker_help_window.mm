@@ -1,6 +1,9 @@
 #import "s3g_tracker_help_window.h"
 
 #import "s3g_tracker_controls.h"
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+#include "s3g_tracker_reference_page_host.h"
+#endif
 
 #include "s3g_gui_layout.h"
 #include "s3g/tracker/command.h"
@@ -278,6 +281,9 @@ NSAttributedString* helpDocument()
 @end
 
 @interface S3GTrackerConsoleHelpWindowController () <NSWindowDelegate>
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+@property(nonatomic, strong) S3GTrackerReferencePageHost* portablePage;
+#endif
 @property(nonatomic, strong) S3GTrackerHelpTextView* helpTextView;
 @property(nonatomic, strong) S3GTrackerToolboxView* helpPanel;
 @end
@@ -315,6 +321,13 @@ NSAttributedString* helpDocument()
     window.backgroundColor = S3GTrackerColor(0x0c0c0c);
     window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     S3GTrackerRestoreWindowFrame(window, @"S3GTrackerConsoleHelpWindow");
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    self.portablePage = [[S3GTrackerReferencePageHost alloc] initWithFrame:window.contentView.bounds
+        console:nullptr services:s3g::tracker::editor::ReferencePageServices{}];
+    if (!self.portablePage) return nil;
+    window.contentView = self.portablePage;
+    return self;
+#endif
 
     S3GTrackerHelpRootView* root = [[S3GTrackerHelpRootView alloc]
         initWithFrame:window.contentView.bounds];
@@ -409,7 +422,17 @@ NSAttributedString* helpDocument()
     if (self.window.miniaturized) [self.window deminiaturize:sender];
     [self.window makeKeyAndOrderFront:sender];
     [self.window makeFirstResponder:self.helpTextView];
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    self.portablePage.page->focusInput();
+#endif
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)suspendEditing
+{
+#if defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES)
+    if (self.portablePage) self.portablePage.page->stopRefresh();
+#endif
 }
 
 @end

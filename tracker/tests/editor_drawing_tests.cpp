@@ -2,6 +2,7 @@
 #include "s3g/tracker/editor_state.h"
 
 #include <iostream>
+#include <cmath>
 
 int main()
 {
@@ -49,5 +50,13 @@ int main()
     check(alignedTextX({2, 0, 20, 10}, 10, Alignment::Right) == 12.0
             && alignedTextX({2, 0, 20, 10}, 10, Alignment::Center) == 7.0,
         "fitting text alignment changed");
+    for (double scale : {.65, 1., 1.5, 2.}) {
+        Rect button {0, 7 * scale, 70 * scale, 15 * scale};
+        double cap = 7.2900390625 * scale;
+        double baseline = centeredCapsBaseline(button, cap);
+        check(std::abs((baseline - cap - button.y)
+            - (button.y + button.height - baseline)) < 1e-9,
+            "button capitals must have equal top and bottom padding at every scale");
+    }
     return failures ? 1 : 0;
 }

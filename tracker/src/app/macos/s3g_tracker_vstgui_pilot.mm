@@ -1,7 +1,10 @@
 #include "s3g_tracker_vstgui_pilot.h"
+#include "s3g_tracker_controls.h"
 #include "../../editor/s3g_tracker_vstgui_drawing.h"
 
 #include "vstgui/lib/cdrawcontext.h"
+#include "vstgui/lib/cframe.h"
+#include "vstgui/lib/controls/ctextedit.h"
 #include "vstgui/lib/platform/platformfactory.h"
 #include "vstgui/lib/platform/mac/coregraphicsdevicecontext.h"
 #include "vstgui/lib/platform/mac/cfontmac.h"
@@ -15,6 +18,34 @@
 #include <tuple>
 
 namespace s3g::tracker::editor {
+bool macTrackerHasFocusedTextInput(NSView* host, VSTGUI::CFrame* frame)
+{
+    // A REAPER child plugin window can own keyboard focus without being
+    // AppKit's key window. Event/window ownership is checked by the caller.
+    if (!frame || !host.window || host.hiddenOrHasHiddenAncestor
+        || !dynamic_cast<VSTGUI::CTextEdit*>(frame->getFocusView()))
+        return false;
+    NSResponder* responder = host.window.firstResponder;
+    return responder != host && [responder isKindOfClass:NSView.class]
+        && [(NSView*)responder isDescendantOf:host];
+}
+bool macTrackerTextKeyEquivalent(NSView* host, VSTGUI::CFrame* frame, NSEvent* event)
+{
+    if (!macTrackerHasFocusedTextInput(host, frame)
+        || (event.window && event.window != host.window)
+        || event.type != NSEventTypeKeyDown || event.keyCode != 49
+        || (event.modifierFlags & (NSEventModifierFlagCommand
+            | NSEventModifierFlagControl | NSEventModifierFlagOption)))
+        return false;
+    NSResponder* responder = host.window.firstResponder;
+    if (responder == host || ![responder isKindOfClass:NSView.class]
+        || ![(NSView*)responder isDescendantOf:host])
+        return false;
+    // Do not bounce through performKeyEquivalent again (SWELL can recurse).
+    // keyDown retains GenericTextEdit's selection, undo and IME semantics.
+    [responder keyDown:event];
+    return true;
+}
 namespace {
 thread_local DisplayList* currentList = nullptr;
 std::array<std::atomic<uint64_t>, static_cast<unsigned>(PilotSurface::Count)> draws {};
@@ -74,6 +105,20 @@ Color resolvedColor(NSColor* source)
 }
 
 DisplayList* activeDisplayList() { return currentList; }
+FontFactory macTrackerFontFactory() { return makeExactFont; }
+GridFont macTrackerSuiteFont(double size)
+{
+    static thread_local std::map<double, GridFont> fonts;
+    if (auto found = fonts.find(size); found != fonts.end()) return found->second;
+    NSFont* font = [NSFont fontWithName:@"Menlo" size:size];
+    if (!font) font = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
+    NSLayoutManager* layout = [[NSLayoutManager alloc] init];
+    GridFont result {font.fontName.UTF8String ?: "Menlo", size,
+        [layout defaultBaselineOffsetForFont:font],
+        std::ceil(font.ascender - font.descender + font.leading)};
+    fonts.emplace(size, result);
+    return result;
+}
 
 void recordText(NSString* text, NSRect rect, NSColor* color, NSFont* font,
     NSTextAlignment alignment, bool fixedLineHeight)
@@ -113,6 +158,39 @@ void recordText(NSString* text, NSRect rect, NSColor* color, NSFont* font,
         font.fontName.UTF8String ?: "Menlo", font.pointSize, baseline,
         alignment == NSTextAlignmentRight ? Alignment::Right
         : alignment == NSTextAlignmentCenter ? Alignment::Center : Alignment::Left);
+}
+
+GridPaintServices macGridPaintServices()
+{
+    GridPaintServices result;
+    result.font = [](double size, FontWeight weight, bool fixed) {
+        using Key = std::tuple<double, FontWeight, bool>;
+        static thread_local std::map<Key, GridFont> cache;
+        Key key {size, weight, fixed};
+        if (auto i = cache.find(key); i != cache.end()) return i->second;
+        NSFont* font = S3GTrackerFont(size, weight == FontWeight::Semibold
+            ? NSFontWeightSemibold : weight == FontWeight::Medium
+                ? NSFontWeightMedium : NSFontWeightRegular);
+        DisplayList metrics;
+        auto* previous = currentList;
+        currentList = &metrics;
+        recordText(@"H", NSMakeRect(0, 0, 1000, 100), NSColor.whiteColor,
+            font, NSTextAlignmentLeft, fixed);
+        currentList = previous;
+        GridFont value {font.fontName.UTF8String ?: "Menlo", font.pointSize,
+            metrics.commands().front().baseline,
+            std::ceil(font.ascender - font.descender + font.leading)};
+        return cache.emplace(key, value).first->second;
+    };
+    result.color = [](uint32_t rgb, double alpha) {
+        static thread_local std::map<std::pair<uint32_t, double>, Color> cache;
+        auto key = std::make_pair(rgb, alpha);
+        if (auto i = cache.find(key); i != cache.end()) return i->second;
+        NSColor* color = [NSColor colorWithCalibratedRed:((rgb >> 16u) & 255u) / 255.
+            green:((rgb >> 8u) & 255u) / 255. blue:(rgb & 255u) / 255. alpha:alpha];
+        return cache.emplace(key, resolvedColor(color)).first->second;
+    };
+    return result;
 }
 
 struct MacDrawScope::Impl {

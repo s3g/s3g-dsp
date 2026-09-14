@@ -5,6 +5,7 @@
 #include "s3g/tracker/phrase_library.h"
 #include "s3g/tracker/sequencer.h"
 #include "s3g/tracker/song_playback_planner.h"
+#include "s3g/tracker/tracker_follow.h"
 
 #include <cstdint>
 #include <string>
@@ -71,6 +72,7 @@ struct ProjectSessionState {
     // Project-scoped Tracker navigation preference. Up/Down move this many
     // rows, making sparse entry (for example every third row) immediate.
     uint32_t trackerRowJump = 1u;
+    TrackerFollowSettings trackerFollow;
     // Stored as a decimal string by the JSON codec so all 64 bits survive a
     // round trip through tools whose JSON number type is IEEE double.
     uint64_t commandRngState = 0x7333672d74726163ull;

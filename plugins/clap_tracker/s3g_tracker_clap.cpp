@@ -2,8 +2,9 @@
 #if defined(S3G_TRACKER_VSTGUI_PILOT)
 #include "s3g_vstgui_foundation.h"
 #include "s3g_tracker_scaled_view.h"
+#include "s3g_tracker_reaper_keyboard.h"
+#include "s3g_tracker_vstgui_pilot.h"
 #endif
-
 #import "s3g_song_window.h"
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_help_window.h"
@@ -11,14 +12,23 @@
 #import "s3g_tracker_assemble_view.h"
 #import "s3g_tracker_workspace.h"
 #include "s3g_tracker_workspace_layout.h"
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+#include "s3g_tracker_shell_host.h"
+using s3g::tracker::editor::ShellController;
+using s3g::tracker::editor::ShellPage;
+#endif
 
 #include "s3g/tracker/atomic_project_store.h"
+#include "s3g_tracker_clap_adapter.h"
+#include "s3g/tracker/preview_sequencer.h"
 #include "s3g/tracker/asset_pack.h"
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/fx_catalog.h"
 #include "s3g/tracker/midi_step_recorder.h"
 #include "s3g/tracker/project_codec.h"
 #include "s3g/tracker/project_history.h"
+#include "s3g/tracker/clap_document_controller.h"
+#include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/runtime_pattern_plan.h"
 #include "s3g/tracker/timing_playback_scheduler.h"
 #include "s3g/tracker/visual_note_hit_mailbox.h"
@@ -50,40 +60,24 @@
 
 namespace {
 
-using s3g::tracker::CommandEffect;
-using s3g::tracker::CommandEngine;
-using s3g::tracker::EventDestination;
-using s3g::tracker::LogicalTickBoundary;
-using s3g::tracker::LogicalTickBoundaryAction;
 using s3g::tracker::MidiStepCapture;
-using s3g::tracker::MidiStepCaptureQueue;
 using s3g::tracker::MidiLiveRecordState;
 using s3g::tracker::MidiStepRecordCode;
 using s3g::tracker::MidiStepRecordMode;
 using s3g::tracker::PatternBankEntry;
 using s3g::tracker::PatternVariationLaunch;
 using s3g::tracker::ProjectDocument;
-using s3g::tracker::ProjectHistory;
 using s3g::tracker::TrackerAssetPack;
-using s3g::tracker::ScheduledEvent;
-using s3g::tracker::ScheduledEventKind;
 using s3g::tracker::SongLaunchQuantization;
 using s3g::tracker::SongArrangement;
-using s3g::tracker::SongPlaybackPlanner;
-using s3g::tracker::TimingPlaybackScheduler;
-using s3g::tracker::TransportSettings;
 using s3g::tracker::VisualNoteHitEvent;
-using s3g::tracker::VisualNoteHitMailbox;
 using s3g::tracker::app::TrackerViewState;
 using s3g::tracker::app::WorkspaceCallbacks;
+using s3g::tracker::syncSessionToActivePattern;
+using s3g::tracker::loadActivePatternIntoSession;
+using s3g::tracker::syncActiveAssetBanks;
+using s3g::tracker::loadActiveAssetBanks;
 
-constexpr uint32_t kMidiChannelCount = 16u;
-constexpr uint32_t kMidiNoteCount = 128u;
-constexpr uint32_t kActiveNoteCount =
-    kMidiChannelCount * kMidiNoteCount;
-constexpr uint32_t kMaximumGateOffsPerBlock = kActiveNoteCount
-    + s3g::tracker::kMaximumScheduledEventsPerBlock;
-constexpr uint32_t kRetiredRuntimeCapacity = 64u;
 constexpr uint32_t kNativeWidth = 1320u;
 constexpr uint32_t kNativeHeight = 860u;
 constexpr uint32_t kMinimumWidth = 760u;
@@ -107,20 +101,6 @@ bool adjustTrackerSize(uint32_t* width, uint32_t* height)
 }
 #endif
 
-double normalizedTempoScale(double value) noexcept
-{
-    constexpr std::array<double, 7u> choices {
-        0.25, 0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 4.0,
-    };
-    if (!std::isfinite(value)) return 1.0;
-    double best = 1.0;
-    double distance = std::numeric_limits<double>::infinity();
-    for (const double choice : choices) {
-        const double candidate = std::abs(value - choice);
-        if (candidate < distance) { distance = candidate; best = choice; }
-    }
-    return best;
-}
 
 std::size_t longestPatternColumnLength(
     const s3g::tracker::Pattern& pattern) noexcept
@@ -143,115 +123,7 @@ std::size_t longestPatternColumnLength(
             s3g::tracker::kMaximumSongPatternRows));
 }
 
-bool resetPatternPhases(s3g::tracker::Pattern& pattern) noexcept
-{
-    bool changed = false;
-    const auto reset = [&](s3g::tracker::ColumnDefinition& column) {
-        changed |= column.phase != 0u;
-        column.phase = 0u;
-    };
-    for (auto& track : pattern.tracks) {
-        reset(track.noteColumn);
-        reset(track.instrumentColumn);
-        reset(track.velocityColumn);
-        for (auto& pair : track.fxPairs) {
-            reset(pair.actionColumn);
-            reset(pair.valueColumn);
-        }
-    }
-    return changed;
-}
-
-std::vector<std::string> commandWords(std::string_view command)
-{
-    std::istringstream stream { std::string(command) };
-    std::vector<std::string> words;
-    std::string word;
-    while (stream >> word) {
-        for (char& character : word) {
-            if (character >= 'A' && character <= 'Z')
-                character = static_cast<char>(character - 'A' + 'a');
-        }
-        words.push_back(std::move(word));
-    }
-    return words;
-}
-
-bool syncSessionToActivePattern(TrackerViewState& state)
-{
-    auto* entry = state.patternBank.findEntry(state.patternBank.activePatternId);
-    if (!entry) return false;
-    entry->pattern = state.session.pattern;
-    entry->laneDefaultNotes = state.session.laneDefaultNotes;
-    entry->aliases = state.session.aliases;
-    return true;
-}
-
-bool loadActivePatternIntoSession(TrackerViewState& state)
-{
-    const auto* entry = state.patternBank.findEntry(
-        state.patternBank.activePatternId);
-    if (!entry) return false;
-    state.session.pattern = entry->pattern;
-    state.session.laneDefaultNotes = entry->laneDefaultNotes;
-    state.session.aliases = entry->aliases;
-    state.session.selectedTrack = std::min<std::size_t>(
-        state.session.selectedTrack,
-        state.session.pattern.tracks.empty()
-            ? 0u : state.session.pattern.tracks.size() - 1u);
-    state.session.selectedRow = std::min<std::size_t>(
-        state.session.selectedRow,
-        std::max<std::size_t>(state.session.pattern.visibleRows, 1u) - 1u);
-    return true;
-}
-
-bool syncActiveAssetBanks(TrackerViewState& state)
-{
-    auto* burst = s3g::tracker::findBurstBank(
-        state.burstBanks, state.activeBurstBankId);
-    auto* phrase = s3g::tracker::findPhraseBank(
-        state.phraseBanks, state.activePhraseBankId);
-    if (!burst || !phrase) return false;
-    burst->library = state.session.burstLibrary;
-    phrase->library = state.phraseLibrary;
-    state.session.activeBurstBankId = state.activeBurstBankId;
-    return true;
-}
-
-bool loadActiveAssetBanks(TrackerViewState& state)
-{
-    const auto* burst = s3g::tracker::findBurstBank(
-        state.burstBanks, state.activeBurstBankId);
-    const auto* phrase = s3g::tracker::findPhraseBank(
-        state.phraseBanks, state.activePhraseBankId);
-    if (!burst || !phrase) return false;
-    state.session.burstLibrary = burst->library;
-    state.session.activeBurstBankId = burst->id;
-    state.phraseLibrary = phrase->library;
-    state.selectedPhrase = std::min<std::size_t>(state.selectedPhrase,
-        state.phraseLibrary.phrases.size() - 1u);
-    return true;
-}
-
-void refreshProjectBurstUsageCounts(TrackerViewState& state)
-{
-    (void)syncSessionToActivePattern(state);
-    (void)syncActiveAssetBanks(state);
-    state.session.projectBurstUsageCounts.fill(0u);
-    const auto countNotes = [&](const std::vector<s3g::tracker::NoteCell>& notes) {
-        for (const auto& cell : notes) {
-            if (cell.state == s3g::tracker::NoteCellState::Burst
-                && cell.burstBankId == state.activeBurstBankId
-                && cell.note < state.session.projectBurstUsageCounts.size())
-                ++state.session.projectBurstUsageCounts[cell.note];
-        }
-    };
-    for (const auto& entry : state.patternBank.entries)
-        for (const auto& track : entry.pattern.tracks) countNotes(track.notes);
-    for (const auto& bank : state.phraseBanks)
-        for (const auto& phrase : bank.library.phrases)
-            countNotes(phrase.notes);
-}
+using s3g::tracker::refreshProjectBurstUsageCounts;
 
 std::string nextPatternId(const s3g::tracker::PatternBank& bank)
 {
@@ -317,111 +189,7 @@ PatternBankEntry variationPatternEntry(const PatternBankEntry& source,
     return entry;
 }
 
-void normalizeMidiOnlyDocument(ProjectDocument& document)
-{
-    document.session.tempoScale = normalizedTempoScale(
-        document.session.tempoScale);
-    auto rack = s3g::tracker::makeDefaultInstrumentRack();
-    for (auto& instrument : rack.instruments)
-        instrument = s3g::tracker::RackInstrument {};
-    const auto midiNode = s3g::tracker::midiOutNodeForRackSlot(0u);
-    if (const auto* definition =
-            s3g::tracker::defaultRackInstrument(midiNode)) {
-        rack.instruments[0u] = *definition;
-    }
-    rack.midiRoutes[0u].kind =
-        s3g::tracker::MidiInstrumentRouteKind::VirtualSource;
-    rack.midiRoutes[0u].destinationId = 0;
-    rack.midiRoutes[0u].virtualSource = 1u;
-    rack.midiRoutes[0u].channel = 1u;
-    rack.selectedNode = midiNode;
-    document.instrumentRack = rack;
-    for (auto& row : document.song.rows) row.bpm.reset();
 
-    for (auto& entry : document.patternBank.entries) {
-        for (std::size_t lane = 0u; lane < entry.pattern.tracks.size();
-             ++lane) {
-            auto& track = entry.pattern.tracks[lane];
-            track.initialInstrumentNodeId = midiNode;
-            track.destination = EventDestination::Midi;
-            track.midiChannel = static_cast<uint8_t>(std::clamp<int>(
-                track.midiChannel, 1, 16));
-            // Routing is owned by the lane's channel header. Older bus and INS
-            // assignments collapse onto the plug-in's single CLAP note port.
-            std::fill(track.instruments.begin(), track.instruments.end(),
-                s3g::tracker::InstrumentCell::empty());
-            for (auto& pair : track.fxPairs) {
-                for (auto& action : pair.actions) {
-                    if (action.state
-                        == s3g::tracker::FxActionCellState::Parameter) {
-                        action = s3g::tracker::FxActionCell::empty();
-                    }
-                }
-            }
-        }
-    }
-}
-
-ProjectDocument makeInitialDocument()
-{
-    TrackerViewState state;
-    // Fresh instances open on one plain Superior Drummer bar. Keep this
-    // factory pattern intentionally legible; the richer `demo` command
-    // remains available from the Console when a user wants it.
-    (void)CommandEngine::execute(state.session, "kit superior basic");
-    state.session.pattern.tracks.resize(4u);
-    state.session.laneDefaultNotes.resize(4u);
-    for (auto alias = state.session.aliases.begin();
-         alias != state.session.aliases.end();) {
-        if (alias->second >= 4u) alias = state.session.aliases.erase(alias);
-        else ++alias;
-    }
-    state.session.aliases["t"] = 2u;
-    state.session.aliases["tom"] = 2u;
-    state.session.pattern.name = "FOUR ON THE FLOOR";
-    state.session.pattern.tracks[0u].name = "Kick";
-    state.session.pattern.tracks[1u].name = "Snare";
-    state.session.pattern.tracks[2u].name = "Tom";
-    state.session.pattern.tracks[3u].name = "Hat";
-    (void)CommandEngine::execute(
-        state.session, "mask 1 x---x---x---x---");
-    (void)CommandEngine::execute(
-        state.session, "mask 2 ----x-------x---");
-    (void)CommandEngine::execute(
-        state.session, "mask 3 --------------xx");
-    (void)CommandEngine::execute(
-        state.session, "mask 4 x-x-x-x-x-x-x-x-");
-    state.patternBank = s3g::tracker::makeDefaultPatternBank();
-    (void)syncSessionToActivePattern(state);
-    state.session.transport.sampleRate = 48000.0;
-    state.session.transport.ticksPerBeat = 4u;
-    state.session.transport.bpm = 120.0;
-    state.session.transport.swing = 0.5;
-    state.session.gateMilliseconds = 90.0;
-    state.instrumentRack.midiRoutes[0u].channel = 1u;
-
-    ProjectDocument document;
-    document.patternBank = state.patternBank;
-    document.burstBanks[0u].library = state.session.burstLibrary;
-    document.transport = state.session.transport;
-    document.warpLibrary = state.session.warpLibrary;
-    document.session.gateMilliseconds = state.session.gateMilliseconds;
-    document.session.tempoScale = 1.0;
-    document.session.commandRngState = state.session.commandRngState;
-    document.session.playbackSeed = state.session.playbackSeed;
-    document.instrumentRack = state.instrumentRack;
-    document.song.name = "SONG";
-    document.song.ticksPerBeat = state.session.transport.ticksPerBeat;
-    s3g::tracker::SongRow row;
-    row.patternId = state.patternBank.activePatternId;
-    row.durationTicks = static_cast<uint32_t>(std::max<std::size_t>(
-        state.session.pattern.visibleRows, 1u));
-    row.swing = state.session.transport.swing;
-    document.song.rows.push_back(row);
-    document.song.rows.push_back(row);
-    normalizeMidiOnlyDocument(document);
-    return document;
-}
 
 void registerBundledFonts()
 {
@@ -442,682 +210,10 @@ void registerBundledFonts()
     }
 }
 
-struct HostTransport {
-    bool playing = false;
-    bool hasBeat = false;
-    double beat = 0.0;
-    double tempo = 120.0;
-};
 
-HostTransport readHostTransport(const clap_event_transport_t* source)
-{
-    HostTransport result;
-    if (!source) return result;
-    result.playing = (source->flags & CLAP_TRANSPORT_IS_PLAYING) != 0u;
-    if ((source->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0u
-        && std::isfinite(source->tempo) && source->tempo > 0.0)
-        result.tempo = source->tempo;
-    if ((source->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) != 0u) {
-        result.beat = static_cast<double>(source->song_pos_beats)
-            / static_cast<double>(CLAP_BEATTIME_FACTOR);
-        result.hasBeat = std::isfinite(result.beat);
-    } else if ((source->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) != 0u) {
-        const double seconds = static_cast<double>(source->song_pos_seconds)
-            / static_cast<double>(CLAP_SECTIME_FACTOR);
-        result.beat = seconds * result.tempo / 60.0;
-        result.hasBeat = std::isfinite(result.beat);
-    }
-    return result;
-}
-
-struct PatternLaunchMailbox {
-    std::atomic<uint32_t> revision { 0u };
-    std::atomic<uint32_t> consumedRevision { 0u };
-    std::atomic<uint32_t> dueRevision { 0u };
-    std::atomic<uint32_t> quantization { 0u };
-};
-
-// Main-thread Burst audition request. Every field read by the audio thread is
-// atomic; an odd/even revision guards the fixed-size snapshot without locks
-// or allocation in process().
-struct BurstPreviewMailbox {
-    std::array<std::atomic<uint64_t>,
-        s3g::tracker::kMaximumBurstEvents> events;
-    std::atomic<uint32_t> metadata { 0u };
-    std::atomic<uint32_t> bpmMilli { 120000u };
-    std::atomic<uint32_t> revision { 0u };
-
-    BurstPreviewMailbox()
-    {
-        for (auto& event : events) event.store(0u);
-    }
-
-    void publish(const s3g::tracker::BurstDefinition& burst,
-        uint8_t midiChannel, double bpm, uint32_t ticksPerBeat) noexcept
-    {
-        revision.fetch_add(1u, std::memory_order_acq_rel);
-        const auto count = static_cast<uint8_t>(std::min<std::size_t>(
-            burst.eventCount, s3g::tracker::kMaximumBurstEvents));
-        for (std::size_t index = 0u; index < count; ++index) {
-            const auto& event = burst.events[index];
-            const uint64_t packed = static_cast<uint64_t>(event.position)
-                | (static_cast<uint64_t>(event.note) << 16u)
-                | (static_cast<uint64_t>(event.velocity) << 24u)
-                | (static_cast<uint64_t>(event.gatePercent) << 32u);
-            events[index].store(packed, std::memory_order_relaxed);
-        }
-        const uint32_t channel = static_cast<uint32_t>(
-            std::clamp<int>(midiChannel, 1, 16));
-        const uint32_t ticks = std::clamp<uint32_t>(ticksPerBeat, 1u, 96u);
-        metadata.store(static_cast<uint32_t>(count)
-                | (channel << 8u) | (ticks << 16u),
-            std::memory_order_relaxed);
-        const double safeBpm = std::clamp(
-            std::isfinite(bpm) ? bpm : 120.0, 1.0, 1000.0);
-        bpmMilli.store(static_cast<uint32_t>(
-            std::lround(safeBpm * 1000.0)), std::memory_order_relaxed);
-        revision.fetch_add(1u, std::memory_order_release);
-    }
-};
-
-struct PitchPreviewMailbox {
-    static constexpr std::size_t kCapacity = 256u;
-    std::array<std::atomic<uint64_t>, kCapacity> events;
-    std::atomic<uint32_t> metadata { 0u };
-    std::atomic<uint32_t> bpmMilli { 120000u };
-    std::atomic<uint32_t> revision { 0u };
-
-    PitchPreviewMailbox()
-    {
-        for (auto& event : events) event.store(0u);
-    }
-
-    void publish(const std::vector<s3g::tracker::PitchPreviewEvent>& source,
-        uint8_t midiChannel, double bpm, uint32_t ticksPerBeat) noexcept
-    {
-        revision.fetch_add(1u, std::memory_order_acq_rel);
-        const auto count = static_cast<uint16_t>(std::min<std::size_t>(
-            source.size(), kCapacity));
-        for (std::size_t index = 0u; index < count; ++index) {
-            const auto& event = source[index];
-            const uint64_t packed = static_cast<uint64_t>(event.row)
-                | (static_cast<uint64_t>(event.note) << 16u)
-                | (static_cast<uint64_t>(event.velocity) << 24u)
-                | (static_cast<uint64_t>(event.gatePercent) << 32u)
-                | (static_cast<uint64_t>(event.position) << 40u);
-            events[index].store(packed, std::memory_order_relaxed);
-        }
-        const uint32_t channel = static_cast<uint32_t>(
-            std::clamp<int>(midiChannel, 1, 16));
-        const uint32_t ticks = std::clamp<uint32_t>(ticksPerBeat, 1u, 96u);
-        metadata.store(static_cast<uint32_t>(count)
-                | (channel << 16u) | (ticks << 24u),
-            std::memory_order_relaxed);
-        const double safeBpm = std::clamp(
-            std::isfinite(bpm) ? bpm : 120.0, 1.0, 1000.0);
-        bpmMilli.store(static_cast<uint32_t>(
-            std::lround(safeBpm * 1000.0)), std::memory_order_relaxed);
-        revision.fetch_add(1u, std::memory_order_release);
-    }
-
-    void cancel() noexcept
-    {
-        revision.fetch_add(1u, std::memory_order_acq_rel);
-        metadata.store(0u, std::memory_order_relaxed);
-        revision.fetch_add(1u, std::memory_order_release);
-    }
-};
-
-struct MidiStepClock {
-    void clear() noexcept
-    {
-        sequence.fetch_add(1u, std::memory_order_acq_rel);
-        valid.store(false, std::memory_order_relaxed);
-        sequence.fetch_add(1u, std::memory_order_release);
-    }
-
-    void publish(uint64_t current, uint64_t next,
-        uint64_t currentTrackerRow, uint64_t nextTrackerRow) noexcept
-    {
-        sequence.fetch_add(1u, std::memory_order_acq_rel);
-        currentFrame.store(current, std::memory_order_relaxed);
-        nextFrame.store(std::max(current, next), std::memory_order_relaxed);
-        currentRow.store(currentTrackerRow, std::memory_order_relaxed);
-        nextRow.store(nextTrackerRow, std::memory_order_relaxed);
-        valid.store(true, std::memory_order_relaxed);
-        sequence.fetch_add(1u, std::memory_order_release);
-    }
-
-    bool nearestTarget(uint64_t frame, int64_t& offset,
-        std::size_t& row) const noexcept
-    {
-        for (unsigned attempt = 0u; attempt < 4u; ++attempt) {
-            const uint64_t before = sequence.load(std::memory_order_acquire);
-            if ((before & 1u) != 0u) continue;
-            const bool available = valid.load(std::memory_order_relaxed);
-            const uint64_t current = currentFrame.load(
-                std::memory_order_relaxed);
-            const uint64_t next = nextFrame.load(std::memory_order_relaxed);
-            const uint64_t currentTrackerRow = currentRow.load(
-                std::memory_order_relaxed);
-            const uint64_t nextTrackerRow = nextRow.load(
-                std::memory_order_relaxed);
-            const uint64_t after = sequence.load(std::memory_order_acquire);
-            if (before != after || (after & 1u) != 0u) continue;
-            if (!available || frame < current) return false;
-            const uint64_t currentDistance = frame - current;
-            const uint64_t nextDistance = next >= frame
-                ? next - frame : std::numeric_limits<uint64_t>::max();
-            const bool chooseNext = next > current
-                && nextDistance < currentDistance;
-            const uint64_t magnitude = chooseNext
-                ? nextDistance : currentDistance;
-            const uint64_t bounded = std::min<uint64_t>(magnitude,
-                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
-            offset = chooseNext ? -static_cast<int64_t>(bounded)
-                                : static_cast<int64_t>(bounded);
-            row = static_cast<std::size_t>(chooseNext
-                ? nextTrackerRow : currentTrackerRow);
-            return true;
-        }
-        return false;
-    }
-
-    bool nextTarget(uint64_t frame, int64_t& offset,
-        std::size_t& row) const noexcept
-    {
-        for (unsigned attempt = 0u; attempt < 4u; ++attempt) {
-            const uint64_t before = sequence.load(std::memory_order_acquire);
-            if ((before & 1u) != 0u) continue;
-            const bool available = valid.load(std::memory_order_relaxed);
-            const uint64_t next = nextFrame.load(std::memory_order_relaxed);
-            const uint64_t nextTrackerRow = nextRow.load(
-                std::memory_order_relaxed);
-            const uint64_t after = sequence.load(std::memory_order_acquire);
-            if (before != after || (after & 1u) != 0u) continue;
-            if (!available) return false;
-            const uint64_t magnitude = frame >= next
-                ? frame - next : next - frame;
-            const uint64_t bounded = std::min<uint64_t>(magnitude,
-                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
-            offset = frame >= next ? static_cast<int64_t>(bounded)
-                                   : -static_cast<int64_t>(bounded);
-            row = static_cast<std::size_t>(nextTrackerRow);
-            return true;
-        }
-        return false;
-    }
-
-    std::atomic<uint64_t> sequence { 0u };
-    std::atomic<uint64_t> currentFrame { 0u };
-    std::atomic<uint64_t> nextFrame { 0u };
-    std::atomic<uint64_t> currentRow { 0u };
-    std::atomic<uint64_t> nextRow { 0u };
-    std::atomic<bool> valid { false };
-};
-
-using VisualNoteHitMailboxes = std::array<VisualNoteHitMailbox,
-    s3g::tracker::kMaximumTrackCount>;
-
-struct Runtime {
-    TimingPlaybackScheduler scheduler;
-    SongPlaybackPlanner songPlanner;
-    TransportSettings projectTransport;
-    std::vector<std::string> patternIds;
-    std::vector<std::size_t> songPatternIndices;
-    double gateMilliseconds = 90.0;
-    double tempoScale = 1.0;
-    double latestHostTempo = 120.0;
-    double latestSampleRate = 48000.0;
-    bool songEnabled = false;
-    bool valid = false;
-    PatternLaunchMailbox* patternLaunch = nullptr;
-    VisualNoteHitMailboxes* visualNoteHits = nullptr;
-    MidiStepClock* midiStepClock = nullptr;
-    uint64_t absoluteFrameOrigin = 0u;
-    std::size_t initialSongRow = 0u;
-    uint64_t visualTickStartSample = 0u;
-    uint64_t visualTickEndSample = 1u;
-
-    Runtime(const ProjectDocument& document, double sampleRate,
-        PatternLaunchMailbox* launchMailbox = nullptr,
-        VisualNoteHitMailboxes* hitMailboxes = nullptr,
-        MidiStepClock* stepClock = nullptr)
-        : projectTransport(document.transport)
-        , gateMilliseconds(document.session.gateMilliseconds)
-        , tempoScale(std::clamp(document.session.tempoScale, 0.25, 4.0))
-        , latestSampleRate(sampleRate)
-        , patternLaunch(launchMailbox)
-        , visualNoteHits(hitMailboxes)
-        , midiStepClock(stepClock)
-    {
-        s3g::tracker::RuntimePatternPlan plan;
-        if (!s3g::tracker::makeRuntimePatternPlan(document, plan)) return;
-        std::vector<s3g::tracker::Pattern> patterns;
-        patterns.reserve(plan.documentPatternIndices.size());
-        patternIds.reserve(plan.documentPatternIndices.size());
-        for (const auto index : plan.documentPatternIndices) {
-            const auto& entry = document.patternBank.entries[index];
-            patterns.push_back(entry.pattern);
-            patternIds.push_back(entry.id);
-        }
-
-        songEnabled = plan.songEnabled
-            && songPlanner.setArrangement(document.song).ok();
-        if (songEnabled) {
-            songPatternIndices = plan.songPatternIndices;
-        }
-        projectTransport.sampleRate = sampleRate;
-        scheduler.setBurstBanks(document.burstBanks);
-        valid = scheduler.preparePatternSet(std::move(patterns),
-            plan.initialPatternIndex);
-        if (!valid) return;
-        scheduler.setTimingWarpLibrary(document.warpLibrary);
-        scheduler.setTransport(projectTransport);
-        scheduler.setRandomSeed(document.session.playbackSeed);
-        scheduler.setLogicalTickObserver(&Runtime::advanceLogicalTick, this);
-    }
-
-    TransportSettings hostClock(double tempo, double sampleRate) const
-        noexcept
-    {
-        auto result = projectTransport;
-        result.sampleRate = sampleRate;
-        if (std::isfinite(tempo) && tempo > 0.0)
-            result.bpm = tempo * tempoScale;
-        return result;
-    }
-
-    double currentSongTempoMultiplier() const noexcept
-    {
-        const auto* row = songEnabled ? songPlanner.currentRow() : nullptr;
-        if (!row || !std::isfinite(row->tempoMultiplier)) return 1.0;
-        return std::clamp(row->tempoMultiplier,
-            s3g::tracker::kMinimumSongTempoMultiplier,
-            s3g::tracker::kMaximumSongTempoMultiplier);
-    }
-
-    double effectiveBpm(double hostTempo) const noexcept
-    {
-        const auto clock = hostClock(hostTempo, latestSampleRate);
-        return std::clamp(clock.bpm * currentSongTempoMultiplier(),
-            5.0, 1600.0);
-    }
-
-    TransportSettings songRowClock(const s3g::tracker::SongRow* row,
-        const TransportSettings& host) const noexcept
-    {
-        auto result = projectTransport;
-        result.sampleRate = host.sampleRate;
-        result.bpm = std::clamp(host.bpm * (row
-                ? std::clamp(row->tempoMultiplier,
-                    s3g::tracker::kMinimumSongTempoMultiplier,
-                    s3g::tracker::kMaximumSongTempoMultiplier)
-                : 1.0),
-            5.0, 1600.0);
-        result.timingWarp.clear();
-        result.timingWarpEnabled = false;
-        result.loopEnabled = false;
-        if (!row) return result;
-        if (row->swing) result.swing = *row->swing;
-        if (row->patternLoop) {
-            result.loopEnabled = true;
-            result.loopStartRow = row->patternLoop->startRow;
-            result.loopEndRow = row->patternLoop->endRow;
-        }
-        if (row->timingWarpLibraryIndex) {
-            const auto* entry = scheduler.timingWarpLibrary().entry(
-                *row->timingWarpLibraryIndex);
-            if (entry) {
-                result.warpCycleTicks = entry->cycleTicks;
-                result.timingWarp = entry->stack;
-                // A Song row's named WARP choice is already an explicit
-                // enable action, independent of Pattern transport's live
-                // Warps switch.
-                result.timingWarpEnabled = true;
-            }
-        }
-        return result;
-    }
-
-    static std::size_t songRowStart(const s3g::tracker::SongRow* row)
-        noexcept
-    {
-        return row && row->patternLoop ? row->patternLoop->startRow : 0u;
-    }
-
-    void updateSongConditionContext() noexcept
-    {
-        const auto* row = songPlanner.currentRow();
-        if (!songEnabled || !row) {
-            scheduler.clearSongConditionContext();
-            return;
-        }
-        s3g::tracker::SequencerConditionContext context;
-        context.passIndex = songPlanner.currentRepeatIndex();
-        context.passCount = row->repeats;
-        context.songActive = true;
-        context.songRowIndex = songPlanner.currentRowIndex().value_or(0u);
-        context.songRowCount = songPlanner.arrangement().rows.size();
-        context.songLoopPassIndex = songPlanner.songLoopPassIndex();
-        context.songEnergy = row->energy;
-        scheduler.setSongConditionContext(context);
-    }
-
-    bool arm(double hostBeat, double tempo, double sampleRate,
-        uint64_t absoluteStartFrame, bool forceAllRows = false) noexcept
-    {
-        if (!valid) return false;
-        absoluteFrameOrigin = absoluteStartFrame;
-        latestHostTempo = tempo;
-        latestSampleRate = sampleRate;
-        if (midiStepClock) midiStepClock->clear();
-        auto clock = hostClock(tempo, sampleRate);
-        if (songEnabled) {
-            songPlanner.reset();
-            if (songPatternIndices.empty()) return false;
-            const auto startRow = std::min(
-                initialSongRow, songPatternIndices.size() - 1u);
-            initialSongRow = 0u;
-            if (!songPlanner.start(startRow))
-                return false;
-            (void)scheduler.activatePreparedPatternAtTickBoundary(
-                songPatternIndices[startRow]);
-            const auto* row = songPlanner.currentRow();
-            clock = songRowClock(row, clock);
-            scheduler.setRuntimeTrackMuteMask(row ? row->mutedTracks : 0u);
-            updateSongConditionContext();
-        } else {
-            scheduler.setRuntimeTrackMuteMask(0u);
-            scheduler.clearSongConditionContext();
-        }
-        scheduler.setTransport(std::move(clock));
-        scheduler.setLogicalTickObserver(&Runtime::advanceLogicalTick, this);
-        const bool started = scheduler.startPreparedAtHostBeat(hostBeat);
-        if (started && forceAllRows)
-            scheduler.resyncAllTrackColumnsAtTickBoundary(0u);
-        else if (started && songEnabled)
-            scheduler.launchSongRegionAtTickBoundary(songRowStart(
-                songPlanner.currentRow()));
-        return started;
-    }
-
-    void updateClock(double tempo, double sampleRate) noexcept
-    {
-        // Host clock refreshes happen every process segment. Preserve the
-        // current Song-row warp and update only fields owned by the host.
-        auto current = scheduler.transport();
-        latestHostTempo = tempo;
-        latestSampleRate = sampleRate;
-        current.sampleRate = sampleRate;
-        current.bpm = effectiveBpm(tempo);
-        scheduler.setTransport(std::move(current));
-    }
-
-    void publishVisualNoteHits(const LogicalTickBoundary& boundary) noexcept
-    {
-        if (midiStepClock) {
-            const auto addOrigin = [&](uint64_t frame) {
-                return frame > std::numeric_limits<uint64_t>::max()
-                        - absoluteFrameOrigin
-                    ? std::numeric_limits<uint64_t>::max()
-                    : absoluteFrameOrigin + frame;
-            };
-            const auto& settings = scheduler.transport();
-            const uint64_t rows = std::max<uint64_t>(
-                scheduler.pattern().visibleRows, 1u);
-            const uint64_t currentRow =
-                boundary.completedTransportRow % rows;
-            uint64_t nextTransportRow = boundary.completedTransportRow
-                    == std::numeric_limits<uint64_t>::max()
-                ? boundary.completedTransportRow
-                : boundary.completedTransportRow + 1u;
-            if (settings.loopEnabled
-                && nextTransportRow >= settings.loopEndRow) {
-                nextTransportRow = settings.loopStartRow;
-            }
-            midiStepClock->publish(addOrigin(boundary.absoluteSampleTime),
-                addOrigin(scheduler.nextTickSampleFrame()), currentRow,
-                nextTransportRow % rows);
-        }
-        if (!visualNoteHits) return;
-        const auto trackCount = std::min<std::size_t>(
-            scheduler.pattern().tracks.size(), visualNoteHits->size());
-        for (std::size_t track = 0u; track < trackCount; ++track) {
-            if (!scheduler.lastNoteTriggered(track)) continue;
-            (*visualNoteHits)[track].publish(
-                scheduler.lastNotePosition(track),
-                boundary.absoluteSampleTime);
-        }
-    }
-
-    static LogicalTickBoundaryAction advanceLogicalTick(void* context,
-        const LogicalTickBoundary& boundary) noexcept
-    {
-        auto& runtime = *static_cast<Runtime*>(context);
-        runtime.visualTickStartSample = boundary.absoluteSampleTime;
-        runtime.visualTickEndSample = std::max<uint64_t>(
-            boundary.absoluteSampleTime + 1u,
-            runtime.scheduler.nextTickSampleFrame());
-        runtime.publishVisualNoteHits(boundary);
-        if (!runtime.songEnabled)
-            return advancePatternLaunch(context, boundary);
-        const bool wasFinished = runtime.songPlanner.isFinished();
-        const auto result = runtime.songPlanner.advanceTick();
-        runtime.updateSongConditionContext();
-        if (runtime.patternLaunch) {
-            auto& mailbox = *runtime.patternLaunch;
-            const uint32_t revision = mailbox.revision.load(
-                std::memory_order_acquire);
-            if (revision != 0u
-                && revision != mailbox.consumedRevision.load(
-                    std::memory_order_relaxed)) {
-                const auto quantization =
-                    static_cast<PatternVariationLaunch>(
-                        mailbox.quantization.load(
-                            std::memory_order_relaxed));
-                bool due = wasFinished
-                    || quantization == PatternVariationLaunch::NextTick;
-                if (!due && quantization
-                        == PatternVariationLaunch::NextBeat) {
-                    due = s3g::tracker::patternVariationLaunchIsDue(
-                        quantization, boundary.completedTickIndex,
-                        boundary.completedTransportRow,
-                        runtime.scheduler.transport().ticksPerBeat,
-                        runtime.scheduler.pattern().visibleRows);
-                } else if (!due && quantization
-                        == PatternVariationLaunch::NextPatternCycle) {
-                    due = result.patternCycleBoundary;
-                } else if (!due && quantization
-                        == PatternVariationLaunch::NextSongRow) {
-                    due = result.songRowBoundary;
-                }
-                if (due) {
-                    mailbox.consumedRevision.store(
-                        revision, std::memory_order_relaxed);
-                    mailbox.dueRevision.store(
-                        revision, std::memory_order_release);
-                    return LogicalTickBoundaryAction::StopAfterBoundary;
-                }
-            }
-        }
-        if (result.transition) {
-            const auto rowIndex = runtime.songPlanner.currentRowIndex();
-            const auto* row = runtime.songPlanner.currentRow();
-            if (rowIndex && *rowIndex < runtime.songPatternIndices.size()) {
-                (void)runtime.scheduler.activatePreparedPatternAtTickBoundary(
-                    runtime.songPatternIndices[*rowIndex]);
-                runtime.scheduler.launchSongRegionAtTickBoundary(
-                    runtime.songRowStart(row));
-                runtime.scheduler.setRuntimeTrackMuteMask(
-                    row ? row->mutedTracks : 0u);
-                runtime.scheduler.setTransportAtTickBoundary(
-                    runtime.songRowClock(row,
-                        runtime.hostClock(runtime.latestHostTempo,
-                            runtime.latestSampleRate)));
-            }
-        }
-        if (result.finished) {
-            // Keep a silent logical clock alive while REAPER continues. This
-            // lets SELECT QUEUE relaunch a row after a non-looping Song has
-            // reached its end, without leaking notes from the final pattern.
-            runtime.scheduler.setRuntimeTrackMuteMask(
-                std::numeric_limits<uint32_t>::max());
-        }
-        return LogicalTickBoundaryAction::Continue;
-    }
-
-    static LogicalTickBoundaryAction advancePatternLaunch(void* context,
-        const LogicalTickBoundary& boundary) noexcept
-    {
-        auto& runtime = *static_cast<Runtime*>(context);
-        if (!runtime.patternLaunch)
-            return LogicalTickBoundaryAction::Continue;
-        auto& mailbox = *runtime.patternLaunch;
-        const uint32_t revision = mailbox.revision.load(
-            std::memory_order_acquire);
-        if (revision == 0u || revision == mailbox.consumedRevision.load(
-                std::memory_order_relaxed))
-            return LogicalTickBoundaryAction::Continue;
-
-        const auto quantization = static_cast<PatternVariationLaunch>(
-            mailbox.quantization.load(std::memory_order_relaxed));
-        const bool due = s3g::tracker::patternVariationLaunchIsDue(
-            quantization, boundary.completedTickIndex,
-            boundary.completedTransportRow,
-            runtime.scheduler.transport().ticksPerBeat,
-            runtime.scheduler.pattern().visibleRows);
-        if (!due) return LogicalTickBoundaryAction::Continue;
-        mailbox.consumedRevision.store(revision, std::memory_order_relaxed);
-        mailbox.dueRevision.store(revision, std::memory_order_release);
-        return LogicalTickBoundaryAction::StopAfterBoundary;
-    }
-
-    void routeFor(uint8_t fallbackChannel, uint8_t& channel) const noexcept
-    {
-        channel = static_cast<uint8_t>(std::clamp<int>(
-            fallbackChannel, 1, 16) - 1);
-    }
-};
-
-struct ActiveNote {
-    uint64_t noteId = 0u;
-    uint64_t dueFrame = 0u;
-    bool active = false;
-};
-
-struct MonitoredInputNote {
-    uint8_t outputChannel = 0u;
-    bool active = false;
-};
-
-struct GateOff {
-    uint32_t activeIndex = 0u;
-    uint32_t frameOffset = 0u;
-    uint64_t noteId = 0u;
-};
-
-struct BurstPreviewPlayback {
-    std::array<s3g::tracker::BurstEvent,
-        s3g::tracker::kMaximumBurstEvents> events {};
-    uint64_t startFrame = 0u;
-    uint64_t tickFrames = 1u;
-    uint32_t revision = 0u;
-    uint8_t eventCount = 0u;
-    uint8_t nextEvent = 0u;
-    uint8_t midiChannel = 1u;
-    bool active = false;
-};
-
-struct PitchPreviewPlayback {
-    std::array<s3g::tracker::PitchPreviewEvent,
-        PitchPreviewMailbox::kCapacity> events {};
-    uint64_t startFrame = 0u;
-    uint64_t rowFrames = 1u;
-    uint32_t revision = 0u;
-    uint16_t eventCount = 0u;
-    uint16_t nextEvent = 0u;
-    uint8_t midiChannel = 1u;
-    bool active = false;
-};
-
-struct Plugin {
+struct Plugin : s3g::tracker::midi::Engine {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
-    double sampleRate = 48000.0;
-    std::mutex documentMutex;
-    ProjectDocument document = makeInitialDocument();
-    PatternLaunchMailbox patternLaunch;
-    BurstPreviewMailbox burstPreviewMailbox;
-    BurstPreviewPlayback burstPreviewPlayback;
-    PitchPreviewMailbox pitchPreviewMailbox;
-    PitchPreviewPlayback pitchPreviewPlayback;
-    VisualNoteHitMailboxes visualNoteHits;
-    MidiStepCaptureQueue midiStepCaptures;
-    MidiStepClock midiStepClock;
-    std::atomic<uint8_t> midiStepRecordMode {
-        static_cast<uint8_t>(MidiStepRecordMode::Off)
-    };
-    std::atomic<uint32_t> midiRecordTrack { 0u };
-    std::atomic<uint8_t> midiMonitorChannel { 0u };
-    std::atomic<bool> requestMidiMonitorRelease { false };
-    Runtime* audioRuntime = nullptr;
-    std::atomic<Runtime*> pendingRuntime { nullptr };
-    std::atomic<Runtime*> queuedVariationRuntime { nullptr };
-    std::array<Runtime*, kRetiredRuntimeCapacity> retiredRuntimes {};
-    std::atomic<uint32_t> retiredRead { 0u };
-    std::atomic<uint32_t> retiredWrite { 0u };
-    std::array<ScheduledEvent,
-        s3g::tracker::kMaximumScheduledEventsPerBlock> events {};
-    std::array<GateOff, kMaximumGateOffsPerBlock> gateOffs {};
-    std::array<ActiveNote, kActiveNoteCount> activeNotes {};
-    std::array<MonitoredInputNote, kActiveNoteCount> monitoredInputNotes {};
-    std::array<uint8_t, kActiveNoteCount> monitoredOutputCounts {};
-    uint64_t processFrame = 0u;
-    double expectedBeat = 0.0;
-    bool expectedBeatValid = false;
-    bool hostWasPlaying = false;
-    bool runtimeArmed = false;
-    std::atomic<bool> requestPanic { false };
-    std::atomic<bool> requestRestart { false };
-    std::atomic<bool> fillActive { false };
-    std::atomic<uint32_t> requestTrackResyncMask { 0u };
-    std::atomic<uint32_t> auditionNode { s3g::tracker::kInvalidInstrumentNode };
-    std::atomic<uint32_t> auditionData { 0u };
-    std::atomic<uint32_t> auditionRevision { 0u };
-    uint32_t consumedAuditionRevision = 0u;
-    uint32_t consumedBurstPreviewRevision = 0u;
-    uint32_t consumedPitchPreviewRevision = 0u;
-    std::atomic<uint32_t> songLaunchRow { 0u };
-    std::atomic<uint32_t> songLaunchQuantization { 0u };
-    std::atomic<uint32_t> songLaunchRevision { 0u };
-    uint32_t consumedSongLaunchRevision = 0u;
-    // Arrangement edits use the variation-runtime handoff for audio-thread
-    // safety, but they are not an explicit Song-row performance queue.
-    std::atomic<bool> songArrangementUpdatePending { false };
-    std::atomic<bool> songLoopEnabled { false };
-    std::atomic<uint32_t> songLoopRevision { 0u };
-    uint32_t consumedSongLoopRevision = 0u;
-    std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
-        notePlayheads {};
-    std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
-        instrumentPlayheads {};
-    std::array<std::atomic<uint16_t>, s3g::tracker::kMaximumTrackCount>
-        velocityPlayheads {};
-    std::array<std::array<std::atomic<uint16_t>, s3g::tracker::kFxPairCount>,
-        s3g::tracker::kMaximumTrackCount> fxActionPlayheads {};
-    std::array<std::array<std::atomic<uint16_t>, s3g::tracker::kFxPairCount>,
-        s3g::tracker::kMaximumTrackCount> fxValuePlayheads {};
-    std::atomic<bool> visualPlaying { false };
-    std::atomic<double> visualHostTempo { 0.0 };
-    std::atomic<float> visualSubrowPhase { 0.0f };
-    std::atomic<uint64_t> visualTimingWarpTick { 0u };
-    std::atomic<int32_t> visualSongRow { -1 };
-    std::atomic<int32_t> visualPendingSongRow { -1 };
-    std::atomic<uint32_t> visualPendingSongQuantization { 0u };
-    std::atomic<uint64_t> sentEvents { 0u };
-    std::atomic<uint64_t> droppedEvents { 0u };
-    std::atomic<uint64_t> runtimeBuildCount { 0u };
     S3GTrackerClapCoordinator* coordinator = nil;
     void* guiView = nullptr;
 #if defined(S3G_TRACKER_VSTGUI_PILOT)
@@ -1157,40 +253,6 @@ Plugin* self(const clap_plugin_t* plugin)
     return static_cast<Plugin*>(plugin->plugin_data);
 }
 
-void captureMidiStep(Plugin& plugin, const clap_event_midi_t& event,
-    uint32_t frameOffset) noexcept
-{
-    const auto mode = static_cast<MidiStepRecordMode>(
-        plugin.midiStepRecordMode.load(std::memory_order_relaxed));
-    if (mode == MidiStepRecordMode::Off || event.port_index != 0u) return;
-    const uint8_t status = event.data[0];
-    const uint8_t kind = status & 0xf0u;
-    const bool noteOn = kind == 0x90u && event.data[2] != 0u;
-    const bool noteOff = kind == 0x80u
-        || (kind == 0x90u && event.data[2] == 0u);
-    if (!noteOn && !noteOff) return;
-    MidiStepCapture capture;
-    capture.targetTrack = static_cast<std::size_t>(
-        plugin.midiRecordTrack.load(std::memory_order_relaxed));
-    capture.note = static_cast<uint8_t>(event.data[1] & 0x7fu);
-    capture.velocity = static_cast<uint8_t>(event.data[2] & 0x7fu);
-    capture.channel = static_cast<uint8_t>((status & 0x0fu) + 1u);
-    capture.noteOn = noteOn;
-    capture.mode = mode;
-    const uint64_t absoluteFrame = frameOffset
-            > std::numeric_limits<uint64_t>::max() - plugin.processFrame
-        ? std::numeric_limits<uint64_t>::max()
-        : plugin.processFrame + frameOffset;
-    capture.rowKnown = plugin.midiStepClock.nearestTarget(
-        absoluteFrame, capture.offsetSamples, capture.row);
-    if (noteOff) {
-        capture.followingRowKnown = plugin.midiStepClock.nextTarget(
-            absoluteFrame, capture.followingOffsetSamples,
-            capture.followingRow);
-    }
-    capture.timingKnown = capture.rowKnown;
-    (void)plugin.midiStepCaptures.push(capture);
-}
 
 const clap_host_transport_control_t* hostTransportControl(Plugin& plugin)
 {
@@ -1307,986 +369,6 @@ bool requestHostTogglePlayback(Plugin& plugin)
     return true;
 }
 
-void markHostStateDirty(Plugin& plugin)
-{
-    if (plugin.host && plugin.host->request_process)
-        plugin.host->request_process(plugin.host);
-    if (!plugin.host || !plugin.host->get_extension) return;
-    const auto* state = static_cast<const clap_host_state_t*>(
-        plugin.host->get_extension(plugin.host, CLAP_EXT_STATE));
-    if (state && state->mark_dirty) state->mark_dirty(plugin.host);
-}
-
-bool retireQueueFull(const Plugin& plugin) noexcept
-{
-    const uint32_t write = plugin.retiredWrite.load(std::memory_order_relaxed);
-    const uint32_t read = plugin.retiredRead.load(std::memory_order_acquire);
-    return write - read >= kRetiredRuntimeCapacity;
-}
-
-bool retireRuntimeFromAudio(Plugin& plugin, Runtime* runtime) noexcept
-{
-    if (!runtime) return true;
-    const uint32_t write = plugin.retiredWrite.load(std::memory_order_relaxed);
-    const uint32_t read = plugin.retiredRead.load(std::memory_order_acquire);
-    if (write - read >= kRetiredRuntimeCapacity) return false;
-    plugin.retiredRuntimes[write % kRetiredRuntimeCapacity] = runtime;
-    plugin.retiredWrite.store(write + 1u, std::memory_order_release);
-    return true;
-}
-
-void drainRetiredRuntimes(Plugin& plugin)
-{
-    uint32_t read = plugin.retiredRead.load(std::memory_order_relaxed);
-    const uint32_t write = plugin.retiredWrite.load(std::memory_order_acquire);
-    while (read != write) {
-        delete plugin.retiredRuntimes[read % kRetiredRuntimeCapacity];
-        plugin.retiredRuntimes[read % kRetiredRuntimeCapacity] = nullptr;
-        ++read;
-    }
-    plugin.retiredRead.store(read, std::memory_order_release);
-}
-
-void cancelQueuedVariation(Plugin& plugin)
-{
-    plugin.songArrangementUpdatePending.store(false,
-        std::memory_order_release);
-    plugin.patternLaunch.revision.store(0u, std::memory_order_release);
-    plugin.patternLaunch.dueRevision.store(0u, std::memory_order_release);
-    plugin.patternLaunch.consumedRevision.store(0u,
-        std::memory_order_relaxed);
-    delete plugin.queuedVariationRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-}
-
-void storeDocumentWithoutRuntime(Plugin& plugin, ProjectDocument document,
-    bool markDirty)
-{
-    normalizeMidiOnlyDocument(document);
-    {
-        std::lock_guard<std::mutex> lock(plugin.documentMutex);
-        plugin.document = std::move(document);
-    }
-    if (markDirty) markHostStateDirty(plugin);
-}
-
-bool queueRuntimeDocument(Plugin& plugin, ProjectDocument document,
-    PatternVariationLaunch quantization,
-    std::optional<std::size_t> initialSongRow, bool markDirty)
-{
-    normalizeMidiOnlyDocument(document);
-    auto* runtime = new (std::nothrow) Runtime(document,
-        plugin.sampleRate, &plugin.patternLaunch, &plugin.visualNoteHits,
-        &plugin.midiStepClock);
-    if (!runtime || !runtime->valid
-        || (initialSongRow && (!runtime->songEnabled
-            || *initialSongRow >= runtime->songPatternIndices.size()))) {
-        delete runtime;
-        return false;
-    }
-    if (initialSongRow) runtime->initialSongRow = *initialSongRow;
-    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
-    {
-        std::lock_guard<std::mutex> lock(plugin.documentMutex);
-        plugin.document = std::move(document);
-    }
-    delete plugin.pendingRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-    Runtime* superseded = plugin.queuedVariationRuntime.exchange(runtime,
-        std::memory_order_acq_rel);
-    delete superseded;
-    plugin.patternLaunch.quantization.store(
-        static_cast<uint32_t>(quantization), std::memory_order_relaxed);
-    plugin.patternLaunch.dueRevision.store(0u, std::memory_order_relaxed);
-    auto revision = plugin.patternLaunch.revision.load(
-        std::memory_order_relaxed) + 1u;
-    if (revision == 0u) revision = 1u;
-    plugin.patternLaunch.revision.store(revision,
-        std::memory_order_release);
-    if (markDirty) markHostStateDirty(plugin);
-    else if (plugin.host && plugin.host->request_process)
-        plugin.host->request_process(plugin.host);
-    return true;
-}
-
-bool queueVariationDocument(Plugin& plugin, ProjectDocument document,
-    PatternVariationLaunch quantization, bool markDirty)
-{
-    plugin.songArrangementUpdatePending.store(false,
-        std::memory_order_release);
-    return queueRuntimeDocument(plugin, std::move(document), quantization,
-        std::nullopt, markDirty);
-}
-
-bool queueSongDocument(Plugin& plugin, ProjectDocument document,
-    std::size_t row, SongLaunchQuantization quantization,
-    bool markDirty = false)
-{
-    PatternVariationLaunch boundary = PatternVariationLaunch::NextSongRow;
-    switch (quantization) {
-    case SongLaunchQuantization::NextTick:
-        boundary = PatternVariationLaunch::NextTick;
-        break;
-    case SongLaunchQuantization::NextBeat:
-        boundary = PatternVariationLaunch::NextBeat;
-        break;
-    case SongLaunchQuantization::NextPatternCycle:
-        boundary = PatternVariationLaunch::NextPatternCycle;
-        break;
-    case SongLaunchQuantization::NextSongRow:
-        break;
-    }
-    return queueRuntimeDocument(plugin, std::move(document), boundary,
-        row, markDirty);
-}
-
-void publishDocument(Plugin& plugin, ProjectDocument document,
-    bool markDirty)
-{
-    normalizeMidiOnlyDocument(document);
-    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
-        &plugin.patternLaunch, &plugin.visualNoteHits,
-        &plugin.midiStepClock);
-    if (!runtime || !runtime->valid) {
-        delete runtime;
-        return;
-    }
-    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
-    {
-        std::lock_guard<std::mutex> lock(plugin.documentMutex);
-        plugin.document = std::move(document);
-    }
-    cancelQueuedVariation(plugin);
-    Runtime* superseded = plugin.pendingRuntime.exchange(runtime,
-        std::memory_order_acq_rel);
-    delete superseded;
-    if (markDirty) markHostStateDirty(plugin);
-    else if (plugin.host && plugin.host->request_process)
-        plugin.host->request_process(plugin.host);
-}
-
-bool publishPreviewDocumentRuntime(Plugin& plugin, ProjectDocument document)
-{
-    normalizeMidiOnlyDocument(document);
-    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
-        &plugin.patternLaunch, &plugin.visualNoteHits,
-        &plugin.midiStepClock);
-    if (!runtime || !runtime->valid) {
-        delete runtime;
-        return false;
-    }
-    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
-    cancelQueuedVariation(plugin);
-    Runtime* superseded = plugin.pendingRuntime.exchange(runtime,
-        std::memory_order_acq_rel);
-    delete superseded;
-    if (plugin.host && plugin.host->request_process)
-        plugin.host->request_process(plugin.host);
-    return true;
-}
-
-bool publishStoredDocumentRuntime(Plugin& plugin)
-{
-    ProjectDocument document;
-    {
-        std::lock_guard<std::mutex> lock(plugin.documentMutex);
-        document = plugin.document;
-    }
-    auto* runtime = new (std::nothrow) Runtime(document, plugin.sampleRate,
-        &plugin.patternLaunch, &plugin.visualNoteHits,
-        &plugin.midiStepClock);
-    if (!runtime || !runtime->valid) {
-        delete runtime;
-        return false;
-    }
-    plugin.runtimeBuildCount.fetch_add(1u, std::memory_order_relaxed);
-    cancelQueuedVariation(plugin);
-    Runtime* superseded = plugin.pendingRuntime.exchange(runtime,
-        std::memory_order_acq_rel);
-    delete superseded;
-    if (plugin.host && plugin.host->request_process)
-        plugin.host->request_process(plugin.host);
-    return true;
-}
-
-uint32_t activeNoteIndex(uint8_t channel, uint8_t note) noexcept
-{
-    return static_cast<uint32_t>(channel) * kMidiNoteCount
-        + static_cast<uint32_t>(note);
-}
-
-void decodeActiveNoteIndex(uint32_t index, uint8_t& channel,
-    uint8_t& note) noexcept
-{
-    note = static_cast<uint8_t>(index % kMidiNoteCount);
-    index /= kMidiNoteCount;
-    channel = static_cast<uint8_t>(index % kMidiChannelCount);
-}
-
-bool pushMidi(Plugin& plugin, const clap_output_events_t* output,
-    uint32_t frameOffset, uint8_t status, uint8_t data1,
-    uint8_t data2) noexcept
-{
-    if (!output || !output->try_push) {
-        plugin.droppedEvents.fetch_add(1u, std::memory_order_relaxed);
-        return false;
-    }
-    clap_event_midi_t event {};
-    event.header.size = sizeof(event);
-    event.header.time = frameOffset;
-    event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-    event.header.type = CLAP_EVENT_MIDI;
-    event.port_index = 0u;
-    event.data[0] = status;
-    event.data[1] = data1;
-    event.data[2] = data2;
-    if (!output->try_push(output, &event.header)) {
-        plugin.droppedEvents.fetch_add(1u, std::memory_order_relaxed);
-        return false;
-    }
-    plugin.sentEvents.fetch_add(1u, std::memory_order_relaxed);
-    return true;
-}
-
-void emitActiveNoteOff(Plugin& plugin, const clap_output_events_t* output,
-    uint32_t frameOffset, uint32_t index) noexcept
-{
-    auto& active = plugin.activeNotes[index];
-    if (!active.active) return;
-    uint8_t channel = 0u;
-    uint8_t note = 0u;
-    decodeActiveNoteIndex(index, channel, note);
-    (void)pushMidi(plugin, output, frameOffset,
-        static_cast<uint8_t>(0x80u | channel), note, 0u);
-    active = {};
-}
-
-void releaseMonitoredInputNote(Plugin& plugin,
-    const clap_output_events_t* output, uint32_t frameOffset,
-    uint32_t inputIndex) noexcept
-{
-    auto& monitored = plugin.monitoredInputNotes[inputIndex];
-    if (!monitored.active) return;
-    const uint8_t note = static_cast<uint8_t>(inputIndex % kMidiNoteCount);
-    const uint32_t outputIndex = activeNoteIndex(
-        monitored.outputChannel, note);
-    auto& owners = plugin.monitoredOutputCounts[outputIndex];
-    if (owners > 0u) --owners;
-    if (owners == 0u) {
-        (void)pushMidi(plugin, output, frameOffset,
-            static_cast<uint8_t>(0x80u | monitored.outputChannel),
-            note, 0u);
-    }
-    monitored = {};
-}
-
-void releaseMonitoredInputNotes(Plugin& plugin,
-    const clap_output_events_t* output, uint32_t frameOffset) noexcept
-{
-    for (uint32_t index = 0u;
-         index < plugin.monitoredInputNotes.size(); ++index) {
-        releaseMonitoredInputNote(plugin, output, frameOffset, index);
-    }
-    plugin.monitoredOutputCounts.fill(0u);
-}
-
-void monitorMidiInput(Plugin& plugin, const clap_event_midi_t& event,
-    const clap_output_events_t* output, uint32_t frameOffset) noexcept
-{
-    if (event.port_index != 0u) return;
-    const uint8_t status = event.data[0];
-    const uint8_t kind = status & 0xf0u;
-    if (kind != 0x80u && kind != 0x90u) return;
-    const uint8_t inputChannel = status & 0x0fu;
-    const uint8_t note = event.data[1] & 0x7fu;
-    const uint32_t inputIndex = activeNoteIndex(inputChannel, note);
-    const bool noteOn = kind == 0x90u && event.data[2] != 0u;
-    if (!noteOn) {
-        // A key armed before a mode change must still release on its original
-        // monitored channel even if recording has since been disarmed.
-        releaseMonitoredInputNote(plugin, output, frameOffset, inputIndex);
-        return;
-    }
-    const auto mode = static_cast<MidiStepRecordMode>(
-        plugin.midiStepRecordMode.load(std::memory_order_relaxed));
-    if (mode == MidiStepRecordMode::Off) return;
-
-    if (plugin.monitoredInputNotes[inputIndex].active)
-        releaseMonitoredInputNote(plugin, output, frameOffset, inputIndex);
-    const uint8_t outputChannel = std::min<uint8_t>(
-        plugin.midiMonitorChannel.load(std::memory_order_relaxed), 15u);
-    const uint32_t outputIndex = activeNoteIndex(outputChannel, note);
-    // A live key owns this channel/pitch until its physical note-off. Retire
-    // an existing tracker gate first so its delayed off cannot cut the key.
-    if (plugin.monitoredOutputCounts[outputIndex] == 0u
-        && plugin.activeNotes[outputIndex].active) {
-        emitActiveNoteOff(plugin, output, frameOffset, outputIndex);
-    }
-    plugin.monitoredInputNotes[inputIndex] = { outputChannel, true };
-    ++plugin.monitoredOutputCounts[outputIndex];
-    (void)pushMidi(plugin, output, frameOffset,
-        static_cast<uint8_t>(0x90u | outputChannel), note,
-        static_cast<uint8_t>(event.data[2] & 0x7fu));
-}
-
-void releaseActiveNotes(Plugin& plugin, const clap_output_events_t* output,
-    uint32_t frameOffset) noexcept
-{
-    for (uint32_t index = 0u; index < plugin.activeNotes.size(); ++index)
-        emitActiveNoteOff(plugin, output, frameOffset, index);
-}
-
-void emitPanic(Plugin& plugin, const clap_output_events_t* output,
-    uint32_t frameOffset) noexcept
-{
-    releaseActiveNotes(plugin, output, frameOffset);
-    releaseMonitoredInputNotes(plugin, output, frameOffset);
-    for (uint8_t channel = 0u; channel < kMidiChannelCount; ++channel) {
-        (void)pushMidi(plugin, output, frameOffset,
-            static_cast<uint8_t>(0xb0u | channel), 123u, 0u);
-    }
-}
-
-void emitScheduledEvent(Plugin& plugin, Runtime& runtime,
-    const clap_output_events_t* output, const ScheduledEvent& event,
-    uint32_t blockOffset) noexcept
-{
-    if (event.kind == ScheduledEventKind::Parameter) return;
-    uint8_t channel = 0u;
-    runtime.routeFor(event.channel, channel);
-    const uint32_t offset = blockOffset + event.frameOffset;
-    if (event.kind == ScheduledEventKind::ControlChange) {
-        (void)pushMidi(plugin, output, offset,
-            static_cast<uint8_t>(0xb0u | channel),
-            static_cast<uint8_t>(std::min<uint32_t>(
-                event.parameterId, 127u)),
-            s3g::tracker::midiValueFromNormalized(event.parameterValue));
-        return;
-    }
-    const uint32_t index = activeNoteIndex(channel, event.note);
-    // Do not let a sequenced retrigger/gate-off cut a physically held
-    // monitored key sharing the same MIDI 1.0 channel and pitch.
-    if (plugin.monitoredOutputCounts[index] != 0u) return;
-    auto& active = plugin.activeNotes[index];
-    if (event.kind == ScheduledEventKind::NoteOff) {
-        if (active.active && (event.noteId == 0u
-                || event.noteId == active.noteId))
-            emitActiveNoteOff(plugin, output, offset, index);
-        return;
-    }
-    // MIDI 1.0 has no note identity beyond channel and pitch. Use a
-    // deterministic latest-note-wins policy: retrigger the pitch explicitly,
-    // replace its noteId/dueFrame below, and let the noteId check suppress the
-    // superseded gate-off so it cannot cut the new onset short.
-    if (active.active) emitActiveNoteOff(plugin, output, offset, index);
-    const uint8_t velocity = s3g::tracker::midiVelocityFromNormalized(
-        event.normalizedVelocity);
-    (void)pushMidi(plugin, output, offset,
-        static_cast<uint8_t>(0x90u | channel), event.note, velocity);
-    const uint64_t gate = event.durationSamples != 0u
-        ? event.durationSamples
-        : static_cast<uint64_t>(std::max(1.0,
-            std::round(plugin.sampleRate * runtime.gateMilliseconds / 1000.0)));
-    active.active = true;
-    active.noteId = event.noteId;
-    const uint64_t onset = plugin.processFrame
-        + static_cast<uint64_t>(blockOffset)
-        + static_cast<uint64_t>(event.frameOffset);
-    active.dueFrame = onset > std::numeric_limits<uint64_t>::max() - gate
-        ? std::numeric_limits<uint64_t>::max() : onset + gate;
-}
-
-std::size_t collectGateOffs(Plugin& plugin, uint64_t segmentStart,
-    uint32_t frameCount) noexcept
-{
-    const uint64_t segmentEnd = segmentStart + frameCount;
-    std::size_t count = 0u;
-    for (uint32_t index = 0u; index < plugin.activeNotes.size(); ++index) {
-        const auto& active = plugin.activeNotes[index];
-        if (!active.active || active.dueFrame >= segmentEnd) continue;
-        plugin.gateOffs[count++] = { index,
-            active.dueFrame <= segmentStart ? 0u
-                : static_cast<uint32_t>(active.dueFrame - segmentStart),
-            active.noteId };
-    }
-    const auto later = [](const GateOff& left, const GateOff& right) {
-        if (left.frameOffset != right.frameOffset)
-            return left.frameOffset > right.frameOffset;
-        return left.noteId > right.noteId;
-    };
-    std::make_heap(plugin.gateOffs.begin(),
-        plugin.gateOffs.begin() + count, later);
-    return count;
-}
-
-void handleAudition(Plugin& plugin, Runtime& runtime,
-    const clap_output_events_t* output, uint32_t blockOffset) noexcept
-{
-    const uint32_t revision = plugin.auditionRevision.load(
-        std::memory_order_acquire);
-    if (revision == plugin.consumedAuditionRevision) return;
-    plugin.consumedAuditionRevision = revision;
-    const uint32_t node = plugin.auditionNode.load(std::memory_order_relaxed);
-    const uint32_t data = plugin.auditionData.load(std::memory_order_relaxed);
-    const uint8_t note = static_cast<uint8_t>(data & 0x7fu);
-    const uint8_t velocity = static_cast<uint8_t>((data >> 8u) & 0x7fu);
-    uint8_t channel = 0u;
-    runtime.routeFor(1u, channel);
-    const uint32_t index = activeNoteIndex(channel, note);
-    if (plugin.activeNotes[index].active)
-        emitActiveNoteOff(plugin, output, blockOffset, index);
-    (void)pushMidi(plugin, output, blockOffset,
-        static_cast<uint8_t>(0x90u | channel), note,
-        std::max<uint8_t>(velocity, 1u));
-    auto& active = plugin.activeNotes[index];
-    active.active = true;
-    active.noteId = (static_cast<uint64_t>(revision) << 32u) | node;
-    active.dueFrame = plugin.processFrame + blockOffset
-        + static_cast<uint64_t>(std::max(1.0,
-            std::round(plugin.sampleRate * runtime.gateMilliseconds / 1000.0)));
-}
-
-void handleBurstPreview(Plugin& plugin, Runtime& runtime,
-    const clap_output_events_t* output, bool transportPlaying,
-    uint32_t blockOffset, uint32_t frameCount) noexcept
-{
-    const uint32_t revision = plugin.burstPreviewMailbox.revision.load(
-        std::memory_order_acquire);
-    auto& playback = plugin.burstPreviewPlayback;
-    if ((revision & 1u) != 0u) return;
-    if (transportPlaying) {
-        // PREVIEW is deliberately a stopped-transport action. Consume a race
-        // from the UI defensively so it cannot begin later after transport
-        // stops, and let the normal transport transition release any tail.
-        plugin.consumedBurstPreviewRevision = revision;
-        playback.active = false;
-        return;
-    }
-
-    if (revision != plugin.consumedBurstPreviewRevision) {
-        BurstPreviewPlayback next;
-        const uint32_t metadata = plugin.burstPreviewMailbox.metadata.load(
-            std::memory_order_relaxed);
-        next.eventCount = static_cast<uint8_t>(std::min<uint32_t>(
-            metadata & 0xffu, s3g::tracker::kMaximumBurstEvents));
-        next.midiChannel = static_cast<uint8_t>(std::clamp<uint32_t>(
-            (metadata >> 8u) & 0xffu, 1u, 16u));
-        const uint32_t ticksPerBeat = std::clamp<uint32_t>(
-            (metadata >> 16u) & 0xffu, 1u, 96u);
-        const double bpm = static_cast<double>(
-            plugin.burstPreviewMailbox.bpmMilli.load(
-                std::memory_order_relaxed)) / 1000.0;
-        for (std::size_t index = 0u; index < next.eventCount; ++index) {
-            const uint64_t packed = plugin.burstPreviewMailbox.events[index]
-                .load(std::memory_order_relaxed);
-            next.events[index] = {
-                static_cast<uint16_t>(packed & 0xffffu),
-                static_cast<uint8_t>((packed >> 16u) & 0x7fu),
-                static_cast<uint8_t>((packed >> 24u) & 0x7fu),
-                static_cast<uint8_t>((packed >> 32u) & 0x7fu),
-            };
-        }
-        next.startFrame = plugin.processFrame + blockOffset;
-        next.tickFrames = static_cast<uint64_t>(std::max(1.0,
-            std::round(plugin.sampleRate * 60.0
-                / (std::max(bpm, 1.0)
-                    * static_cast<double>(ticksPerBeat)))));
-        next.revision = revision;
-        next.nextEvent = 0u;
-        next.active = next.eventCount != 0u;
-        if (revision != plugin.burstPreviewMailbox.revision.load(
-                std::memory_order_acquire)) return;
-        playback = next;
-        plugin.consumedBurstPreviewRevision = revision;
-    }
-
-    const uint64_t segmentStart = plugin.processFrame + blockOffset;
-    const uint64_t segmentEnd = segmentStart + frameCount;
-    std::size_t eventCount = 0u;
-    while (playback.active && playback.nextEvent < playback.eventCount) {
-        const auto index = playback.nextEvent;
-        const auto& authored = playback.events[index];
-        const uint64_t onset = playback.startFrame
-            + playback.tickFrames * static_cast<uint64_t>(authored.position)
-                / 65536u;
-        if (onset >= segmentEnd) break;
-        ScheduledEvent event;
-        event.absoluteSampleTime = onset;
-        event.noteId = (static_cast<uint64_t>(playback.revision) << 32u)
-            | static_cast<uint64_t>(index + 1u);
-        event.durationSamples = std::max<uint64_t>(1u,
-            playback.tickFrames
-                * static_cast<uint64_t>(authored.gatePercent) / 100u);
-        event.frameOffset = onset <= segmentStart ? 0u
-            : static_cast<uint32_t>(onset - segmentStart);
-        event.normalizedVelocity = static_cast<float>(authored.velocity)
-            / 127.0f;
-        event.note = authored.note;
-        event.channel = playback.midiChannel;
-        event.kind = ScheduledEventKind::NoteOn;
-        event.destination = EventDestination::Midi;
-        plugin.events[eventCount++] = event;
-        ++playback.nextEvent;
-        if (playback.nextEvent >= playback.eventCount)
-            playback.active = false;
-    }
-
-    std::size_t pendingGateCount = collectGateOffs(
-        plugin, segmentStart, frameCount);
-    const auto laterGate = [](const GateOff& left, const GateOff& right) {
-        if (left.frameOffset != right.frameOffset)
-            return left.frameOffset > right.frameOffset;
-        return left.noteId > right.noteId;
-    };
-    std::size_t eventIndex = 0u;
-    while (eventIndex < eventCount || pendingGateCount > 0u) {
-        const bool useGate = pendingGateCount > 0u
-            && (eventIndex >= eventCount
-                || plugin.gateOffs.front().frameOffset
-                    <= plugin.events[eventIndex].frameOffset);
-        if (useGate) {
-            std::pop_heap(plugin.gateOffs.begin(),
-                plugin.gateOffs.begin() + pendingGateCount, laterGate);
-            const auto gate = plugin.gateOffs[--pendingGateCount];
-            const auto& active = plugin.activeNotes[gate.activeIndex];
-            if (active.active && active.noteId == gate.noteId)
-                emitActiveNoteOff(plugin, output,
-                    blockOffset + gate.frameOffset, gate.activeIndex);
-            continue;
-        }
-        const auto event = plugin.events[eventIndex++];
-        emitScheduledEvent(plugin, runtime, output, event, blockOffset);
-        const uint8_t channel = static_cast<uint8_t>(std::clamp<int>(
-            event.channel, 1, 16) - 1);
-        const uint32_t activeIndex = activeNoteIndex(channel, event.note);
-        const auto& active = plugin.activeNotes[activeIndex];
-        if (!active.active || active.dueFrame >= segmentEnd
-            || pendingGateCount >= plugin.gateOffs.size()) continue;
-        plugin.gateOffs[pendingGateCount++] = {
-            activeIndex,
-            active.dueFrame <= segmentStart ? 0u
-                : static_cast<uint32_t>(active.dueFrame - segmentStart),
-            active.noteId,
-        };
-        std::push_heap(plugin.gateOffs.begin(),
-            plugin.gateOffs.begin() + pendingGateCount, laterGate);
-    }
-}
-
-void handlePitchPreview(Plugin& plugin, Runtime& runtime,
-    const clap_output_events_t* output, bool transportPlaying,
-    uint32_t blockOffset, uint32_t frameCount) noexcept
-{
-    const uint32_t revision = plugin.pitchPreviewMailbox.revision.load(
-        std::memory_order_acquire);
-    auto& playback = plugin.pitchPreviewPlayback;
-    if ((revision & 1u) != 0u) return;
-    if (transportPlaying) {
-        plugin.consumedPitchPreviewRevision = revision;
-        playback.active = false;
-        return;
-    }
-
-    if (revision != plugin.consumedPitchPreviewRevision) {
-        PitchPreviewPlayback next;
-        const uint32_t metadata = plugin.pitchPreviewMailbox.metadata.load(
-            std::memory_order_relaxed);
-        next.eventCount = static_cast<uint16_t>(std::min<uint32_t>(
-            metadata & 0xffffu, PitchPreviewMailbox::kCapacity));
-        next.midiChannel = static_cast<uint8_t>(std::clamp<uint32_t>(
-            (metadata >> 16u) & 0xffu, 1u, 16u));
-        const uint32_t ticksPerBeat = std::clamp<uint32_t>(
-            (metadata >> 24u) & 0xffu, 1u, 96u);
-        const double bpm = static_cast<double>(
-            plugin.pitchPreviewMailbox.bpmMilli.load(
-                std::memory_order_relaxed)) / 1000.0;
-        for (std::size_t index = 0u; index < next.eventCount; ++index) {
-            const uint64_t packed = plugin.pitchPreviewMailbox.events[index]
-                .load(std::memory_order_relaxed);
-            next.events[index] = {
-                static_cast<uint16_t>(packed & 0xffffu),
-                static_cast<uint8_t>((packed >> 16u) & 0x7fu),
-                static_cast<uint8_t>((packed >> 24u) & 0x7fu),
-                static_cast<uint8_t>((packed >> 32u) & 0x7fu),
-                static_cast<uint16_t>((packed >> 40u) & 0xffffu),
-            };
-        }
-        next.startFrame = plugin.processFrame + blockOffset;
-        next.rowFrames = static_cast<uint64_t>(std::max(1.0,
-            std::round(plugin.sampleRate * 60.0
-                / (std::max(bpm, 1.0)
-                    * static_cast<double>(ticksPerBeat)))));
-        next.revision = revision;
-        next.nextEvent = 0u;
-        next.active = next.eventCount != 0u;
-        if (revision != plugin.pitchPreviewMailbox.revision.load(
-                std::memory_order_acquire)) return;
-        playback = next;
-        plugin.consumedPitchPreviewRevision = revision;
-    }
-
-    const uint64_t segmentStart = plugin.processFrame + blockOffset;
-    const uint64_t segmentEnd = segmentStart + frameCount;
-    std::size_t eventCount = 0u;
-    while (playback.active && playback.nextEvent < playback.eventCount) {
-        const auto index = playback.nextEvent;
-        const auto& authored = playback.events[index];
-        const uint64_t onset = playback.startFrame
-            + playback.rowFrames * static_cast<uint64_t>(authored.row)
-            + playback.rowFrames
-                * static_cast<uint64_t>(authored.position) / 65536u;
-        if (onset >= segmentEnd) break;
-        ScheduledEvent event;
-        event.absoluteSampleTime = onset;
-        event.noteId = (static_cast<uint64_t>(playback.revision) << 32u)
-            | (uint64_t { 1u } << 31u) | static_cast<uint64_t>(index + 1u);
-        event.durationSamples = std::max<uint64_t>(1u,
-            playback.rowFrames
-                * static_cast<uint64_t>(authored.gatePercent) / 100u);
-        event.frameOffset = onset <= segmentStart ? 0u
-            : static_cast<uint32_t>(onset - segmentStart);
-        event.normalizedVelocity = static_cast<float>(authored.velocity)
-            / 127.0f;
-        event.note = authored.note;
-        event.channel = playback.midiChannel;
-        event.kind = ScheduledEventKind::NoteOn;
-        event.destination = EventDestination::Midi;
-        plugin.events[eventCount++] = event;
-        ++playback.nextEvent;
-        if (playback.nextEvent >= playback.eventCount)
-            playback.active = false;
-    }
-
-    std::size_t pendingGateCount = collectGateOffs(
-        plugin, segmentStart, frameCount);
-    const auto laterGate = [](const GateOff& left, const GateOff& right) {
-        if (left.frameOffset != right.frameOffset)
-            return left.frameOffset > right.frameOffset;
-        return left.noteId > right.noteId;
-    };
-    std::size_t eventIndex = 0u;
-    while (eventIndex < eventCount || pendingGateCount > 0u) {
-        const bool useGate = pendingGateCount > 0u
-            && (eventIndex >= eventCount
-                || plugin.gateOffs.front().frameOffset
-                    <= plugin.events[eventIndex].frameOffset);
-        if (useGate) {
-            std::pop_heap(plugin.gateOffs.begin(),
-                plugin.gateOffs.begin() + pendingGateCount, laterGate);
-            const auto gate = plugin.gateOffs[--pendingGateCount];
-            const auto& active = plugin.activeNotes[gate.activeIndex];
-            if (active.active && active.noteId == gate.noteId)
-                emitActiveNoteOff(plugin, output,
-                    blockOffset + gate.frameOffset, gate.activeIndex);
-            continue;
-        }
-        const auto event = plugin.events[eventIndex++];
-        emitScheduledEvent(plugin, runtime, output, event, blockOffset);
-        const uint8_t channel = static_cast<uint8_t>(std::clamp<int>(
-            event.channel, 1, 16) - 1);
-        const uint32_t activeIndex = activeNoteIndex(channel, event.note);
-        const auto& active = plugin.activeNotes[activeIndex];
-        if (!active.active || active.dueFrame >= segmentEnd
-            || pendingGateCount >= plugin.gateOffs.size()) continue;
-        plugin.gateOffs[pendingGateCount++] = {
-            activeIndex,
-            active.dueFrame <= segmentStart ? 0u
-                : static_cast<uint32_t>(active.dueFrame - segmentStart),
-            active.noteId,
-        };
-        std::push_heap(plugin.gateOffs.begin(),
-            plugin.gateOffs.begin() + pendingGateCount, laterGate);
-    }
-}
-
-void updateVisualState(Plugin& plugin, Runtime& runtime) noexcept
-{
-    const uint64_t currentSample = runtime.scheduler.renderedFrameCount();
-    const uint64_t tickDuration = runtime.visualTickEndSample
-            > runtime.visualTickStartSample
-        ? runtime.visualTickEndSample - runtime.visualTickStartSample : 1u;
-    const double subrowPhase = currentSample <= runtime.visualTickStartSample
-        ? 0.0 : static_cast<double>(currentSample
-            - runtime.visualTickStartSample) / static_cast<double>(tickDuration);
-    plugin.visualSubrowPhase.store(static_cast<float>(std::clamp(
-        subrowPhase, 0.0, 1.0)), std::memory_order_relaxed);
-    const uint64_t nextTick = runtime.scheduler.tickIndex();
-    plugin.visualTimingWarpTick.store(
-        nextTick == 0u ? 0u : nextTick - 1u,
-        std::memory_order_relaxed);
-    const auto trackCount = std::min<std::size_t>(
-        runtime.scheduler.pattern().tracks.size(),
-        s3g::tracker::kMaximumTrackCount);
-    for (std::size_t track = 0u;
-         track < s3g::tracker::kMaximumTrackCount; ++track) {
-        if (track >= trackCount) continue;
-        plugin.notePlayheads[track].store(static_cast<uint16_t>(
-            runtime.scheduler.lastNotePosition(track)),
-            std::memory_order_relaxed);
-        plugin.instrumentPlayheads[track].store(static_cast<uint16_t>(
-            runtime.scheduler.lastInstrumentPosition(track)),
-            std::memory_order_relaxed);
-        plugin.velocityPlayheads[track].store(static_cast<uint16_t>(
-            runtime.scheduler.lastVelocityPosition(track)),
-            std::memory_order_relaxed);
-        for (std::size_t pair = 0u; pair < s3g::tracker::kFxPairCount; ++pair) {
-            plugin.fxActionPlayheads[track][pair].store(
-                static_cast<uint16_t>(runtime.scheduler.lastFxActionPosition(
-                    track, pair)), std::memory_order_relaxed);
-            plugin.fxValuePlayheads[track][pair].store(
-                static_cast<uint16_t>(runtime.scheduler.lastFxValuePosition(
-                    track, pair)), std::memory_order_relaxed);
-        }
-    }
-    const auto songRow = runtime.songEnabled
-            && !runtime.songPlanner.isFinished()
-        ? runtime.songPlanner.currentRowIndex() : std::nullopt;
-    plugin.visualSongRow.store(songRow
-            ? static_cast<int32_t>(*songRow) : -1,
-        std::memory_order_relaxed);
-    auto pendingSongRow = runtime.songEnabled
-        ? runtime.songPlanner.pendingRowIndex() : std::nullopt;
-    auto pendingSongQuantization = runtime.songEnabled
-        ? runtime.songPlanner.pendingQuantization() : std::nullopt;
-    const uint32_t runtimeLaunchRevision = plugin.patternLaunch.revision.load(
-        std::memory_order_acquire);
-    if (runtime.songEnabled && runtimeLaunchRevision != 0u
-        && !plugin.songArrangementUpdatePending.load(
-            std::memory_order_acquire)
-        && plugin.queuedVariationRuntime.load(std::memory_order_acquire)) {
-        pendingSongRow = static_cast<std::size_t>(
-            plugin.songLaunchRow.load(std::memory_order_relaxed));
-        pendingSongQuantization = static_cast<SongLaunchQuantization>(
-            std::min<uint32_t>(plugin.songLaunchQuantization.load(
-                std::memory_order_relaxed), 3u));
-    }
-    plugin.visualPendingSongRow.store(pendingSongRow
-            ? static_cast<int32_t>(*pendingSongRow) : -1,
-        std::memory_order_relaxed);
-    plugin.visualPendingSongQuantization.store(pendingSongQuantization
-            ? static_cast<uint32_t>(*pendingSongQuantization) : 0u,
-        std::memory_order_relaxed);
-}
-
-bool swapPendingRuntime(Plugin& plugin,
-    const clap_output_events_t* output) noexcept
-{
-    Runtime* pending = plugin.pendingRuntime.load(std::memory_order_acquire);
-    if (!pending || (plugin.audioRuntime && retireQueueFull(plugin)))
-        return false;
-    pending = plugin.pendingRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-    if (!pending) return false;
-    releaseActiveNotes(plugin, output, 0u);
-    if (plugin.audioRuntime)
-        (void)retireRuntimeFromAudio(plugin, plugin.audioRuntime);
-    plugin.audioRuntime = pending;
-    plugin.runtimeArmed = false;
-    plugin.expectedBeatValid = false;
-    if (plugin.host && plugin.host->request_callback)
-        plugin.host->request_callback(plugin.host);
-    return true;
-}
-
-bool swapQueuedVariationRuntime(Plugin& plugin,
-    const clap_output_events_t* output) noexcept
-{
-    const uint32_t due = plugin.patternLaunch.dueRevision.load(
-        std::memory_order_acquire);
-    if (due == 0u) return false;
-    Runtime* queued = plugin.queuedVariationRuntime.load(
-        std::memory_order_acquire);
-    if (!queued) {
-        plugin.patternLaunch.dueRevision.store(0u,
-            std::memory_order_release);
-        plugin.runtimeArmed = false;
-        return false;
-    }
-    if (plugin.audioRuntime && retireQueueFull(plugin)) return false;
-    queued = plugin.queuedVariationRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-    if (!queued) return false;
-    releaseActiveNotes(plugin, output, 0u);
-    if (plugin.audioRuntime)
-        (void)retireRuntimeFromAudio(plugin, plugin.audioRuntime);
-    plugin.audioRuntime = queued;
-    plugin.runtimeArmed = false;
-    plugin.expectedBeatValid = false;
-    plugin.patternLaunch.dueRevision.store(0u, std::memory_order_release);
-    plugin.patternLaunch.revision.store(0u, std::memory_order_release);
-    plugin.patternLaunch.consumedRevision.store(0u,
-        std::memory_order_relaxed);
-    plugin.songArrangementUpdatePending.store(false,
-        std::memory_order_release);
-    if (plugin.host && plugin.host->request_callback)
-        plugin.host->request_callback(plugin.host);
-    return true;
-}
-
-void renderSegment(Plugin& plugin, const clap_output_events_t* output,
-    HostTransport transport, uint32_t blockOffset, uint32_t frameCount)
-    noexcept
-{
-    plugin.visualHostTempo.store(transport.tempo,
-        std::memory_order_relaxed);
-    if (frameCount == 0u) return;
-    if (plugin.requestMidiMonitorRelease.exchange(false,
-            std::memory_order_acq_rel)) {
-        releaseMonitoredInputNotes(plugin, output, blockOffset);
-    }
-    Runtime* runtime = plugin.audioRuntime;
-    if (!runtime) return;
-    runtime->scheduler.setFillActive(plugin.fillActive.load(
-        std::memory_order_relaxed));
-    if (plugin.requestPanic.exchange(false, std::memory_order_acq_rel))
-        emitPanic(plugin, output, blockOffset);
-    if (!transport.playing) {
-        plugin.midiStepClock.clear();
-        if (plugin.hostWasPlaying) {
-            releaseActiveNotes(plugin, output, blockOffset);
-            runtime->scheduler.stop();
-        }
-        handleAudition(plugin, *runtime, output, blockOffset);
-        handleBurstPreview(plugin, *runtime, output, false,
-            blockOffset, frameCount);
-        handlePitchPreview(plugin, *runtime, output, false,
-            blockOffset, frameCount);
-        plugin.hostWasPlaying = false;
-        plugin.runtimeArmed = false;
-        plugin.expectedBeatValid = false;
-        plugin.visualPlaying.store(false, std::memory_order_relaxed);
-        plugin.visualPendingSongRow.store(-1, std::memory_order_relaxed);
-    } else {
-        handleAudition(plugin, *runtime, output, blockOffset);
-        handleBurstPreview(plugin, *runtime, output, true,
-            blockOffset, frameCount);
-        handlePitchPreview(plugin, *runtime, output, true,
-            blockOffset, frameCount);
-        const bool restartRequested = plugin.requestRestart.exchange(false,
-            std::memory_order_acq_rel);
-        const uint32_t loopRevision = plugin.songLoopRevision.load(
-            std::memory_order_acquire);
-        if (loopRevision != plugin.consumedSongLoopRevision) {
-            plugin.consumedSongLoopRevision = loopRevision;
-            if (runtime->songEnabled) {
-                runtime->songPlanner.setLoopEnabled(
-                    plugin.songLoopEnabled.load(std::memory_order_relaxed));
-            }
-        }
-        const uint32_t launchRevision = plugin.songLaunchRevision.load(
-            std::memory_order_acquire);
-        if (launchRevision != plugin.consumedSongLaunchRevision) {
-            plugin.consumedSongLaunchRevision = launchRevision;
-            if (runtime->songEnabled) {
-                (void)runtime->songPlanner.queueRow(
-                    plugin.songLaunchRow.load(std::memory_order_relaxed),
-                    static_cast<SongLaunchQuantization>(std::min<uint32_t>(
-                        plugin.songLaunchQuantization.load(
-                            std::memory_order_relaxed), 3u)));
-            }
-        }
-        const bool discontinuity = transport.hasBeat
-            && plugin.expectedBeatValid
-            && std::abs(transport.beat - plugin.expectedBeat) > 0.01;
-        const bool tempoChanged = plugin.runtimeArmed
-            && std::abs(runtime->scheduler.transport().bpm
-                - runtime->effectiveBpm(transport.tempo)) > 1.0e-7;
-        if (restartRequested) {
-            releaseActiveNotes(plugin, output, blockOffset);
-            plugin.runtimeArmed = runtime->arm(
-                0.0, transport.tempo, plugin.sampleRate,
-                plugin.processFrame + blockOffset, true);
-            plugin.expectedBeatValid = false;
-        } else if (!plugin.runtimeArmed || !plugin.hostWasPlaying
-            || discontinuity || tempoChanged) {
-            releaseActiveNotes(plugin, output, blockOffset);
-            plugin.runtimeArmed = runtime->arm(
-                transport.hasBeat ? transport.beat : 0.0,
-                transport.tempo, plugin.sampleRate,
-                plugin.processFrame + blockOffset);
-        } else {
-            runtime->updateClock(transport.tempo, plugin.sampleRate);
-        }
-        plugin.hostWasPlaying = true;
-        plugin.visualPlaying.store(plugin.runtimeArmed,
-            std::memory_order_relaxed);
-
-        if (plugin.runtimeArmed) {
-            const uint32_t resyncMask = plugin.requestTrackResyncMask.exchange(
-                0u, std::memory_order_acq_rel);
-            for (std::size_t track = 0u;
-                 track < s3g::tracker::kMaximumTrackCount; ++track) {
-                if ((resyncMask & (uint32_t { 1u } << track)) != 0u)
-                    (void)runtime->scheduler
-                        .resyncTrackColumnsAtTickBoundary(track, 0u);
-            }
-            const std::size_t eventCount = runtime->scheduler.process(
-                frameCount, plugin.events.data(), plugin.events.size());
-            const uint64_t segmentStart = plugin.processFrame + blockOffset;
-            const std::size_t gateCount = collectGateOffs(plugin,
-                segmentStart, frameCount);
-            std::size_t eventIndex = 0u;
-            std::size_t pendingGateCount = gateCount;
-            const auto laterGate = [](const GateOff& left,
-                                       const GateOff& right) {
-                if (left.frameOffset != right.frameOffset)
-                    return left.frameOffset > right.frameOffset;
-                return left.noteId > right.noteId;
-            };
-            while (eventIndex < eventCount || pendingGateCount > 0u) {
-                const bool useGate = pendingGateCount > 0u
-                    && (eventIndex >= eventCount
-                        || plugin.gateOffs.front().frameOffset
-                            <= plugin.events[eventIndex].frameOffset);
-                if (useGate) {
-                    std::pop_heap(plugin.gateOffs.begin(),
-                        plugin.gateOffs.begin() + pendingGateCount,
-                        laterGate);
-                    const auto gate = plugin.gateOffs[--pendingGateCount];
-                    const auto& active = plugin.activeNotes[gate.activeIndex];
-                    if (active.active && active.noteId == gate.noteId)
-                        emitActiveNoteOff(plugin, output,
-                            blockOffset + gate.frameOffset,
-                            gate.activeIndex);
-                } else {
-                    const auto event = plugin.events[eventIndex++];
-                    emitScheduledEvent(plugin, *runtime, output, event,
-                        blockOffset);
-                    if (event.kind != ScheduledEventKind::NoteOn) continue;
-                    uint8_t channel = 0u;
-                    runtime->routeFor(event.channel, channel);
-                    const uint32_t activeIndex = activeNoteIndex(
-                        channel, event.note);
-                    const auto& active = plugin.activeNotes[activeIndex];
-                    const uint64_t segmentEnd = segmentStart + frameCount;
-                    if (!active.active || active.dueFrame >= segmentEnd
-                        || pendingGateCount >= plugin.gateOffs.size())
-                        continue;
-                    plugin.gateOffs[pendingGateCount++] = {
-                        activeIndex,
-                        active.dueFrame <= segmentStart ? 0u
-                            : static_cast<uint32_t>(
-                                active.dueFrame - segmentStart),
-                        active.noteId,
-                    };
-                    std::push_heap(plugin.gateOffs.begin(),
-                        plugin.gateOffs.begin() + pendingGateCount,
-                        laterGate);
-                }
-            }
-            updateVisualState(plugin, *runtime);
-        }
-    }
-
-    if (transport.playing && transport.hasBeat) {
-        plugin.expectedBeat = transport.beat + transport.tempo
-            * static_cast<double>(frameCount)
-                / (60.0 * plugin.sampleRate);
-        plugin.expectedBeatValid = true;
-    } else {
-        plugin.expectedBeatValid = false;
-    }
-}
 
 } // namespace
 
@@ -2303,7 +385,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     S3GTrackerClapPageHelp,
 };
 
-@interface S3GTrackerClapPageView : NSView <NSWindowDelegate>
+@interface S3GTrackerClapPageView : NSView <NSWindowDelegate> {
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    ShellController _shell;
+#endif
+}
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+@property(nonatomic, strong) S3GTrackerShellHost* shellHost;
+#endif
 @property(nonatomic, copy) NSArray<NSView*>* pageViews;
 @property(nonatomic, copy) NSArray<NSView*>* pageHosts;
 @property(nonatomic, copy) NSArray<NSTextField*>* detachedPlaceholders;
@@ -2341,6 +430,34 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.pageViews = pages;
     self.detachedWindows = [[NSMutableDictionary alloc] init];
 
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    s3g::tracker::editor::ShellServices services;
+    __weak S3GTrackerClapPageView* weakSelf = self;
+    services.selectPage = [weakSelf](ShellPage page, bool twice) {
+        auto* owner = weakSelf;
+        if (!owner) return;
+        [owner showPage:static_cast<S3GTrackerClapPage>(page)];
+        if (twice) {
+            // Let VSTGUI finish the source mouse event before reparenting
+            // CFrames and changing the key window.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                auto* deferredOwner = weakSelf;
+                if (deferredOwner.window && !deferredOwner.hiddenOrHasHiddenAncestor)
+                    [deferredOwner toggleDetachPage:static_cast<S3GTrackerClapPage>(page)];
+            });
+        }
+    };
+    services.toggleDetach = [weakSelf](ShellPage page) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            auto* owner = weakSelf;
+            if (owner.window && !owner.hiddenOrHasHiddenAncestor)
+                [owner toggleDetachPage:static_cast<S3GTrackerClapPage>(page)];
+        });
+    };
+    self.shellHost = [[S3GTrackerShellHost alloc] initWithModel:&_shell services:std::move(services)];
+    if (!self.shellHost) return nil;
+    [self addSubview:self.shellHost];
+#else
     NSArray<NSString*>* titles = @[
         @"TRACKER", @"SONG", @"GEOMETRY", @"BURSTS", @"PHRASES",
         @"ASSEMBLE", @"RESHAPE", @"WARPS", @"CONSOLE", @"HELP",
@@ -2362,6 +479,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         [buttons addObject:button];
     }
     self.pageButtons = buttons;
+#endif
 
     NSMutableArray<NSView*>* hosts = [[NSMutableArray alloc]
         initWithCapacity:self.pageViews.count];
@@ -2373,6 +491,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         host.wantsLayer = YES;
         host.layer.backgroundColor = S3GTrackerThemeColor(
             S3GTrackerThemeRole::Canvas).CGColor;
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+        [self addSubview:host positioned:NSWindowAbove relativeTo:self.shellHost];
+#else
         [self addSubview:host positioned:NSWindowBelow relativeTo:nil];
         NSTextField* placeholder = [NSTextField labelWithString:
             @"THIS PAGE IS OPEN IN A DETACHED WINDOW"];
@@ -2382,18 +503,24 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         placeholder.alignment = NSTextAlignmentCenter;
         placeholder.hidden = YES;
         [host addSubview:placeholder];
-        [hosts addObject:host];
         [placeholders addObject:placeholder];
+#endif
+        [hosts addObject:host];
 
         NSView* page = self.pageViews[index];
         [page removeFromSuperview];
         page.translatesAutoresizingMaskIntoConstraints = YES;
         page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+        if (index == static_cast<NSUInteger>(S3GTrackerClapPageTracker))
+            page.autoresizingMask = NSViewNotSizable;
+#endif
         [host addSubview:page];
     }
     self.pageHosts = hosts;
     self.detachedPlaceholders = placeholders;
 
+#if !defined(S3G_TRACKER_PORTABLE_SHELL)
     self.popoutButton = [[S3GTrackerActionButton alloc]
         initWithFrame:NSZeroRect];
     self.popoutButton.s3gUsesSuiteStyle = YES;
@@ -2424,11 +551,21 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.hostBpmDisplay.accessibilityLabel =
         @"Host tempo in beats per minute";
     [self addSubview:self.hostBpmDisplay];
+#endif
     [self showPage:S3GTrackerClapPageTracker];
     return self;
 }
 
 - (BOOL)isFlipped { return YES; }
+
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+- (void)dealloc
+{
+    // Destroy the portable view before its referenced C++ shell model.
+    [self.shellHost removeFromSuperview];
+    self.shellHost = nil;
+}
+#endif
 
 - (BOOL)navigatePageForEvent:(NSEvent*)event
 {
@@ -2447,6 +584,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     if ([responder isKindOfClass:NSTextView.class]
         || [NSStringFromClass(responder.class) containsString:@"MenuOverlay"])
         return NO;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    // Shift-< / Shift-> are ordinary characters inside generic text editors.
+    for (NSView* page in self.pageViews)
+        if ([page conformsToProtocol:@protocol(S3GTrackerTextInputOwner)]
+            && [(id<S3GTrackerTextInputOwner>)page s3gTrackerHasFocusedTextInput])
+            return NO;
+#endif
+
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    [self showPage:static_cast<S3GTrackerClapPage>(_shell.adjacent(next))];
+    return YES;
+#else
 
     const NSInteger count = static_cast<NSInteger>(self.pageViews.count);
     if (count <= 0) return NO;
@@ -2456,6 +605,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     if (index >= count) index = 0;
     [self showPage:static_cast<S3GTrackerClapPage>(index)];
     return YES;
+#endif
 }
 
 - (BOOL)performKeyEquivalent:(NSEvent*)event
@@ -2504,6 +654,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 {
     [super layout];
     constexpr CGFloat navigationHeight = 40.0;
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    self.shellHost.frame = self.bounds;
+    const auto layout = _shell.layout(NSWidth(self.bounds), NSHeight(self.bounds));
+    const NSRect contentFrame = NSMakeRect(layout.content.x, layout.content.y,
+        layout.content.width, layout.content.height);
+#else
     CGFloat x = 12.0;
     const std::array<CGFloat, 10u> widths {{
         70.0, 50.0, 72.0, 60.0, 64.0, 72.0, 66.0, 54.0, 60.0, 46.0,
@@ -2532,34 +688,58 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     const NSRect contentFrame = NSMakeRect(0.0, navigationHeight,
         NSWidth(self.bounds), std::max<CGFloat>(0.0,
             NSHeight(self.bounds) - navigationHeight));
+#endif
     for (NSUInteger index = 0u; index < self.pageHosts.count; ++index) {
         NSView* host = self.pageHosts[index];
         host.frame = contentFrame;
+#if !defined(S3G_TRACKER_PORTABLE_SHELL)
         self.detachedPlaceholders[index].frame = NSMakeRect(20.0,
             std::max<CGFloat>(20.0, NSMidY(host.bounds) - 10.0),
             std::max<CGFloat>(1.0, NSWidth(host.bounds) - 40.0), 20.0);
-        if (!self.detachedWindows[@(index)])
+#endif
+        if (!self.detachedWindows[@(index)]) {
+#if defined(S3G_TRACKER_PORTABLE_MAIN_PAGE)
+            // AppKit can round a magnified native host to fractional logical
+            // dimensions during attachment. The VSTGUI page is a fixed
+            // canvas; only the outer scroll view owns whole-interface zoom.
+            if (index == static_cast<NSUInteger>(S3GTrackerClapPageTracker)) {
+                self.pageViews[index].frame = NSMakeRect(0.0, 0.0,
+                    kNativeWidth, kNativeHeight - navigationHeight);
+                continue;
+            }
+#endif
             self.pageViews[index].frame = host.bounds;
+        }
     }
 }
 
 - (void)setHostBpm:(double)bpm
 {
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    _shell.setHostBpm(bpm);
+    [self.shellHost refresh];
+#else
     NSString* text = bpm > 0.0
         ? [NSString stringWithFormat:@"HOST BPM  %.2f", bpm]
         : @"HOST BPM  —";
     if (![self.hostBpmDisplay.stringValue isEqualToString:text])
         self.hostBpmDisplay.stringValue = text;
     self.hostBpmDisplay.accessibilityValue = text;
+#endif
 }
 
 - (void)setMidiEventText:(NSString*)text
 {
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    _shell.setEventText(text.UTF8String ?: "");
+    [self.shellHost refresh];
+#else
     NSString* display = text.length > 0u ? text : @"0 MIDI EVENTS";
     if (![self.midiEventDisplay.stringValue isEqualToString:display])
         self.midiEventDisplay.stringValue = display;
     self.midiEventDisplay.toolTip = display;
     self.midiEventDisplay.accessibilityValue = display;
+#endif
 }
 
 - (void)pagePressed:(NSButton*)sender
@@ -2574,6 +754,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (BOOL)pageCanDetach:(S3GTrackerClapPage)page
 {
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    return ShellController::canDetach(static_cast<ShellPage>(page));
+#else
     return page == S3GTrackerClapPageGeometry
         || page == S3GTrackerClapPageBursts
         || page == S3GTrackerClapPagePhrases
@@ -2582,6 +765,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         || page == S3GTrackerClapPageWarps
         || page == S3GTrackerClapPageConsole
         || page == S3GTrackerClapPageHelp;
+#endif
 }
 
 - (void)popoutPressed:(id)sender
@@ -2635,7 +819,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     content.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     window.contentView = content;
     self.detachedWindows[key] = window;
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    _shell.setDetached(static_cast<ShellPage>(page), true);
+#else
     self.detachedPlaceholders[static_cast<NSUInteger>(index)].hidden = NO;
+#endif
     window.level = parentWindow
         ? std::max<NSInteger>(
             NSFloatingWindowLevel, parentWindow.level + 1)
@@ -2659,7 +847,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [content removeFromSuperview];
     [self.pageHosts[index] addSubview:content];
     content.frame = self.pageHosts[index].bounds;
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    _shell.setDetached(static_cast<ShellPage>(page), false);
+#else
     self.detachedPlaceholders[index].hidden = YES;
+#endif
     [self.detachedWindows removeObjectForKey:key];
     if (closeWindow) [window close];
     else [window orderOut:nil];
@@ -2690,9 +882,17 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     if (index < 0 || index >= static_cast<NSInteger>(self.pageViews.count))
         return;
     self.selectedPage = page;
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+    _shell.select(static_cast<ShellPage>(page));
+    [self.shellHost refresh];
+#endif
     for (NSUInteger item = 0u; item < self.pageHosts.count; ++item) {
         const BOOL selected = item == static_cast<NSUInteger>(index);
+#if defined(S3G_TRACKER_PORTABLE_SHELL)
+        self.pageHosts[item].hidden = !selected || _shell.detached(ShellPage(item));
+#else
         self.pageHosts[item].hidden = !selected;
+#endif
         self.pageHosts[item].accessibilityHidden = !selected;
         self.pageButtons[item].state = selected
             ? NSControlStateValueOn : NSControlStateValueOff;
@@ -2720,7 +920,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     Plugin* _plugin;
     std::unique_ptr<TrackerViewState> _state;
     std::unique_ptr<WorkspaceCallbacks> _callbacks;
-    ProjectHistory _history;
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    std::unique_ptr<s3g::tracker::editor::MacReaperTextInput> _reaperTextInput;
+#endif
+    std::unique_ptr<s3g::tracker::ClapDocumentController> _documentController;
     std::array<uint64_t, s3g::tracker::kMaximumTrackCount>
         _consumedNoteHitSequences;
     VisualPlaybackFrame _pendingVisualFrame;
@@ -2774,6 +977,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _plugin = plugin;
     registerBundledFonts();
     _state = std::make_unique<TrackerViewState>();
+    _documentController = std::make_unique<s3g::tracker::ClapDocumentController>(*_state);
     _callbacks = std::make_unique<WorkspaceCallbacks>();
     _consumedNoteHitSequences.fill(0u);
     _visualFramePrimed = false;
@@ -2847,7 +1051,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         }
         const double projectBpm = reaperHostTempo(*owner->_plugin)
             .value_or(bpm);
-        owner->_plugin->pitchPreviewMailbox.cancel();
+        owner->_plugin->pitchPreview.cancel();
         owner->_plugin->burstPreviewMailbox.publish(
             burst, midiChannel, projectBpm, ticksPerBeat);
         if (owner->_plugin->host && owner->_plugin->host->request_process)
@@ -2871,10 +1075,40 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         s3g::tracker::BurstDefinition emptyBurst;
         owner->_plugin->burstPreviewMailbox.publish(
             emptyBurst, midiChannel, projectBpm, ticksPerBeat);
-        owner->_plugin->pitchPreviewMailbox.publish(
+        owner->_plugin->pitchPreview.publish(
             events, midiChannel, projectBpm, ticksPerBeat);
         if (owner->_plugin->host && owner->_plugin->host->request_process)
             owner->_plugin->host->request_process(owner->_plugin->host);
+    };
+    _callbacks->startAuthoringPreview = [weakSelf](
+        const std::vector<s3g::tracker::PitchPreviewEvent>& events,
+        uint8_t channel, double bpm, uint32_t ticks, uint32_t rows,
+        bool loop) -> uint32_t {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || events.empty() || reaperTransportIsPlaying(
+                *owner->_plugin).value_or(owner->_state->playing)) return 0;
+        const double tempo = reaperHostTempo(*owner->_plugin).value_or(bpm);
+        owner->_plugin->burstPreviewMailbox.publish({}, channel, tempo, ticks);
+        const auto token = owner->_plugin->pitchPreview.publish(
+            events, channel, tempo, ticks, rows, loop, true);
+        if (owner->_plugin->host && owner->_plugin->host->request_process)
+            owner->_plugin->host->request_process(owner->_plugin->host);
+        return token;
+    };
+    _callbacks->stopAuthoringPreview = [weakSelf](uint32_t token) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner) return;
+        owner->_plugin->pitchPreview.cancel(token);
+        if (owner->_plugin->host && owner->_plugin->host->request_process)
+            owner->_plugin->host->request_process(owner->_plugin->host);
+    };
+    _callbacks->authoringPreviewPosition = [weakSelf](uint32_t token) -> int64_t {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        return owner ? owner->_plugin->pitchPreview.position(token) : -1;
+    };
+    _callbacks->loopAuthoringPreview = [weakSelf](uint32_t token, bool loop) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (owner) owner->_plugin->pitchPreview.setLoop(token, loop);
     };
     _callbacks->showSongWindow = [weakSelf] {
         [weakSelf.pageView showPage:S3GTrackerClapPageSong];
@@ -3187,18 +1421,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         owner->_state->status = message;
         [owner.workspace appendConsoleMessage:message error:YES];
     };
-    _callbacks->refreshMidiDestinations = [weakSelf] {
-        [weakSelf configureHostDevices];
-    };
-    _callbacks->refreshAudioOutputDevices = [weakSelf] {
-        [weakSelf configureHostDevices];
-    };
-    _callbacks->selectAudioOutputDevice = [weakSelf](uint32_t) {
-        S3GTrackerClapCoordinator* owner = weakSelf;
-        if (!owner) return;
-        owner->_state->status = "Audio device is owned by REAPER";
-        [owner.workspace reloadModel];
-    };
     _callbacks->selectionChanged = [] {
         // Editing selection is intentionally independent from REC LANE.
     };
@@ -3291,7 +1513,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     [self resetHistory:[self currentDocument]];
 
     self.pageView = [[S3GTrackerClapPageView alloc] initWithPages:@[
-        self.workspace.view,
+        [self.workspace mainPageView],
         self.songWindow.window.contentView,
         [self.workspace geometryPageView],
         [self.workspace burstPageView],
@@ -3303,6 +1525,11 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         self.helpWindow.window.contentView,
     ]];
     [self.pageView setHostBpm:_state->hostBpm];
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    if (const auto* bridge = reaperHostBridge(*plugin))
+        _reaperTextInput = std::make_unique<s3g::tracker::editor::MacReaperTextInput>(
+            bridge->registerObject, self.pageView.pageViews);
+#endif
     [self.pageView setMidiEventText:
         @"0 MIDI EVENTS  •  SEND 0  DROP 0  LATE 0  CLK 0"];
 
@@ -3395,6 +1622,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)dealloc
 {
+#if defined(S3G_TRACKER_VSTGUI_PILOT)
+    // Host callbacks must disappear before the focused frames/pages are closed.
+    _reaperTextInput.reset();
+#endif
     const auto previous = static_cast<MidiStepRecordMode>(
         _plugin->midiStepRecordMode.exchange(
             static_cast<uint8_t>(MidiStepRecordMode::Off),
@@ -3516,16 +1747,6 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     _state->midiRoute = "1 OUT • 1 REC IN • CH 1–16";
     _state->audioOutputDevice = "REAPER HOST AUDIO";
     _state->audioAvailable = false;
-    std::vector<s3g::tracker::MidiDestination> destinations;
-    s3g::tracker::MidiOutputTarget target;
-    target.kind = s3g::tracker::MidiOutputTargetKind::VirtualSource;
-    target.virtualSource = 1u;
-    target.name = "TRACKER MIDI OUTPUT";
-    [self.workspace setMidiDestinations:destinations selectedTarget:target];
-    std::vector<s3g::tracker::app::AudioOutputDevice> devices {
-        { 1u, "REAPER HOST AUDIO", _plugin->sampleRate, 0u, true },
-    };
-    [self.workspace setAudioOutputDevices:devices selectedDeviceId:1u];
     [self.workspace reloadModel];
 }
 
@@ -3655,17 +1876,18 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     panel.nameFieldStringValue = [base stringByAppendingPathExtension:@"s3gpack"];
     if (UTType* type = [UTType typeWithFilenameExtension:@"s3gpack"])
         panel.allowedContentTypes = @[ type ];
-    NSData* data = [NSData dataWithBytes:encoded.data() length:encoded.size()];
+    // Snapshot at dialog creation, just as the former NSData capture did.
+    const TrackerAssetPack exportPack = pack;
     __weak S3GTrackerClapCoordinator* weakSelf = self;
     void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner || response != NSModalResponseOK || !panel.URL) return;
-        NSError* error = nil;
-        if (![data writeToURL:panel.URL options:NSDataWritingAtomic
-                error:&error]) {
+        const char* path = panel.URL.fileSystemRepresentation;
+        if (!path) return;
+        const auto result = s3g::tracker::saveTrackerAssetPackAtomically(exportPack, path);
+        if (!result.ok()) {
             const std::string message = "Could not export asset pack: "
-                + std::string(error.localizedDescription.UTF8String
-                    ? error.localizedDescription.UTF8String : "write failed");
+                + result.message;
             owner->_state->status = message;
             [owner.workspace appendConsoleMessage:message error:YES];
         } else {
@@ -3697,22 +1919,10 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
         S3GTrackerClapCoordinator* owner = weakSelf;
         if (!owner || response != NSModalResponseOK || !panel.URL) return;
-        NSError* error = nil;
-        NSData* data = [NSData dataWithContentsOfURL:panel.URL
-            options:NSDataReadingMappedIfSafe error:&error];
-        if (!data) {
-            const std::string message = "Could not read asset pack: "
-                + std::string(error.localizedDescription.UTF8String
-                    ? error.localizedDescription.UTF8String : "read failed");
-            owner->_state->status = message;
-            [owner.workspace appendConsoleMessage:message error:YES];
-            [owner.workspace reloadModel];
-            return;
-        }
+        const char* path = panel.URL.fileSystemRepresentation;
+        if (!path) return;
         TrackerAssetPack pack;
-        const std::string bytes(static_cast<const char*>(data.bytes),
-            data.length);
-        auto result = s3g::tracker::decodeTrackerAssetPack(bytes, pack);
+        auto result = s3g::tracker::loadTrackerAssetPack(path, pack);
         ProjectDocument document = [owner currentDocument];
         s3g::tracker::AssetPackImportReport report;
         if (result.ok()) result = s3g::tracker::importTrackerAssetPack(
@@ -3748,55 +1958,13 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (ProjectDocument)currentDocument
 {
-    ProjectDocument document;
-    if (!_state) return document;
-    (void)syncSessionToActivePattern(*_state);
-    (void)syncActiveAssetBanks(*_state);
-    document.patternBank = _state->patternBank;
-    document.burstBanks = _state->burstBanks;
-    document.phraseBanks = _state->phraseBanks;
-    document.transport = _state->session.transport;
-    document.warpLibrary = _state->session.warpLibrary;
-    document.session.gateMilliseconds = _state->session.gateMilliseconds;
-    document.session.tempoScale = _state->tempoScale;
-    document.session.songPlaybackEnabled = _state->songPlaybackEnabled;
-    document.session.showMidiNoteValues = _state->showMidiNoteValues;
-    document.session.trackerRowJump = _state->trackerRowJump;
-    document.session.commandRngState = _state->session.commandRngState;
-    document.session.playbackSeed = _state->session.playbackSeed;
-    document.session.activeBurstBankId = _state->activeBurstBankId;
-    document.session.activePhraseBankId = _state->activePhraseBankId;
-    document.session.assembly = _state->assembly;
-    document.instrumentRack = _state->instrumentRack;
-    document.song = [self.songWindow songArrangement];
-    normalizeMidiOnlyDocument(document);
-    return document;
+    return _documentController->snapshot([self.songWindow songArrangement]);
 }
 
 - (void)applyDocument:(const ProjectDocument&)document
 {
     _midiLiveRecordState.clear();
-    ProjectDocument midiDocument = document;
-    normalizeMidiOnlyDocument(midiDocument);
-    _state->patternBank = midiDocument.patternBank;
-    _state->burstBanks = midiDocument.burstBanks;
-    _state->phraseBanks = midiDocument.phraseBanks;
-    _state->activeBurstBankId = midiDocument.session.activeBurstBankId;
-    _state->activePhraseBankId = midiDocument.session.activePhraseBankId;
-    _state->assembly = midiDocument.session.assembly;
-    (void)loadActiveAssetBanks(*_state);
-    (void)loadActivePatternIntoSession(*_state);
-    _state->session.transport = midiDocument.transport;
-    _state->session.warpLibrary = midiDocument.warpLibrary;
-    _state->session.gateMilliseconds = midiDocument.session.gateMilliseconds;
-    _state->tempoScale = midiDocument.session.tempoScale;
-    _state->session.commandRngState = midiDocument.session.commandRngState;
-    _state->session.playbackSeed = midiDocument.session.playbackSeed;
-    _state->instrumentRack = midiDocument.instrumentRack;
-    _state->selectedRackInstrument = _state->instrumentRack.selectedNode;
-    _state->songPlaybackEnabled = midiDocument.session.songPlaybackEnabled;
-    _state->showMidiNoteValues = midiDocument.session.showMidiNoteValues;
-    _state->trackerRowJump = midiDocument.session.trackerRowJump;
+    const auto midiDocument = _documentController->apply(document);
     _state->status = "REAPER host sync • MIDI output ready";
     [self refreshSongWarps];
     // Song rows validate their mute masks against the pattern catalog. Load
@@ -3812,15 +1980,12 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)updateHistoryAvailability
 {
     if (!_state) return;
-    _state->canUndo = _history.canUndo();
-    _state->canRedo = _history.canRedo();
+    _documentController->updateHistoryAvailability();
 }
 
 - (void)resetHistory:(const ProjectDocument&)document
 {
-    ProjectDocument normalized = document;
-    normalizeMidiOnlyDocument(normalized);
-    const auto result = _history.reset(normalized);
+    const auto result = _documentController->resetHistory(document);
     if (!result.ok()) {
         [self.workspace appendConsoleMessage:
             "Could not initialize Tracker edit history: " + result.message
@@ -3832,7 +1997,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)recordHistory:(const ProjectDocument&)document
 {
-    const auto result = _history.record(document);
+    const auto result = _documentController->recordHistory(document);
     if (!result.ok()) {
         [self.workspace appendConsoleMessage:
             "Could not record Tracker edit history: " + result.message
@@ -3844,7 +2009,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)undoProject
 {
     ProjectDocument document;
-    const auto result = _history.undo(document);
+    const auto result = _documentController->undo(document);
     if (!result.ok()) {
         [self.workspace appendConsoleMessage:result.message error:YES];
         [self updateHistoryAvailability];
@@ -3863,7 +2028,7 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)redoProject
 {
     ProjectDocument document;
-    const auto result = _history.redo(document);
+    const auto result = _documentController->redo(document);
     if (!result.ok()) {
         [self.workspace appendConsoleMessage:result.message error:YES];
         [self updateHistoryAvailability];
@@ -4199,163 +2364,25 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)executeCommand:(const std::string&)command
 {
-    const auto words = commandWords(command);
-    if (!words.empty() && words.front() == "burst") {
-        (void)syncSessionToActivePattern(*_state);
-        refreshProjectBurstUsageCounts(*_state);
-    }
-    if (!words.empty()) {
-        const auto& verb = words.front();
-        if ((verb == "phase" || verb == "ph") && words.size() == 3u
-            && words[1u] == "reset" && words[2u] == "bank") {
-            if (!syncSessionToActivePattern(*_state)) {
-                [self.workspace appendConsoleMessage:
-                    "Could not synchronize the active pattern before resetting phases"
-                    error:YES];
-                return;
-            }
-            bool changed = false;
-            for (auto& entry : _state->patternBank.entries)
-                changed |= resetPatternPhases(entry.pattern);
-            (void)loadActivePatternIntoSession(*_state);
-            _state->status = changed
-                ? "Reset every column phase in the pattern bank"
-                : "Every pattern-bank column phase is already zero";
-            [self.workspace appendConsoleMessage:_state->status error:NO];
-            if (changed) [self commitProject:YES];
-            else [self.workspace reloadModel];
-            return;
-        }
-        const bool variationCommand = verb == "variation" || verb == "vary";
-        const bool quantizedVariationLaunch = variationCommand
-            && words.size() >= 4u
-            && words[words.size() - 2u] == "launch"
-            && (words.back() == "tick" || words.back() == "beat"
-                || words.back() == "cycle" || words.back() == "pattern");
-        if (variationCommand && _state->patternBank.entries.size()
-                >= s3g::tracker::kMaximumPatternBankEntries) {
-            [self.workspace appendConsoleMessage:
-                "Pattern bank is full; delete a pattern before creating a variation."
-                error:YES];
-            return;
-        }
-        if (quantizedVariationLaunch && _state->songPlaybackEnabled) {
-            [self.workspace appendConsoleMessage:
-                "Quantized bank variation launch is unavailable while Song playback owns pattern transitions."
-                error:YES];
-            return;
-        }
-        if (verb == "help" || verb == "?") {
-            [self.pageView showPage:S3GTrackerClapPageHelp];
-            [self.workspace appendConsoleMessage:
-                "Opened the MIDI tracker command reference" error:NO];
-            return;
-        }
-        if (verb == "bpm") {
-            [self.workspace appendConsoleMessage:
-                "Tempo follows REAPER. Use the RATE menu for musical multiples."
-                error:YES];
-            return;
-        }
-        if (verb == "instrument" || verb == "inst") {
-            [self.workspace appendConsoleMessage:
-                "The MIDI tracker has no INS column; set CH01–CH16 in the lane header."
-                error:YES];
-            return;
-        }
-        if (verb == "actions") {
-            std::string message = "SEQUENCER ACTIONS";
-            for (std::size_t index = 0u;
-                 index < s3g::tracker::sequencerActionCount(); ++index) {
-                const auto* action = s3g::tracker::sequencerAction(index);
-                if (!action) continue;
-                message += index == 0u ? "  " : " · ";
-                message += action->mnemonic;
-                message += " ";
-                message += action->displayName;
-            }
-            message += " · CC0–CC127 MIDI Control Change";
-            [self.workspace appendConsoleMessage:message error:NO];
-            return;
-        }
-        const bool columnCommand = verb == "len" || verb == "length"
-            || verb == "stride" || verb == "speed" || verb == "spd"
-            || verb == "phase" || verb == "ph" || verb == "dir"
-            || verb == "mode" || verb == "mute";
-        if (columnCommand && std::find_if(words.begin(), words.end(),
-                [](const std::string& word) {
-                    return word == "ins" || word == "instrument";
-                }) != words.end()) {
-            [self.workspace appendConsoleMessage:
-                "INS is not a column in the MIDI tracker." error:YES];
-            return;
-        }
-        std::string action;
-        if (verb == "fx" && words.size() >= 5u) action = words[4u];
-        else if ((verb == "fx1" || verb == "f1" || verb == "fx2"
-                || verb == "f2") && words.size() >= 3u) action = words[2u];
-        uint8_t midiController = 0u;
-        const bool midiControlChange = s3g::tracker::parseMidiControlChange(
-            action, midiController);
-        if (!action.empty() && action != "clear" && action != "previous"
-            && action != "prv" && !s3g::tracker::findSequencerAction(action)
-            && !midiControlChange) {
-            [self.workspace appendConsoleMessage:
-                "SEQ columns accept sequencing actions or CC0..CC127; type actions to list them."
-                error:YES];
-            return;
-        }
-    }
-    const auto commandRngBefore = _state->session.commandRngState;
-    const auto result = CommandEngine::execute(_state->session, command);
-    if (!result.ok) {
-        [self.workspace appendConsoleMessage:result.message error:YES];
-        return;
-    }
-    if (result.hasEffect(CommandEffect::UndoRequested)) {
-        [self undoProject];
-        return;
-    }
-    if (result.hasEffect(CommandEffect::RedoRequested)) {
-        [self redoProject];
-        return;
-    }
-    if (result.patternVariation) {
-        [self.workspace appendConsoleMessage:result.message error:NO];
-        if (![self installPatternVariation:*result.patternVariation]) {
-            _state->session.commandRngState = commandRngBefore;
-            [self.workspace appendConsoleMessage:
-                "Pattern variation was not installed." error:YES];
-        }
-        return;
-    }
-    [self.workspace appendConsoleMessage:result.message error:NO];
-    if (result.hasEffect(CommandEffect::ProjectChanged))
-        [self refreshSongWarps];
-    const bool runtimeChanged = result.hasEffect(CommandEffect::PatternChanged)
-        || result.hasEffect(CommandEffect::TransportChanged)
-        || result.hasEffect(CommandEffect::OutputChanged)
-        || result.hasEffect(CommandEffect::RoutingChanged);
-    if (runtimeChanged)
-        [self commitProject:YES];
-    else if (result.hasEffect(CommandEffect::ProjectChanged))
-        [self commitProjectWithoutRuntime:YES];
-    if (result.hasEffect(CommandEffect::StartPlayback)) {
-        if (!requestHostContinue(*_plugin))
-            [self.workspace appendConsoleMessage:
-                "The host does not expose a plug-in transport-start request."
-                error:YES];
-    }
-    if (result.hasEffect(CommandEffect::StopPlayback)) {
-        if (!requestHostStop(*_plugin))
-            [self.workspace appendConsoleMessage:
-                "The host does not expose a plug-in transport-stop request."
-                error:YES];
-    }
-    if (result.hasEffect(CommandEffect::Panic))
-        _plugin->requestPanic.store(true, std::memory_order_release);
-    [self updateMidiMonitorChannel];
-    [self.workspace reloadModel];
+    s3g::tracker::ClapCommandServices services;
+    services.message = [self](const std::string& message, bool error) {
+        [self.workspace appendConsoleMessage:message error:error];
+    };
+    services.showHelp = [self] { [self.pageView showPage:S3GTrackerClapPageHelp]; };
+    services.undo = [self] { [self undoProject]; };
+    services.redo = [self] { [self redoProject]; };
+    services.commitRuntime = [self] { [self commitProject:YES]; };
+    services.commitDocument = [self] { [self commitProjectWithoutRuntime:YES]; };
+    services.refreshWarps = [self] { [self refreshSongWarps]; };
+    services.refreshUI = [self] { [self.workspace reloadModel]; };
+    services.updateMonitor = [self] { [self updateMidiMonitorChannel]; };
+    services.installVariation = [self](const s3g::tracker::PatternVariationRequest& variation) {
+        return bool([self installPatternVariation:variation]);
+    };
+    services.requestHostContinue = [self] { return requestHostContinue(*_plugin); };
+    services.requestHostStop = [self] { return requestHostStop(*_plugin); };
+    services.panic = [self] { _plugin->requestPanic.store(true, std::memory_order_release); };
+    s3g::tracker::executeClapCommand(*_state, command, services);
 }
 
 - (void)pollDisplay:(NSTimer*)timer
@@ -4547,6 +2574,9 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 
 - (void)stopTimer
 {
+    [self.workspace suspendMainPage];
+    [self.songWindow suspendEditing];
+    [self.helpWindow suspendEditing];
     [self consumeMidiStepCaptures];
     [self flushRuntimePublication];
     [self.displayTimer invalidate];
@@ -4565,77 +2595,18 @@ void destroy(const clap_plugin_t* plugin)
 {
     auto* instance = self(plugin);
     guiDestroy(plugin);
-    delete instance->pendingRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-    delete instance->queuedVariationRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-    delete instance->audioRuntime;
-    instance->audioRuntime = nullptr;
-    drainRetiredRuntimes(*instance);
     delete instance;
 }
 
 bool activate(const clap_plugin_t* plugin, double sampleRate,
     uint32_t, uint32_t)
 {
-    if (!std::isfinite(sampleRate) || sampleRate <= 0.0) return false;
-    auto* instance = self(plugin);
-    instance->sampleRate = sampleRate;
-    ProjectDocument document;
-    {
-        std::lock_guard<std::mutex> lock(instance->documentMutex);
-        document = instance->document;
-    }
-    auto* runtime = new (std::nothrow) Runtime(document, sampleRate,
-        &instance->patternLaunch, &instance->visualNoteHits,
-        &instance->midiStepClock);
-    if (!runtime || !runtime->valid) {
-        delete runtime;
-        return false;
-    }
-    delete instance->pendingRuntime.exchange(nullptr,
-        std::memory_order_acq_rel);
-    cancelQueuedVariation(*instance);
-    delete instance->audioRuntime;
-    instance->audioRuntime = runtime;
-    instance->processFrame = 0u;
-    instance->hostWasPlaying = false;
-    instance->runtimeArmed = false;
-    instance->expectedBeatValid = false;
-    instance->burstPreviewPlayback = {};
-    instance->consumedBurstPreviewRevision
-        = instance->burstPreviewMailbox.revision.load(
-            std::memory_order_relaxed);
-    instance->pitchPreviewPlayback = {};
-    instance->consumedPitchPreviewRevision
-        = instance->pitchPreviewMailbox.revision.load(
-            std::memory_order_relaxed);
-    for (auto& note : instance->activeNotes) note = {};
-    for (auto& note : instance->monitoredInputNotes) note = {};
-    instance->monitoredOutputCounts.fill(0u);
-    instance->requestMidiMonitorRelease.store(false,
-        std::memory_order_relaxed);
-    return true;
+    return s3g::tracker::midi::activate(*self(plugin), sampleRate);
 }
 
 void deactivate(const clap_plugin_t* plugin)
 {
-    auto* instance = self(plugin);
-    if (instance->audioRuntime) instance->audioRuntime->scheduler.stop();
-    instance->visualPlaying.store(false, std::memory_order_relaxed);
-    instance->hostWasPlaying = false;
-    instance->runtimeArmed = false;
-    instance->burstPreviewPlayback = {};
-    instance->consumedBurstPreviewRevision
-        = instance->burstPreviewMailbox.revision.load(
-            std::memory_order_relaxed);
-    instance->pitchPreviewPlayback = {};
-    instance->consumedPitchPreviewRevision
-        = instance->pitchPreviewMailbox.revision.load(
-            std::memory_order_relaxed);
-    instance->midiStepClock.clear();
-    for (auto& note : instance->monitoredInputNotes) note = {};
-    instance->monitoredOutputCounts.fill(0u);
+    s3g::tracker::midi::deactivate(*self(plugin));
 }
 
 bool startProcessing(const clap_plugin_t*) { return true; }
@@ -4643,72 +2614,13 @@ void stopProcessing(const clap_plugin_t*) {}
 
 void reset(const clap_plugin_t* plugin)
 {
-    auto* instance = self(plugin);
-    if (instance->audioRuntime) instance->audioRuntime->scheduler.stop();
-    for (auto& note : instance->activeNotes) note = {};
-    for (auto& note : instance->monitoredInputNotes) note = {};
-    instance->monitoredOutputCounts.fill(0u);
-    instance->hostWasPlaying = false;
-    instance->runtimeArmed = false;
-    instance->expectedBeatValid = false;
-    instance->burstPreviewPlayback = {};
-    instance->consumedBurstPreviewRevision
-        = instance->burstPreviewMailbox.revision.load(
-            std::memory_order_relaxed);
-    instance->pitchPreviewPlayback = {};
-    instance->consumedPitchPreviewRevision
-        = instance->pitchPreviewMailbox.revision.load(
-            std::memory_order_relaxed);
-    instance->visualPlaying.store(false, std::memory_order_relaxed);
-    instance->midiStepClock.clear();
+    s3g::tracker::midi::reset(*self(plugin));
 }
 
 clap_process_status process(const clap_plugin_t* plugin,
     const clap_process_t* processData)
 {
-    if (!processData) return CLAP_PROCESS_ERROR;
-    auto& instance = *self(plugin);
-    (void)swapQueuedVariationRuntime(instance, processData->out_events);
-    (void)swapPendingRuntime(instance, processData->out_events);
-    HostTransport transport = readHostTransport(processData->transport);
-    uint32_t cursor = 0u;
-    const auto renderTo = [&](uint32_t end) {
-        if (end <= cursor) return;
-        renderSegment(instance, processData->out_events, transport,
-            cursor, end - cursor);
-        if (transport.playing && transport.hasBeat) {
-            transport.beat += transport.tempo
-                * static_cast<double>(end - cursor)
-                    / (60.0 * instance.sampleRate);
-        }
-        cursor = end;
-    };
-    const uint32_t count = processData->in_events
-        ? processData->in_events->size(processData->in_events) : 0u;
-    for (uint32_t index = 0u; index < count; ++index) {
-        const clap_event_header_t* event = processData->in_events->get(
-            processData->in_events, index);
-        if (!event || event->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
-        const uint32_t time = std::min(event->time,
-            processData->frames_count);
-        if (event->type == CLAP_EVENT_TRANSPORT
-            && event->size >= sizeof(clap_event_transport_t)) {
-            renderTo(time);
-            transport = readHostTransport(reinterpret_cast<
-                const clap_event_transport_t*>(event));
-            cursor = time;
-        } else if (event->type == CLAP_EVENT_MIDI
-            && event->size >= sizeof(clap_event_midi_t)) {
-            renderTo(time);
-            const auto& midi = *reinterpret_cast<
-                const clap_event_midi_t*>(event);
-            captureMidiStep(instance, midi, time);
-            monitorMidiInput(instance, midi, processData->out_events, time);
-        }
-    }
-    renderTo(processData->frames_count);
-    instance.processFrame += processData->frames_count;
-    return CLAP_PROCESS_CONTINUE;
+    return s3g::tracker::clap_adapter::process(*self(plugin), processData);
 }
 
 void onMainThread(const clap_plugin_t* plugin)
@@ -5053,12 +2965,8 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*,
     auto* instance = new (std::nothrow) Plugin();
     if (!instance) return nullptr;
     instance->host = host;
-    instance->audioRuntime = new (std::nothrow) Runtime(
-        instance->document, instance->sampleRate,
-        &instance->patternLaunch, &instance->visualNoteHits,
-        &instance->midiStepClock);
-    if (!instance->audioRuntime || !instance->audioRuntime->valid) {
-        delete instance->audioRuntime;
+    instance->services = s3g::tracker::clap_adapter::hostServices(host);
+    if (!s3g::tracker::midi::initialize(*instance)) {
         delete instance;
         return nullptr;
     }

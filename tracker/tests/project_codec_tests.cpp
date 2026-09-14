@@ -2,18 +2,16 @@
 #include "s3g/tracker/command.h"
 #include "s3g/tracker/project_codec.h"
 #include "s3g/tracker/project_history.h"
+#include "test_directory.h"
 
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <dirent.h>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -632,31 +630,10 @@ void testStrictTransactionalRejection()
         "duplicate JSON keys should be rejected as ambiguous");
 }
 
-bool directoryHasTemporaryProject(const std::string& directory)
-{
-    DIR* handle = ::opendir(directory.c_str());
-    if (!handle) return true;
-    bool found = false;
-    while (const dirent* entry = ::readdir(handle)) {
-        if (std::string(entry->d_name).find(".tmp.") != std::string::npos) {
-            found = true;
-            break;
-        }
-    }
-    ::closedir(handle);
-    return found;
-}
-
 void testAtomicStorePublishesCompleteReplacement()
 {
-    std::array<char, 64u> directoryTemplate {};
-    std::snprintf(directoryTemplate.data(), directoryTemplate.size(),
-        "/tmp/s3g-tracker-project-tests.XXXXXX");
-    char* created = ::mkdtemp(directoryTemplate.data());
-    check(created != nullptr, "atomic-store test directory should be created");
-    if (!created) return;
-    const std::string directory(created);
-    const std::string file = directory + "/set.s3gt";
+    TrackerTestDirectory directory;
+    const auto file = (directory.path / "set.s3gt").u8string();
 
     auto first = makeDocument();
     auto save = saveProjectDocumentAtomically(first, file);
@@ -672,20 +649,16 @@ void testAtomicStorePublishesCompleteReplacement()
     check(save.ok() && loadProjectDocument(file, loaded).ok()
             && activePattern(loaded).name == "Replacement",
         "second save should atomically replace the complete project");
-    check(!directoryHasTemporaryProject(directory),
+    check(!directory.hasTemporaryFiles(),
         "successful atomic saves should leave no temporary project files");
 
-    const std::string directoryTarget = directory + "/not-a-file";
-    check(::mkdir(directoryTarget.c_str(), 0700) == 0,
+    const auto directoryTarget = directory.path / "not-a-file";
+    check(std::filesystem::create_directory(directoryTarget),
         "rename-failure target directory should be created");
-    const auto failed = saveProjectDocumentAtomically(second, directoryTarget);
+    const auto failed = saveProjectDocumentAtomically(second, directoryTarget.u8string());
     check(failed.code == ProjectErrorCode::IoRenameFailed
-            && !directoryHasTemporaryProject(directory),
+            && !directory.hasTemporaryFiles(),
         "failed atomic publication should clean its temporary file");
-
-    ::rmdir(directoryTarget.c_str());
-    ::unlink(file.c_str());
-    ::rmdir(directory.c_str());
 }
 
 void testBoundedProjectUndoRedo()

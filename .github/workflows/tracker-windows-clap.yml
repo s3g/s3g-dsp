@@ -1,0 +1,65 @@
+name: Tracker Windows CLAP
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tracker/**"
+      - "dsp/**"
+      - "plugins/common/**"
+      - "plugins/clap_tracker/**"
+      - "tests/tracker_windows_clap_smoke.cpp"
+      - "assets/fonts/**"
+      - "cmake/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/tracker-windows-clap.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: free-audio/clap
+          ref: '1.2.6'
+          path: tracker-clap-sdk
+      - name: Configure Windows Tracker and regressions
+        run: >-
+          cmake -S . -B build-tracker-windows -A x64
+          -DBUILD_TESTING=ON -DS3G_BUILD_CLAP_PLUGIN=ON
+          -DS3G_BUILD_TRACKER_PREVIEW=ON -DS3G_ENABLE_PORTABLE_CLAP_GUI=ON
+          -DS3G_BUILD_STANDALONE_APPS=OFF -DS3G_BUILD_FUTURE_COMPONENTS=OFF
+          -DS3G_ENABLE_WORLD=OFF
+          -DS3G_TRACKER_CLAP_TEST_INCLUDE_DIR=${{ github.workspace }}/tracker-clap-sdk/include
+      - name: Build actual plugin, integration host and shared regressions
+        run: >-
+          cmake --build build-tracker-windows --config Release --parallel 4
+          --target s3g_tracker_windows_clap_smoke s3g_tracker_portable_core_tests
+          s3g_tracker_workspace_layout_tests s3g_tracker_grid_selection_tests
+      - name: Run Windows core, state, MIDI and HWND integration checks
+        run: >-
+          ctest --test-dir build-tracker-windows -C Release
+          --output-on-failure -R "^s3g_tracker_"
+      - name: Check Unicode module path and missing-font fallback
+        shell: pwsh
+        run: |
+          $trackerFallback = Join-Path $env:RUNNER_TEMP 'Tracker 雨 font fallback'
+          New-Item -ItemType Directory -Path $trackerFallback -ErrorAction Stop | Out-Null
+          Copy-Item build-tracker-windows/plugins/clap_tracker/Release/s3g_tracker.clap $trackerFallback
+          & build-tracker-windows/plugins/clap_tracker/Release/s3g_tracker_windows_clap_smoke.exe (Join-Path $trackerFallback 's3g_tracker.clap')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish Windows test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: s3g-tracker-windows-x64-test
+          path: |
+            build-tracker-windows/plugins/clap_tracker/Release/s3g_tracker.clap
+            build-tracker-windows/plugins/clap_tracker/Release/s3g_tracker_windows_clap_smoke.exe
+            build-tracker-windows/plugins/clap_tracker/Release/*LICENSE.txt
+            build-tracker-windows/plugins/clap_tracker/Release/THIRD_PARTY_NOTICES.md
+            build-tracker-windows/plugins/clap_tracker/Release/Resources/**
+          if-no-files-found: error

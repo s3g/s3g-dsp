@@ -14,5 +14,6 @@ struct WorkspaceCallbacks;
     callbacks:(s3g::tracker::app::WorkspaceCallbacks*)callbacks;
 - (void)reloadModel;
 - (void)refreshPlaybackDisplay;
+- (void)suspendEditing;
 
 @end

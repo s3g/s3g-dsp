@@ -10,12 +10,6 @@
 
 - (void)reloadModel;
 - (void)refreshPlaybackDisplay;
-- (void)setMidiDestinations:
-    (const std::vector<s3g::tracker::MidiDestination>&)destinations
-    selectedTarget:(const s3g::tracker::MidiOutputTarget&)target;
-- (void)setAudioOutputDevices:
-    (const std::vector<s3g::tracker::app::AudioOutputDevice>&)devices
-    selectedDeviceId:(uint32_t)selectedDeviceId;
 - (void)appendConsoleMessage:(const std::string&)message error:(BOOL)isError;
 - (void)showGeometryWindow:(id)sender;
 - (void)showWarpWindow:(id)sender;
@@ -33,5 +27,7 @@
 - (void)zoomTrackerIn;
 - (void)zoomTrackerOut;
 - (void)resetTrackerZoom;
+- (NSView*)mainPageView;
+- (void)suspendMainPage;
 
 @end

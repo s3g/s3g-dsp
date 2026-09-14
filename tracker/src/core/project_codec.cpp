@@ -3143,6 +3143,18 @@ JsonValue encodeSession(const ProjectSessionState& session,
     output.object["showMidiNoteValues"] = JsonValue::booleanValue(
         session.showMidiNoteValues);
     output.object["trackerRowJump"] = number(session.trackerRowJump);
+    if (static_cast<uint32_t>(session.trackerFollow.mode) > 2u
+        || session.trackerFollow.lane >= kMaximumTrackCount)
+        setError(result, ProjectErrorCode::OutOfRange,
+            "$.session.trackerFollow", "invalid follow mode or lane");
+    // Omit defaults so existing documents retain their canonical encoding.
+    if (session.trackerFollow != TrackerFollowSettings {}) {
+        JsonValue follow = JsonValue::objectValue();
+        follow.object["mode"] = number(static_cast<uint32_t>(session.trackerFollow.mode));
+        follow.object["selectedLane"] = JsonValue::booleanValue(session.trackerFollow.selectedLane);
+        follow.object["lane"] = number(session.trackerFollow.lane);
+        output.object["trackerFollow"] = std::move(follow);
+    }
     output.object["playbackSeed"] = number(session.playbackSeed);
     output.object["activeBurstBank"] = number(session.activeBurstBankId);
     output.object["activePhraseBank"] = number(session.activePhraseBankId);
@@ -3225,6 +3237,26 @@ bool decodeSession(const JsonValue& input, ProjectSessionState& destination,
     if (candidate.trackerRowJump < 1u)
         return setError(result, ProjectErrorCode::OutOfRange,
             "$.session.trackerRowJump", "row jump must be 1..16");
+    const auto follow = input.object.find("trackerFollow");
+    if (follow != input.object.end()) {
+        if (follow->second.type != JsonType::Object)
+            return setError(result, ProjectErrorCode::TypeMismatch,
+                "$.session.trackerFollow", "follow must be an object");
+        const auto* mode = requiredField(follow->second, "mode", JsonType::Number,
+            "$.session.trackerFollow", result);
+        const auto* selected = requiredField(follow->second, "selectedLane", JsonType::Boolean,
+            "$.session.trackerFollow", result);
+        const auto* lane = requiredField(follow->second, "lane", JsonType::Number,
+            "$.session.trackerFollow", result);
+        uint32_t value = 0;
+        if (!mode || !selected || !lane
+            || !checkedUint32(*mode, value, 2u, "$.session.trackerFollow.mode", result)
+            || !checkedUint32(*lane, candidate.trackerFollow.lane, kMaximumTrackCount - 1u,
+                "$.session.trackerFollow.lane", result)
+            || !checkedBoolean(*selected, candidate.trackerFollow.selectedLane,
+                "$.session.trackerFollow.selectedLane", result)) return false;
+        candidate.trackerFollow.mode = static_cast<TrackerFollowMode>(value);
+    }
     if (!checkedBoolean(*showMidi,
             candidate.showMidiNoteValues,
             "$.session.showMidiNoteValues", result)) return false;

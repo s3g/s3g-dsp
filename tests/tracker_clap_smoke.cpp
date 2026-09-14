@@ -28,6 +28,12 @@ struct ReaperHostBridge {
     void* (*getFunction)(const char*) = nullptr;
 };
 
+struct ReaperKeyboardAccelerator {
+    int (*translate)(void*, ReaperKeyboardAccelerator*);
+    bool isLocal;
+    void* user;
+};
+
 struct HostContext {
     clap_host_t host {};
     uint32_t processRequests = 0u;
@@ -39,9 +45,33 @@ struct HostContext {
     double masterTempo = 120.0;
     clap_host_state_t state {};
     ReaperHostBridge reaper {};
+    std::vector<ReaperKeyboardAccelerator*> keyboardAccelerators;
+    int (*hwndInfo)(void*, intptr_t) = nullptr;
 };
 
 HostContext* activeReaperHost = nullptr;
+
+int reaperRegisterObject(const char* name, void* object)
+{
+    if (!activeReaperHost) return 0;
+    auto& c = *activeReaperHost;
+    if (std::strcmp(name, "<accelerator") == 0) {
+        c.keyboardAccelerators.push_back(static_cast<ReaperKeyboardAccelerator*>(object));
+        return 1;
+    }
+    if (std::strcmp(name, "-accelerator") == 0) {
+        auto& list = c.keyboardAccelerators;
+        list.erase(std::remove(list.begin(), list.end(), object), list.end());
+        return 1;
+    }
+    if (std::strcmp(name, "hwnd_info") == 0) {
+        c.hwndInfo = reinterpret_cast<decltype(c.hwndInfo)>(object); return 1;
+    }
+    if (std::strcmp(name, "-hwnd_info") == 0) {
+        c.hwndInfo = nullptr; return 1;
+    }
+    return 0;
+}
 
 void reaperPlay()
 {
@@ -243,10 +273,18 @@ bool expect(bool condition, const char* message)
 @end
 
 @interface NSView (S3GTrackerBurstPreviewSmokeAccess)
+- (NSArray<NSString*>*)geometryMenuItems;
+- (void)selectGeometryMode:(NSInteger)mode;
 - (NSRect)burstPreviewHeaderButtonRect;
 - (NSRect)burstPreviewChannelMenuBoxRect;
 - (void)applyGeometryMenuSelection:(NSInteger)index;
 - (BOOL)handleToolboxClickAtPoint:(NSPoint)point;
+- (NSRect)authoringControlRect:(NSString*)identifier;
+- (NSRect)authoringPopupItemRect:(NSUInteger)index;
+- (BOOL)s3gTrackerHasFocusedTextInput;
+- (NSRect)shellControlRect:(NSString*)identifier;
+- (NSString*)shellStatusText:(NSString*)identifier;
+- (NSRect)warpControlRect:(NSString*)identifier;
 @end
 
 @implementation S3GTrackerCaptureHostView
@@ -290,7 +328,28 @@ bool clickButton(NSView* root, NSString* title,
 {
     NSButton* button = findButton(
         root, title, accessibilityLabel, identifier);
-    if (!button) return false;
+    if (!button) {
+        NSView* shell = findAccessibleView(root, @"Tracker portable workspace shell");
+        if (!shell || !accessibilityLabel
+            || ![shell respondsToSelector:@selector(shellControlRect:)]) return false;
+        [shell display];
+        NSRect r = [shell shellControlRect:accessibilityLabel];
+        if (NSIsEmptyRect(r)) return false;
+        NSPoint point = NSMakePoint(NSMidX(r), NSMidY(r));
+        NSWindow* window = shell.window;
+        NSPoint location = [shell convertPoint:point toView:nil];
+        NSView* target = [window.contentView hitTest:
+            [shell convertPoint:point toView:window.contentView]];
+        if (!target || ![target isDescendantOf:shell]) return false;
+        for (auto type : {NSEventTypeLeftMouseDown, NSEventTypeLeftMouseUp}) {
+            auto* event = [NSEvent mouseEventWithType:type location:location
+                modifierFlags:0 timestamp:0 windowNumber:window.windowNumber
+                context:nil eventNumber:0 clickCount:1 pressure:type == NSEventTypeLeftMouseDown ? 1 : 0];
+            if (type == NSEventTypeLeftMouseDown) [target mouseDown:event];
+            else [target mouseUp:event];
+        }
+        return true;
+    }
     [button performClick:nil];
     return true;
 }
@@ -719,6 +778,7 @@ int main(int argc, char** argv)
     HostContext context;
     context.state.mark_dirty = hostMarkDirty;
     context.reaper.getFunction = reaperGetFunction;
+    context.reaper.registerObject = reaperRegisterObject;
     activeReaperHost = &context;
     context.host.clap_version = CLAP_VERSION_INIT;
     context.host.host_data = &context;
@@ -827,8 +887,15 @@ int main(int argc, char** argv)
             uint32_t height = 0u;
             ok &= expect(gui->create(plugin, CLAP_WINDOW_API_COCOA, false)
                     && gui->get_size(plugin, &width, &height)
-                    && width == 1320u && height == 860u,
+                    && width >= 858u && width <= 1320u
+                    && height >= 559u && height <= 860u,
                 "full tracker workspace could not be constructed");
+            // Initial size fits the current NSScreen. Test geometry must not
+            // depend on which display was active when the suite started.
+            ok &= expect(gui->set_size(plugin, 1320u, 860u)
+                    && gui->get_size(plugin, &width, &height)
+                    && width == 1320u && height == 860u,
+                "tracker workspace could not adopt the reference size");
             NSView* parent = [[S3GTrackerCaptureHostView alloc]
                 initWithFrame:NSMakeRect(
                 0.0, 0.0, width, height)];
@@ -844,7 +911,464 @@ int main(int argc, char** argv)
                     && gui->show(plugin);
             ok &= expect(shown,
                 "full tracker workspace lifecycle failed");
-            if (shown) {
+            NSView* portableMain = findAccessibleView(parent, @"Tracker portable main page");
+            if (shown && portableMain) {
+                hostWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,resizedWidth,resizedHeight)
+                    styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+                hostWindow.releasedWhenClosed = NO;
+                hostWindow.contentView = parent;
+                [NSApp activateIgnoringOtherApps:YES];
+                [hostWindow makeKeyAndOrderFront:nil];
+                const auto pump = [&] {
+                    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+                    [parent layoutSubtreeIfNeeded]; [parent displayIfNeeded];
+                };
+                const auto click = [&](NSPoint point, NSInteger clicks) {
+                    const NSPoint location = [portableMain convertPoint:point toView:nil];
+                    NSView* target = [parent hitTest:[parent convertPoint:point fromView:portableMain]];
+                    [hostWindow makeFirstResponder:parent];
+                    [hostWindow makeFirstResponder:target];
+                    NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:location
+                        modifierFlags:0 timestamp:0 windowNumber:hostWindow.windowNumber context:nil
+                        eventNumber:0 clickCount:clicks pressure:1];
+                    [target mouseDown:down];
+                    NSEvent* up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:location
+                        modifierFlags:0 timestamp:0 windowNumber:hostWindow.windowNumber context:nil
+                        eventNumber:0 clickCount:clicks pressure:0];
+                    [target mouseUp:up]; pump();
+                };
+                const auto key = [&](NSString* characters, unsigned short code, NSEventModifierFlags flags) {
+                    NSEvent* event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                        modifierFlags:flags timestamp:0 windowNumber:hostWindow.windowNumber context:nil
+                        characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+                    [hostWindow.firstResponder keyDown:event]; pump();
+                };
+                pump();
+                ok &= expect(findAccessibleView(parent,@"Editable tracker lanes") == nil
+                    && portableMain.subviews.count > 0,
+                    "portable Tracker unexpectedly retained the native grid or failed to attach CFrame");
+                if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_SHELL")) {
+                    NSView* shell = findAccessibleView(parent, @"Tracker portable workspace shell");
+                    ok &= expect(shell && shell.subviews.count > 0
+                        && !findButton(parent,nil,@"TRACKER page",nil),
+                        "portable shell retained Cocoa tab buttons or failed to attach");
+                    if (shell) {
+                        NSRect bpm = [shell shellControlRect:@"Host tempo in beats per minute"];
+                        NSRect events = [shell shellControlRect:@"MIDI event statistics"];
+                        ok &= expect(NSMaxX(events)<NSMinX(bpm)
+                            && [[shell shellStatusText:@"MIDI event statistics"] containsString:@"SEND"],
+                            "portable MIDI status/BPM layout or contents changed");
+                        context.masterTempo=97.5; pump(); pump();
+                        ok &= expect([[shell shellStatusText:@"Host tempo in beats per minute"] isEqualToString:@"HOST BPM  97.50"],
+                            "portable shell stopped host tempo refresh failed");
+                        context.masterTempo=120; pump();
+                    }
+                }
+                clap_gui_resize_hints_t hints {};
+                ok &= expect(gui->get_resize_hints(plugin,&hints) && hints.preserve_aspect_ratio
+                    && hints.aspect_ratio_width==1320 && hints.aspect_ratio_height==860,
+                    "portable Tracker lost proportional outer resizing");
+                for (double scale : {0.65,1.0,1.5,2.0}) {
+                    uint32_t w=static_cast<uint32_t>(1320*scale),h=static_cast<uint32_t>(860*scale);
+                    ok &= expect(gui->adjust_size(plugin,&w,&h) && gui->set_size(plugin,w,h),
+                        "portable Tracker rejected supported outer size");
+                    [parent setFrameSize:NSMakeSize(w,h)]; [hostWindow setContentSize:NSMakeSize(w,h)]; pump();
+                    NSRect physical=[portableMain convertRect:portableMain.bounds toView:parent];
+                    const bool logicalSize = std::abs(NSWidth(portableMain.bounds)-1320)<1e-6
+                        && std::abs(NSHeight(portableMain.bounds)-820)<1e-6;
+                    const bool physicalSize = std::abs(NSWidth(physical)-1320*scale)<1.1;
+                    if(!logicalSize||!physicalSize)std::fprintf(stderr,
+                        "Tracker scale %.2f logical %.9f x %.9f physical %.9f x %.9f\n",scale,
+                        NSWidth(portableMain.bounds),NSHeight(portableMain.bounds),NSWidth(physical),NSHeight(physical));
+                    ok &= expect(logicalSize && physicalSize,
+                        "portable main page changed logical size instead of scaling");
+                    click(NSMakePoint(60,115+86+12),2);
+                    key(@"a",0,NSEventModifierFlagCommand);key(@"8",28,0);key(@"8",28,0);key(@"\r",36,0);
+                    StateBuffer edited;
+                    ok &= expect(state->save(plugin,&edited.output),"portable edited state could not be saved");
+                    const std::string json(edited.bytes.begin(),edited.bytes.end());
+                    if(json.find("\"note\": 88")==std::string::npos)
+                        std::fprintf(stderr,"Tracker failed scale %.2f, responder %s\n",scale,NSStringFromClass([hostWindow.firstResponder class]).UTF8String);
+                    ok &= expect(json.find("\"note\": 88")!=std::string::npos,
+                        "scaled native-to-VSTGUI pointer/keyboard edit did not reach CLAP state");
+                    factoryState.cursor=0;
+                    ok &= expect(state->load(plugin,&factoryState.input),"portable editor fixture restore failed");pump();
+                }
+                gui->set_size(plugin,1320,860);[parent setFrameSize:NSMakeSize(1320,860)];
+                [hostWindow setContentSize:NSMakeSize(1320,860)];pump();
+                click(NSMakePoint(950,44),1);
+                StateBuffer expanded;state->save(plugin,&expanded.output);
+                const std::string expandedJson(expanded.bytes.begin(),expanded.bytes.end());
+                ok &= expect(!expandedJson.empty(),"portable view toggle interrupted CLAP state save");
+                const char* captures=std::getenv("S3G_TRACKER_MAIN_CLAP_CAPTURE_DIR");
+                if(captures)ok &= expect(writeDocumentationPage(parent,[NSString stringWithUTF8String:captures],@"portable-main"),
+                    "portable CLAP page capture failed");
+                for(NSString* page in @[@"SONG page",@"GEOMETRY page",@"BURSTS page",@"PHRASES page",@"ASSEMBLE page",@"RESHAPE page",@"WARPS page",@"CONSOLE page",@"HELP page",@"TRACKER page"]){
+                    ok &= expect(clickButton(parent,nil,page,nil),"portable/native page switch failed");pump();
+                }
+                NSView* portableWarps = findAccessibleView(parent, @"Tracker portable Warps page");
+                if(std::getenv("S3G_TRACKER_EXPECT_PORTABLE_GEOMETRY")) {
+                    for(NSString* label in @[@"Rhythm geometry",@"Burst editor"]) {
+                        const bool bursts=[label isEqualToString:@"Burst editor"];
+                        NSString* tab=bursts?@"BURSTS page":@"GEOMETRY page";
+                        clickButton(parent,nil,tab,nil); pump();
+                        NSView* page=findAccessibleView(parent,label);
+                        ok &= expect(page && [page respondsToSelector:@selector(geometryMenuItems)],"portable Geometry/Bursts host missing");
+                        if(!page) continue;
+                        auto nativeClick=[&](NSPoint point) {
+                            NSWindow* window=page.window;
+                            NSPoint location=[page convertPoint:point toView:nil];
+                            NSView* target=[window.contentView hitTest:[page convertPoint:point toView:window.contentView]];
+                            [window makeFirstResponder:target];
+                            for(NSEventType type:{NSEventTypeLeftMouseDown,NSEventTypeLeftMouseUp}) {
+                                NSEvent* event=[NSEvent mouseEventWithType:type location:location modifierFlags:0 timestamp:0
+                                    windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:type==NSEventTypeLeftMouseDown?1:0];
+                                if(type==NSEventTypeLeftMouseDown) [target mouseDown:event]; else [target mouseUp:event];
+                            }
+                            pump();
+                        };
+                        for(double scale:{.65,1.,1.5,2.,1.}) {
+                            uint32_t w=uint32_t(1320*scale),h=uint32_t(860*scale);
+                            ok &= expect(gui->adjust_size(plugin,&w,&h)&&gui->set_size(plugin,w,h),"Geometry/Bursts resize failed");
+                            [parent setFrameSize:NSMakeSize(w,h)]; [hostWindow setContentSize:NSMakeSize(w,h)]; pump();
+                            NSRect physical=[page convertRect:page.bounds toView:parent];
+                            ok &= expect(std::abs(NSWidth(physical)-NSWidth(page.bounds)*scale)<1.1,"Geometry/Bursts proportional page scale mismatch");
+                            if(!bursts) {
+                                [page selectGeometryMode:0];
+                                // MODE menu at the shared family row; choose Active Pulses.
+                                nativeClick(NSMakePoint(1180,44));
+                                nativeClick(NSMakePoint(1180,91));
+                                ok &= expect([[page accessibilityValue] isEqualToString:@"ACTIVE PULSES"],"scaled Geometry native menu click missed");
+                            } else {
+                                auto box=[page burstPreviewChannelMenuBoxRect];
+                                nativeClick(NSMakePoint(NSMidX(box),NSMidY(box)));
+                                NSEvent* escape=[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                                    windowNumber:page.window.windowNumber context:nil characters:@"\033" charactersIgnoringModifiers:@"\033" isARepeat:NO keyCode:53];
+                                [page.window.firstResponder keyDown:escape]; pump();
+                            }
+                        }
+                        ok &= expect(clickButton(parent,nil,@"Detach selected tool page",nil),"Geometry/Bursts detach failed");
+                        NSWindow* detached=waitForOrderedDetachedWindow(bursts?@"s3g Tracker — Bursts":@"s3g Tracker — Rhythm Geometry",hostWindow);
+                        ok &= expect(detached&&page.window==detached&&detached.level>hostWindow.level,"Geometry/Bursts detached ordering");
+                        if(detached) {
+                            clickButton(parent,nil,@"TRACKER page",nil); pump();
+                            ok &= expect(page.window==detached&&detached.visible,"detached Geometry/Bursts hidden by page switch");
+                            [detached performClose:nil]; pump();
+                            ok &= expect(page.window==hostWindow,"Geometry/Bursts CFrame did not reattach");
+                        }
+                    }
+                    clickButton(parent,nil,@"TRACKER page",nil); pump();
+                    [hostWindow makeKeyAndOrderFront:nil]; pump();
+                }
+                if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_WARPS"))
+                    ok &= expect(portableWarps != nil, "expected portable Warps page is missing");
+                if (portableWarps) {
+                    ok &= expect(clickButton(parent, nil, @"WARPS page", nil), "portable Warps page switch failed");
+                    pump();
+                    const auto warpClick = [&](NSPoint point, NSInteger count) {
+                        NSWindow* window = portableWarps.window;
+                        // Detach reparents/resizes immediately, but the first
+                        // paint (which rebuilds Warps' hit map) is deferred.
+                        // Test the displayed controls, not the previous width.
+                        [portableWarps layoutSubtreeIfNeeded];
+                        [portableWarps display];
+                        NSPoint location = [portableWarps convertPoint:point toView:nil];
+                        NSView* target = [window.contentView hitTest:[portableWarps convertPoint:point toView:window.contentView]];
+                        [window makeFirstResponder:target];
+                        NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:location
+                            modifierFlags:0 timestamp:0 windowNumber:window.windowNumber context:nil
+                            eventNumber:0 clickCount:count pressure:1];
+                        [target mouseDown:down];
+                        NSEvent* up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:location
+                            modifierFlags:0 timestamp:0 windowNumber:window.windowNumber context:nil
+                            eventNumber:0 clickCount:count pressure:0];
+                        [target mouseUp:up]; pump();
+                    };
+                    const auto warpCycle = [&](NSString* value) {
+                        // Use the right-side numeric value, avoiding the drag track.
+                        warpClick(NSMakePoint(NSWidth(portableWarps.bounds) - 40, 186), 2);
+                        if (![portableWarps s3gTrackerHasFocusedTextInput]) {
+                            std::fprintf(stderr,"Warps text unfocused; host %s; cycle %s; native %s; hidden %d\n",
+                                NSStringFromRect(portableWarps.bounds).UTF8String,
+                                NSStringFromRect([portableWarps warpControlRect:@"cycle"]).UTF8String,
+                                NSStringFromRect(portableWarps.subviews.firstObject.frame).UTF8String,
+                                portableWarps.hiddenOrHasHiddenAncestor);
+                        }
+                        for (NSUInteger i = 0; i <= value.length; ++i) {
+                            NSString* chars = i == value.length ? @"\r" : [value substringWithRange:NSMakeRange(i, 1)];
+                            NSWindow* window = portableWarps.window;
+                            NSEvent* event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                                modifierFlags:0 timestamp:0 windowNumber:window.windowNumber context:nil
+                                characters:chars charactersIgnoringModifiers:chars isARepeat:NO keyCode:i == value.length ? 36 : 0];
+                            [window.firstResponder keyDown:event]; pump();
+                        }
+                        StateBuffer saved;
+                        bool savedOK = state->save(plugin, &saved.output);
+                        std::string json(saved.bytes.begin(), saved.bytes.end());
+                        const std::string token = std::string("\"warpCycleTicks\": ") + value.UTF8String;
+                        // Return queues a commit for the workspace refresh.
+                        // Observe that asynchronous commit without repeating
+                        // input or assuming the timer ran within one 50 ms pump.
+                        NSDate* deadline=[NSDate dateWithTimeIntervalSinceNow:.5];
+                        while(savedOK && json.find(token)==std::string::npos && [deadline timeIntervalSinceNow]>0) {
+                            pump(); saved.bytes.clear();
+                            savedOK=state->save(plugin,&saved.output);
+                            json.assign(saved.bytes.begin(),saved.bytes.end());
+                        }
+                        if(!savedOK || json.find(token)==std::string::npos) {
+                            const auto at=json.find("\"warpCycleTicks\"");
+                            std::fprintf(stderr,"Warps expected %s; state %s; window %s; responder %s\n",value.UTF8String,
+                                at==std::string::npos?"missing":json.substr(at,45).c_str(),portableWarps.window.title.UTF8String,
+                                NSStringFromClass([portableWarps.window.firstResponder class]).UTF8String);
+                        }
+                        ok &= expect(savedOK && json.find(token) != std::string::npos,
+                            "native Warps text edit did not reach serialized CLAP state");
+                    };
+                    warpClick(NSMakePoint(1096, 241), 1); // + EXP
+                    for (double scale : {0.65, 1.0, 1.5, 2.0, 1.0}) {
+                        uint32_t w = static_cast<uint32_t>(1320 * scale);
+                        uint32_t h = static_cast<uint32_t>(860 * scale);
+                        ok &= expect(gui->adjust_size(plugin, &w, &h) && gui->set_size(plugin, w, h),
+                            "portable Warps rejected proportional outer resizing");
+                        [parent setFrameSize:NSMakeSize(w, h)];
+                        [hostWindow setContentSize:NSMakeSize(w, h)]; pump();
+                        warpCycle(@"13");
+                    }
+                    ok &= expect(clickButton(parent, nil, @"Detach selected tool page", nil), "Warps detach failed");
+                    NSWindow* detached = waitForOrderedDetachedWindow(@"s3g Tracker — Timing Warps", hostWindow);
+                    ok &= expect(detached && portableWarps.window == detached && detached.parentWindow == nil
+                        && detached.level > hostWindow.level && !detached.hidesOnDeactivate,
+                        "portable Warps detached window ordering/ownership failed");
+                    if (detached) {
+                        warpCycle(@"9");
+                        ok &= expect(clickButton(parent, nil, @"TRACKER page", nil), "main page switch while Warps detached failed");
+                        pump();
+                        ok &= expect(portableWarps.window == detached && detached.visible,
+                            "switching main page hid detached Warps");
+                        // A title-bar close uses performClose/shouldClose;
+                        // NSWindow::close deliberately bypasses that delegate.
+                        [detached performClose:nil]; pump();
+                        ok &= expect(portableWarps.window == hostWindow, "Warps close did not reattach its CFrame");
+                        clickButton(parent, nil, @"WARPS page", nil); pump();
+                        warpCycle(@"11");
+                    }
+                    if (captures) ok &= expect(writeDocumentationPage(parent, [NSString stringWithUTF8String:captures], @"portable-warps"),
+                        "portable Warps CLAP capture failed");
+                    clickButton(parent, nil, @"TRACKER page", nil); pump();
+                }
+                NSView* portableSong = findAccessibleView(parent, @"Tracker portable Song page");
+                if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_SONG"))
+                    ok &= expect(portableSong != nil, "expected portable Song page is missing");
+                if (portableSong) {
+                    factoryState.cursor = 0; state->load(plugin, &factoryState.input); pump();
+                    ok &= expect(clickButton(parent, nil, @"SONG page", nil), "portable Song page switch failed");
+                    pump();
+                    const auto songClick = [&](NSPoint point) {
+                        NSPoint location = [portableSong convertPoint:point toView:nil];
+                        NSView* target = [hostWindow.contentView hitTest:[portableSong convertPoint:point toView:hostWindow.contentView]];
+                        [hostWindow makeFirstResponder:target];
+                        NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:location
+                            modifierFlags:0 timestamp:0 windowNumber:hostWindow.windowNumber context:nil
+                            eventNumber:0 clickCount:1 pressure:1];
+                        [target mouseDown:down];
+                        NSEvent* up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:location
+                            modifierFlags:0 timestamp:0 windowNumber:hostWindow.windowNumber context:nil
+                            eventNumber:0 clickCount:1 pressure:0];
+                        [target mouseUp:up]; pump();
+                    };
+                    const auto songDocument = [&]() -> NSDictionary* {
+                        StateBuffer saved;
+                        if (!state->save(plugin, &saved.output)) return nil;
+                        NSData* bytes = [NSData dataWithBytes:saved.bytes.data() length:saved.bytes.size()];
+                        return [NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil];
+                    };
+                    for (double scale : {0.65, 1.0, 1.5, 2.0}) {
+                        uint32_t w=static_cast<uint32_t>(1320*scale), h=static_cast<uint32_t>(860*scale);
+                        ok &= expect(gui->adjust_size(plugin,&w,&h) && gui->set_size(plugin,w,h), "Song resize negotiation");
+                        [parent setFrameSize:NSMakeSize(w,h)]; [hostWindow setContentSize:NSMakeSize(w,h)]; pump();
+                        NSUInteger before = [songDocument()[@"arrangement"][@"rows"] count];
+                        uint32_t dirtyBefore = context.dirtyMarks;
+                        songClick(NSMakePoint(980,40)); // + ADD in ROW EDIT
+                        NSDictionary* saved = songDocument();
+                        ok &= expect([saved[@"arrangement"][@"rows"] count] == before+1 && context.dirtyMarks > dirtyBefore,
+                            "scaled native Song ADD did not publish to serialized CLAP state");
+                    }
+                    gui->set_size(plugin,1320,860); [parent setFrameSize:NSMakeSize(1320,860)];
+                    [hostWindow setContentSize:NSMakeSize(1320,860)]; pump();
+                    // Native click -> canvas repeats menu -> coordinator -> project codec.
+                    songClick(NSMakePoint(430,141));
+                    key(@"\uf701",125,0); key(@"\uf701",125,0); key(@"\r",36,0);
+                    NSDictionary* edited = songDocument();
+                    ok &= expect([edited[@"arrangement"][@"rows"][0][@"repeats"] unsignedIntValue] == 3,
+                        "portable Song menu did not reach the coordinator");
+                    songClick(NSMakePoint(280,40));
+                    ok &= expect([songDocument()[@"workspace"][@"songPlaybackEnabled"] boolValue],
+                        "portable Song mode callback did not reach the project");
+                    StateBuffer songRecall; state->save(plugin,&songRecall.output);
+                    songClick(NSMakePoint(980,40));
+                    songRecall.cursor=0;
+                    ok &= expect(state->load(plugin,&songRecall.input),"portable Song project recall failed");pump();
+                    ok &= expect([songDocument()[@"arrangement"][@"rows"] count] == [edited[@"arrangement"][@"rows"] count],
+                        "Song restore did not discard later arrangement edit");
+                    // Live edit publication and pending launch still use the existing
+                    // audio-thread mailboxes; the CFrame never clocks Song itself.
+                    bool processing=plugin->activate(plugin,48000,1,32768) && plugin->start_processing(plugin);
+                    clap_event_transport_t transport{};transport.header.size=sizeof(transport);
+                    transport.header.space_id=CLAP_CORE_EVENT_SPACE_ID;transport.header.type=CLAP_EVENT_TRANSPORT;
+                    transport.flags=CLAP_TRANSPORT_HAS_TEMPO|CLAP_TRANSPORT_IS_PLAYING;transport.tempo=120;
+                    OutputEvents output;clap_process_t process{};process.transport=&transport;
+                    process.frames_count=128;process.out_events=&output.interface;
+                    context.playState=1;
+                    if(processing)processing=plugin->process(plugin,&process)==CLAP_PROCESS_CONTINUE;
+                    pump();
+                    NSUInteger before = [songDocument()[@"arrangement"][@"rows"] count];
+                    songClick(NSMakePoint(980,40));
+                    ok &= expect(processing&&[songDocument()[@"arrangement"][@"rows"] count]==before+1,
+                        "Song editing should remain enabled during host playback");
+                    songClick(NSMakePoint(610,40)); // SELECT QUEUE
+                    for(int block=0;processing&&block<8;++block){output.count=0;process.steady_time+=process.frames_count;
+                        processing=plugin->process(plugin,&process)==CLAP_PROCESS_CONTINUE;pump();}
+                    ok &= expect(processing,"Song queue/live edit interrupted CLAP processing");
+                    plugin->stop_processing(plugin);plugin->deactivate(plugin);context.playState=0;pump();
+                    if(captures)ok &= expect(writeDocumentationPage(parent,@(captures),@"portable-song"),"Song CLAP capture failed");
+                    clickButton(parent,nil,@"TRACKER page",nil);pump();
+                }
+                if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_REFERENCE")) {
+                    NSView* console = findAccessibleView(parent, @"Tracker portable Console page");
+                    NSView* help = findAccessibleView(parent, @"Tracker portable Help page");
+                    ok &= expect(console && help, "expected portable Console/Help pages missing");
+                    const auto referenceClick = [&](NSView* view, NSPoint point) {
+                        NSWindow* window = view.window;
+                        NSPoint location = [view convertPoint:point toView:nil];
+                        NSView* target = [window.contentView hitTest:[view convertPoint:point toView:window.contentView]];
+                        [window makeFirstResponder:target];
+                        for (NSEventType type : {NSEventTypeLeftMouseDown, NSEventTypeLeftMouseUp}) {
+                            NSEvent* event = [NSEvent mouseEventWithType:type location:location modifierFlags:0
+                                timestamp:0 windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:1];
+                            if (type == NSEventTypeLeftMouseDown) [target mouseDown:event]; else [target mouseUp:event];
+                        }
+                        pump();
+                    };
+                    const auto referenceKey = [&](NSView* view, NSString* chars, unsigned short code, NSEventModifierFlags flags) {
+                        NSWindow* window = view.window;
+                        NSEvent* event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags
+                            timestamp:0 windowNumber:window.windowNumber context:nil characters:chars
+                            charactersIgnoringModifiers:chars isARepeat:NO keyCode:code];
+                        if (code == 49 && flags == 0) {
+                            // REAPER pre-translates before NSView key equivalents.
+                            // -10 requests original macOS text-input processing.
+                            auto* accel = context.keyboardAccelerators.empty() ? nullptr
+                                : context.keyboardAccelerators.front();
+                            struct { void* window; } message { (__bridge void*)window.firstResponder };
+                            ok &= expect(accel && accel->isLocal
+                                    && accel->translate(&message, accel) == -10,
+                                "focused text did not request raw REAPER keyboard routing");
+                            void* responder = (__bridge void*)window.firstResponder;
+                            ok &= expect(context.hwndInfo && context.hwndInfo(responder, 0) == 1
+                                    && context.hwndInfo(responder, 1) == 1
+                                    && context.hwndInfo(reinterpret_cast<void*>(1), 0) == 0,
+                                "REAPER text-field/global-shortcut classification failed");
+                            [window.firstResponder keyDown:event];
+                        } else [window.firstResponder keyDown:event];
+                        pump();
+                    };
+                    const auto referenceType = [&](NSView* view, NSString* text) {
+                        for (NSUInteger i=0;i<text.length;++i) referenceKey(view,[text substringWithRange:NSMakeRange(i,1)],
+                            [text characterAtIndex:i] == ' ' ? 49 : 0,0);
+                    };
+                    const auto copySelection = [&](NSView* view) -> NSString* {
+                        referenceKey(view,@"a",0,NSEventModifierFlagCommand);
+                        referenceKey(view,@"c",8,NSEventModifierFlagCommand);
+                        return [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
+                    };
+                    if (console && help) {
+                        clickButton(parent,nil,@"CONSOLE page",nil);pump();
+                        int note=70;
+                        for(double scale : {0.65,1.0,1.5,2.0}) {
+                            uint32_t w=uint32_t(1320*scale),h=uint32_t(860*scale);
+                            ok &= expect(gui->adjust_size(plugin,&w,&h)&&gui->set_size(plugin,w,h),"Console outer resizing");
+                            [parent setFrameSize:NSMakeSize(w,h)];[hostWindow setContentSize:NSMakeSize(w,h)];pump();
+                            referenceClick(console,NSMakePoint(200,49));
+                            referenceKey(console,@"a",0,NSEventModifierFlagCommand);
+                            referenceType(console,[NSString stringWithFormat:@"note 2 1 %d",note]);
+                            referenceKey(console,@"\r",36,0);
+                            StateBuffer saved; state->save(plugin,&saved.output);
+                            const std::string json(saved.bytes.begin(),saved.bytes.end());
+                            ok &= expect(json.find("\"note\": "+std::to_string(note++))!=std::string::npos,
+                                "scaled Console command did not reach serialized CLAP state");
+                        }
+                        gui->set_size(plugin,1320,860);[parent setFrameSize:NSMakeSize(1320,860)];
+                        [hostWindow setContentSize:NSMakeSize(1320,860)];pump();
+                        referenceType(console,@"shared draft");
+                        clickButton(parent,nil,@"TRACKER page",nil);pump();
+                        click(NSMakePoint(250,91),1);
+                        ok &= expect([copySelection(portableMain) isEqualToString:@"shared draft"],"Console draft did not reach main Live Code");
+                        referenceType(portableMain,@"note 2 1 64");
+                        clickButton(parent,nil,@"CONSOLE page",nil);pump();
+                        referenceClick(console,NSMakePoint(200,49));
+                        ok &= expect([copySelection(console) isEqualToString:@"note 2 1 64"],"main Live Code draft did not reach Console");
+                        referenceKey(console,@"\r",36,0);
+                        referenceKey(console,@"\uf700",126,0);
+                        ok &= expect([copySelection(console) isEqualToString:@"note 2 1 64"],"Console history lost submitted command");
+                        referenceKey(console,@"\uf701",125,0);
+                        clickButton(parent,nil,@"Detach selected tool page",nil);pump();
+                        NSWindow* detached = waitForOrderedDetachedWindow(@"s3g Tracker — Console",hostWindow);
+                        ok &= expect(detached && console.window==detached && detached.level>hostWindow.level,
+                            "Console detach/order failed");
+                        if(detached) {
+                            referenceClick(console,NSMakePoint(200,49));
+                            referenceType(console,@"note 2 1 65");referenceKey(console,@"\r",36,0);
+                            clickButton(parent,nil,@"TRACKER page",nil);pump();
+                            ok &= expect(console.window==detached && detached.visible,"detached Console hidden by page switching");
+                            [detached performClose:nil];pump();
+                            ok &= expect(console.window==hostWindow,"Console close did not reattach frame");
+                        }
+                        clickButton(parent,nil,@"CONSOLE page",nil);pump();
+                        referenceClick(console,NSMakePoint(100,90));
+                        NSString* log=copySelection(console);
+                        ok &= expect([log containsString:@"note 2 1 65"] && [log containsString:@"note 2 1 70"],
+                            "Console copy/log history lost commands across detach");
+                        if(captures)writeDocumentationPage(parent,@(captures),@"portable-console");
+                        clickButton(parent,nil,@"HELP page",nil);pump();
+                        referenceClick(help,NSMakePoint(100,52));
+                        NSString* document=copySelection(help);
+                        ok &= expect([document containsString:@"TRACKER GRID WORKFLOW"]
+                            && [document containsString:@"GEOMETRY + TOOL WINDOWS"] && document.length>20000,
+                            "portable Help copy missing command reference/workflow notes");
+                        referenceKey(help,@"f",3,NSEventModifierFlagCommand);
+                        referenceType(help,@"TRANSPORT + SONG");referenceKey(help,@"\r",36,0);
+                        referenceKey(help,@"\033",53,0);referenceKey(help,@"c",8,NSEventModifierFlagCommand);
+                        ok &= expect([[NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString]
+                            isEqualToString:@"TRANSPORT + SONG"],"Help Find/selection failed inside CLAP");
+                        clickButton(parent,nil,@"Detach selected tool page",nil);pump();
+                        NSWindow* helpDetached=waitForOrderedDetachedWindow(@"s3g Tracker — Help",hostWindow);
+                        ok &= expect(helpDetached && help.window==helpDetached,"Help detach failed");
+                        if(helpDetached) {
+                            [helpDetached setContentSize:NSMakeSize(760,720)];pump();
+                            referenceClick(help,NSMakePoint(100,52));
+                            ok &= expect([copySelection(help) isEqualToString:document],"detached Help lost text");
+                            referenceKey(help,@"\033",53,0);pump();
+                            ok &= expect(help.window==hostWindow,"Help Escape did not reattach safely");
+                        }
+                        clickButton(parent,nil,@"HELP page",nil);pump();
+                        if(captures)writeDocumentationPage(parent,@(captures),@"portable-help");
+                        clickButton(parent,nil,@"TRACKER page",nil);pump();
+                    }
+                }
+                factoryState.cursor=0;state->load(plugin,&factoryState.input);pump();
+                const auto command=[&](NSString* text){
+                    click(NSMakePoint(250,91),1);key(@"a",0,NSEventModifierFlagCommand);
+                    for(NSUInteger i=0;i<text.length;++i)key([text substringWithRange:NSMakeRange(i,1)],0,0);
+                    key(@"\r",36,0);
+                };
+                command(@"note 2 1 36");
+                command(@"fx 1 1 2 CC74 64");
+                command(@"interp 1 v1 step");
+                ok &= expect(gui->hide(plugin),"portable Tracker hide failed");
+                requestedWidth=1320;requestedHeight=860;
+                if(ok)std::puts("Tracker portable main CLAP embedding / 65–200% input / page switching: ok");
+            }
+            if (shown && !portableMain) {
                 // Use the accepted dimensions throughout, including later
                 // mock-window creation and capture. The pilot now negotiates
                 // a proportional size rather than a responsive canvas.
@@ -932,7 +1456,7 @@ int main(int argc, char** argv)
                 NSPopUpButton* geometryMode =
                     [geometryModeView isKindOfClass:NSPopUpButton.class]
                         ? static_cast<NSPopUpButton*>(geometryModeView) : nil;
-                const bool geometryModesAvailable = geometryMode.numberOfItems
+                bool geometryModesAvailable = geometryMode.numberOfItems
                         == 8u
                     && geometryMode.indexOfSelectedItem == 0
                     && [[geometryMode itemAtIndex:0].title
@@ -952,7 +1476,17 @@ int main(int argc, char** argv)
                     && [geometryMode itemAtIndex:6].hidden
                     && [[geometryMode itemAtIndex:7].title
                         isEqualToString:@"PITCH MAP"];
-                if (geometryModesAvailable) {
+                if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_GEOMETRY")) {
+                    NSView* host = findAccessibleView(parent, @"Rhythm geometry");
+                    geometryModesAvailable = [host respondsToSelector:@selector(geometryMenuItems)]
+                        && [[host geometryMenuItems] isEqualToArray:@[ @"RING FIELD", @"ACTIVE PULSES",
+                            @"ALL STEPS UNDERLAY", @"PHASE SPOKES", @"LANE FOCUS", @"COMPOSITE RING", @"PITCH MAP" ]];
+                    if(geometryModesAvailable) {
+                        for(NSInteger mode=0;mode<8;++mode) if(mode!=6) [host selectGeometryMode:mode];
+                        [host selectGeometryMode:3];
+                    }
+                }
+                else if (geometryModesAvailable) {
                     for (NSInteger mode = 1; mode < 8; ++mode) {
                         if (mode == 6) continue;
                         [geometryMode selectItemAtIndex:mode];
@@ -1040,10 +1574,166 @@ int main(int argc, char** argv)
                     @"Reshape analysis cycle");
                 NSView* reshapeDepth = findAccessibleView(parent,
                     @"Reshape timing depth");
+                NSView* portableReshape = findAccessibleView(parent, @"Tracker portable Reshape page");
+                const bool reshapeControls = std::getenv("S3G_TRACKER_EXPECT_PORTABLE_AUTHORING")
+                    ? portableReshape && [portableReshape respondsToSelector:@selector(authoringControlRect:)]
+                    : reshapeProfile && reshapeCycle && reshapeDepth;
                 ok &= expect(geometryModesAvailable && reshapeSelected
-                        && reshapeProfile && reshapeCycle && reshapeDepth
+                        && reshapeControls
                         && clickButton(parent, nil, @"TRACKER page", nil),
                     "Geometry or Reshape workspace controls are incomplete");
+                if(std::getenv("S3G_TRACKER_EXPECT_PORTABLE_AUTHORING")) {
+                    auto pump = [&] { [parent layoutSubtreeIfNeeded]; [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.05]]; [parent displayIfNeeded]; };
+                    for(NSString* tab in @[@"PHRASES",@"ASSEMBLE",@"RESHAPE"]) {
+                        NSString* title=[tab isEqualToString:@"PHRASES"]?@"Phrases":[tab isEqualToString:@"ASSEMBLE"]?@"Assemble":@"Reshape";
+                        NSString* tabLabel=[tab stringByAppendingString:@" page"];
+                        ok &= expect(clickButton(parent,nil,tabLabel,nil),"authoring page switch");pump();
+                        NSView* page=findAccessibleView(parent,[NSString stringWithFormat:@"Tracker portable %@ page",title]);
+                        ok &= expect(page&&[page respondsToSelector:@selector(authoringControlRect:)],"portable authoring host missing");
+                        if(!page) continue;
+                        auto pointer=[&](NSRect r){
+                            [page layoutSubtreeIfNeeded];[page display];NSWindow* window=page.window;
+                            NSPoint point=NSMakePoint(NSMidX(r),NSMidY(r));NSPoint location=[page convertPoint:point toView:nil];
+                            NSView* target=[window.contentView hitTest:[page convertPoint:point toView:window.contentView]];
+                            [window makeFirstResponder:target];
+                            for(NSEventType type:{NSEventTypeLeftMouseDown,NSEventTypeLeftMouseUp}) {
+                                NSEvent* event=[NSEvent mouseEventWithType:type location:location modifierFlags:0 timestamp:0 windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:type==NSEventTypeLeftMouseDown?1:0];
+                                if(type==NSEventTypeLeftMouseDown) [target mouseDown:event];else [target mouseUp:event];
+                            }pump();
+                        };
+                        auto control=[&](NSString* name){[page display];NSRect r=[page authoringControlRect:name];ok &= expect(!NSIsEmptyRect(r),"portable authoring control missing");if(!NSIsEmptyRect(r)) pointer(r);};
+                        auto editPhraseName=[&](NSString* value){
+                            control(@"name");
+                            ok &= expect([page s3gTrackerHasFocusedTextInput],"Phrase name lacks scoped REAPER text ownership");
+                            for(NSUInteger i=0;i<=value.length;++i){NSString* chars=i==value.length?@"\r":[value substringWithRange:NSMakeRange(i,1)];NSWindow* window=page.window;
+                                NSEvent* event=[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:window.windowNumber context:nil characters:chars charactersIgnoringModifiers:chars isARepeat:NO keyCode:i==value.length?36:[chars isEqualToString:@" "]?49:0];
+                                if(![page performKeyEquivalent:event]) [window.firstResponder keyDown:event];pump();}
+                            control(@"SAVE");
+                            StateBuffer saved;std::string json;NSDate* deadline=[NSDate dateWithTimeIntervalSinceNow:.5];
+                            do {saved.bytes.clear();state->save(plugin,&saved.output);json.assign(saved.bytes.begin(),saved.bytes.end());if(json.find(value.UTF8String)!=std::string::npos) break;pump();} while([deadline timeIntervalSinceNow]>0);
+                            ok &= expect(json.find(value.UTF8String)!=std::string::npos,"portable Phrase edit/Space did not reach CLAP state");
+                        };
+                        if (![tab isEqualToString:@"RESHAPE"]) {
+                            // Exercise the actual LISTEN callback and CLAP MIDI
+                            // output without pumping the GUI during rendering.
+                            StateBuffer beforePreview;
+                            state->save(plugin, &beforePreview.output);
+                            NSData* bytes = [NSData dataWithBytes:beforePreview.bytes.data()
+                                length:beforePreview.bytes.size()];
+                            NSMutableDictionary* fixture = [NSJSONSerialization
+                                JSONObjectWithData:bytes options:NSJSONReadingMutableContainers error:nil];
+                            NSMutableDictionary* bank = fixture[@"phraseBanks"][0];
+                            NSMutableDictionary* phrase = bank[@"slots"][0];
+                            phrase[@"length"] = @16;
+                            phrase[@"previewMidiChannel"] = @4;
+                            phrase[@"notes"] = @[@{@"state":@"rest"}, @{@"state":@"rest"},
+                                @{@"state":@"note", @"note":@60}];
+                            phrase[@"velocities"] = @[];
+                            phrase[@"gates"] = @[];
+                            fixture[@"playback"][@"ticksPerBeat"] = @4;
+                            fixture[@"workspace"][@"activePhraseBank"] = bank[@"id"];
+                            NSMutableDictionary* assembly = fixture[@"workspace"][@"assembly"];
+                            assembly[@"loopPreview"] = @YES;
+                            assembly[@"previewMidiChannel"] = @4;
+                            assembly[@"blocks"] = @[@{@"bank":bank[@"id"], @"phrase":@0, @"repeats":@2}];
+                            NSData* encoded = [NSJSONSerialization dataWithJSONObject:fixture options:0 error:nil];
+                            StateBuffer auditionState;
+                            const auto* raw = static_cast<const uint8_t*>(encoded.bytes);
+                            auditionState.bytes.assign(raw, raw + encoded.length);
+                            ok &= expect(state->load(plugin, &auditionState.input), "audition timing fixture load");
+                            pump();
+                            control(@"phrase");
+                            pointer([page authoringPopupItemRect:0]);
+                            const bool phrases = [tab isEqualToString:@"PHRASES"];
+                            if (phrases) control(@"loop");
+                            for (double bpm : {120., 123., 130.}) {
+                                context.masterTempo = bpm;
+                                ok &= expect(plugin->activate(plugin, 48000, 64, 8192)
+                                    && plugin->start_processing(plugin), "audition audio activation");
+                                control(@"listen");
+                                clap_event_transport_t stopped {};
+                                stopped.flags = CLAP_TRANSPORT_HAS_TEMPO;
+                                stopped.tempo = bpm;
+                                const double rowSamples = 48000. * 60. / (bpm * 4.);
+                                std::vector<uint64_t> hits;
+                                uint64_t frame = 0;
+                                bool ordered = true, routed = true;
+                                int held = 0;
+                                const uint64_t total = uint64_t(std::ceil(rowSamples * 66.1));
+                                unsigned blockIndex = 0;
+                                while (frame < total) {
+                                    const uint32_t sizes[] = {64, 127, 512, 8192};
+                                    OutputEvents output;
+                                    clap_process_t process {};
+                                    process.frames_count = uint32_t(std::min<uint64_t>(
+                                        sizes[blockIndex++ % 4], total-frame));
+                                    process.transport = &stopped;
+                                    process.out_events = &output.interface;
+                                    plugin->process(plugin, &process);
+                                    for (uint32_t i = 0; i < output.count; ++i) {
+                                        const auto& e = output.events[i];
+                                        ordered &= e.header.time < process.frames_count &&
+                                            (!i || e.header.time >= output.events[i-1].header.time);
+                                        const auto kind = e.data[0] & 0xf0;
+                                        if (kind == 0x90 && e.data[2]) {
+                                            hits.push_back(frame + e.header.time);
+                                            routed &= e.data[0] == 0x93 && e.data[1] == 60;
+                                            ++held;
+                                        } else if (kind == 0x80 || (kind == 0x90 && !e.data[2])) --held;
+                                        ordered &= held >= 0 && held <= 1;
+                                    }
+                                    frame += process.frames_count;
+                                }
+                                bool accurate = hits.size() == 5;
+                                for (std::size_t i = 0; i < hits.size(); ++i) {
+                                    const double error = double(hits[i]) - (2 + 16*i)*rowSamples;
+                                    accurate &= error > -1e-5 && error < 1.00001;
+                                }
+                                ok &= expect(accurate && ordered && routed,
+                                    "LISTEN loop drift, rest loss, routing or note-off ordering regression");
+                                // Stop before the next pass. No further notes
+                                // may be emitted even without another UI tick.
+                                control(@"listen");
+                                OutputEvents stoppedOutput;
+                                clap_process_t stopProcess {};
+                                stopProcess.frames_count = 8192;
+                                stopProcess.transport = &stopped;
+                                stopProcess.out_events = &stoppedOutput.interface;
+                                bool silent = true;
+                                for (int i = 0; i < 30; ++i) {
+                                    stoppedOutput.count = 0;
+                                    plugin->process(plugin, &stopProcess);
+                                    for (uint32_t j = 0; j < stoppedOutput.count; ++j) {
+                                        const auto& e = stoppedOutput.events[j];
+                                        silent &= (e.data[0] & 0xf0) != 0x90 || !e.data[2];
+                                        if ((e.data[0] & 0xf0) == 0x80) --held;
+                                    }
+                                }
+                                ok &= expect(silent && held == 0, "LISTEN stop left repeated or stuck notes");
+                                plugin->stop_processing(plugin);
+                                plugin->deactivate(plugin);
+                            }
+                            if (phrases) control(@"loop");
+                            context.masterTempo = 120;
+                            beforePreview.cursor = 0;
+                            ok &= expect(state->load(plugin, &beforePreview.input), "restore after audition timing test");
+                            pump();
+                        }
+                        for(double scale:{.65,1.,1.5,2.,1.}) {
+                            uint32_t w=uint32_t(1320*scale),h=uint32_t(860*scale);ok &= expect(gui->adjust_size(plugin,&w,&h)&&gui->set_size(plugin,w,h),"authoring resize rejected");[parent setFrameSize:NSMakeSize(w,h)];[hostWindow setContentSize:NSMakeSize(w,h)];pump();
+                            NSRect physical=[page convertRect:page.bounds toView:parent];ok &= expect(std::abs(NSWidth(physical)-NSWidth(page.bounds)*scale)<1.1,"authoring proportional scale mismatch");
+                            if([tab isEqualToString:@"PHRASES"]) editPhraseName([NSString stringWithFormat:@"PORTABLE PHRASE %d",int(scale*100)]);
+                            else {control([tab isEqualToString:@"ASSEMBLE"]?@"repeat":@"cycle");NSRect item=[page authoringPopupItemRect:2];ok &= expect(!NSIsEmptyRect(item),"authoring canvas menu did not open");if(!NSIsEmptyRect(item)) pointer(item);}
+                        }
+                        ok &= expect(clickButton(parent,nil,@"Detach selected tool page",nil),"authoring detach");
+                        NSString* windowTitle=[tab isEqualToString:@"PHRASES"]?@"s3g Tracker — MIDI Phrases":[tab isEqualToString:@"ASSEMBLE"]?@"s3g Tracker — Phrase Assembly":@"s3g Tracker — Pattern Reshape";
+                        NSWindow* detached=waitForOrderedDetachedWindow(windowTitle,hostWindow);
+                        ok &= expect(detached&&page.window==detached&&detached.parentWindow==nil&&detached.level>hostWindow.level,"authoring detached ordering/ownership");
+                        if(detached){[detached setContentSize:NSMakeSize(480,360)];pump();if([tab isEqualToString:@"PHRASES"]) editPhraseName(@"DETACHED PHRASE OK");
+                            clickButton(parent,nil,@"TRACKER page",nil);pump();ok &= expect(page.window==detached&&detached.visible,"detached authoring page hidden on main navigation");[detached performClose:nil];pump();ok &= expect(page.window==hostWindow,"authoring reattachment");}
+                    }
+                    clickButton(parent,nil,@"TRACKER page",nil);[hostWindow makeKeyAndOrderFront:nil];pump();
+                }
                 NSView* pageWorkspace = findAccessibleView(parent,
                     @"s3g Tracker REAPER page workspace");
                 [hostWindow makeFirstResponder:nil];
@@ -1862,6 +2552,8 @@ int main(int argc, char** argv)
                     "full tracker workspace hide failed");
             }
             gui->destroy(plugin);
+            ok &= expect(context.keyboardAccelerators.empty() && !context.hwndInfo,
+                "Tracker keyboard registrations survived GUI destruction");
             if (shown && std::getenv("S3G_TRACKER_EXPECT_VSTGUI")) {
                 ok &= expect(parent.subviews.count == 0u
                         && gui->create(plugin, CLAP_WINDOW_API_COCOA, false)

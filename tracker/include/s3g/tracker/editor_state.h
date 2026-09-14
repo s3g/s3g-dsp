@@ -1,14 +1,12 @@
 #pragma once
 
 #include "s3g/tracker/command.h"
-#include "s3g/tracker/coremidi_output.h"
 #include "s3g/tracker/instrument_rack.h"
 #include "s3g/tracker/midi_step_recorder.h"
 #include "s3g/tracker/pattern_bank.h"
 #include "s3g/tracker/phrase_library.h"
 #include "s3g/tracker/pitch_map.h"
 #include "s3g/tracker/project_document.h"
-#include "s3g/tracker/audio_output_device.h"
 
 #include <array>
 #include <cstddef>
@@ -102,6 +100,9 @@ struct TrackerViewState {
     // Vertical Tracker navigation increment. The View toolbox exposes 1..16;
     // Up/Down use this many rows while retaining boundary clamping.
     uint32_t trackerRowJump = 1u;
+    TrackerFollowSettings trackerFollow;
+    // Loading a document (including undo/redo) resets transient manual hold.
+    uint64_t trackerFollowRevision = 0u;
     // MIDI recording is deliberately transient host/UI state. It is OFF when
     // an editor is created and is not embedded in project files.
     bool midiStepInputAvailable = false;
@@ -140,9 +141,7 @@ struct WorkspaceCallbacks {
     std::function<void(std::size_t)> resyncTrack;
     std::function<void()> panic;
     std::function<void()> showSongWindow;
-    // Standalone builds may still present these modules as windows. Embedded
-    // CLAP hosts provide page callbacks so the same workspace actions stay
-    // inside the plug-in editor.
+    // CLAP page navigation; the host shell also owns detachable tool windows.
     std::function<void()> showGeometryPage;
     std::function<void()> showBurstPage;
     std::function<void()> showReshapePage;
@@ -175,9 +174,16 @@ struct WorkspaceCallbacks {
     std::function<void(const BurstDefinition&, uint8_t, double, uint32_t)>
         previewBurst;
     // Audition the non-destructive Pitch Map proposal while transport is
-    // stopped. Events are copied into a fixed audio-thread mailbox.
+    // stopped. Events are published as an immutable audio-thread plan.
     std::function<void(const std::vector<PitchPreviewEvent>&, uint8_t,
         double, uint32_t)> previewPitchSequence;
+    // Full-length audio-clock audition. Token ownership prevents a hidden page
+    // from stopping another page's preview; position reads never schedule MIDI.
+    std::function<uint32_t(const std::vector<PitchPreviewEvent>&, uint8_t,
+        double, uint32_t, uint32_t, bool)> startAuthoringPreview;
+    std::function<void(uint32_t)> stopAuthoringPreview;
+    std::function<void(uint32_t, bool)> loopAuthoringPreview;
+    std::function<int64_t(uint32_t)> authoringPreviewPosition;
     // Reshape audition swaps only the immutable audio-thread runtime. It does
     // not touch the stored document until the page commits with patternChanged.
     std::function<void(const Pattern&)> previewPattern;
@@ -191,9 +197,6 @@ struct WorkspaceCallbacks {
     // without marking the native project document as edited.
     std::function<void()> instrumentRackReloaded;
     std::function<void(const std::string&)> reportError;
-    std::function<void()> refreshMidiDestinations;
-    std::function<void()> refreshAudioOutputDevices;
-    std::function<void(uint32_t)> selectAudioOutputDevice;
     std::function<void()> selectionChanged;
     std::function<void()> patternChanged;
     std::function<void(const std::string&)> selectPattern;
@@ -215,4 +218,3 @@ struct WorkspaceCallbacks {
 };
 
 } // namespace s3g::tracker::app
-

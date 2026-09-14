@@ -15,7 +15,7 @@ struct Point { double x = 0.0, y = 0.0; };
 struct Rect { double x = 0.0, y = 0.0, width = 0.0, height = 0.0; };
 struct Color { uint8_t red = 0, green = 0, blue = 0, alpha = 255; };
 enum class Alignment { Left, Center, Right };
-enum class Primitive { FillRect, StrokeRect, FillEllipse, Polyline, Text };
+enum class Primitive { FillRect, StrokeRect, FillEllipse, Polyline, Text, StrokeEllipse, FillPolygon };
 
 inline double alignedTextX(Rect rect, double textWidth, Alignment alignment)
 {
@@ -26,12 +26,21 @@ inline double alignedTextX(Rect rect, double textWidth, Alignment alignment)
         : alignment == Alignment::Center ? extra * 0.5 : 0.0);
 }
 
+// Uppercase button titles have no descender. Center their visible cap-height
+// box, not the font's full line box (which includes unused descender/leading).
+inline double centeredCapsBaseline(Rect rect, double capHeight)
+{
+    return rect.y + (rect.height + capHeight) * 0.5;
+}
+
 struct DrawCommand {
     Primitive primitive = Primitive::FillRect;
     Rect rect;
     Color color;
     double lineWidth = 1.0;
+    bool roundCaps = false;
     std::vector<Point> points;
+    std::vector<double> dashes;
     std::string text;
     std::string fontName;
     double fontSize = 12.0;
@@ -43,24 +52,39 @@ struct DrawCommand {
 
 class DisplayList {
 public:
-    void shape(Primitive primitive, Rect rect, Color color, double width = 1.0)
+    void shape(Primitive primitive, Rect rect, Color color, double width = 1.0,
+        std::vector<double> dashes = {})
     {
         DrawCommand command;
         command.primitive = primitive;
         command.rect = rect;
         command.color = color;
         command.lineWidth = width;
+        command.dashes = std::move(dashes);
         commands_.push_back(std::move(command));
     }
 
-    void polyline(std::vector<Point> points, Color color, double width)
+    void polyline(std::vector<Point> points, Color color, double width,
+        std::vector<double> dashes = {}, bool roundCaps = false)
     {
         if (points.size() < 2u) return;
         DrawCommand command;
         command.primitive = Primitive::Polyline;
         command.points = std::move(points);
+        command.dashes = std::move(dashes);
         command.color = color;
         command.lineWidth = width;
+        command.roundCaps = roundCaps;
+        commands_.push_back(std::move(command));
+    }
+
+    void polygon(std::vector<Point> points, Color color)
+    {
+        if (points.size() < 3u) return;
+        DrawCommand command;
+        command.primitive = Primitive::FillPolygon;
+        command.points = std::move(points);
+        command.color = color;
         commands_.push_back(std::move(command));
     }
 

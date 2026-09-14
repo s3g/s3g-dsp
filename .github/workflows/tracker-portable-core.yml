@@ -1,0 +1,44 @@
+name: Tracker portable core
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tracker/**"
+      - "dsp/**"
+      - "plugins/common/**"
+      - "plugins/clap_tracker/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/tracker-portable-core.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned CLAP headers (no GUI dependencies)
+        uses: actions/checkout@v4
+        with:
+          repository: free-audio/clap
+          ref: '1.2.6'
+          path: tracker-clap-sdk
+      - name: Configure shared core only
+        run: >-
+          cmake -S . -B build-tracker-core -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON -DS3G_BUILD_TRACKER_PREVIEW=ON
+          -DS3G_BUILD_CLAP_PLUGIN=OFF -DS3G_BUILD_STANDALONE_APPS=OFF
+          -DS3G_TRACKER_CLAP_TEST_INCLUDE_DIR=${{ github.workspace }}/tracker-clap-sdk/include
+      - name: Build core regression executables
+        run: >-
+          cmake --build build-tracker-core --config Release
+          --target s3g_tracker_portable_core_tests --parallel 4
+      - name: Run native core and filesystem regressions
+        run: >-
+          ctest --test-dir build-tracker-core -C Release --output-on-failure
+          -R "^s3g_tracker_" -L core

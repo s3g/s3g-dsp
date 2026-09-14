@@ -1,5 +1,8 @@
 #import "s3g_song_window.h"
 #import "s3g_tracker_controls.h"
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+#include "s3g_tracker_song_page_host.h"
+#endif
 
 #include "s3g_gui_layout.h"
 #define S3G_COCOA_GUI_DRAWING_ONLY 1
@@ -557,6 +560,10 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 @interface S3GTrackerSongWindowController ()
     <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate>
+
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+@property(nonatomic, strong) S3GTrackerSongPageHost* portablePage;
+#endif
 @property(nonatomic, strong) NSMutableArray<S3GTrackerSongRow*>* rows;
 @property(nonatomic, strong) S3GTrackerSongRootView* rootView;
 @property(nonatomic, strong) S3GTrackerToolboxView* projectPanel;
@@ -646,7 +653,41 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     S3GTrackerRestoreWindowFrame(window, @"S3GTrackerSongWindow");
 
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    self.portablePage = [[S3GTrackerSongPageHost alloc] initWithFrame:window.contentView.bounds];
+    if (!self.portablePage) return nil;
+    window.contentView = self.portablePage;
+    auto* page = self.portablePage.page;
+    __weak S3GTrackerSongWindowController* weakSelf = self;
+    page->editor.callbacks.changed = [weakSelf] {
+        auto* owner = weakSelf;
+        if (owner.changeHandler) owner.changeHandler(owner.songSummary);
+    };
+    page->editor.callbacks.modeChanged = [weakSelf](bool enabled) {
+        auto* owner = weakSelf;
+        owner.playbackEnabled = enabled;
+        if (owner.modeChangeHandler) owner.modeChangeHandler(enabled);
+    };
+    page->editor.callbacks.loopChanged = [weakSelf](bool enabled) {
+        auto* owner = weakSelf;
+        if (owner.loopChangeHandler) owner.loopChangeHandler(enabled);
+        else if (owner.changeHandler) owner.changeHandler(owner.songSummary);
+    };
+    page->editor.callbacks.launch = [weakSelf](std::size_t row, s3g::tracker::SongLaunchQuantization quantization) {
+        auto* owner = weakSelf;
+        if (owner.launchHandler) owner.launchHandler(row, static_cast<NSInteger>(quantization));
+    };
+    page->editor.callbacks.saveProject = [weakSelf] {
+        auto* owner = weakSelf;
+        if (owner.saveProjectHandler) owner.saveProjectHandler();
+    };
+    page->editor.callbacks.loadProject = [weakSelf] {
+        auto* owner = weakSelf;
+        if (owner.loadProjectHandler) owner.loadProjectHandler();
+    };
+#else
     [self buildInterface];
+#endif
     return self;
 }
 
@@ -996,6 +1037,13 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     [super showWindow:sender];
     if (self.window.miniaturized) [self.window deminiaturize:sender];
     [self.window makeKeyAndOrderFront:sender];
+}
+
+- (void)suspendEditing
+{
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    self.portablePage.page->stopRefresh();
+#endif
 }
 
 - (BOOL)windowShouldClose:(NSWindow*)sender
@@ -1856,6 +1904,9 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 - (NSString*)songSummary
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    return @(self.portablePage.page->editor.summary().c_str());
+#endif
     const NSUInteger count = self.rows.count;
     if (count == 0) return @"0 ROWS · EMPTY ARRANGEMENT";
     NSInteger passes = 0;
@@ -1897,6 +1948,13 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 - (void)setPlaybackEnabled:(BOOL)playbackEnabled
 {
     _playbackEnabled = playbackEnabled;
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    if (self.portablePage) {
+        self.portablePage.page->editor.playbackEnabled = playbackEnabled;
+        self.portablePage.page->playbackChanged();
+    }
+    return;
+#endif
     self.songModeButton.state = playbackEnabled
         ? NSControlStateValueOn : NSControlStateValueOff;
     self.songModeButton.title = playbackEnabled
@@ -1938,6 +1996,15 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 - (void)setPlaybackRow:(NSUInteger)row valid:(BOOL)valid
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    auto* page = self.portablePage.page;
+    auto value = valid ? std::optional<std::size_t>(row) : std::nullopt;
+    if (page->editor.playbackRow != value) {
+        page->editor.playbackRow = value;
+        page->playbackChanged();
+    }
+    return;
+#endif
     if (self.currentPlaybackRow == row
         && self.currentPlaybackRowValid == valid) return;
     self.currentPlaybackRow = row;
@@ -1947,6 +2014,10 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 - (void)setPendingPlaybackRow:(NSUInteger)row valid:(BOOL)valid
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    [self setPendingPlaybackRow:row valid:valid quantization:static_cast<NSInteger>(self.portablePage.page->editor.quantization)];
+    return;
+#endif
     [self setPendingPlaybackRow:row valid:valid
         quantization:self.launchQuantizationPopup.indexOfSelectedItem];
 }
@@ -1955,6 +2026,18 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     quantization:(NSInteger)quantization
 {
     quantization = std::clamp<NSInteger>(quantization, 0, 3);
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    auto* page = self.portablePage.page;
+    auto value = valid ? std::optional<std::size_t>(row) : std::nullopt;
+    auto boundary = static_cast<s3g::tracker::SongLaunchQuantization>(quantization);
+    if (page->editor.pendingRow != value || page->editor.pendingQuantization != boundary) {
+        page->editor.pendingRow = value;
+        page->editor.pendingQuantization = boundary;
+        page->playbackChanged();
+        self.portablePage.accessibilityValue = @(page->editor.queueStatus().c_str());
+    }
+    return;
+#endif
     if (self.pendingPlaybackRow == row
         && self.pendingPlaybackRowValid == valid
         && self.pendingPlaybackQuantization == quantization) return;
@@ -1985,6 +2068,13 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 - (void)setPlaybackLocked:(BOOL)locked
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    if (self.portablePage.page->editor.playing != bool(locked)) {
+        self.portablePage.page->editor.playing = locked;
+        self.portablePage.page->playbackChanged();
+    }
+    return;
+#endif
     if (self.playbackLocked == locked) return;
     _playbackLocked = locked;
     // Arrangement edits stay available while REAPER is running. The plug-in
@@ -2070,6 +2160,16 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _availablePatternLaneCounts = laneCounts.copy;
     _activePatternId = [available containsObject:activePatternId]
         ? activePatternId.copy : available.firstObject;
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    std::vector<s3g::tracker::editor::SongPatternInfo> metadata;
+    for (NSUInteger i = 0; i < available.count; ++i)
+        metadata.push_back({ available[i].UTF8String, names[i].UTF8String,
+            lengths[i].unsignedIntValue, laneCounts[i].unsignedIntValue });
+    auto* page = self.portablePage.page;
+    page->editor.setPatterns(std::move(metadata), _activePatternId.UTF8String);
+    page->modelChanged();
+    return;
+#endif
     for (S3GTrackerSongRow* row in self.rows)
         [self removeUnavailableMutesFromRow:row];
     [self.tableView reloadData];
@@ -2078,6 +2178,11 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 - (void)setTimingWarpLibrary:
     (const s3g::tracker::TimingWarpLibrary&)library
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    self.portablePage.page->editor.warps = library;
+    self.portablePage.page->modelChanged();
+    return;
+#endif
     NSMutableArray<NSNumber*>* slots = [[NSMutableArray alloc] init];
     NSMutableArray<NSString*>* titles = [[NSMutableArray alloc] init];
     [slots addObject:@0];
@@ -2099,6 +2204,9 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 - (s3g::tracker::SongArrangement)songArrangement
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    return self.portablePage.page->editor.snapshot();
+#endif
     s3g::tracker::SongArrangement arrangement;
     const char* name = self.arrangementName.UTF8String;
     arrangement.name = name ? name : "SONG";
@@ -2148,6 +2256,12 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 
 - (void)setSongArrangement:(const s3g::tracker::SongArrangement&)arrangement
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    self.portablePage.page->modelChanged();
+    self.portablePage.page->editor.setArrangement(arrangement);
+    self.portablePage.page->modelChanged();
+    return;
+#endif
     [self.rows removeAllObjects];
     self.nextRowIdentity = 1u;
     self.arrangementName = [NSString stringWithUTF8String:
@@ -2209,6 +2323,13 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
 - (void)moveMutedLaneFrom:(NSUInteger)source to:(NSUInteger)destination
     patternId:(NSString*)patternId
 {
+#if defined(S3G_TRACKER_PORTABLE_SONG_PAGE)
+    if (source < 32 && destination < 32 && patternId.length) {
+        self.portablePage.page->editor.remapMute(static_cast<uint32_t>(source), static_cast<uint32_t>(destination), patternId.UTF8String);
+        self.portablePage.page->modelChanged();
+    }
+    return;
+#endif
     if (source == destination || source >= 32u || destination >= 32u
         || patternId.length == 0u) return;
     for (S3GTrackerSongRow* row in self.rows) {

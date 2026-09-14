@@ -2,7 +2,15 @@
 
 #import <Cocoa/Cocoa.h>
 #include "s3g/tracker/editor_drawing.h"
+#include "s3g/tracker/editor_grid_painter.h"
+#include "../../editor/s3g_tracker_vstgui_drawing.h"
 #include <memory>
+
+namespace VSTGUI { class CFrame; }
+
+@protocol S3GTrackerTextInputOwner
+- (BOOL)s3gTrackerHasFocusedTextInput;
+@end
 
 namespace s3g::tracker::editor {
 
@@ -25,6 +33,13 @@ private:
 DisplayList* activeDisplayList();
 Rect logicalRect(NSRect rect);
 Color resolvedColor(NSColor* color);
+GridPaintServices macGridPaintServices();
+FontFactory macTrackerFontFactory();
+GridFont macTrackerSuiteFont(double size);
+// SWELL/REAPER checks key equivalents before ordinary text input. Claim Space
+// only for a focused VSTGUI text edit, then use its native input context.
+bool macTrackerTextKeyEquivalent(NSView* host, VSTGUI::CFrame* frame, NSEvent* event);
+bool macTrackerHasFocusedTextInput(NSView* host, VSTGUI::CFrame* frame);
 void recordText(NSString* text, NSRect rect, NSColor* color, NSFont* font,
     NSTextAlignment alignment, bool fixedLineHeight);
 
