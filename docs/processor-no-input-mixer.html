@@ -14,7 +14,6 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="apps.html">Apps</a>
         <a href="multichannel.html">Multichannel</a>
         <a href="ambisonics.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
@@ -31,7 +30,9 @@
 
         <p>The instrument combines no-input mixing, configurable feedback circuits, resonant-object excitation, and s3g Matrix movement. Its controls describe musical feedback behaviors rather than recreating a specific circuit or artist's instrument.</p>
 
-        <p>A separate <a href="no-input-mixer-standalone.html">No Input Mixer standalone app</a> embeds the same DSP for use without a host and adds selectable Core Audio output-channel banks.</p>
+        <div class="callout">
+          <p>An experimental macOS standalone build remains in the source tree under <code>apps/no_input_mixer_standalone</code>. It embeds the same DSP for use without a host, but it is no longer packaged or published as part of s3g-dsp releases.</p>
+        </div>
 
         <figure>
           <div class="doc-graphic">
@@ -244,7 +245,7 @@
           </tbody>
         </table>
 
-        <p>The underlying <code>GAIN</code>, <code>TONE</code>, <code>BIAS</code>, and <code>LEVEL</code> parameters are interpreted musically for the selected family. The floating editor names that interpretation directly: SPLICE presents <code>MIX</code>, <code>LENGTH</code>, and <code>DIRECTION</code>; ROTOR presents <code>DEPTH</code>, <code>RATE</code>, and <code>SHAPE</code>; THROAT presents <code>MIX</code>, <code>VOWEL</code>, and <code>SHIFT</code>; OCT STACK presents <code>MIX</code>, <code>TONE</code>, and <code>BALANCE</code>. The generic bipolar −1 to +1 Bias parameter therefore controls an effect-specific third macro; it is not matrix or Aux-return polarity. <code>BYPASS</code> removes only the selected lane slot. Aux editing substitutes <code>RETURN</code> and <code>LOOP</code> for lane level and bypass. In the plugin or standalone app's MIXER popup, click the Aux A/B <code>EDIT</code> action to expose its third macro, exact label, and signed value.</p>
+        <p>The underlying <code>GAIN</code>, <code>TONE</code>, <code>BIAS</code>, and <code>LEVEL</code> parameters are interpreted musically for the selected family. The floating editor names that interpretation directly: SPLICE presents <code>MIX</code>, <code>LENGTH</code>, and <code>DIRECTION</code>; ROTOR presents <code>DEPTH</code>, <code>RATE</code>, and <code>SHAPE</code>; THROAT presents <code>MIX</code>, <code>VOWEL</code>, and <code>SHIFT</code>; OCT STACK presents <code>MIX</code>, <code>TONE</code>, and <code>BALANCE</code>. The generic bipolar −1 to +1 Bias parameter therefore controls an effect-specific third macro; it is not matrix or Aux-return polarity. <code>BYPASS</code> removes only the selected lane slot. Aux editing substitutes <code>RETURN</code> and <code>LOOP</code> for lane level and bypass. In the plugin's MIXER popup, click the Aux A/B <code>EDIT</code> action to expose its third macro, exact label, and signed value.</p>
 
         <h2 id="containment">Containment</h2>
 

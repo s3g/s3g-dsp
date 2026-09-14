@@ -1,13 +1,12 @@
 # s3g-dsp 0.9.0-pre
 
-Apple silicon macOS CLAP collection and optional No Input Mixer standalone pre-release, prepared August 27, 2026.
+Apple silicon macOS CLAP collection pre-release, prepared August 27, 2026.
 
 ## Assets
 
 - `s3g-dsp-macos-clap-0.9.0-pre.zip` — 119 CLAP bundles containing 125 plug-ins for REAPER
-- `s3g-no-input-mixer-app-macos-arm64-0.9.0-pre.zip` — standalone No Input Mixer application
 
-Both archives contain arm64 binaries for Apple silicon Macs (M1, M2, M3, M4, or newer). They are not compiled for Intel Macs and are not universal binaries. The standalone app currently requires macOS 15 or newer and is distributed separately from the CLAP collection.
+The archive contains arm64 binaries for Apple silicon Macs (M1, M2, M3, M4, or newer). It is not compiled for Intel Macs and is not a universal binary. Beginning with this release, standalone applications are no longer published as release assets; experimental app targets remain in the source tree.
 
 ## Highlights
 
@@ -26,13 +25,12 @@ Both archives contain arm64 binaries for Apple silicon Macs (M1, M2, M3, M4, or 
 - Extends **s3g Tracker** with MIDI step recording, held-note editing, undo and project history, runtime pattern planning, clearer note activity, expanded Song and timing behavior, and a scripted REAPER acceptance workflow. These additions support the new Sample-family note, CC, retrigger, and routing workflows directly.
 - Expands **Processor Stack** with Stack Score, host synchronization, and additional controlled random-thinning behavior, and adds updated MIDI handling to Ambi Encoder Membrane Kick.
 - Processor Fault and Processor No Input Mixer retain shared eight-channel ring-output projection with direct, quad-ring, and stereo-ring formats plus rotation. Existing saved No Input Mixer states migrate to the unchanged direct-output default; the retired Processor Loop products are replaced by Sample Rings.
-- The standalone No Input Mixer now routes those built-in SAFETY formats directly instead of loading separate Stereo and Quad Autogain processors. Its hardware-aware ROUTE selector mirrors the same saved NIM parameter, and legacy app modes plus output rotation migrate on first launch.
 - Normalizes public bundle filenames and host names so fixed channel widths are explicit and consistent, while retaining stable CLAP identifiers and recognizing 211 legacy bundle names during upgrades.
 
 ## Reliability and release checks
 
 - The canonical manifest freezes 119 bundles, including 117 non-NIM bundles, and packaging verifies all 125 runtime plug-in descriptors rather than inferring descriptor count from bundle count.
-- The fresh Release build passes all 151 registered CTest cases, the non-NIM sanitizer build passes all 146 cases, the standalone build passes all 57 registered cases plus its embedded-chain smoke test, and the 41 Python release-tooling unit tests pass.
+- The fresh Release build passes all 151 registered CTest cases, the non-NIM sanitizer build passes all 146 cases, and the 36 active Python release-tooling unit tests pass. Experimental standalone targets retain their source-level test coverage but are outside the release gate.
 - Release, sanitizer, manifest, validator, callback-allocation, and realtime checks derive their current product inventory from the same canonical manifest.
 - Every non-NIM bundle and runtime descriptor participates in isolated CLAP validation and callback-allocation auditing; the strict realtime profiles and the separate 96 kHz environmental advisory remain part of the release gate.
 - Dedicated DSP, CLAP, state, GUI, output-allocation, and multichannel routing coverage accompanies the expanded Sample family.
@@ -41,7 +39,7 @@ Both archives contain arm64 binaries for Apple silicon Macs (M1, M2, M3, M4, or 
 - Sample Doubles, Sample Wavesets, and Sample Motion use persistent compositor-driven cursor trajectories on macOS so predictable playheads remain smooth when a host temporarily delays AppKit presentation after a parameter gesture. Routine meters and static feedback remain on the ordinary GUI refresh path.
 - Sample Player, Sample Doubles, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, and Sample Slicer now default new instances to Project storage: sources receive content-hashed names and are copied asynchronously into the exact containing REAPER project's media directory, registered for copy-media Save As operations, and referenced with small state. Reloading the same unchanged external source reuses its verified destination, and directly reloading a file already in project media reuses it in place instead of creating a nested hash-suffixed copy. Unsaved-project requests remain pending until the host supplies a project media path. Link retains the original location; Embed remains explicit and reports the decoded PCM state cost. Earlier Embed and path-only sessions migrate without changing their storage behavior.
 - The shared voice-output allocator and ring-output mixdown are covered as independent DSP components as well as through the plug-ins that consume them. Callback-allocation, CLAP validation, sanitizer, and realtime gates continue to derive their product inventory from the release manifest.
-- Documentation adds complete Sample Player, Sample Doubles, Sample Slicer, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, Sample Rings, Sample Circulator, Delay Field, Matrix Upmix, and Array Calibrate guides and current interface captures. The static audit checks 130 HTML pages and 4,977 local references; the GUI style audit has no blocking findings and retains 41 advisory warnings for future cleanup.
+- Documentation adds complete Sample Player, Sample Doubles, Sample Slicer, Sample Wavesets, Sample Motion, Sample Lanes, Sample Grains, Sample Rings, Sample Circulator, Delay Field, Matrix Upmix, and Array Calibrate guides and current interface captures. The static audit checks 131 HTML pages and 4,950 local references after retiring the standalone release pages; the GUI style audit has no blocking findings and retains 41 advisory warnings for future cleanup.
 
 ---
 

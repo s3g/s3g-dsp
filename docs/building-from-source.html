@@ -14,7 +14,6 @@
         <a href="index.html">Getting Started</a>
         <a href="building-from-source.html">Build</a>
         <a href="installing-plugins.html">Install</a>
-        <a href="apps.html">Apps</a>
         <a href="multichannel.html">Multichannel</a>
         <a href="ambisonics.html">Ambisonics</a>
         <a href="instruments.html">Instruments</a>
@@ -210,51 +209,6 @@ python3 scripts/run-clap-realtime-audit.py \
 
         <p>The offline timing and allocation audits do not open or reconfigure an audio device. Use the guarded live audit below to observe actual Core Audio callback delivery and HAL signals.</p>
 
-        <h2 id="standalone-apps">Build Standalone Apps</h2>
-
-        <p>macOS standalone app targets are built separately from the CLAP plugin bundle targets:</p>
-
-        <pre><code>cmake --preset apps
-cmake --build --preset apps</code></pre>
-
-        <p>The standalone app targets are:</p>
-
-        <pre><code>build-apps/apps/no_input_mixer_standalone/s3g No Input Mixer.app
-build-apps/apps/vox_builder/s3g Vox Builder.app</code></pre>
-
-        <p>No Input Mixer embeds the same No Input Mixer, Stereo Autogain, and Quad Autogain CLAP implementations used by the plugin builds. It offers stereo, quad, and direct eight-channel Core Audio output and launches monitoring-muted. Check its processor chain with <code>cmake --build build-apps --target audit_no_input_mixer_standalone</code>.</p>
-
-        <p>To build a separately installable No Input Mixer app ZIP from the exact Release target, validate the staged package and an independent extraction, exercise the installer in an isolated dry run, and emit a SHA-256 checksum:</p>
-
-        <pre><code>./scripts/package-macos-nim-app-prerelease.sh</code></pre>
-
-        <p>The app packager uses the same clean-source policy as the CLAP packager. It refuses a dirty tree unless <code>S3G_PACKAGE_ALLOW_DIRTY=1</code> is supplied for an explicitly non-final test artifact. The packaged installer writes to <code>~/Applications/s3g No Input Mixer.app</code> without <code>sudo</code>, verifies the app before replacement, and backs up only an identity-matched prior copy.</p>
-
-        <p>Vox Builder uses the same pinned WORLD dependency as Ambi Encoder Vox. Its segmentation core can be checked independently with <code>./build-apps/s3g_vox_builder_smoke</code>.</p>
-
-        <h2 id="nim-coreaudio-audit">Audit NIM Core Audio</h2>
-
-        <p>The NIM standalone includes default-off realtime diagnostics. Choose <strong>Show Realtime Diagnostics</strong> from the application menu to begin a fresh observation window; <strong>Reset</strong> clears it and <strong>Copy Realtime Diagnostics Report</strong> copies the device configuration and counters. The report distinguishes callback-duration overruns, late callback starts, independent host-clock and audio-sample-position discontinuities, HAL overload and abnormal-stop notifications, render errors, embedded CLAP-stage errors, non-finite output, and MIDI drops. A late-start count is advisory scheduler information rather than an xrun by itself; HAL overloads, abnormal stops, sample-position faults, and callbacks that exceed their own period are stronger failure signals.</p>
-
-        <p>For repeatable headless testing, build the guarded diagnostic and enumerate devices first. Listing reads device properties only: it does not construct the DSP engine or open AUHAL.</p>
-
-        <pre><code>cmake --build build-apps \
-  --target s3g_no_input_mixer_coreaudio_diagnostic
-./build-apps/apps/no_input_mixer_standalone/s3g_no_input_mixer_coreaudio_diagnostic \
-  --list-devices --json /tmp/s3g-coreaudio-devices.json</code></pre>
-
-        <p>A live run requires an exact UID, a duration, and the explicit acknowledgement flag. It leaves the selected device's sample rate, buffer size, and default-device status unchanged. The complete Gesture → NIM → selected output-mode chain runs, but monitoring remains muted and the diagnostic verifies that no nonzero sample reaches Core Audio:</p>
-
-        <pre><code>./build-apps/apps/no_input_mixer_standalone/s3g_no_input_mixer_coreaudio_diagnostic \
-  --device-uid 'DEVICE_UID_FROM_LIST' \
-  --mode stereo \
-  --warmup-seconds 5 \
-  --duration-seconds 60 \
-  --confirm-live-audio \
-  --json /tmp/s3g-nim-coreaudio.json</code></pre>
-
-        <p>Use <code>--mode quad</code> or <code>--mode direct8</code> only with a device exposing enough outputs. The diagnostic opens the device's full output layout to reproduce the standalone wrapper's channel cost. Starting AUHAL can awaken or contend for hardware even while muted, so stop other critical audio work first. Realtime findings remain report-only unless <code>--strict</code> is supplied.</p>
-
         <h2 id="install-local">Install Local Build</h2>
 
         <p>Preview and then install the CLAP products:</p>
@@ -352,8 +306,6 @@ python3 scripts/check-docs.py
           <a href="index.html">Getting Started</a>
           <a href="building-from-source.html">Build From Source</a>
           <a href="installing-plugins.html">Install Pre-release</a>
-          <a href="apps.html">Standalone Apps</a>
-          <a href="no-input-mixer-standalone.html">No Input Mixer App</a>
           <a href="stereo-listening.html">Stereo Listening</a>
         </div>
         <div class="toc-section">
@@ -366,8 +318,6 @@ python3 scripts/check-docs.py
           <a href="#windows-suite">Windows Test Package</a>
           <a href="#clap-realtime-audit">Audit CLAP Realtime Cost</a>
           <a href="#clap-allocation-probe">Probe Realtime Allocations</a>
-          <a href="#standalone-apps">Build Standalone Apps</a>
-          <a href="#nim-coreaudio-audit">Audit NIM Core Audio</a>
           <a href="#install-local">Install Local Build</a>
           <a href="#validate">Validate</a>
           <a href="#package">Package a Pre-release</a>

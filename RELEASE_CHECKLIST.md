@@ -14,7 +14,8 @@ deliberately pending.
 - Frozen inventory: 119 installable CLAP bundles containing 125 plug-in
   descriptors; two bundles are NIM products and 117 are non-NIM products
 - Recognized upgrade inventory: 211 legacy bundle names
-- Optional standalone asset: s3g No Input Mixer for macOS 15 or newer
+- Release assets contain the CLAP collection only; experimental standalone app
+  targets remain source-only
 
 ## Scope and product metadata
 
@@ -41,8 +42,8 @@ deliberately pending.
   Sample Rings, Sample Slicer, Sample Circulator, Delay Field, Matrix Upmix,
   Array Calibrate, and the renamed channel-width products.
 - [x] Add or refresh the corresponding native GUI captures.
-- [x] Pass the static documentation audit: 130 HTML pages and 4,977 local
-  references checked.
+- [x] Pass the static documentation audit after retiring the standalone app
+  pages and navigation: 131 HTML pages and 4,950 local references checked.
 - [x] Complete the GUI style audit with no blocking findings; retain 41
   advisory warnings for future cleanup.
 
@@ -50,13 +51,13 @@ deliberately pending.
 
 - [x] Verify all 119 active bundles, 211 legacy names, and 125 runtime
   descriptors from a fresh Release build.
-- [x] Pass all 41 Python release-tooling unit tests.
+- [x] Pass all 36 active Python release-tooling unit tests.
 - [x] Complete the standard Release configure and full CLAP build.
 - [x] Pass all 151 Release CTest cases.
-- [x] Rebuild the standalone Release tree and pass all 57 CTest cases after
-  completing the No Input Mixer output-routing refactor.
-- [x] Pass the No Input Mixer processing/state, installer, and package-verifier
-  audits after that refactor.
+- [x] Rebuild the experimental standalone source tree and pass its tests after
+  completing the No Input Mixer output-routing refactor; this is source
+  validation rather than a release gate.
+- [x] Pass the No Input Mixer processing/state audits after that refactor.
 
 ## Release gates
 
@@ -79,26 +80,24 @@ deliberately pending.
 
 ## Release metadata
 
-- [x] Add suite and standalone release notes dated August 27, 2026 while
-  retaining the 0.8 historical entries.
+- [x] Add suite release notes dated August 27, 2026 while retaining the 0.8
+  historical entries.
 - [x] Set `CITATION.cff` to `0.9.0-pre` and August 27, 2026.
 - [x] Update public README and documentation download paths to `0.9.0-pre`.
-- [x] Set the CMake project version to `0.9.0` and both package scripts to
-  default to `0.9.0-pre`.
+- [x] Set the CMake project version and CLAP package script to `0.9.0` and
+  `0.9.0-pre` respectively.
 - [x] Set the explicit package inventory gate to 119 bundles and 125 runtime
   descriptors.
 
 ## Distribution, tag, and publication
 
-- [x] Build and verify non-final dirty-tree rehearsal archives for the CLAP
-  collection and No Input Mixer app.
-- [x] Verify both rehearsal SHA-256 checksum files and inspect their release
-  notes, README, license, third-party notices, manifests, installer/provenance,
-  and application payloads.
+- [x] Build and verify a non-final dirty-tree rehearsal archive for the CLAP
+  collection.
+- [x] Verify the rehearsal SHA-256 checksum file and inspect its release notes,
+  README, license, third-party notices, manifests, installer, and provenance.
 - [ ] Commit the complete release inputs; final packaging requires a clean
   tree.
 - [ ] Build and verify the final clean-tree CLAP distribution archive.
-- [ ] Build and verify the final clean-tree No Input Mixer app archive.
 - [ ] Create annotated tag `v0.9.0-pre` at the verified packaging revision.
 - [ ] Publish the assets, checksums, and release notes together.
 
@@ -109,7 +108,6 @@ Preparation begins from `v0.8.0-pre`, the subsequent changes committed through
 Machine-readable evidence is retained under `build-clap-release/`,
 `build-clap-sanitize/`, and `build-apps/`. Non-final dirty-tree packages may
 verify distribution layout; final archives must be reproduced from the
-committed, clean release revision before tagging. The No Input Mixer standalone
-output-routing refactor is implemented across its engine, app, diagnostic,
-tests, documentation, and package instructions; all 57 registered standalone
-tests and the separate embedded-chain smoke test pass.
+committed, clean release revision before tagging. The experimental No Input
+Mixer standalone output-routing refactor remains implemented and tested in the
+source tree, but standalone applications are not release artifacts.

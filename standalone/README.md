@@ -4,6 +4,10 @@ This directory contains the reusable host infrastructure for standalone
 applications built from s3g CLAP processors. Product-specific application
 targets remain under `apps/`.
 
+These targets are experimental and source-only. s3g-dsp release downloads
+contain the CLAP collection; standalone applications are not packaged or
+published as release assets.
+
 ## Architecture
 
 Standalone products host the same CLAP implementation used by the normal
@@ -55,8 +59,8 @@ cmake --build build-apps --target s3g_no_input_mixer_app
 cmake --build build-apps --target audit_no_input_mixer_standalone
 ```
 
-The `apps` preset is an optimized Release configuration; real-time standalone
-products must not be shipped from an unoptimized compiler-default build.
+The `apps` preset uses an optimized Release configuration so local real-time
+testing does not rely on an unoptimized compiler-default build.
 
 The No Input Mixer application is emitted as
 `build-apps/apps/no_input_mixer_standalone/s3g No Input Mixer.app`.
@@ -98,7 +102,6 @@ The No Input Mixer application is emitted as
 
 ## Follow-up infrastructure
 
-The next shared additions should be device hot-plug listeners and
-signing/notarization helpers. Once No Input Mixer and Multi Loop both use this
-layer, the common assumptions can be reduced into a higher-level CMake product
-declaration.
+The next shared addition should be device hot-plug listeners. Once No Input
+Mixer and Multi Loop both use this layer, the common assumptions can be reduced
+into a higher-level CMake product declaration.

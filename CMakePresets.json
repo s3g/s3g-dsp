@@ -62,7 +62,7 @@
     },
     {
       "name": "apps",
-      "displayName": "Standalone Apps",
+      "displayName": "Experimental Standalone Apps (source only)",
       "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/build-apps",
       "cacheVariables": {
