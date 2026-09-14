@@ -1,6 +1,7 @@
 #include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/clap_document_controller.h"
 #include <iostream>
+#include <cmath>
 #include <vector>
 using namespace s3g::tracker;
 int main()
@@ -132,6 +133,78 @@ int main()
     run("track remove 99");
     check(state.trackerFollow.mode == TrackerFollowMode::Page && state.trackerFollow.lane == 0,
         "rejected deletion changed follow settings");
+    state.session.pattern.tracks.resize(4);
+    state.session.aliases["kick"] = 2;
+    state.midiRecordTrack = 3;
+    const auto viewSeed = state.session.commandRngState;
+    const auto viewRow = state.session.selectedRow;
+    const auto viewTrack = state.session.selectedTrack;
+    const auto viewEvents = state.sentEventCount;
+    for (const char* command : { "view", "VIEW STATUS" }) {
+        run(command);
+        check(calls == std::vector<std::string>{"message"}
+                && message.find("VIEW · PAGE") != message.npos,
+            "VIEW status is read-only");
+    }
+    for (const char* command : { "view follow static", "VIEW FOLLOW CENTER", "view follow page",
+             "view source @KICK", "view source selected", "view source 1",
+             "view notes name", "view notes midi", "view jump 16", "view jump 1" }) {
+        run(command);
+        check(calls == std::vector<std::string>{"message", "document", "refresh"},
+            "saved view command commits only the document, never playback");
+    }
+    run("view jump 1");
+    check(calls == std::vector<std::string>{"message", "refresh"}, "no-op view command does not dirty state");
+    run("view source @kick");
+    check(state.trackerFollow.lane == 2 && !state.trackerFollow.selectedLane,
+        "VIEW alias pins the NOTE lane without changing editing/recording selection");
+    for (const char* command : { "view zoom 55", "view zoom 180%", "view zoom +",
+             "view zoom -", "view zoom reset", "view detail on", "view detail off", "view resume" }) {
+        run(command);
+        check(calls == std::vector<std::string>{"message", "refresh"},
+            "temporary view commands refresh without project or audio publication");
+    }
+    check(state.trackerGridZoom == 1. && !state.sequenceColumnsExpanded
+            && state.trackerFollowResumeRevision == 1, "zoom/reset/detail/resume actions");
+    run("view zoom +");
+    check(std::abs(state.trackerGridZoom - 1.16) < 1e-9, "zoom plus matches VIEW button ratio");
+    run("view zoom -");
+    check(std::abs(state.trackerGridZoom - 1.) < 1e-9, "zoom minus matches VIEW button ratio");
+    run("view zoom 55"); run("view zoom -");
+    check(state.trackerGridZoom == .55, "zoom minus clamps at 55 percent");
+    run("view zoom 180"); run("view zoom +");
+    check(state.trackerGridZoom == 1.8, "zoom plus clamps at 180 percent");
+    for (const char* command : { "view unknown", "view status extra", "view resume extra", "view follow",
+             "view follow center 2", "view follow random", "view source 0", "view source 33",
+             "view source 5", "view source @missing", "view source -1", "view source 2x",
+             "view notes decimal", "view jump 0", "view jump 17", "view jump 2.5",
+             "view jump 9999999999999999999", "view zoom 54", "view zoom 181", "view zoom nan",
+             "view zoom inf", "view zoom %", "view zoom 100junk", "view zoom 125.5", "view detail maybe" }) {
+        const auto before = state;
+        run(command);
+        check(calls == std::vector<std::string>{"error"}
+                && state.trackerFollow == before.trackerFollow
+                && state.trackerGridZoom == before.trackerGridZoom
+                && state.showMidiNoteValues == before.showMidiNoteValues
+                && state.trackerRowJump == before.trackerRowJump
+                && state.sequenceColumnsExpanded == before.sequenceColumnsExpanded
+                && state.trackerFollowResumeRevision == before.trackerFollowResumeRevision,
+            "invalid VIEW command is transactional");
+    }
+    state.songPlaybackActive = true;
+    run("view follow center");
+    check(state.trackerFollow.mode == TrackerFollowMode::Center
+            && calls == std::vector<std::string>{"message", "document", "refresh"},
+        "view changes remain available during Song playback");
+    check(state.session.commandRngState == viewSeed && state.session.selectedRow == viewRow
+            && state.session.selectedTrack == viewTrack && state.midiRecordTrack == 3
+            && state.sentEventCount == viewEvents,
+        "VIEW commands preserve RNG, MIDI, recording lane and editing position");
+    state.songPlaybackActive = false;
+    for (const auto& entry : clapCommandHelpSections().front().entries) {
+        run(std::string(entry.example).c_str());
+        check(!calls.empty() && calls.front() == "message", "every VIEW help example executes");
+    }
     std::cout << checks << " CLAP command checks, " << failures << " failures\n";
     return failures ? 1 : 0;
 }

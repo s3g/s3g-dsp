@@ -118,11 +118,15 @@ private:
     bool followPaused_ = false, selectingHeader_ = false;
     TrackerFollowSettings observedFollow_;
     uint64_t observedFollowRevision_ = 0;
+    uint64_t observedResumeRevision_ = 0;
+    bool observedExpanded_ = false;
     std::optional<std::size_t> presentedFollowLane_, presentedFollowRow_;
     bool pinnedHeader() const { return state_.trackerFollow.mode != TrackerFollowMode::Static; }
     TrackerFollowLayout followLayout() const;
     void pauseFollowing();
     void updateFollowing();
+    void syncViewCommands();
+    void applyGridZoom(double zoom);
     void followPreferencesChanged();
     void setViewport(double x, double y);
     GridServices gridServices();

@@ -1,4 +1,5 @@
 #include "s3g/tracker/command.h"
+#include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/editor_reference.h"
 #include <iostream>
 
@@ -51,11 +52,13 @@ int main()
         "case-insensitive completion");
     check(consoleCompletions("fx") == std::vector<std::string>({ "fx", "fxvalue" }),
         "ambiguous completion order");
-    check(consoleCompletions("not-a-command").empty() && consoleCompletions("").size() == 56,
+    check(consoleCompletions("VIE") == std::vector<std::string> { "view" },
+        "VIEW command completion");
+    check(consoleCompletions("not-a-command").empty() && consoleCompletions("").size() == 57,
         "full native completion table");
     auto help = trackerHelpDocument();
     auto text = help.plainText();
-    for (const auto& section : CommandEngine::helpSections()) {
+    for (const auto& section : clapCommandHelpSections()) {
         check(text.find(section.title) != std::string::npos, "command reference section missing");
         for (const auto& entry : section.entries)
             check(text.find(entry.syntax) != std::string::npos

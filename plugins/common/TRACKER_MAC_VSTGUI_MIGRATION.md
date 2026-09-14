@@ -8,6 +8,89 @@ and visual acceptance remain outstanding. Keep this separate from accepted
 Windows release bundles until those checks pass. Mac remains on its existing
 native hosting/coordinator adapter and opt-in portable surfaces.
 
+## Windows embedded-page visibility correction (2026-09-14)
+
+Native REAPER testing reported blank embedded pages. Detachable tools became
+visible after floating and reattaching them, while Tracker and Song remained
+inaccessible. Inspection found an HWND stacking error: the full-size shell
+frame is created before the page containers, and Win32 puts newly created child
+windows at the bottom of the sibling z-order. `ShowWindow(SW_SHOWNA)` did not
+raise the selected page above the opaque shell. This is not a RAM requirement
+or a missing page implementation.
+
+The Windows adapter now gives page containers `WS_CLIPSIBLINGS` and explicitly
+raises each selected embedded page with `SetWindowPos(HWND_TOP)` without moving,
+resizing or activating it. This orders siblings inside Tracker only; no window
+is made globally topmost. Existing selection paths cover initial show, tab
+switches, hide/show, document recall and reattachment. Mac hosting, layouts,
+detach permissions, project format and MIDI processing are unchanged.
+
+The Windows integration checker now uses parent-relative
+`ChildWindowFromPointEx` to verify page exposure above the shell, separately
+checks navigation exposure, frame dimensions and inactive-page hiding, and
+includes a deliberate behind-shell occlusion as a positive control. All ten
+pages are selected before any detachment; Tracker/Song are checked at 65%,
+100%, 150% and 200%, plus hide/show, recall, reattachment and multiple instances.
+The previous visibility-flag-only assertion could not detect this defect.
+
+Validation: Windows Tracker and the updated checker cross-build successfully;
+the Mac core/coordinator regressions pass (2/2). Native Windows execution of
+the new checker and REAPER acceptance are still pending. Both new archives
+pass CRC, payload hashes and source-fingerprint verification:
+
+- Tracker-only: `dist/s3g-tracker-windows-x64-test-20260914-130343.zip`
+  (3,165,449 bytes), SHA256
+  `9c59539ed982a55f28ce60029a84e2736fefabc5cf99a06b4df2d7ba72aca5e7`.
+- Full suite: `dist/s3g-dsp-windows-clap-suite-x64-test-20260914-130216.zip`
+  (121 CLAPs; only Ambi Energy excluded), SHA256
+  `f1094d38ac3686bcf7bce5854b1d0e48cf9040bf9a6728ff5ad1d0ee25770a0d`.
+
+The other 120 plug-ins are unchanged except for PE timestamps/checksums
+refreshed by GNU strip; all 69 shared resources are byte-identical to the
+09:51 suite package. Earlier archives are preserved. Quit Windows REAPER
+before replacing the existing Tracker binary, and avoid duplicate scan paths.
+No Mac installation was changed in this correction.
+
+## VIEW Live Code and Mac installation (2026-09-14)
+
+Tracker now accepts `view status`, `view follow static|center|page`,
+`view source selected|lane|@alias`, `view resume`, `view zoom 55..180|+|-|reset`,
+`view notes name|midi`, `view jump 1..16`, and `view detail on|off`.
+The shared CLAP command controller owns validation and document-only preference
+commits. Main-page view updates defer work out of the text callback; `view resume`
+can safely close main Live Code and return to following. Zoom/detail/resume are
+transient, and no VIEW command republishes the musical runtime. The website,
+in-plugin Help, and completion list include the commands.
+
+Validation: all 40 core regressions, both targeted real-CFrame main/reference
+tests, and rebuilt CLAP smoke pass (43 total); command tests contain 105 checks.
+Windows Tracker and its integration executable cross-build successfully; native
+Windows/REAPER execution is still pending.
+
+At the user's request, the tested Mac bundle is installed at
+`/Users/s3g/Library/Audio/Plug-Ins/CLAP/s3g-dsp/s3g_tracker.clap`.
+Installed executable SHA256:
+`d8588b87619406da0f23d71c04de27e5b46ed63a9e03e113f06dae97b3ea962f`.
+Full bundle comparison and strict signature verification pass. REAPER was
+closed; no other installed plugin was changed. The previous bundle remains at
+`/Users/s3g/Library/Application Support/s3g-dsp/CLAP Backups/Tracker-view-commands-20260914-1BVrRj9b/s3g_tracker.clap`
+with SHA256 `22f04da3f81090cfea07406d017136aa1ee9b9a380e6b81608528616caf4cf6e`.
+
+Consolidated Windows test package:
+`dist/s3g-dsp-windows-clap-suite-x64-test-20260914-095152.zip`
+(120,894,894 bytes; SHA256
+`b9548eda3133dc3cd41f2ae47b4daa16e3ccf544b4ff96344151290832b66a11`).
+All 121 included CLAP targets and Tracker's optional integration checker rebuilt
+successfully. The canonical inventory's only exclusion is Ambi Energy. This
+package includes the latest Tracker VIEW commands, 69 shared resource files,
+both 19-response atlases, font/dependency licenses and a source fingerprint
+manifest. Independent ZIP validation passed inventory matching, x64 PE/CLAP
+checks, CRC, all 200 payload checksums and 872 source fingerprints; checksums
+also passed after extraction into a fresh directory. Native Windows/REAPER
+execution remains pending; this is not an accepted Windows release bundle.
+Regenerate with `cmake -P scripts/package-windows-clap-suite.cmake` using the
+configured Windows cross-build tree (see the building-from-source guide).
+
 ## Playback row follow (2026-09-13)
 
 The shared main page now has VIEW header controls for STATIC (unchanged default),

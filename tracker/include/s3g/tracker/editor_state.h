@@ -103,6 +103,11 @@ struct TrackerViewState {
     TrackerFollowSettings trackerFollow;
     // Loading a document (including undo/redo) resets transient manual hold.
     uint64_t trackerFollowRevision = 0u;
+    // UI-only Live Code / VIEW control bridge. Neither belongs in project
+    // files or the audio runtime. Resume requests are consumed outside text
+    // callbacks, so a command never destroys its own active text editor.
+    double trackerGridZoom = 1.0;
+    uint64_t trackerFollowResumeRevision = 0u;
     // MIDI recording is deliberately transient host/UI state. It is OFF when
     // an editor is created and is not embedded in project files.
     bool midiStepInputAvailable = false;

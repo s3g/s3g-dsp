@@ -136,6 +136,9 @@ MainPageView::MainPageView(
     displayedPattern_ = playbackFollowPatternId(&state_);
     observedFollow_ = state_.trackerFollow;
     observedFollowRevision_ = state_.trackerFollowRevision;
+    observedResumeRevision_ = state_.trackerFollowResumeRevision;
+    observedExpanded_ = state_.sequenceColumnsExpanded;
+    zoom_ = std::clamp(state_.trackerGridZoom, .55, 1.8);
 }
 MainPageView::~MainPageView()
 {
@@ -297,10 +300,15 @@ void MainPageView::setViewport(double x, double y)
 void MainPageView::setGridZoom(double zoom)
 {
     finishText();
+    applyGridZoom(zoom);
+}
+void MainPageView::applyGridZoom(double zoom)
+{
     const auto viewport = gridViewport();
     const auto centerX = scrollX_ + viewport.getWidth() / (2 * zoom_);
     const auto centerY = scrollY_ + viewport.getHeight() / (2 * zoom_);
     zoom_ = std::clamp(std::isfinite(zoom) ? zoom : 1., .55, 1.8);
+    state_.trackerGridZoom = zoom_;
     setViewport(
         centerX - viewport.getWidth() / (2 * zoom_), centerY - viewport.getHeight() / (2 * zoom_));
     if (!pinnedHeader() || followPaused_)
@@ -362,6 +370,7 @@ void MainPageView::stopRefresh()
 }
 void MainPageView::reloadModel()
 {
+    syncViewCommands();
     auto id = playbackFollowPatternId(&state_);
     if (id != displayedPattern_ || displayedSongFollow_ != state_.songPlaybackActive) {
         popups_.clear();
@@ -378,6 +387,33 @@ void MainPageView::reloadModel()
     updateFollowing();
     invalid();
 }
+void MainPageView::syncViewCommands()
+{
+    // Commands can refresh synchronously from inside the Live Code key
+    // callback. Defer text/layout work until that callback has returned.
+    if (inTextCallback_)
+        return;
+    if (observedExpanded_ != state_.sequenceColumnsExpanded) {
+        if (edit_)
+            finishText(true); // The old field address may disappear on collapse.
+        observedExpanded_ = state_.sequenceColumnsExpanded;
+        state_.session.selectedField = std::min(state_.session.selectedField,
+            gridFieldCount(state_.sequenceColumnsExpanded) - 1);
+        grid_.clearGridSelection();
+        setViewport(scrollX_, scrollY_);
+        invalid();
+    }
+    // Leave Live Code focused during ordinary view changes, but don't move
+    // an inline cell editor underneath an in-progress edit.
+    if (!edit_ && zoom_ != state_.trackerGridZoom)
+        applyGridZoom(state_.trackerGridZoom);
+    if (observedResumeRevision_ != state_.trackerFollowResumeRevision) {
+        observedResumeRevision_ = state_.trackerFollowResumeRevision;
+        resumeFollowing();
+        if (!text_)
+            focusTracker();
+    }
+}
 void MainPageView::refreshPlaybackDisplay()
 {
     // The coordinator has already applied Tracker's presentation holdback.
@@ -389,6 +425,7 @@ void MainPageView::refreshPlaybackDisplay()
         if (returnFocus && !text_)
             focusTracker();
     }
+    syncViewCommands();
     if (displayedPattern_ != playbackFollowPatternId(&state_)
         || displayedSongFollow_ != state_.songPlaybackActive)
         reloadModel();

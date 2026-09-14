@@ -1,5 +1,6 @@
 #include "s3g/tracker/editor_reference.h"
 #include "s3g/tracker/command.h"
+#include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/editor_grid.h"
 #include "s3g/tracker/editor_palette.h"
 #include "s3g/tracker/fx_catalog.h"
@@ -99,7 +100,7 @@ ReferenceDocument trackerHelpDocument()
     paragraph("Lane and row addresses are one-based. Targets accept a lane number or @alias. "
               "Commands are case-insensitive and invalid input leaves the session unchanged.",
         { 9, FontWeight::Regular, 0x92999b }, 0, 4, 1);
-    for (const auto& section : CommandEngine::helpSections()) {
+    for (const auto& section : clapCommandHelpSections()) {
         rule();
         paragraph(std::string(section.title), heading, 1, 3, .5);
         for (const auto& entry : section.entries) {
@@ -149,7 +150,7 @@ std::vector<std::string> consoleCompletions(std::string prefix)
         "vel", "velseq", "vol", "mask", "len", "stride", "dir", "mute", "unmute", "solo", "name",
         "eu", "euclid", "rotate", "fill", "reverse", "actions", "randomize", "random", "rand", "fx",
         "fxvalue", "interp", "interpolation", "warps", "warp", "out", "route", "instrument",
-        "inst" };
+        "inst", "view" };
     for (char& c : prefix)
         if (c >= 'A' && c <= 'Z')
             c = char(c - 'A' + 'a');

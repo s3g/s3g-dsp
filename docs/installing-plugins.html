@@ -66,6 +66,23 @@ for bundle in ./*.clap; do
   xattr -drs com.apple.quarantine "$installed"
 done</code></pre>
 
+        <h2 id="tracker">Tracker Development Builds</h2>
+
+        <p><a href="s3g-tracker.html">Tracker</a> is now a CLAP-only MIDI plug-in; there is no current Tracker standalone app to install. A newer development build may have features not yet in the packaged pre-release. On Mac, quit REAPER and preserve the previous bundle before replacing it with the complete <code>s3g_tracker.clap</code> bundle in the location above. Keep only one installed Tracker copy in the host's search paths, then restart REAPER.</p>
+        <p>The separate Windows x64 Tracker package is a <strong>test build, not an accepted release</strong>. Copy its complete folder to a location in REAPER's CLAP search paths, keeping <code>s3g_tracker.clap</code> beside <code>Resources</code> and retaining the license notices. Run the included <code>run-windows-check.cmd</code> where supplied; it checks the plug-in without installing it and does not replace host testing. Do not use the Mac installer for Windows.</p>
+        <p>The bundled fonts need no system-wide installation. Mac font resources live inside the CLAP bundle; Windows resources stay in the sibling Resources folder. See <a href="s3g-tracker.html#platforms">Tracker platforms and fonts</a> and <a href="building-from-source.html#tracker-builds">Tracker source builds</a> for details.</p>
+
+        <h2 id="windows-suite">Consolidated Windows Test Suite</h2>
+
+        <p>The <code>s3g-dsp-windows-clap-suite-x64-test-*.zip</code> development package contains 121 plug-ins, including Tracker with VIEW Live Code commands. Ambi Energy is the only excluded inventory entry; its renderer prototype is not a CLAP. This package is for native Windows/REAPER testing, not an accepted Windows release.</p>
+        <ol>
+          <li>Save your work and quit REAPER. Extract the entire ZIP to a fresh test folder.</li>
+          <li>Add that folder to REAPER's CLAP search paths. Keep the <code>.clap</code> files beside the shared <code>Resources</code> directory, with all fonts, atlases, and license notices intact.</li>
+          <li>Avoid duplicates from earlier family/pilot ZIPs: remove those old test folders from the host's search paths or move them outside the scanned locations, retaining them as backups.</li>
+          <li>Restart REAPER, rescan, and test in a disposable project. Use conservative monitoring levels, especially with sound generators and feedback processors.</li>
+        </ol>
+        <p><code>PLUGIN_MANIFEST.tsv</code> lists the expected plug-ins. <code>SHA256SUMS.txt</code> covers the extracted payload; the adjacent ZIP checksum covers the archive. <code>run-windows-check.cmd</code> checks Tracker only and does not install anything. Font installation is unnecessary. Do not use the Mac installer or merge only selected files into an older pilot folder. For reproducible builds, see <a href="building-from-source.html#windows-suite">Consolidated Windows Test Package</a>.</p>
+
         <h2 id="troubleshooting">If a Plugin Does Not Appear</h2>
 
         <ul>
@@ -103,6 +120,8 @@ done</code></pre>
           <a href="#download">Download and Install</a>
           <a href="#location">Location and Safety</a>
           <a href="#manual">Manual Installation</a>
+          <a href="#tracker">Tracker Development Builds</a>
+          <a href="#windows-suite">Windows Test Suite</a>
           <a href="#troubleshooting">Troubleshooting</a>
         </div>
       </aside>

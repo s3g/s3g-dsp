@@ -3,6 +3,7 @@
 #include "s3g/tracker/project_codec.h"
 #include <shellapi.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <vector>
@@ -113,12 +114,46 @@ struct Instance {
             require(pages[i]&&GetWindow(pages[i],GW_CHILD),"each page has embedded VSTGUI frame");
         }
         SetForegroundWindow(parent);pump();
+        checkEmbedded(0);
+    }
+    HWND contentWindow() const {
+        RECT r{};GetClientRect(root,&r);
+        // Parent-relative hit testing is independent of screen size, external
+        // occlusion and the test host's clipping at 200% scale.
+        return ChildWindowFromPointEx(root,{r.right/2,r.bottom/2},
+            CWP_SKIPINVISIBLE|CWP_SKIPDISABLED|CWP_SKIPTRANSPARENT);
+    }
+    void checkEmbedded(unsigned i) const {
+        require(GetParent(pages[i])==root,"selected page remains embedded");
+        require(IsWindowVisible(pages[i]),"selected page has visible ancestors");
+        // IsWindowVisible alone passed even when the opaque shell covered the
+        // entire page. Check the actual sibling exposed in the content area.
+        require(contentWindow()==pages[i],"selected content is above the shell, not obscured");
+        RECT r{};GetClientRect(root,&r);
+        const LONG nav=LONG(std::lround(40.*r.bottom/860.));
+        require(ChildWindowFromPointEx(root,{r.right/2,nav/2},
+            CWP_SKIPINVISIBLE|CWP_SKIPDISABLED|CWP_SKIPTRANSPARENT)==shell,
+            "navigation remains exposed above embedded content");
+        RECT pageBounds{};GetWindowRect(pages[i],&pageBounds);
+        MapWindowPoints(nullptr,root,reinterpret_cast<POINT*>(&pageBounds),2);
+        require(pageBounds.left==0&&pageBounds.top==nav
+            &&pageBounds.right==r.right&&pageBounds.bottom==r.bottom,
+            "embedded page occupies the scaled content area");
+        const HWND frame=GetWindow(pages[i],GW_CHILD);
+        RECT client{};GetClientRect(frame,&client);
+        require(frame&&IsWindowVisible(frame)&&client.right>0&&client.bottom>0,
+            "selected page has a visible nonempty VSTGUI frame");
+        for(unsigned n=0;n<pages.size();++n)
+            if(n!=i&&GetParent(pages[n])==root)
+                require(!IsWindowVisible(pages[n]),"unselected embedded page stays hidden");
     }
     void select(unsigned i){
         const auto r=editor::ShellController{}.layout(1320,860).tabs[i];
-        click(shell,r.x+r.width*.5,r.y+r.height*.5);
-        require(IsWindowVisible(pages[i]),"shell tab selects requested page");
+        RECT bounds{};GetClientRect(root,&bounds);
+        click(shell,(r.x+r.width*.5)*bounds.right/1320.,
+            (r.y+r.height*.5)*bounds.bottom/860.);
         UpdateWindow(GetWindow(pages[i],GW_CHILD));pump();
+        checkEmbedded(i);
     }
     void close(){
         gui->destroy(plugin);pump();
@@ -153,6 +188,13 @@ int main(){
         require(!load(a.plugin,"not a project")&&save(a.plugin)==saved,"bad state is rejected without mutation");
         a.open();
         require(save(a.plugin)==saved,"opening editor does not alter stored project");
+        // A deliberate occlusion proves the check distinguishes visibility
+        // flags from exposed content. Selecting the same page must repair it.
+        require(SetWindowPos(a.pages[0],HWND_BOTTOM,0,0,0,0,
+            SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE),"occlusion positive control setup");
+        require(IsWindowVisible(a.pages[0])&&a.contentWindow()!=a.pages[0],
+            "occlusion check detects a visible page hidden behind shell");
+        a.select(0);
         uint32_t width=1,height=1;
         require(a.gui->adjust_size(a.plugin,&width,&height)&&width==858&&height==559,"65 percent minimum");
         width=9999;height=9999;
@@ -160,7 +202,11 @@ int main(){
         for(auto size: {std::pair{858u,559u},{1320u,860u},{1980u,1290u},{2640u,1720u},{1320u,860u}}){
             require(a.gui->set_size(a.plugin,size.first,size.second),"proportional resize");
             require(a.gui->get_size(a.plugin,&width,&height)&&width==size.first&&height==size.second,"reported dimensions stable");pump();
+            // Tracker/Song cannot use detachment as a visibility workaround.
+            a.select(0);a.select(1);
         }
+        // No page may rely on an earlier detach/reattach to establish order.
+        for(unsigned i=0;i<a.pages.size();++i)a.select(i);
         for(unsigned i=0;i<a.pages.size();++i){
             a.select(i);
             if(!editor::ShellController::canDetach(editor::ShellPage(i)))continue;
@@ -171,7 +217,12 @@ int main(){
             require(GetWindow(a.pages[i],GW_CHILD)!=nullptr,"detached VSTGUI frame survives resize");
             SendMessageW(floating,WM_CLOSE,0,0);pump();
             require(GetParent(a.pages[i])==a.root&&!IsWindow(floating),"close detached page reattaches without destruction");
+            a.checkEmbedded(i);
         }
+        for(unsigned i: {9u,0u,7u,1u,2u,0u})a.select(i);
+        a.select(1);
+        require(a.gui->hide(a.plugin)&&a.gui->show(a.plugin),"Song hide/show lifecycle");
+        pump();a.checkEmbedded(1);
         for(unsigned i: {0u,8u}){
             a.select(i);const auto frame=GetWindow(a.pages[i],GW_CHILD);
             click(frame,120,i==0?90:48);
@@ -187,6 +238,7 @@ int main(){
                 "command containing spaces executes from each live-code field");
         }
         require(load(a.plugin,saved)&&save(a.plugin)==saved,"state recall with editor open");
+        a.checkEmbedded(8);
         {
             Instance b(factory,&host);b.open();
             require(infoAdds==1&&accelerators.size()==2,"multiple instances share hwnd_info registration");
@@ -198,6 +250,7 @@ int main(){
             SetFocus(b.parent);m.hwnd=b.parent;
             require(own->translate(&m,own)==0,"host focus does not get intercepted");
             require(b.gui->hide(b.plugin)&&b.gui->show(b.plugin),"hide/show lifecycle");
+            pump();b.checkEmbedded(0);
         }
         require(!info&&accelerators.empty()&&infoRemoves==1,"last editor removes all hooks");
         a.open();a.close();require(!info&&accelerators.empty(),"reopen/close cleans runtime and hooks again");

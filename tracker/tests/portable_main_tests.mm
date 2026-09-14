@@ -1,5 +1,6 @@
 #include "s3g_tracker_main_page_host.h"
 #include "s3g_tracker_vstgui_pilot.h"
+#include "s3g/tracker/clap_command_controller.h"
 #include "vstgui/lib/controls/ctextedit.h"
 #include "vstgui/lib/events.h"
 #import <Cocoa/Cocoa.h>
@@ -20,6 +21,8 @@ int main()
         int failures = 0, publications = 0, selections = 0, transport = 0, outputChanges = 0;
         std::vector<std::string> commands, history;
         std::string draft, consoleMessage;
+        bool dispatchViewCommands = false;
+        ClapCommandServices viewServices;
         auto check = [&](bool ok, const char* message) {
             if (!ok) {
                 ++failures;
@@ -48,6 +51,8 @@ int main()
         services.submitConsole = [&](const std::string& text) {
             history.push_back(text);
             commands.push_back(text);
+            if (dispatchViewCommands)
+                executeClapCommand(state, text, viewServices);
         };
         services.consoleMessage = [&](const std::string& text) { consoleMessage = text; };
         services.grid.message = [](const std::string& message) {
@@ -76,6 +81,7 @@ int main()
         if (!page || !page->getFrame())
             return 1;
         auto* frame = page->getFrame();
+        viewServices.refreshUI = [&] { page->reloadModel(); };
         failures += trackerCocoaParity(*page, state);
         page->reloadModel();
         pump();
@@ -572,6 +578,39 @@ int main()
                   - TrackerFollowLayout(TrackerFollowMode::Center, 256, 478).scrollForRow(3))
                 < .01,
             "GUI stall recovery replayed intermediate rows");
+        // Execute through the actual Live Code Return callback. Refresh is
+        // deliberately synchronous to exercise editor lifetime/reentrancy.
+        dispatchViewCommands = true;
+        auto liveView = [&](const char* command) {
+            page->focusConsole();
+            auto* field = dynamic_cast<CTextEdit*>(frame->getFocusView());
+            check(field != nullptr, "VIEW Live Code field did not focus");
+            if (!field) return;
+            field->setText(command);
+            key(VirtualKey::Return);
+        };
+        liveView("view zoom 55");
+        check(page->gridZoom() == .55 && dynamic_cast<CTextEdit*>(frame->getFocusView()),
+            "VIEW zoom failed or destroyed its active Live Code field");
+        liveView("view follow page");
+        liveView("view source 32");
+        liveView("view resume");
+        check(page->followPageRows() == 16 && page->followLane() == 31
+                && !page->followingPaused() && !dynamic_cast<CTextEdit*>(frame->getFocusView()),
+            "VIEW resume must leave main Live Code and rejoin the requested NOTE page");
+        liveView("view detail on");
+        state.session.selectedField = 6;
+        liveView("view detail off");
+        check(!state.sequenceColumnsExpanded && state.session.selectedField < 2
+                && dynamic_cast<CTextEdit*>(frame->getFocusView()),
+            "VIEW collapse left an invalid field or closed Live Code");
+        liveView("view notes name");
+        liveView("view jump 4");
+        check(!state.showMidiNoteValues && state.trackerRowJump == 4,
+            "Live Code did not apply note format/jump");
+        check(publications == followPublications && transport == followTransport
+                && state.sentEventCount == followEvents,
+            "VIEW Live Code changed musical playback");
         [window close];
         window.contentView = nil;
         host = nil;

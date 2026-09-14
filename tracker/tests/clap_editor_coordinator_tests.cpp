@@ -145,6 +145,23 @@ void bindingsAndEdits() {
         "follow preferences reach both project and host state");
     check(h->dirty > beforeFollowDirty && h->engine.pendingRuntime.load() == beforeFollowRuntime,
         "follow preferences dirty the host without replacing the playback runtime");
+    ui.executeCommand("view follow page");
+    ui.executeCommand("view notes name");
+    ui.executeCommand("view jump 4");
+    ui.flushRuntimePublication();
+    check(h->engine.document.session.trackerFollow.mode == TrackerFollowMode::Page
+        && !h->engine.document.session.showMidiNoteValues
+        && h->engine.document.session.trackerRowJump == 4
+        && h->engine.pendingRuntime.load() == beforeFollowRuntime,
+        "VIEW Live Code persists preferences without replacing the runtime");
+    const auto viewDirty = h->dirty;
+    ui.console->submit("view zoom 125");
+    ui.console->submit("view detail on");
+    ui.console->submit("view resume");
+    ui.flushRuntimePublication();
+    check(state.trackerGridZoom == 1.25 && state.sequenceColumnsExpanded
+        && h->dirty == viewDirty && h->engine.pendingRuntime.load() == beforeFollowRuntime,
+        "Console shares VIEW commands without dirtying transient state");
     h->name="";cb.renamePattern();
     check(h->dirty>0&&h->requests>0,"edits notify dirty host and processing");
 

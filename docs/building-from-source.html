@@ -29,7 +29,7 @@
 
         <p>Use this procedure to build the s3g-dsp CLAP plugins from source. Because this is pre-release software, plugin names, parameters, saved states, and included plugins may change.</p>
 
-        <p>The supported build and host environment is macOS with REAPER.</p>
+        <p>The packaged pre-release targets macOS with REAPER. There is also a <a href="#windows-suite">consolidated Windows x64 test package</a>, with Ambi Energy excluded. See <a href="#tracker-builds">Tracker VSTGUI builds</a> for Tracker's focused build options and acceptance limits.</p>
 
         <h2 id="requirements">Requirements</h2>
 
@@ -81,18 +81,60 @@ cmake --build build-clap</code></pre>
 
         <p>No additional component switch is required with the <code>clap</code> or <code>clap-release</code> preset. The compatibility switches remain available for focused development configurations, but the release presets enable every packaged component.</p>
 
-        <p><a href="s3g-tracker.html">s3g Tracker</a> also has a focused source-build preset for its MIDI-only CLAP and tracker test suite:</p>
-
-        <pre><code>cmake --preset clap-tracker
-cmake --build --preset clap-tracker
-ctest --test-dir build-tracker -L tracker --output-on-failure</code></pre>
-
-        <p>The focused bundle is <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. The ordinary release and packaged-manifest workflows include the same product.</p>
+        <p><a href="s3g-tracker.html">s3g Tracker</a> has a focused CLAP preset. Use the <a href="#tracker-builds">explicit VSTGUI configuration below</a> for its current portable editor; selecting the product alone does not enable all portable pages on Mac.</p>
 
         <p>To build and validate only Relay after configuring the ordinary CLAP tree:</p>
 
         <pre><code>cmake --build build-clap --target s3g_relay_clap s3g_relay_clap_smoke
 ctest --test-dir build-clap -R relay --output-on-failure</code></pre>
+
+        <h2 id="tracker-builds">Tracker VSTGUI Builds</h2>
+
+        <p>Tracker is now CLAP-only; its former standalone app is retired. On Mac, enable <code>S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS</code> to include all ten VSTGUI pages. That option enables the prerequisite portable-page options automatically. Build the core-test aggregate explicitly: the focused build preset alone does not build every test labeled <code>tracker</code>.</p>
+
+        <pre><code>cmake --preset clap-tracker -DBUILD_TESTING=ON \
+  -DS3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS=ON
+cmake --build build-tracker --parallel 4 \
+  --target s3g_tracker_clap s3g_tracker_clap_smoke \
+  s3g_tracker_portable_core_tests
+ctest --test-dir build-tracker -L core -R '^s3g_tracker_' --output-on-failure
+ctest --test-dir build-tracker -R '^s3g_tracker_clap_smoke$' --output-on-failure</code></pre>
+
+        <p>The Mac bundle is <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. GUI smoke checks require a logged-in graphical Mac session. These commands cover the portable core and CLAP integration, not every optional page-parity test or real-REAPER interaction. See <code>tracker/reaper/README.md</code> for the host acceptance checklist.</p>
+
+        <p>For a Windows x64 build on Mac, the cross preset needs MinGW-w64's <code>x86_64-w64-mingw32-g++</code> and <code>windres</code> on PATH; packaging also uses its <code>objdump</code> and <code>strip</code>. Explicitly enable Tracker and testing, which this preset otherwise disables:</p>
+
+        <pre><code>cmake --preset clap-windows-cross \
+  -DS3G_BUILD_TRACKER_PREVIEW=ON -DBUILD_TESTING=ON
+cmake --build build-clap-windows-cross --parallel 4 \
+  --target s3g_tracker_windows_clap_smoke
+cmake -P scripts/package-windows-tracker.cmake</code></pre>
+
+        <p>This builds the actual Windows CLAP and integration-test executable, then creates a timestamped <code>dist/s3g-tracker-windows-x64-test-*.zip</code> with fonts, licenses, checksums, and <code>run-windows-check.cmd</code>. Cross-compilation does not execute the Windows binaries. Copy the complete package to Windows and run the check there before testing in REAPER; retain its report.</p>
+
+        <p>For native Windows builds, use an x64 Visual Studio C++ development environment. Run the following commands from the repository root (each displayed line is one command). These match the dedicated <code>.github/workflows/tracker-windows-clap.yml</code> build path:</p>
+
+        <pre><code>cmake -S . -B build-tracker-windows -A x64 -DBUILD_TESTING=ON -DS3G_BUILD_CLAP_PLUGIN=ON -DS3G_BUILD_TRACKER_PREVIEW=ON -DS3G_ENABLE_PORTABLE_CLAP_GUI=ON -DS3G_BUILD_STANDALONE_APPS=OFF -DS3G_BUILD_FUTURE_COMPONENTS=OFF -DS3G_ENABLE_WORLD=OFF
+cmake --build build-tracker-windows --config Release --parallel 4 --target s3g_tracker_windows_clap_smoke s3g_tracker_portable_core_tests s3g_tracker_workspace_layout_tests s3g_tracker_grid_selection_tests
+ctest --test-dir build-tracker-windows -C Release -R "^s3g_tracker_" --output-on-failure</code></pre>
+
+        <p>To include the additional CLAP MIDI-adapter regression, configure with <code>-DS3G_TRACKER_CLAP_TEST_INCLUDE_DIR=/path/to/clap/include</code>; the Windows workflow supplies a CLAP 1.2.6 checkout for this. The native Release payload is under <code>build-tracker-windows/plugins/clap_tracker/Release/</code>. Keep its CLAP, sibling Resources directory, and license notices together. The cross-build packaging script above is not a Visual Studio packager.</p>
+
+        <p>Windows remains a test target pending native REAPER acceptance, including DPI scaling, detached tools, keyboard focus, Unicode file paths, project recall, and MIDI/display synchronization. A successful compile or mock-host smoke check is not that acceptance. See the <a href="s3g-tracker.html#platforms">Tracker platform guide</a> and <code>plugins/common/TRACKER_WINDOWS_README.txt</code>.</p>
+
+        <h2 id="windows-suite">Consolidated Windows Test Package</h2>
+
+        <p>The current suite contains 121 canonical CLAP files: every entry in <code>scripts/clap-bundles.tsv</code> except <code>s3g_analyzer_ambi_energy_64.clap</code>. Ambi Energy's separate renderer prototype is not a Windows plug-in. This is a development test package, not an accepted Windows release.</p>
+        <p>From a Mac with MinGW-w64 on PATH, configure the cross-build with the full component set, Tracker, Sample Slicer, testing, and WORLD enabled. The older pilot preset alone disables some of these options:</p>
+        <pre><code>cmake --preset clap-windows-cross \
+  -DS3G_BUILD_FUTURE_COMPONENTS=ON \
+  -DS3G_BUILD_TRACKER_PREVIEW=ON \
+  -DS3G_BUILD_RELAY_PREVIEW=ON \
+  -DS3G_BUILD_BREAKBEAT_SLICER_PREVIEW=ON \
+  -DS3G_ENABLE_WORLD=ON -DBUILD_TESTING=ON
+cmake -P scripts/package-windows-clap-suite.cmake</code></pre>
+        <p>The packager resolves and rebuilds every configured manifest target, checks Windows x64 binaries and CLAP exports, rejects external MinGW runtime DLL dependencies, and merges resources only when identically named files have identical contents. Missing targets, fonts, licenses, or atlas responses stop packaging. The result is a fresh <code>dist/s3g-dsp-windows-clap-suite-x64-test-*.zip</code> plus an archive SHA-256 file; earlier packages are untouched.</p>
+        <p>The ZIP contains canonical plug-in names, the shared Resources folder, all 19 Imprint Atlas and 19 Ray Atlas responses, licenses, <code>PLUGIN_MANIFEST.tsv</code>, <code>EXCLUDED.txt</code>, source hashes, and payload checksums. It also includes Tracker's optional <code>run-windows-check.cmd</code>; that test covers Tracker only, not the entire suite. Native Windows/REAPER testing remains required. See <a href="installing-plugins.html#windows-suite">Windows test installation</a>.</p>
 
         <h2 id="clap-realtime-audit">Audit CLAP Realtime Cost</h2>
 
@@ -319,7 +361,9 @@ python3 scripts/check-docs.py
           <a href="#requirements">Requirements</a>
           <a href="#smoke-test">Smoke Test</a>
           <a href="#clap-build">Build CLAP Plugins</a>
-          <a href="#release-components">0.8 Release Components</a>
+          <a href="#release-components">Release Components</a>
+          <a href="#tracker-builds">Tracker VSTGUI Builds</a>
+          <a href="#windows-suite">Windows Test Package</a>
           <a href="#clap-realtime-audit">Audit CLAP Realtime Cost</a>
           <a href="#clap-allocation-probe">Probe Realtime Allocations</a>
           <a href="#standalone-apps">Build Standalone Apps</a>

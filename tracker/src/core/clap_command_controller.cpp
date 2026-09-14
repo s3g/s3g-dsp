@@ -1,8 +1,10 @@
 #include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/clap_document_controller.h"
+#include "s3g/tracker/editor_grid.h"
 #include "s3g/tracker/fx_catalog.h"
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <sstream>
 namespace s3g::tracker {
 using app::TrackerViewState;
@@ -40,7 +42,160 @@ std::vector<std::string> commandWords(std::string_view command)
     }
     return words;
 }
+
+std::string viewSummary(const TrackerViewState& state)
+{
+    const char* modes[] = { "STATIC", "CENTER", "PAGE" };
+    std::ostringstream out;
+    out << "VIEW · " << modes[std::clamp(int(state.trackerFollow.mode), 0, 2)]
+        << " · NOTE SOURCE ";
+    if (state.trackerFollow.selectedLane) out << "SELECTED";
+    else out << state.trackerFollow.lane + 1;
+    out << " · GRID " << std::lround(state.trackerGridZoom * 100) << "%"
+        << " · NOTE " << (state.showMidiNoteValues ? "MIDI" : "NAME")
+        << " · JUMP " << state.trackerRowJump
+        << " · DETAIL " << (state.sequenceColumnsExpanded ? "ON" : "OFF");
+    return out.str();
+}
+
+bool viewNumber(std::string_view text, uint32_t& value)
+{
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    return result.ec == std::errc {} && result.ptr == text.data() + text.size();
+}
+
+void executeViewCommand(TrackerViewState& state, const std::vector<std::string>& words,
+    const ClapCommandServices& services)
+{
+    if (words.size() == 1 || (words.size() == 2 && words[1] == "status")) {
+        services.message(viewSummary(state), false);
+        return;
+    }
+    if (words.size() == 2 && words[1] == "resume") {
+        ++state.trackerFollowResumeRevision;
+        services.message(state.trackerFollow.mode == TrackerFollowMode::Static
+                ? "VIEW is STATIC; choose view follow center or page to enable following."
+                : "VIEW follow resumed.", false);
+        services.refreshUI();
+        return;
+    }
+    if (words.size() != 3) {
+        services.message("Usage: view [status|resume|follow <static|center|page>|source <selected|lane|@alias>|zoom <55..180|+|-|reset>|notes <name|midi>|jump <1..16>|detail <on|off>]", true);
+        return;
+    }
+    const auto& option = words[1];
+    const auto& value = words[2];
+    bool changed = false, persistent = false;
+    if (option == "follow") {
+        TrackerFollowMode mode;
+        if (value == "static") mode = TrackerFollowMode::Static;
+        else if (value == "center") mode = TrackerFollowMode::Center;
+        else if (value == "page") mode = TrackerFollowMode::Page;
+        else {
+            services.message("Usage: view follow <static|center|page>", true);
+            return;
+        }
+        changed = state.trackerFollow.mode != mode;
+        state.trackerFollow.mode = mode;
+        persistent = true;
+    } else if (option == "source") {
+        const bool selected = value == "selected";
+        uint32_t lane = state.trackerFollow.lane;
+        if (!selected) {
+            uint32_t oneBased = 0;
+            bool valid = false;
+            if (!value.empty() && value.front() == '@') {
+                const auto alias = state.session.aliases.find(value.substr(1));
+                if (alias != state.session.aliases.end() && alias->second < kMaximumTrackCount) {
+                    lane = static_cast<uint32_t>(alias->second);
+                    valid = true;
+                }
+            } else if (viewNumber(value, oneBased) && oneBased >= 1 && oneBased <= kMaximumTrackCount) {
+                lane = oneBased - 1;
+                valid = true;
+            }
+            const auto* pattern = editor::playbackFollowPattern(&state);
+            if (!valid || !pattern || lane >= pattern->tracks.size()) {
+                services.message("VIEW source must be selected, an existing one-based NOTE lane (1..32), or its @alias.", true);
+                return;
+            }
+        }
+        changed = state.trackerFollow.selectedLane != selected || state.trackerFollow.lane != lane;
+        state.trackerFollow.selectedLane = selected;
+        state.trackerFollow.lane = lane;
+        persistent = true;
+    } else if (option == "notes") {
+        if (value != "name" && value != "midi") {
+            services.message("Usage: view notes <name|midi>", true);
+            return;
+        }
+        const bool midi = value == "midi";
+        changed = state.showMidiNoteValues != midi;
+        state.showMidiNoteValues = midi;
+        persistent = true;
+    } else if (option == "jump") {
+        uint32_t jump = 0;
+        if (!viewNumber(value, jump) || jump < 1 || jump > 16) {
+            services.message("VIEW jump must be an integer from 1 to 16.", true);
+            return;
+        }
+        changed = state.trackerRowJump != jump;
+        state.trackerRowJump = jump;
+        persistent = true;
+    } else if (option == "detail") {
+        if (value != "on" && value != "off") {
+            services.message("Usage: view detail <on|off>", true);
+            return;
+        }
+        const bool expanded = value == "on";
+        changed = state.sequenceColumnsExpanded != expanded;
+        state.sequenceColumnsExpanded = expanded;
+    } else if (option == "zoom") {
+        double zoom = state.trackerGridZoom;
+        if (value == "+") zoom = std::min(1.8, zoom * 1.16);
+        else if (value == "-") zoom = std::max(.55, zoom / 1.16);
+        else if (value == "reset") zoom = 1.;
+        else {
+            std::string_view percent(value);
+            if (!percent.empty() && percent.back() == '%') percent.remove_suffix(1);
+            uint32_t number = 0;
+            if (!viewNumber(percent, number) || number < 55 || number > 180) {
+                services.message("VIEW zoom needs an integer percentage 55..180 (optional %), +, -, or reset. This changes grid density, not the whole plug-in window.", true);
+                return;
+            }
+            zoom = number / 100.;
+        }
+        changed = state.trackerGridZoom != zoom;
+        state.trackerGridZoom = zoom;
+    } else {
+        services.message("Unknown VIEW setting. Use view follow, source, zoom, notes, jump, detail, resume, or status.", true);
+        return;
+    }
+    state.status = viewSummary(state);
+    services.message(state.status, false);
+    if (changed && persistent) services.commitDocument();
+    services.refreshUI();
+}
 } // namespace
+
+const std::vector<CommandHelpSection>& clapCommandHelpSections()
+{
+    static const auto sections = [] {
+        auto result = CommandEngine::helpSections();
+        result.insert(result.begin(), { "VIEW / PLAYBACK FOLLOW", {
+            { "view [status]", "Report view settings without changing the project or MIDI playback.", "view", "view" },
+            { "view follow <static|center|page>", "Choose a static grid, centered NOTE cursor, or aligned pages of up to 16 rows.", "", "view follow center" },
+            { "view source <selected|lane|@alias>", "Choose the selected editing lane or pin an existing one-based NOTE lane. Does not arm recording or enable follow.", "", "view source 1" },
+            { "view resume", "Release manual follow hold and leave the main Live Code field safely. STATIC remains off.", "", "view resume" },
+            { "view zoom <55..180|+|-|reset>", "Set grid zoom in whole percent (optional %), step like the VIEW buttons, or reset to 100%. Not whole-window scaling; not saved.", "", "view zoom 125" },
+            { "view notes <name|midi>", "Set saved NOTE display format without changing stored pitches.", "", "view notes name" },
+            { "view jump <1..16>", "Set the saved Up/Down and MIDI step-recording row increment. Quick NOTE actions still advance one row.", "", "view jump 4" },
+            { "view detail <on|off>", "Show or hide both SEQ/value pairs and GATE. Temporary editor setting; does not clear cells.", "", "view detail on" },
+        } });
+        return result;
+    }();
+    return sections;
+}
 void refreshProjectBurstUsageCounts(TrackerViewState& state)
 {
     (void)syncSessionToActivePattern(state);
@@ -65,6 +220,10 @@ void executeClapCommand(app::TrackerViewState& state, const std::string& command
     const ClapCommandServices& services)
 {
     const auto words = commandWords(command);
+    if (!words.empty() && words.front() == "view") {
+        executeViewCommand(state, words, services);
+        return;
+    }
     if (!words.empty() && words.front() == "burst") {
         (void)syncSessionToActivePattern(state);
         refreshProjectBurstUsageCounts(state);

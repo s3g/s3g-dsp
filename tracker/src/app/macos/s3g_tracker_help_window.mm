@@ -7,6 +7,7 @@
 
 #include "s3g_gui_layout.h"
 #include "s3g/tracker/command.h"
+#include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/fx_catalog.h"
 
 #include <string>
@@ -108,7 +109,7 @@ NSAttributedString* helpDocument()
         initWithString:@"Lane and row addresses are one-based. Targets accept a lane number or @alias. Commands are case-insensitive and invalid input leaves the session unchanged.\n"
         attributes:introAttributes]];
 
-    const auto& sections = s3g::tracker::CommandEngine::helpSections();
+    const auto& sections = s3g::tracker::clapCommandHelpSections();
     for (const auto& section : sections) {
         appendSectionRule(document);
         const std::string_view visibleTitle = section.title;

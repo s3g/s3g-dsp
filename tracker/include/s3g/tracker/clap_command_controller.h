@@ -18,6 +18,9 @@ struct ClapCommandServices {
     std::function<void()> panic = [] {};
 };
 void refreshProjectBurstUsageCounts(app::TrackerViewState& state);
+// Adds editor-owned commands to the session engine's reference without
+// pretending that the standalone session engine can control a CLAP editor.
+const std::vector<CommandHelpSection>& clapCommandHelpSections();
 void executeClapCommand(app::TrackerViewState& state, const std::string& command,
     const ClapCommandServices& services);
 } // namespace s3g::tracker

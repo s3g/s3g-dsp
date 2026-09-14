@@ -305,7 +305,7 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
         for(unsigned i=0;i<pages.size();++i) {
             auto& p=pages[i];p.context={this,int(i),false};p.floatingContext={this,int(i),true};
             const auto title=w::wide(std::string("s3g Tracker page ")+ShellController::title(ShellPage(i)));
-            p.window=CreateWindowExW(0,kWindowClass,title.c_str(),WS_CHILD|WS_CLIPCHILDREN,
+            p.window=CreateWindowExW(0,kWindowClass,title.c_str(),WS_CHILD|WS_CLIPCHILDREN|WS_CLIPSIBLINGS,
                 0,40,1320,820,root,nullptr,moduleInstance(),&p.context);
             if(!p.window)return;
             p.host=std::make_unique<f::EditorHost>(1320,820,1320,820);
@@ -377,6 +377,15 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
         for(unsigned i=0;i<pages.size();++i) {
             auto& p=pages[i];
             const bool show=visible&&(p.floating||i==unsigned(page));
+            // Win32 creates child windows at the bottom of their sibling
+            // z-order. The shell frame was created first and fills the root,
+            // so showing a page alone leaves it covered by the shell. Restore
+            // the selected embedded page above that background on every show,
+            // including first open, tab changes, recall and reattachment.
+            // HWND_TOP only orders these siblings; this is not HWND_TOPMOST.
+            if(show&&!p.floating)
+                SetWindowPos(p.window,HWND_TOP,0,0,0,0,
+                    SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
             ShowWindow(p.window,show?SW_SHOWNA:SW_HIDE);
             p.host->setVisible(show);
         }

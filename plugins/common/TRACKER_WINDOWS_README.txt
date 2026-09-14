@@ -18,12 +18,17 @@ INSTALL FOR TESTING
 
 OPTIONAL AUTOMATED CHECK
 Double-click run-windows-check.cmd from the extracted folder. It briefly opens
-test windows, then checks DLL loading, state recall, ten-page navigation,
+test windows, then checks DLL loading, state recall, ten-page navigation and
+page exposure above the shell (not just window visibility flags),
 65-200% sizing, detachable HWNDs, text-entry routing, multiple instances and
 audio processing. It does not install anything or launch REAPER. The result
 is printed in the console. This cannot certify behavior in the real host.
 
 REAPER ACCEPTANCE CHECKLIST
+- On first open, TRACKER must be visible immediately. Single-click SONG and
+  each other tab before detaching anything; each page must appear and accept
+  input. Recheck TRACKER/SONG after resizing, hide/show, and state recall.
+  Floating and reattaching a tool must not be needed to expose its contents.
 - Open all ten pages; confirm the original controls, displays, menu separators,
   compact submenus, centered button text and lane/bank colors are retained.
 - Resize the whole plugin from 65% to 200%, including a 1920x1080 screen and
@@ -50,6 +55,13 @@ REAPER ACCEPTANCE CHECKLIST
 - At fractional host BPM and 44.1/48/96 kHz, listen to looped Phrase/Assemble
   previews. Verify no pause at the seam; MIDI timing must not follow GUI FPS.
   Compare MIDI capture to Mac for transport start/seek/loop and tempo changes.
+- Test VIEW Live Code from Tracker and detached Console: view status,
+  view source 1 (or @alias/selected), view follow static/center/page,
+  view zoom 125 (55-180; also +, -, reset), view notes name/midi,
+  view jump 4 (1-16), view detail on/off, and view resume. Choose one value
+  from the slash-separated alternatives. Resume leaves the main text field
+  safely and rejoins following; zoom/detail remain temporary editor settings.
+  These commands must not alter MIDI timing or the armed recording lane.
 - Test MIDI STEP/LIVE Q/LIVE MT, channel routing, panic, SYNC and note release
   while closing/hiding editors. Repeat with multiple instances/project reload.
 - Test once with a COPY of the package whose Resources folder has been moved

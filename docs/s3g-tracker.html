@@ -31,11 +31,11 @@
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.png?v=4" aria-label="Open the s3g Tracker interface screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.png?v=4" alt="s3g Tracker interface showing the running host transport, expanded sequencing columns with authored actions and values, a populated volume envelope, the Live Code field, and tool-page tabs" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.png?v=20260913" aria-label="Open the s3g Tracker interface screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.png?v=20260913" alt="VSTGUI Tracker workspace with Kick, Snare, Tom, and Hat lanes, expanded sequencing columns, STATIC playback-follow controls, Live Code, and the transport toolbox" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>The complete Tracker workspace with expanded sequencing columns and a populated volume envelope keeps transport, patterns, per-lane routing, polymetric editing, and Live Code visible in one resizable editor.</figcaption>
+          <figcaption>The current VSTGUI workspace: expanded lane columns, playback-follow controls in VIEW, Live Code above the grid, and transport below. Screenshots on this page are captured from the Mac VSTGUI build, not Windows acceptance captures.</figcaption>
         </figure>
 
         <div class="callout">
@@ -172,13 +172,24 @@
         <p>For example, <code>vol @kick !+*.</code> writes four levels, while <code>fx1 @kick pr !.=-</code> writes probability 1.00, probability 0.55, previous, and empty. Numeric VOL entries are always MIDI integers or normalized decimals; numeric FX entries are always normalized decimals. Grid cell text also accepts <code>---</code>, <code>RPT</code>, <code>HLD</code>, and <code>KIL</code> in NOTE; <code>DEF</code> and <code>PRV</code> appear in value columns.</p>
 
         <h2 id="playback-follow">Playback Row Follow</h2>
-        <p>The <code>VIEW</code> header has separate follow-mode and NOTE-source menus. <code>STATIC</code> is the default: the grid stays in place and the independent playback cursors advance as before. <code>CENTER</code> keeps the source NOTE row at the center of the row viewport, scrolling the grid beneath it. Blank padding at pattern boundaries keeps the guide stationary without duplicating rows. <code>PAGE</code> jumps between aligned groups of 16 rows, or the largest complete 8-, 4-, 2-, or 1-row group that fits at the current grid zoom. The control shows the actual group size (for example <code>PAGE 08</code> at 100% grid zoom and <code>PAGE 16</code> at 55%). Follow modes pin the lane headers; whole-plugin resizing still scales the existing layout proportionally.</p>
-        <p>The source defaults to <code>NOTE: L01</code>. Pin any NOTE lane, choose <code>SELECTED LANE</code>, or right-click a lane's name and choose <code>FOLLOW THIS LANE</code> (which enables CENTER if following was off). A pinned source does not change when another lane is selected and moves with a reordered lane. Across patterns, its number refers to the same lane slot; an absent slot shows <code>NO LANE</code> and does not choose a replacement. Deleting the pinned source returns to STATIC. The source's header reads <code>NOTE &gt;</code>; its stronger cell outline and subtle row band coexist with every other lane/column playhead. Muted lanes and rests remain valid sources: following tracks the NOTE row, not the latest note-on.</p>
-        <p>Manual scrolling, row/cell navigation, or text/cell editing holds following. Click <code>RESUME</code> in VIEW to rejoin playback; finishing an edit does not silently resume. Horizontal scrolling remains manual. CENTER/PAGE follow the published NOTE row directly through reverse, stride, random jumps and loop wraps, without animating through rows that did not play. Mode and source are saved with the REAPER project and <code>.s3gt</code> document; old documents load as STATIC. The temporary manual hold is not saved. Following reads Tracker's existing audio-stamped presentation snapshot and never changes MIDI scheduling or creates an independent GUI clock.</p>
+        <p>The <code>VIEW</code> header has separate follow-mode and NOTE-source menus. Choose which view you want, then choose which polymetric NOTE lane holds that view:</p>
+        <table class="readout-table">
+          <thead><tr><th>Mode</th><th>View behavior</th></tr></thead>
+          <tbody>
+            <tr><td><code>STATIC</code> (default)</td><td>The grid stays in place while the independent playback cursors advance.</td></tr>
+            <tr><td><code>CENTER</code></td><td>The source NOTE row stays at the center of the row viewport and the grid scrolls beneath it. Blank padding at pattern boundaries keeps the guide stationary without duplicating rows.</td></tr>
+            <tr><td><code>PAGE</code></td><td>The grid advances between aligned blocks of up to 16 rows. It stays still within each block while the source cursor moves.</td></tr>
+          </tbody>
+        </table>
+        <p>PAGE chooses the largest complete 16-, 8-, 4-, 2-, or 1-row group that fits at the current grid zoom. The control shows the actual size: for example, <code>PAGE 08</code> at 100% grid zoom and <code>PAGE 16</code> at 55%. Follow modes pin the lane headers; whole-plugin resizing still scales the layout proportionally.</p>
+        <p>The source defaults to <code>NOTE: L01</code>. Pin any NOTE lane, choose <code>SELECTED LANE</code> to follow the current editing lane, or right-click a lane's name and choose <code>FOLLOW THIS LANE</code> (which enables CENTER if following was off). A pinned source does not change when another lane is selected and moves with a reordered lane. Across patterns, its number refers to the same lane slot; an absent slot shows <code>NO LANE</code> and does not choose a replacement. Deleting the pinned source returns to STATIC.</p>
+        <p>The source's header reads <code>NOTE &gt;</code>; its stronger cell outline and subtle row band coexist with every other lane/column playhead. Muted lanes and rests remain valid sources: following tracks the NOTE row, not the latest note-on. The follow source is independent of the MIDI recording LANE.</p>
+        <p>Manual scrolling, row/cell navigation, or text/cell editing holds following. Click <code>RESUME</code> in VIEW to rejoin playback; finishing an edit does not silently resume. Horizontal scrolling remains manual. CENTER/PAGE follow the published NOTE row directly through reverse, stride, random jumps and loop wraps, without animating through rows that did not play.</p>
+        <p>Mode and source are saved with the REAPER project and <code>.s3gt</code> document; old documents load as STATIC. The temporary manual hold is not saved. Following reads Tracker's existing audio-stamped presentation snapshot and never changes MIDI scheduling or creates an independent GUI clock.</p>
 
         <h2 id="editing">Editing and Shortcuts</h2>
 
-        <p>Double-click a cell to type an exact value. Drag <code>VOL</code>, <code>V1</code>, or <code>V2</code> vertically for continuous editing; Option-drag is fine and Shift-drag is coarse. Clicking blank workspace releases an active text field. Drag the row-number gutter to set a global loop region.</p>
+        <p>Double-click a cell to type an exact value. Drag <code>VOL</code>, <code>V1</code>, or <code>V2</code> vertically for continuous editing; Option/Alt-drag is fine and Shift-drag is coarse. Clicking blank workspace releases an active text field. Drag the row-number gutter to set a global loop region.</p>
 
         <table class="readout-table">
           <thead><tr><th>Keys</th><th>Action</th></tr></thead>
@@ -207,7 +218,7 @@
 
         <p>In this table, <strong>Control</strong> means the Mac Control key or Windows Ctrl; <strong>Option</strong> means Mac Option or Windows Alt. These are Tracker grid shortcuts. On Mac, they deliberately leave Command combinations to REAPER when the grid is focused. Windows uses familiar Ctrl shortcuts while Tracker has focus; it does not provide a second modifier reserved for REAPER.</p>
         <p>Inside a focused text field, ordinary text-editing shortcuts apply: Command-A/C/X/V/Z on Mac, Ctrl-A/C/X/V/Z on Windows. Space inserts a space in either Live Code field and must not start REAPER's transport. Return/Enter executes a command or commits a value; Escape closes the field. Click outside the plug-in to return shortcut focus to REAPER. These focus rules also apply to a detached Console.</p>
-        <p>Drag or Shift-extend selections before using right-click transformations. Clipboard operations preserve typed NOTE/VOL/SEQ/GATE values, including chords and qualified Burst references, when the source and destination are compatible. The lower envelope follows the selected value column; its larger cyan points mark rows with note hits. VIEW's <code>JUMP</code> menu sets a 1–16-row navigation/step-entry increment and is saved with the project.</p>
+        <p>Drag or Shift-extend selections before using right-click transformations. Clipboard operations preserve typed NOTE/VOL/SEQ/GATE values, including chords and qualified Burst references, when the source and destination are compatible. The lower envelope follows the selected value column; its larger cyan points mark rows with note hits. VIEW's <code>JUMP</code> menu sets a 1–16-row Up/Down navigation and MIDI step-recording increment and is saved with the project. Quick NOTE actions such as X/R/H/K still advance one row.</p>
 
         <h2 id="patterns-song">Patterns and Song</h2>
 
@@ -215,11 +226,11 @@
 
         <figure>
           <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.song.png?v=5" aria-label="Open the active s3g Tracker Song page screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.song.png?v=5" alt="s3g Tracker Song workspace with suite-standard toolboxes above a six-row arrangement showing per-row pattern, warp, loop in–out, timing, and lane-mute controls" loading="lazy" decoding="async">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.song.png?v=20260913" aria-label="Open the active s3g Tracker Song page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.song.png?v=20260913" alt="VSTGUI Song page showing an active green first row and amber queued second row, plus pattern, warp, loop, timing, swing, energy, and lane-mute columns" loading="lazy" decoding="async">
             </button>
           </div>
-          <figcaption>Song mode keeps project, launch, and row-edit actions in suite-standard toolboxes while the full-width arrangement remains the primary workspace.</figcaption>
+          <figcaption>Song's arrangement with row 2 queued for END OF ROW. The green marker identifies the sounding row; amber identifies the pending launch.</figcaption>
         </figure>
 
         <p>Song mode arranges stable pattern references into a longer form. Each pattern menu shows both parts as <code>A01 · Pattern Name</code>: the ID is saved in the Song row, while the renameable pattern name is there for recognition. Pattern-bank editing is locked while Song playback is active so a playing arrangement cannot acquire unresolved references.</p>
@@ -267,34 +278,148 @@ warp exp 2.0 mix .5</code></pre>
 
         <p><code>actions</code> lists the sequencing behaviors accepted by the two SEQ columns, including <code>CC0</code>–<code>CC127</code>. Audio-parameter effects and internal-instrument commands from earlier standalone designs are not part of this MIDI product.</p>
 
+        <h3 id="view-commands">VIEW Live Code Commands</h3>
+
+        <p>These commands control the Tracker VIEW toolbox from either Live Code field, including detached Console. They are available in the September 14, 2026 development source build; an older installed plug-in needs rebuilding/updating before it accepts them. Type <code>view</code> to report current settings without changing anything.</p>
+        <table class="readout-table">
+          <thead><tr><th>Command</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td><code>view</code> or <code>view status</code></td><td>Report follow mode/source, grid zoom, NOTE format, row JUMP, and detail visibility.</td></tr>
+            <tr><td><code>view follow static|center|page</code></td><td>Choose the default static grid, centered source cursor, or aligned row pages. PAGE automatically uses the largest block up to 16 rows that fits.</td></tr>
+            <tr><td><code>view source selected</code></td><td>Follow the currently selected editing lane's NOTE column.</td></tr>
+            <tr><td><code>view source 2</code> or <code>view source @kick</code></td><td>Pin an existing one-based NOTE lane or an alias's lane. This neither enables following nor changes the MIDI recording lane.</td></tr>
+            <tr><td><code>view resume</code></td><td>Release manual follow hold and leave Tracker's main Live Code field so the grid can follow again. STATIC remains static.</td></tr>
+            <tr><td><code>view zoom 125</code> or <code>view zoom 125%</code></td><td>Set grid zoom to a whole-number percentage from 55 through 180. This does not resize the whole plug-in interface.</td></tr>
+            <tr><td><code>view zoom +</code>, <code>view zoom -</code>, <code>view zoom reset</code></td><td>Use the VIEW buttons' zoom steps, or reset grid zoom to 100%.</td></tr>
+            <tr><td><code>view notes name|midi</code></td><td>Display note names or MIDI numbers without changing stored pitches.</td></tr>
+            <tr><td><code>view jump 4</code></td><td>Set the Up/Down and MIDI step-recording increment to 1–16 rows. Quick NOTE actions such as X/R/H/K still advance one row.</td></tr>
+            <tr><td><code>view detail on|off</code></td><td>Show or hide both SEQ/value pairs and GATE without clearing their cells.</td></tr>
+          </tbody>
+        </table>
+        <p>Where the table shows alternatives separated by <code>|</code>, choose one value; do not type the separator. Commands are case-insensitive and invalid values leave settings unchanged. Follow mode/source, NOTE format, and JUMP are saved with the project. Grid zoom, detail visibility, and resume requests are temporary editor state. VIEW commands do not change MIDI scheduling or rebuild the playback runtime.</p>
+        <p>For a 16-row paged view pinned to lane 2, enter these commands individually, pressing Return/Enter after each:</p>
+        <pre><code>view source 2
+view follow page
+view zoom 55
+view resume</code></pre>
+        <p>For a centered cursor, use <code>view follow center</code> instead. Ordinary view commands keep Live Code focused. While Tracker's main text field remains open, the grid does not scroll beneath it; <code>view resume</code> exits that field and rejoins playback. An inline cell edit is not moved by a pending zoom change until that edit finishes. See <a href="#playback-follow">Playback Row Follow</a> for polymetric source selection and missing-lane behavior.</p>
+
         <h2 id="tool-pages">Tool Pages</h2>
 
+        <p>Use <a href="#geometry">Geometry</a> for direct pattern gestures, <a href="#bursts">Bursts</a> for several events inside one row, <a href="#phrases">Phrases</a> for reusable multi-row material, <a href="#assemble">Assemble</a> to join Phrases, <a href="#reshape">Reshape</a> to preview a variation, and <a href="#warps">Warps</a> to shape global event timing. The tools preserve the distinction between changing shared source material, previewing a proposal, and placing ordinary cells.</p>
+
+        <h3 id="geometry">Geometry and Pitch Map</h3>
+        <p>Geometry is a second editor over Tracker's current pattern, selection, and undo history. RING FIELD maps NOTE lanes to concentric rings and rows to angles. ALL STEPS UNDERLAY shows hollow lane-colored cells for every row, with four-step accents and filled active pulses on top. Other view modes expose related phase, pulse, and path information without creating another pattern.</p>
+        <p>Choose a lane in <code>LANE / CYCLE</code>, then use its default note, cycle length, direction, rotation, and density controls. DEFAULT NOTE shows a pitch name and MIDI number; changing it updates the lane anchor and explicit note pitches while preserving rests, retriggers, holds, and kills. The equivalent command is <code>pitch &lt;lane|@alias&gt; &lt;MIDI|note name&gt;</code>. Default note, length, rotation, and density drags preview their result and create one undo step on release.</p>
+        <p><code>EDIT / SHAPE</code> provides SELECT, PAINT, ERASE, VELOCITY, reverse, reflect, and morph. Option/Alt temporarily changes Paint to Erase. The selected ring's <code>R</code> and <code>D</code> handles adjust rotation and density. Double-click an event or use REVEAL IN TRACKER to reach its exact lane and row. During Song playback, Geometry follows the sounding pattern and lane-mute mask read-only.</p>
+        <p>Choose <code>PITCH MAP</code> in Geometry's MODE menu for a pitch-assignment proposal over the selected lane/range. Its scale and contour controls can be previewed before applying them to the pattern. It does not replace the rhythm editor or reroute the destination MIDI channel.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.geometry.png?v=20260913" aria-label="Open the editable s3g Tracker Geometry workspace screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.geometry.png?v=20260913" alt="VSTGUI Geometry Ring Field with four concentric lane rings, colored note events, rotation and density handles, and lane/cycle and edit/shape controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>The VSTGUI Ring Field and lane/cycle controls edit the same pattern as Tracker; there is no separate Geometry document.</figcaption>
+        </figure>
+
+        <h3 id="bursts">Bursts: Events Within a Row</h3>
+        <p>A Burst is a reusable sub-row MIDI gesture with up to eight events. A bank holds 64 slots (<code>B01</code>–<code>B64</code>). Its event matrix, radial overview, and velocity-breakpoint display are linked views of the same event positions, notes, velocities, and gates. Select an event to edit it, or select an empty matrix row to create one; gate-fit and event tools help keep the gesture inside its intended duration.</p>
+        <p>Choose a bank and Burst, then use PLACE IN TRACKER to put its reference at the target NOTE cell. The bank and slot are part of that reference. Changing the shared definition updates its uses throughout the composition; check the USAGE readout before replacing or deleting a definition. NEW, DUP, DELETE, spacing/rotation tools, PURGE UNUSED, COPY PROJECT, and pack import/export manage the library. Burst edits are part of the composition rather than a separate instrument preset.</p>
+        <p>The NAME field is a draft until the Burst library's SAVE button commits it. That button saves the name, not a separate project file; event edits already belong to the shared composition.</p>
+        <p>For Burst cells, CD/EN/PR/SK/EU gate the whole gesture and MT/DL shift it as a unit. RR/ST/FL/GL expansion is disabled for the Burst itself; the authored event list already describes its internal rhythm. Audition routes MIDI to the chosen preview channel and still requires a receiving instrument.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.bursts.png?v=20260913" aria-label="Open the s3g Tracker Bursts page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.bursts.png?v=20260913" alt="VSTGUI Burst editor with a four-event matrix, radial overview, velocity breakpoints, library, substep, audition, and placement controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Bursts links the event matrix, radial overview, and velocity breakpoints. A placed cell refers to the shared bank definition.</figcaption>
+        </figure>
+
+        <h3 id="phrases">Phrases: Reusable Tracker Material</h3>
+        <ol>
+          <li>In Tracker, select 2–64 rows in one lane and choose <code>PHRASE → CAPTURE SELECTION</code>, or press Control-Shift-P.</li>
+          <li>Open PHRASES and choose the bank and <code>P01</code>–<code>P64</code> slot. Edit NOTE, VOL, SEQ1/V1, SEQ2/V2, and GATE using the same typed cells and right-click action menus as Tracker.</li>
+          <li>Set an optional name and recommended BPM, then use the library's SAVE button to commit those metadata drafts. The 20–400 BPM recommendation is informational and never sets REAPER's tempo.</li>
+          <li>Select the destination lane/row in Tracker, then choose REPLACE or MERGE EMPTY in Phrase placement and copy the material to that destination. The target readout identifies where it will go.</li>
+        </ol>
+        <p>Drag cells or Shift-extend a selection; Control-A/C/X/V and Control-Shift-Arrows retain compatible multi-row/column shapes. VOL uses normalized <code>0.000</code>–<code>1.000</code> values. Referenced Burst definitions accompany captures and transfers and are remapped safely when needed. Placing a Phrase copies ordinary cells and retains the destination lane's MIDI channel; subsequent edits to the Phrase do not rewrite already-placed copies.</p>
+        <p>IMPORT PACK, EXPORT ONE, EXPORT BANK, COPY PROJECT, and bank-clear/delete actions manage reusable material separately from placement. See <a href="#project-files">Project files and asset banks</a> for what is saved.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.phrases.png?v=20260913" aria-label="Open the s3g Tracker Phrases page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.phrases.png?v=20260913" alt="VSTGUI Phrase editor showing a 32-row phrase, all seven typed columns, name and BPM fields, pack controls, audition, and replacement placement" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Phrases edits reusable multi-row material. Placement copies cells into a destination lane; the BPM field is a recommendation, not a host-tempo override.</figcaption>
+        </figure>
+
+        <h3 id="assemble">Assemble: Build a Phrase Chain</h3>
+        <p>Choose a bank, Phrase, and REPEAT amount in PHRASE PALETTE; use APPEND or <code>A</code> to add it to the vertical assembly tray. REPEAT offers 1×, 2×, 4×, 8×, and 16×. Drag blocks to reorder, Option/Alt-drag to duplicate, or use the up/down, DUP, DELETE, and CLEAR controls. The tray shows its block and row counts.</p>
+        <p>Choose the target pattern, lane, and starting row. REPLACE overwrites destination cells; MERGE EMPTY fills compatible empty cells. FIT selects EXTEND PATTERN, CROP, or WRAP. PLACE IN TRACKER writes normal Tracker cells: the tray is a staging recipe, not a second playback sequencer or a live link to the placed pattern. Assemblies of 2–64 rows can also be saved as a Phrase. The tray supports up to 64 blocks within the 256-row authoring limit.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.assemble.png?v=20260913" aria-label="Open the s3g Tracker Assemble page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.assemble.png?v=20260913" alt="VSTGUI Assemble page with two phrase blocks totaling 96 rows, repeat and audition controls, and target pattern, lane, row, mode, and fit menus" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Assemble stages Phrase blocks before placement. Here a 32-row Phrase appears once, then repeats twice, making a 96-row assembly.</figcaption>
+        </figure>
+
+        <h3 id="audition">LISTEN and Loop Timing</h3>
+        <p>With REAPER transport stopped, Phrases and Assemble use <code>LISTEN ▶</code> to audition through the selected <code>MIDI CH</code>. Assemble can audition either the full assembly or the selected Phrase. Enable LOOP to repeat the entire authored duration, including leading and trailing rests. A silent tail in the material remains a silent tail; it is not shortened to the last note.</p>
+        <p>Audition uses the observed host BPM, falling back to the captured project tempo if no host tempo is available. Its repeated starts and note gates are scheduled on the audio clock, not by a GUI timer. The green cursor reads the same audition position. Stop LISTEN, hide/close the page, or start host playback to cancel it. If nothing is heard, check the receiving instrument, its channel filter, and whether REAPER is processing the plug-in while stopped.</p>
+
+        <h3 id="reshape">Reshape: Preview and Commit a Variation</h3>
+        <p>Choose the target pattern, lane mask, and analysis cycle. PATTERN PROFILE compares original and proposed material. Timing controls adjust pocket, tightening, timing depth, MT writing, and outliers; dynamics controls adjust velocity range, accents, lane balance, writing policy, and outliers. EXISTING ONLY preserves empty destinations, while the alternative write modes permit adding MT to onsets or filling default velocities.</p>
+        <p>RHYTHM MUTATION adds amount, density, syncopation, maximum row displacement, Burst chance, cycle drift, and RESEED. Preview the result with PREVIEW ON and the ORIGINAL/RESHAPED comparison. A preview is not a saved edit. Use APPLY IN PLACE to commit to the current pattern, or CREATE VARIANT to create a separate pattern. RESET restores the proposal controls. Leaving the page clears its temporary playback preview; applying and variant creation are unavailable while Song playback owns the pattern.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.reshape.png?v=20260913" aria-label="Open the s3g Tracker Reshape page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.reshape.png?v=20260913" alt="VSTGUI Reshape page with overlaid original and proposed profiles, timing and dynamics controls, rhythm mutation, and preview/apply controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Reshape compares a proposal against the original. PREVIEW auditions the change; APPLY IN PLACE or CREATE VARIANT makes it a persistent edit.</figcaption>
+        </figure>
+
+        <h3 id="warps">Warps: Global Timing Shape</h3>
+        <p>The composite curve is the main workspace. WARP LIBRARY stores named compositions, SERIAL STACK orders their transforms, and SELECTED TRANSFORM edits the chosen stage. Combine exponential, stepped, Euclidean, or multipart timing transforms, adjust the cycle and mix, and use bypass to compare their effect. Drag numeric controls or double-click their values for exact entry.</p>
+        <p>Save a named composition to make it available in Song's WARP column. The current stack shapes pattern timing; a playing Song row supplies its own selected warp. OFF means identity timing. Warps alter event timing rather than cell pitch or lane routing, and their display cursor follows the published audio position.</p>
+
+        <figure>
+          <div class="doc-graphic">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.warps.png?v=20260913" aria-label="Open the configured s3g Tracker Warps page screenshot">
+              <img src="assets/plugin-guis/s3g-tracker.warps.png?v=20260913" alt="VSTGUI Warps workspace with a bypassed identity output and exponential reference curve beside Warp Library, Serial Stack, and Selected Transform controls" loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Warps with an exponential stage configured but playback bypassed: the cyan output stays at identity timing while the gray curve shows the transform.</figcaption>
+        </figure>
+
+        <h3 id="console-help">Console and Help</h3>
+        <p>Console displays command results, warnings, errors, and MIDI/host information. Its Live Code editor shares the Tracker field's draft and history, including when Console is detached. Return/Enter executes, Up/Down recalls history, Tab completes, and Escape returns focus; Space remains text while the editor is active.</p>
+        <p>Help contains workflow guides plus command and sequencing-action references generated from the current registry. Browse or search there for full syntax, value meanings, and examples. The website explains the current workflow; the reference inside a particular build describes the commands that build actually accepts.</p>
+
+        <h2 id="platforms">Platforms, Fonts, and Installation</h2>
+        <p>The current Mac build uses the shared VSTGUI pages. Install its complete <code>s3g_tracker.clap</code> bundle into the user CLAP location described in <a href="installing-plugins.html">Installing Plugins</a>, then restart REAPER. Back up the previous build and avoid duplicate Tracker copies. Building or copying documentation does not update an installed plug-in.</p>
+        <p>The Windows x64 CLAP is currently a separate test build, not an accepted release. Copy its complete package into a folder in REAPER's CLAP search paths. Keep <code>s3g_tracker.clap</code> and the sibling <code>Resources</code> directory together. Its optional <code>run-windows-check.cmd</code> runs the supplied integration test without installing anything; it does not replace testing in REAPER.</p>
+        <p>Mac fonts are resources inside each CLAP bundle; Windows font files are in the package's module-relative <code>Resources/Fonts</code> folder. Bundled Fira Code and IBM Plex Mono files and their license notices travel with the plug-in; users do not need to install them as system fonts. Safe fallback prevents a missing font resource from blocking the editor, but appearance can differ. Keep the resource and license files when redistributing or copying a test package. Mac and Windows text rasterization can differ even with the same font files.</p>
+        <p>The shared Windows pages, file dialogs, Unicode path handling, clipboard, proportional sizing, and REAPER text-focus routing are implemented and cross-built. Native Windows checks for DPI changes, detached-window ownership, multiple instances, project recall, and MIDI/cursor synchronization remain acceptance work. See <a href="building-from-source.html#tracker-builds">Tracker source builds</a> for the explicit Mac VSTGUI option and Windows test commands.</p>
+
+        <h2 id="troubleshooting">Troubleshooting</h2>
         <ul>
-          <li><strong>Geometry</strong> is a second, gestural editor over the same pattern, selection, and undo history as Tracker. <code>RING FIELD</code> maps each unmuted note lane to a ring and its tracker rows to angles, using the same muted lane colors as the Tracker grid. Its right-side toolboxes use the repository's shared 42-pixel content top, 12-pixel panel gaps, static headers, thin sliders, in-canvas categorical menus, and compact action rows. <code>LANE / CYCLE</code> replaces the former bottom lane-button bank with one lane menu and repeats the selected NOTE cycle's default note, length, direction, row rotation, and density controls. <code>DEFAULT NOTE</code> displays both pitch name and MIDI number (for example <code>C-2 · 036</code>); dragging it sets the lane anchor and replaces every explicit pitch while preserving rests, retriggers, holds, and kills. Geometry density and newly painted hits then use that anchor deterministically. The equivalent Live Code command is <code>pitch &lt;lane|@alias&gt; &lt;MIDI|note name&gt;</code>. Default note, length, row rotation, and density sliders preview their result and publish one undo step on release. <code>EDIT / SHAPE</code> holds <code>SELECT</code>, <code>PAINT</code>, <code>ERASE</code>, <code>VELOCITY</code>, reverse, reflect, and morph. Velocity moves continuously along the radial drag, and <kbd>Option</kbd> temporarily turns Paint into Erase. Drag the selected ring's <code>R</code> row-rotation handle or <code>D</code> density handle for the same non-destructive previews, and double-click any note bead to reveal its exact lane and row in Tracker. During Song playback, Geometry follows the sounding pattern and row mute mask in a read-only state, so it cannot edit a pattern other than the one open in Tracker. <code>ALL STEPS UNDERLAY</code> now exposes every tracker row as a hollow lane-colored cell with four-step accents, while active pulses remain filled on top, making it visibly distinct from the adjacent pulse and phase diagnostics.</li>
-          <li><strong>Warps</strong> treats the composite curve as the primary workspace and groups editing into <code>WARP LIBRARY</code>, <code>SERIAL STACK</code>, and <code>SELECTED TRANSFORM</code> toolboxes. Its parameters use the suite's thin track plus right-aligned value pattern: drag horizontally for fast changes, or double-click to type an exact value. Save named exponential, stepped, Euclidean, or multipart compositions here, then select them per row in Song's <code>WARP</code> column.</li>
-          <li><strong>Console</strong> displays Live Code results and errors and repeats the Live Code entry field, so commands remain available when Console is detached.</li>
-          <li><strong>Help</strong> provides the categorized command and sequencing-action reference generated from the current command registry.</li>
+          <li><strong>No sound:</strong> Tracker emits MIDI only. Put an instrument after it, confirm the lane's CH setting and the instrument's MIDI filter, and check REAPER routing/monitoring.</li>
+          <li><strong>Interface is hard to read:</strong> enlarge the whole plug-in window. Grid zoom alone does not enlarge tool-page controls.</li>
+          <li><strong>Playback disappears below the grid:</strong> use CENTER or PAGE and choose the intended NOTE lane. If RESUME is shown, manual navigation/editing is holding the view.</li>
+          <li><strong>Space starts transport while typing:</strong> make sure the caret is in Live Code, not just the grid. Current VSTGUI text fields consume Space; restart REAPER after upgrading and check for a duplicate older Tracker.</li>
+          <li><strong>Song or Geometry seems read-only:</strong> Song playback deliberately protects pattern edits. Stop the host before changing protected material.</li>
+          <li><strong>A Phrase loop has silence at the seam:</strong> LISTEN loops its full authored row length. Inspect trailing/leading rests and the selected preview scope before shortening the material.</li>
+          <li><strong>Windows font appearance is different:</strong> verify the sibling Resources folder before judging fallback typography. Windows REAPER acceptance is still pending.</li>
         </ul>
-
-        <figure>
-          <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.geometry.png?v=9" aria-label="Open the editable s3g Tracker Geometry workspace screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.geometry.png?v=9" alt="s3g Tracker Geometry workspace with muted concentric lane rings, higher-contrast event points, and shared s3g-dsp toolboxes including the selected lane's default note name and MIDI number" loading="lazy" decoding="async">
-            </button>
-          </div>
-          <figcaption>Geometry as a workspace: the Ring Field remains gestural while suite-standard toolboxes repeat its selected-lane cycle controls and replace the former bottom lane bank.</figcaption>
-        </figure>
-
-        <figure>
-          <div class="doc-graphic">
-            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/s3g-tracker.warps.png?v=4" aria-label="Open the configured s3g Tracker Warps page screenshot">
-              <img src="assets/plugin-guis/s3g-tracker.warps.png?v=4" alt="s3g Tracker Warps workspace with a nonlinear composite timing curve beside suite-standard Warp Library, Serial Stack, and Selected Transform toolboxes with thin parameter sliders" loading="lazy" decoding="async">
-            </button>
-          </div>
-          <figcaption>A three-stage timing-warp stack in action: exponential, stepped, and Euclidean transforms combine into the displayed phase map.</figcaption>
-        </figure>
-
-        <p>Geometry, Warps, Console, and Help can remain embedded pages or detach into independent windows while viewing the same live tracker state. Geometry and Tracker are two views of one pattern rather than separate documents: selecting a ring event updates the Tracker lane and row, and <code>REVEAL IN TRACKER</code> switches editors without losing that location. The one-line Live Code editor remains in Tracker view, while the repeated editor travels with a detached Console. The lower value-envelope editor distinguishes large saturated-cyan note-hit breakpoints from smaller dark-gray points without notes.</p>
 
         <h2 id="boundaries">Current Boundaries</h2>
 
@@ -302,6 +427,8 @@ warp exp 2.0 mix .5</code></pre>
           <li>MIDI-only processing; the plug-in has no audio ports or internal instruments.</li>
           <li>REAPER owns tempo, transport, devices, receiving instruments, audio effects, and mixing.</li>
           <li>One CLAP MIDI output with channels 1–16 and one authoring-only MIDI step-record input; every tracker lane owns its output-channel assignment.</li>
+          <li>Up to 32 pattern lanes, 256 visible Tracker rows, eight NOTE voices per cell, eight events per Burst, and 2–64 rows per Phrase.</li>
+          <li>No MIDI-file import, instrument sample storage, standalone application, or accepted Windows release in this milestone.</li>
           <li>Project state uses the current native tracker schema and does not import Max tracker files or abandoned standalone formats.</li>
         </ul>
 
@@ -325,16 +452,29 @@ warp exp 2.0 mix .5</code></pre>
         <div class="toc-section">
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
+          <a href="#workspace">Workspace and Resizing</a>
           <a href="#host-transport">Host Transport</a>
           <a href="#midi-routing">MIDI Routing</a>
           <a href="#step-recording">Step Recording</a>
           <a href="#grid">Tracker Grid</a>
           <a href="#sequencing-actions">Sequencing Actions</a>
-          <a href="#editing">Editing</a>
           <a href="#playback-follow">Playback Row Follow</a>
+          <a href="#editing">Editing and Shortcuts</a>
           <a href="#patterns-song">Patterns and Song</a>
+          <a href="#project-files">Project Files and Banks</a>
           <a href="#live-code">Live Code</a>
+          <a href="#view-commands">VIEW Commands</a>
           <a href="#tool-pages">Tool Pages</a>
+          <a href="#geometry">Geometry and Pitch Map</a>
+          <a href="#bursts">Bursts</a>
+          <a href="#phrases">Phrases</a>
+          <a href="#assemble">Assemble</a>
+          <a href="#audition">LISTEN and Loops</a>
+          <a href="#reshape">Reshape</a>
+          <a href="#warps">Warps</a>
+          <a href="#console-help">Console and Help</a>
+          <a href="#platforms">Platforms and Fonts</a>
+          <a href="#troubleshooting">Troubleshooting</a>
           <a href="#boundaries">Current Boundaries</a>
         </div>
       </aside>
