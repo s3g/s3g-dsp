@@ -50,10 +50,33 @@ if(BUILD_TESTING)
   target_include_directories(s3g_tracker_windows_clap_smoke PRIVATE
     ${S3G_CLAP_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(s3g_tracker_windows_clap_smoke PRIVATE
-    s3g_tracker_core user32 shell32)
+    s3g_tracker_core user32 shell32 comctl32)
+  if(MSVC)
+    # Multiple complete project fixtures exceed the default 1 MiB test stack.
+    target_link_options(s3g_tracker_windows_clap_smoke PRIVATE /STACK:8388608)
+  endif()
   add_dependencies(s3g_tracker_windows_clap_smoke s3g_tracker_clap)
   add_test(NAME s3g_tracker_windows_clap_smoke
     COMMAND s3g_tracker_windows_clap_smoke $<TARGET_FILE:s3g_tracker_clap>)
   set_tests_properties(s3g_tracker_windows_clap_smoke PROPERTIES
     LABELS "non_nim;tracker;windows;gui" TIMEOUT 120)
+
+  # Test actual factory code with the same 1 MiB stack budget as native REAPER.
+  # The GUI checker above needs a larger stack for its own project fixtures.
+  add_executable(s3g_tracker_windows_factory_stack
+    ${CMAKE_SOURCE_DIR}/tests/tracker_windows_factory_stack.cpp)
+  target_include_directories(s3g_tracker_windows_factory_stack PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_compile_definitions(s3g_tracker_windows_factory_stack PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  if(MSVC)
+    target_link_options(s3g_tracker_windows_factory_stack PRIVATE /STACK:1048576)
+  elseif(MINGW)
+    target_link_options(s3g_tracker_windows_factory_stack PRIVATE -municode -Wl,--stack,1048576)
+  endif()
+  add_dependencies(s3g_tracker_windows_factory_stack s3g_tracker_clap)
+  add_dependencies(s3g_tracker_windows_clap_smoke s3g_tracker_windows_factory_stack)
+  add_test(NAME s3g_tracker_windows_factory_stack
+    COMMAND s3g_tracker_windows_factory_stack $<TARGET_FILE:s3g_tracker_clap>)
+  set_tests_properties(s3g_tracker_windows_factory_stack PROPERTIES
+    LABELS "non_nim;tracker;windows" TIMEOUT 30)
+
 endif()

@@ -2,10 +2,13 @@
 #include "s3g/tracker/editor_shell.h"
 #include "s3g/tracker/project_codec.h"
 #include <shellapi.h>
+#include <commctrl.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
 // Native Windows integration test: real DLL, HWNDs, VSTGUI input and a small
@@ -63,6 +66,15 @@ void key(HWND hwnd,WPARAM vk){
     // character messages are pumped too, without changing the user's keyboard.
     PostMessageW(hwnd,WM_KEYDOWN,vk,1);
     PostMessageW(hwnd,WM_KEYUP,vk,LPARAM(0xc0000001));pump();
+}
+LRESULT CALLBACK observeDialogKeys(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp,
+    UINT_PTR,DWORD_PTR data) {
+    // Observe delivery without editing the project fixture. IsDialogMessage
+    // may dispatch accepted keys itself and return TRUE, so its return value
+    // alone cannot establish that a key was stolen by dialog navigation.
+    if(msg==WM_KEYDOWN){++*reinterpret_cast<unsigned*>(data);return 0;}
+    if(msg==WM_KEYUP||msg==WM_CHAR)return 0;
+    return DefSubclassProc(hwnd,msg,wp,lp);
 }
 std::string save(const clap_plugin_t* plugin){
     auto* state=static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin,CLAP_EXT_STATE));
@@ -187,7 +199,40 @@ int main(){
         require(load(a.plugin,saved)&&save(a.plugin)==saved,"closed GUI exact state roundtrip");
         require(!load(a.plugin,"not a project")&&save(a.plugin)==saved,"bad state is rejected without mutation");
         a.open();
-        require(save(a.plugin)==saved,"opening editor does not alter stored project");
+        // Exercise the Win32 dialog manager before the independent state
+        // invariant. Posting directly to a frame without dialog pretranslation
+        // did not expose REAPER swallowing Enter and navigating away on arrows.
+        const auto keyboardFrame=GetWindow(a.pages[0],GW_CHILD);
+        SetFocus(keyboardFrame);
+        require(GetFocus()==keyboardFrame,"Tracker owns native focus for dialog-key test");
+        unsigned delivered=0;
+        require(SetWindowSubclass(keyboardFrame,observeDialogKeys,1,
+            reinterpret_cast<DWORD_PTR>(&delivered)),"install dialog-key delivery observer");
+        for(const WPARAM vk:{VK_RETURN,VK_LEFT,VK_RIGHT,VK_UP,VK_DOWN,VK_TAB}) {
+            MSG key{};key.hwnd=keyboardFrame;key.message=WM_KEYDOWN;key.wParam=vk;key.lParam=1;
+            const auto before=delivered;
+            if(!IsDialogMessageW(a.parent,&key))DispatchMessageW(&key);
+            pump();
+            require(delivered==before+1,"dialog manager delivers editing and navigation keys to focused Tracker");
+            require(GetFocus()==keyboardFrame,"dialog navigation does not steal Tracker focus");
+        }
+        require(RemoveWindowSubclass(keyboardFrame,observeDialogKeys,1),"remove dialog-key delivery observer");
+        SetFocus(a.parent);
+        require(!(SendMessageW(keyboardFrame,WM_GETDLGCODE,VK_RETURN,0)&DLGC_WANTALLKEYS),
+            "unfocused Tracker frame does not claim host dialog keys");
+        a.select(0);
+        std::cout<<"dialog key ownership checks passed\n";
+        const auto openedState=save(a.plugin);
+        if(openedState!=saved) {
+            wchar_t directory[1024]{};
+            const auto length=GetEnvironmentVariableW(L"S3G_TRACKER_STATE_LOG_DIR",directory,1024);
+            if(length>0&&length<1024) {
+                const auto path=std::filesystem::path(directory);
+                std::ofstream(path/L"tracker-state-before-open.json",std::ios::binary)<<saved;
+                std::ofstream(path/L"tracker-state-after-open.json",std::ios::binary)<<openedState;
+            }
+        }
+        require(openedState==saved,"opening editor does not alter stored project");
         // A deliberate occlusion proves the check distinguishes visibility
         // flags from exposed content. Selecting the same page must repair it.
         require(SetWindowPos(a.pages[0],HWND_BOTTOM,0,0,0,0,

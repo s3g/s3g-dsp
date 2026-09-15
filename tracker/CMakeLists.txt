@@ -84,6 +84,11 @@ if(BUILD_TESTING)
   function(s3g_add_tracker_test target source)
     add_executable(${target} ${source})
     target_link_libraries(${target} PRIVATE s3g_tracker_core)
+    if(MSVC)
+      # These tests keep several complete project/state fixtures on the stack.
+      # The default 1 MiB MSVC executable stack overflows before assertions run.
+      target_link_options(${target} PRIVATE /STACK:8388608)
+    endif()
     add_dependencies(s3g_tracker_portable_core_tests ${target})
     add_test(NAME ${target} COMMAND ${target})
     set_tests_properties(${target} PROPERTIES LABELS "non_nim;tracker;core")
