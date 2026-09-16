@@ -5,6 +5,12 @@
 #include <iostream>
 #include <chrono>
 #include <limits>
+#if defined(_WIN32)
+// Keep Windows COM declarations after the real canvas (both APIs use the
+// name IDropTarget); VSTGUI has already set NOMINMAX/WIN32_LEAN_AND_MEAN.
+#include <objbase.h>
+#include "vstgui/lib/platform/win32/win32factory.h"
+#endif
 
 namespace {
 using namespace s3g::portable_gui;
@@ -66,11 +72,35 @@ void click(SampleFamilyView& view, double x, double y)
 
 int main(int argc, char** argv)
 {
-    if (!foundation::acquireRuntime()) return 2;
+    std::cerr << "[sample-family] initializing graphics\n";
+#if defined(_WIN32)
+    // A standalone test has no host UI thread to initialize COM. VSTGUI's
+    // factory needs it before runtime initialization to create WIC bitmaps.
+    const auto comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(comResult)) {
+        std::cerr << "COM initialization failed: 0x" << std::hex << comResult << '\n';
+        return 2;
+    }
+    struct ComScope { ~ComScope() { CoUninitialize(); } } comScope;
+#endif
+    if (!foundation::acquireRuntime()) {
+        std::cerr << "VSTGUI runtime unavailable\n";
+        return 2;
+    }
+    // Release graphics before COM, including on an early setup failure.
+    struct RuntimeScope { ~RuntimeScope() { foundation::releaseRuntime(); } } runtimeScope;
+#if defined(_WIN32)
+    const auto* factory = getPlatformFactory().asWin32Factory();
+    if (!factory || !factory->getWICImagingFactory()) {
+        std::cerr << "Windows WIC bitmap factory unavailable\n";
+        return 2;
+    }
+#endif
     bool ok = true;
     const auto expect = [&](bool value, const char* message) {
         if (!value) { ok = false; std::cerr << message << '\n'; }
     };
+    std::cerr << "[sample-family] offscreen text fitting\n";
     {
         auto context = COffscreenContext::create(CPoint(200, 40));
         expect(bool(context), "value-fitting context unavailable");
@@ -92,6 +122,7 @@ int main(int argc, char** argv)
             context->endDraw();
         }
     }
+    std::cerr << "[sample-family] drop, parameter and cue interactions\n";
     Files files;
     for (const auto family : {SampleFamilyVisualization::Lanes, SampleFamilyVisualization::Grains,
              SampleFamilyVisualization::Cutups, SampleFamilyVisualization::Rings,
@@ -148,7 +179,9 @@ int main(int argc, char** argv)
         expect(f.cueDeck == 0 && std::abs(f.cuePosition - .6f) < .001f,
             "Doubles direct cue drag did not retain deck and normalized placement");
     }
-    ok = ringsCacheChecks(argc==2 && std::string(argv[1])=="--benchmark") && ok;
-    foundation::releaseRuntime();
+    std::cerr << "[sample-family] Rings cached/uncached rendering\n";
+    expect(ringsCacheChecks(argc==2 && std::string(argv[1])=="--benchmark"),
+        "Rings cache checks failed");
+    std::cerr << "[sample-family] " << (ok ? "passed" : "failed") << '\n';
     return ok ? 0 : 1;
 }
