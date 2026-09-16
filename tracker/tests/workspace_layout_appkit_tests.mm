@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 
 #import "s3g_tracker_controls.h"
 #import "s3g_tracker_phrase_view.h"
@@ -142,6 +143,22 @@ void check(bool condition, const char* message)
     if (condition) return;
     ++failures;
     std::cerr << "FAIL: " << message << '\n';
+}
+
+bool hasPendingDisplay(NSView* view)
+{
+    // AppKit can forward invalidation to an inherited backing layer without
+    // retaining NSView.needsDisplay, even when wantsLayer is false locally.
+    return view.needsDisplay || view.layer.needsDisplay;
+}
+
+void clearPendingDisplay(NSView* view)
+{
+    [view displayIfNeeded];
+    view.needsDisplay = NO;
+    [view.layer displayIfNeeded];
+    check(!hasPendingDisplay(view),
+        "the redraw fixture should start with no pending view or layer paint");
 }
 
 bool near(CGFloat actual, CGFloat expected, CGFloat tolerance = 1.0) noexcept
@@ -1418,6 +1435,12 @@ int main()
         check(!state.session.transport.timingWarpEnabled
                 && transportChangeRequests == 2,
             "the Warps mode button should restore a true playback bypass");
+        // Present the page and clear its initial view/layer paint so showing
+        // the window cannot itself satisfy the subsequent redraw assertion.
+        [warpCurve.window orderFront:nil];
+        check(warpCurve.window.isVisible,
+            "the Warps redraw fixture should have a visible window");
+        clearPendingDisplay(warpCurve);
         state.playing = true;
         state.timingWarpPlaybackActive = true;
         state.timingWarpPlaybackFromSong = false;
@@ -1427,7 +1450,7 @@ int main()
         [warpController performSelector:@selector(refreshPlaybackDisplay)];
         check([warpCurve.accessibilityValue
                     isEqualToString:@"Pattern warp playback, step 4 of 8"]
-                && warpCurve.needsDisplay,
+                && hasPendingDisplay(warpCurve),
             "the Warps curve should expose and redraw the active sequence position");
         state.playing = false;
         state.timingWarpPlaybackActive = false;
@@ -1628,11 +1651,14 @@ int main()
             to:reshapeLaneScope.target];
         check([reshapeLaneScope.s3gDisplayTitle isEqualToString:@"ALL LANES"],
             "Reshape lane scope should restore the complete pattern from the same menu");
-        reshapeProfileView.needsDisplay = NO;
+        [reshapeProfileView.window orderFront:nil];
+        check(reshapeProfileView.window.isVisible,
+            "the Reshape redraw fixture should have a visible window");
+        clearPendingDisplay(reshapeProfileView);
         reshapeTighten.doubleValue = 100.0;
         [reshapeTighten sendAction:reshapeTighten.action
             to:reshapeTighten.target];
-        check(reshapeProfileView.needsDisplay,
+        check(hasPendingDisplay(reshapeProfileView),
             "a Reshape slider should immediately redraw the HITS/MT/VEL/LANE profile");
         [reshapePreview performClick:nil];
         check(patternPreviewRequests > 0
@@ -1797,7 +1823,10 @@ int main()
         check([[geometryPage valueForKey:@"displayedPatternId"]
                 isEqualToString:@"A01"],
             "Geometry should initially display the editor pattern");
-        geometryPage.needsDisplay = NO;
+        [geometryPage.window orderFront:nil];
+        check(geometryPage.window.isVisible,
+            "the Geometry redraw fixture should have a visible window");
+        clearPendingDisplay(geometryPage);
         state.songPlaybackActive = true;
         state.songPlaybackPatternId = "A02";
         state.songPlaybackMutedTracks = 1u << 0u;
@@ -1809,10 +1838,9 @@ int main()
                     unsignedIntegerValue] == 2u
                 && [[geometryPage valueForKey:@"displayedMutedLaneCount"]
                     unsignedIntegerValue] == 2u
-                && geometryPage.needsDisplay,
+                && hasPendingDisplay(geometryPage),
             "Geometry should retain every sounding-pattern ring slot while combining Pattern and Song-row mutes");
-        [geometryPage displayIfNeeded];
-        geometryPage.needsDisplay = NO;
+        clearPendingDisplay(geometryPage);
         state.songPlaybackMutedTracks = 0u;
         [geometryPage performSelector:@selector(refreshPlaybackDisplay)];
         const CGFloat unmutedLaneRadius = [geometryPage ringRadiusForLane:0u];
@@ -1821,7 +1849,7 @@ int main()
                 && [[geometryPage valueForKey:@"displayedMutedLaneCount"]
                     unsignedIntegerValue] == 1u
                 && near(mutedLaneRadius, unmutedLaneRadius, 0.01)
-                && geometryPage.needsDisplay,
+                && hasPendingDisplay(geometryPage),
             "unmuting a Song lane should restore its content without moving that lane's ring radius or removing Pattern-mute placeholders");
         state.songPlaybackActive = false;
         state.songPlaybackPatternId.clear();
@@ -1838,7 +1866,7 @@ int main()
         BOOL geometryModesDispatch = YES;
         for (NSInteger menuIndex = 1; menuIndex < 7; ++menuIndex) {
             const NSInteger mode = menuIndex == 6 ? 7 : menuIndex;
-            geometryPlaybackOverlay.needsDisplay = NO;
+            clearPendingDisplay(geometryPlaybackOverlay);
             [geometryPage openGeometryMenu:3];
             [geometryPage applyGeometryMenuSelection:menuIndex];
             geometryModesDispatch = geometryModesDispatch
@@ -1846,7 +1874,7 @@ int main()
                     integerValue] == mode
                 && [geometryPage.accessibilityValue
                     isEqualToString:geometryDescriptions[(NSUInteger)mode]]
-                && geometryPlaybackOverlay.needsDisplay;
+                && hasPendingDisplay(geometryPlaybackOverlay);
             if (mode == 1)
                 geometryModesDispatch = geometryModesDispatch
                     && [geometryPage allStepsUnderlayNodeCount] == 0u;
