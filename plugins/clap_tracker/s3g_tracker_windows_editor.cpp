@@ -128,7 +128,7 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
     struct WindowContext { Impl* owner = nullptr; int page = -1; bool floating = false; };
     struct Page {
         WindowContext context, floatingContext;
-        HWND window = nullptr, floating = nullptr;
+        HWND window = nullptr, floating = nullptr, keyboardWindow = nullptr;
         std::unique_ptr<f::EditorHost> host;
         f::ContentView* view = nullptr;
     };
@@ -313,6 +313,12 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
             resizePage(i,1320,820);
             p.view->remember();
             if(!p.host->attach(p.view)||!p.host->setParent(p.window))return;
+            const auto native=p.view->getFrame()->getPlatformFrame();
+            auto* keyboardWindow=native
+                ? static_cast<HWND>(native->getPlatformRepresentation()) : nullptr;
+            if(!keyboardWindow||!SetWindowSubclass(keyboardWindow,keyboardProc,
+                reinterpret_cast<UINT_PTR>(this),reinterpret_cast<DWORD_PTR>(this)))return;
+            p.keyboardWindow=keyboardWindow;
             p.view->getFrame()->registerKeyboardHook(this);
         }
         shellView->getFrame()->registerKeyboardHook(this);
@@ -442,6 +448,23 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
         DestroyWindow(floating);
         layout();selectPage(shell.selected());
     }
+    static LRESULT CALLBACK keyboardProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp,
+        UINT_PTR id,DWORD_PTR data) {
+        auto* self=reinterpret_cast<Impl*>(data);
+        if(msg==WM_NCDESTROY) {
+            RemoveWindowSubclass(hwnd,keyboardProc,id);
+            if(self)for(auto& p:self->pages)if(p.keyboardWindow==hwnd)p.keyboardWindow=nullptr;
+        }
+        const auto result=DefSubclassProc(hwnd,msg,wp,lp);
+        // REAPER's accelerator opt-out still passes through Windows dialog
+        // processing. The generic VSTGUI frame otherwise returns zero here,
+        // allowing Enter/Tab/arrows to be consumed as host dialog navigation.
+        // Claim keys only for this instance's visible, natively focused frame.
+        if(msg==WM_GETDLGCODE&&self&&!self->closing&&self->visible
+            &&IsWindowVisible(hwnd)&&GetFocus()==hwnd)
+            return result|DLGC_WANTALLKEYS|DLGC_WANTARROWS|DLGC_WANTTAB|DLGC_WANTCHARS;
+        return result;
+    }
     void onKeyboardEvent(KeyboardEvent& event,CFrame* frame) override {
         if(event.type!=EventType::KeyDown||dynamic_cast<CTextEdit*>(frame->getFocusView()))return;
         if(event.modifiers==Modifiers{ModifierKey::Shift}
@@ -529,6 +552,10 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
     }
     void destroyPage(unsigned i) {
         auto& p=pages[i];
+        if(p.keyboardWindow) {
+            RemoveWindowSubclass(p.keyboardWindow,keyboardProc,reinterpret_cast<UINT_PTR>(this));
+            p.keyboardWindow=nullptr;
+        }
         if(p.host) {
             if(p.view&&p.view->getFrame())p.view->getFrame()->unregisterKeyboardHook(this);
             p.host.reset();

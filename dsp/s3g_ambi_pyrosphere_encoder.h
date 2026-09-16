@@ -7,6 +7,10 @@
 #include "s3g_structural_failure.h"
 #include "s3g_turbulent_flame_jet.h"
 
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#include "s3g_pyrosphere_windows_coefficients.h"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -440,6 +444,12 @@ public:
         const uint32_t ambiChannels = std::min<uint32_t>(
             ambiChannelsForOrder(params_.order), outputChannels);
         const uint32_t voiceCount = processingVoiceCount();
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+        const auto& coefficientMaterial = kAmbiPyrosphereMaterialProfiles[
+            std::min<uint32_t>(params_.materialMode, kAmbiPyrosphereMaterialCount - 1u)];
+        const PyrosphereWindowsCoefficients coefficients(
+            params_, coefficientMaterial, static_cast<float>(sampleRate_));
+#endif
         const float voiceNorm = std::pow(field_.voiceMass(), 0.46f);
         constexpr uint32_t kControlFrames = 16u;
         double layerEnergy = 0.0;
@@ -479,7 +489,11 @@ public:
                 for (uint32_t voice = 0u; voice < voiceCount; ++voice) {
                     const float membership = field_.voiceRenderGain(voice);
                     if (membership <= 1.0e-7f) continue;
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+                    float sample = processVoice(voice, coefficients)
+#else
                     float sample = processVoice(voice)
+#endif
                         * smoothedOutputGain_ * membership
                         * field_.distanceGain(voice);
                     if (!std::isfinite(sample)) {
@@ -1013,7 +1027,11 @@ private:
         return std::isfinite(sample) ? sample : 0.0f;
     }
 
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+    float processVoice(uint32_t index, const PyrosphereWindowsCoefficients& coefficients)
+#else
     float processVoice(uint32_t index)
+#endif
     {
         auto& voice = voices_[index];
         const auto& material = kAmbiPyrosphereMaterialProfiles[
@@ -1026,6 +1044,13 @@ private:
         const float sr = static_cast<float>(sampleRate_);
         const float dt = 1.0f / sr;
         const float white = randomSigned(voice.rng);
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+        voice.infraNoise += (white - voice.infraNoise) * coefficients.infra;
+        voice.subNoise += (white - voice.subNoise) * coefficients.sub;
+        voice.slowNoise += (white - voice.slowNoise) * coefficients.slow;
+        voice.midNoise += (white - voice.midNoise) * coefficients.mid;
+        voice.airNoise += (white - voice.airNoise) * coefficients.air;
+#else
         const float infraHz = 2.4f + (1.0f - params_.body) * 5.6f
             + (1.0f - material.collapse) * 2.0f;
         const float subHz = 14.0f + (1.0f - params_.body) * 52.0f
@@ -1046,6 +1071,7 @@ private:
             * (1.0f - std::exp(-kPi * 2.0f * midHz / sr));
         voice.airNoise += (white - voice.airNoise)
             * (1.0f - std::exp(-kPi * 2.0f * airHz / sr));
+#endif
         const float midBand = voice.midNoise - voice.slowNoise;
         const float highBand = white - voice.airNoise;
         const float plumeBand = (voice.subNoise - voice.infraNoise)
@@ -1258,6 +1284,14 @@ private:
                     * (params_.particles + params_.grit * 0.22f));
         }
 
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+        voice.fractureEnvelope *= coefficients.fracture;
+        voice.spallEnvelope *= coefficients.spall;
+        voice.debrisEnvelope *= coefficients.debris;
+        voice.fragmentEnvelope *= coefficients.fragment;
+        voice.pressureEnvelope *= coefficients.pressure;
+        voice.forcePulse *= coefficients.force;
+#else
         const float fractureTime = 0.0012f + params_.q * 0.009f
             + material.damping * 0.004f;
         const float spallTime = 0.014f + params_.body * 0.11f
@@ -1273,6 +1307,7 @@ private:
             / (0.055f + params_.pressure * 0.46f));
         voice.forcePulse *= std::exp(-dt
             / (0.0011f + material.damping * 0.006f));
+#endif
         voice.massPhase += kPi * 2.0f * voice.massFrequencyHz
             * (1.0f + voice.infraNoise * 0.08f) / sr;
         if (voice.massPhase >= kPi * 2.0f) {
@@ -1280,9 +1315,13 @@ private:
         }
         const float massMode = std::sin(voice.massPhase)
             * voice.massEnvelope;
+#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+        voice.massEnvelope *= coefficients.mass;
+#else
         voice.massEnvelope *= std::exp(-dt
             / (0.10f + params_.body * 0.34f
                 + material.collapse * 0.18f));
+#endif
 
         const float combustion = material.combustibility * params_.material;
         const float plumeBody = std::tanh(plumeBand

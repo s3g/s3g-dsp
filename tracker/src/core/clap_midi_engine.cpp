@@ -2,6 +2,9 @@
 #include "s3g/tracker/clap_document_controller.h"
 #include "s3g/tracker/editor_state.h"
 #include <limits>
+#ifdef _WIN32
+#include <memory>
+#endif
 #include <new>
 #include <utility>
 
@@ -11,7 +14,15 @@ using app::TrackerViewState;
 
 ProjectDocument makeInitialDocument()
 {
+#ifdef _WIN32
+    // This temporary editor state is large. Hosts can create an instance on
+    // an already nested main-thread stack (for example during project recall).
+    // Keep factory setup off that stack; this never runs in the audio callback.
+    auto stateStorage = std::make_unique<TrackerViewState>();
+    auto& state = *stateStorage;
+#else
     TrackerViewState state;
+#endif
     // Fresh instances open on one plain Superior Drummer bar. Keep this
     // factory pattern intentionally legible; the richer `demo` command
     // remains available from the Console when a user wants it.

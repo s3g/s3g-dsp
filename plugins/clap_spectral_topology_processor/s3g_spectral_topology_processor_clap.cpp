@@ -29,6 +29,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#if defined(_WIN32)
+#include <memory>
+#endif
 #include <new>
 #include <type_traits>
 #include <vector>
@@ -269,7 +272,13 @@ struct Plugin {
     std::vector<std::vector<float>> output32;
     std::vector<const float*> inputPtrs;
     std::vector<float*> outputPtrs;
+#if defined(_WIN32)
+    // Keep the full scope history, but avoid MSVC expanding millions of
+    // value-initialized atomic members in the plug-in's default constructor.
+    std::array<std::unique_ptr<std::atomic<float>[]>, kChannelCount> scope;
+#else
     std::array<std::array<std::atomic<float>, kScopeFrames>, kChannelCount> scope {};
+#endif
     std::atomic<uint32_t> scopeWrite { 0u };
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<bool> tailChangePending { false };
@@ -2278,6 +2287,16 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory*, const clap_host_t*
     if (std::strcmp(pluginId, descriptor.id) != 0) return nullptr;
     auto* p = new (std::nothrow) Plugin();
     if (!p) return nullptr;
+#if defined(_WIN32)
+    // Allocate once before activation; the audio and editor paths keep the
+    // same atomic samples and indexing. Partial allocation is owned by p.
+    for (auto& channel : p->scope) {
+        channel.reset(new (std::nothrow) std::atomic<float>[kScopeFrames]);
+        if (!channel) { delete p; return nullptr; }
+        for (uint32_t frame = 0u; frame < kScopeFrames; ++frame)
+            channel[frame].store(0.0f, std::memory_order_relaxed);
+    }
+#endif
     p->host = host;
     p->hostTail = host && host->get_extension
         ? static_cast<const clap_host_tail_t*>(host->get_extension(host, CLAP_EXT_TAIL))

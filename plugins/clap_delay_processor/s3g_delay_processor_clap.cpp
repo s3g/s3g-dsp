@@ -137,7 +137,16 @@ const char* topologyVariantName(uint32_t variant)
     return s3g::topologyVariantName(variant);
 }
 
-struct __attribute__((packed)) SavedStateV10 {
+// Match the existing byte-packed V2-V11 state format with the native Windows
+// compiler. V1 below deliberately retains its original default alignment.
+#if defined(_WIN32) && defined(_MSC_VER)
+#pragma pack(push, 1)
+#define S3G_DELAY_PACKED
+#else
+#define S3G_DELAY_PACKED __attribute__((packed))
+#endif
+
+struct S3G_DELAY_PACKED SavedStateV10 {
     uint32_t version = kV10StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -168,7 +177,7 @@ struct __attribute__((packed)) SavedStateV10 {
     double topologyCentroid = 0.22;
 };
 
-struct __attribute__((packed)) SavedState {
+struct S3G_DELAY_PACKED SavedState {
     uint32_t version = kStateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -204,7 +213,7 @@ struct __attribute__((packed)) SavedState {
     double topologyMotionPhase = 0.0;
 };
 
-struct __attribute__((packed)) SavedStateV9 {
+struct S3G_DELAY_PACKED SavedStateV9 {
     uint32_t version = kV9StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -234,7 +243,7 @@ struct __attribute__((packed)) SavedStateV9 {
     double topologyCentroid = 0.22;
 };
 
-struct __attribute__((packed)) SavedStateV8 {
+struct S3G_DELAY_PACKED SavedStateV8 {
     uint32_t version = kV8StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -261,7 +270,7 @@ struct __attribute__((packed)) SavedStateV8 {
     double topologyMotionDepth = 0.0;
 };
 
-struct __attribute__((packed)) SavedStateV7 {
+struct S3G_DELAY_PACKED SavedStateV7 {
     uint32_t version = kV7StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -285,7 +294,7 @@ struct __attribute__((packed)) SavedStateV7 {
     uint32_t topologyShape = 0;
 };
 
-struct __attribute__((packed)) SavedStateV6 {
+struct S3G_DELAY_PACKED SavedStateV6 {
     uint32_t version = kV6StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -308,7 +317,7 @@ struct __attribute__((packed)) SavedStateV6 {
     uint32_t topologyShape = 0;
 };
 
-struct __attribute__((packed)) SavedStateV5 {
+struct S3G_DELAY_PACKED SavedStateV5 {
     uint32_t version = kV5StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -330,7 +339,7 @@ struct __attribute__((packed)) SavedStateV5 {
     uint32_t topologyShape = 0;
 };
 
-struct __attribute__((packed)) SavedStateV4 {
+struct S3G_DELAY_PACKED SavedStateV4 {
     uint32_t version = kV4StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -351,7 +360,7 @@ struct __attribute__((packed)) SavedStateV4 {
     uint32_t topologyShape = 0;
 };
 
-struct __attribute__((packed)) SavedStateV3 {
+struct S3G_DELAY_PACKED SavedStateV3 {
     uint32_t version = kPreviousStateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -371,7 +380,7 @@ struct __attribute__((packed)) SavedStateV3 {
     double pitchSemitones = 0.0;
 };
 
-struct __attribute__((packed)) SavedStateV2 {
+struct S3G_DELAY_PACKED SavedStateV2 {
     uint32_t version = kV2StateVersion;
     uint64_t patchRows[s3g::kLanePatchMaxChannels] {};
     uint32_t clearUnused = 0;
@@ -389,6 +398,11 @@ struct __attribute__((packed)) SavedStateV2 {
     double displaceTwist = 0.0;
     double displaceFlare = 0.0;
 };
+
+#if defined(_WIN32) && defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+#undef S3G_DELAY_PACKED
 
 struct SavedStateV1 {
     uint32_t version = kLegacyStateVersion;

@@ -76,7 +76,6 @@
     {
       "name": "clap-windows-pilot",
       "displayName": "Windows CLAP GUI Pilot",
-      "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build-clap-windows",
       "condition": {

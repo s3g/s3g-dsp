@@ -113,7 +113,34 @@ int main() {
   check(restPlan.firstRow == 0 && restPlan.lastRow == 7 &&
             !restPlan.events.empty() && restPlan.events.front().row > 0,
         "phrase audition retains leading and trailing rests");
+#if defined(_WIN32)
+  const auto initialAssemblyTarget = s.assembly.targetPatternId;
+#endif
   AssembleEditor a(s, c);
+#if defined(_WIN32)
+  check(s.assembly.targetPatternId == initialAssemblyTarget,
+        "opening Assemble preserves the stored target");
+  {
+    auto refreshState = s;
+    refreshState.assembly.targetPatternId = "B02";
+    refreshState.assembly.targetTrack = 7;
+    const auto publicationsBeforeRefresh = changed;
+    AssembleEditor refreshed(refreshState, c);
+    refreshed.reload();
+    check(refreshState.assembly.targetPatternId == "B02" &&
+              refreshState.assembly.targetTrack == 7 &&
+              changed == publicationsBeforeRefresh,
+          "Assemble refresh preserves saved target and lane without publishing");
+    check(refreshed.append() &&
+              refreshState.assembly.targetPatternId == refreshState.patternBank.activePatternId &&
+              refreshState.assembly.targetTrack == refreshState.session.pattern.tracks.size() - 1,
+          "assembly edits resolve the current pattern and available lane");
+    refreshState.assembly.targetTrack = 7;
+    check(refreshed.place() && refreshState.session.selectedTrack == 1 &&
+              refreshState.assembly.targetTrack == 1,
+          "placement resolves a lane that disappeared after a pattern switch");
+  }
+#endif
   check(a.append() && a.rows() == 4, "append phrase");
   a.repeats = 2;
   check(a.append() && a.rows() == 12, "append repeats");

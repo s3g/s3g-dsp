@@ -43,7 +43,11 @@
 #include <mutex>
 #include <new>
 #include <string>
+#if defined(_WIN32) && defined(_MSC_VER)
+#include "../common/s3g_windows_string_compat.h"
+#else
 #include <strings.h>
+#endif
 #include <thread>
 #include <vector>
 
@@ -684,7 +688,14 @@ void publishCursorState(Plugin& instance, const SampleAsset* asset,
     double end = 1.0;
     double rateA = 0.0;
     double rateB = 0.0;
+#if defined(_WIN32)
+    // publishAsset rejects invalid samples before the release-store. The audio
+    // thread retains that immutable asset; scanning all PCM for every cursor
+    // publication makes callback cost scale with file length, even when hidden.
+    if (asset && asset->frameCount() > 0u) {
+#else
     if (asset && asset->valid() && asset->frameCount() > 0u) {
+#endif
         const uint32_t frames = asset->frameCount();
         const uint32_t startFrame = std::min(static_cast<uint32_t>(
             std::llround(settings.start * static_cast<double>(frames))),

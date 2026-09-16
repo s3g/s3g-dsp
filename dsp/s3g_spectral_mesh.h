@@ -40,6 +40,9 @@ public:
         }
 
         bins_ = fft_.bins();
+#if defined(_WIN32)
+        windowsBandMaskValid_.fill(false);
+#endif
         const size_t spectrumSize = static_cast<size_t>(channels_) * bins_;
         normalizedFrequency_.assign(bins_, 0.0f);
         lowShelf_.assign(bins_, 0.0f);
@@ -672,6 +675,13 @@ private:
     {
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             const auto& params = smoothedLaneParams_[ch];
+#if defined(_WIN32)
+            if (windowsBandMaskValid_[ch] && windowsBandMaskLo_[ch] == params.loFreq
+                && windowsBandMaskHi_[ch] == params.hiFreq) continue;
+            windowsBandMaskLo_[ch] = params.loFreq;
+            windowsBandMaskHi_[ch] = params.hiFreq;
+            windowsBandMaskValid_[ch] = true;
+#endif
             const size_t offset = static_cast<size_t>(ch) * bins_;
             for (uint32_t bin = 0; bin < bins_; ++bin) {
                 bandMasks_[offset + bin] = bandMask(bin, params);
@@ -1323,6 +1333,10 @@ private:
     bool freezeWasActive_ = false;
     bool telemetryEnabled_ = true;
 
+#if defined(_WIN32)
+    std::array<float, kSpectralMeshMaxChannels> windowsBandMaskLo_ {}, windowsBandMaskHi_ {};
+    std::array<bool, kSpectralMeshMaxChannels> windowsBandMaskValid_ {};
+#endif
     SpectralFftProcessor fft_;
     TopologyState topology_ {};
     std::array<SpectralSprayParams, kSpectralMeshMaxChannels> laneParams_ {};

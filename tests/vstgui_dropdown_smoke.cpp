@@ -1,3 +1,9 @@
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
+#include <objbase.h>
+#endif
 // Pixel regression for the shared literal-port dropdown painter. Test the
 // original item boundaries, not a separate reference-only menu implementation.
 #if defined(__APPLE__)
@@ -157,6 +163,13 @@ void helperContract() {
 } // namespace
 
 int main() {
+#if defined(_WIN32)
+  // WIC bitmap creation requires an initialized COM apartment. REAPER supplies
+  // one for its UI thread; this independent test must supply its own.
+  const auto comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  if (FAILED(comResult)) return 2;
+  struct ComScope { ~ComScope() { CoUninitialize(); } } comScope;
+#endif
 #if defined(__APPLE__)
   [NSApplication sharedApplication];
 #endif

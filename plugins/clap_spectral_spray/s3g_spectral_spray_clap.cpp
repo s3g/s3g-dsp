@@ -1,3 +1,4 @@
+#include "../common/s3g_windows_processor_float_mode.h"
 #include "s3g_realtime.h"
 #include "s3g_spectral_spray.h"
 #include "../common/s3g_clap_gui_param_queue.h"
@@ -386,7 +387,14 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         }
     }
     p->spray.setParams(p->params);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    {
+        const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
+#endif
     p->spray.process(p->inputPtrs.data(), p->outputPtrs.data(), frames);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    }
+#endif
 
     float blockPeak = 0.0f;
     const uint32_t processedOutputs = std::min(output.channel_count, kChannelCount);

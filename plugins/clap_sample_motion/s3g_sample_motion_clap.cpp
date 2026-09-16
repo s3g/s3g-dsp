@@ -41,7 +41,11 @@
 #include <mutex>
 #include <new>
 #include <string>
+#if defined(_WIN32) && defined(_MSC_VER)
+#include "../common/s3g_windows_string_compat.h"
+#else
 #include <strings.h>
+#endif
 #include <thread>
 #include <vector>
 

@@ -179,7 +179,11 @@ void AuthoringPageView::drawAssemble() {
   for (std::size_t i = 0; i < state_.session.pattern.tracks.size(); ++i)
     lanes.push_back(format("L%02lu · %s", static_cast<unsigned long>(i + 1),
                            state_.session.pattern.tracks[i].name));
+#if defined(_WIN32)
+  choice(control(target, 1), "lane", lanes, int(assemble.effectiveTargetTrack()),
+#else
   choice(control(target, 1), "lane", lanes, int(state_.assembly.targetTrack),
+#endif
          [this](int i) {
            state_.assembly.targetTrack = uint32_t(i);
            assemble.changed();
@@ -234,7 +238,11 @@ void AuthoringPageView::drawAssembly() {
   bodyText(state_.session.pattern.tracks.empty()
                ? "PHRASE BLOCKS"
                : format("TARGET L%02u  /  PHRASE BLOCKS",
+#if defined(_WIN32)
+                        assemble.effectiveTargetTrack() + 1),
+#else
                         state_.assembly.targetTrack + 1),
+#endif
            toolRect(x + 60, y + 8, w - 60, 15), ThemeRole::TextSecondary, 9,
            FontWeight::Semibold);
   y += 28;

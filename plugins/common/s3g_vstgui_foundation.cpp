@@ -74,7 +74,13 @@ bool fontIsAvailable(const char* requested)
     bool available = false;
     VSTGUI::getPlatformFactory().getAllFontFamilies(
         [&](const std::string& family) {
+#if defined(_WIN32)
+            // Some platform enumerators continue after the callback returns
+            // false. Keep a match when later families are reported.
+            available = available || family == requested;
+#else
             available = family == requested;
+#endif
             return !available;
         });
     return available;

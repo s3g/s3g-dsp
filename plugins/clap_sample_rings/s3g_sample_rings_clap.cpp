@@ -2692,6 +2692,14 @@ const SampleAsset* portableAsset(void* context, uint32_t slot)
     return static_cast<Plugin*>(context)->sources[slot].get();
 }
 
+#if defined(_WIN32)
+std::shared_ptr<const SampleAsset> portableWindowsOwnedAsset(void* context, uint32_t slot)
+{
+    return context && slot < kSourceCount
+        ? static_cast<Plugin*>(context)->sources[slot] : nullptr;
+}
+#endif
+
 const char* portableSamplePath(void* context, uint32_t slot)
 {
     return context && slot < kSourceCount
@@ -2959,6 +2967,9 @@ makeSampleFamilyEditorConfig(Plugin& instance)
     config.callbacks.applyFactoryPreset = portableApplyFactoryPreset;
     config.callbacks.getSampleSlotCount = portableSampleSlotCount;
     config.callbacks.getAsset = portableAsset;
+#if defined(_WIN32)
+    config.callbacks.getWindowsOwnedAsset = portableWindowsOwnedAsset;
+#endif
     config.callbacks.getSamplePath = portableSamplePath;
     config.callbacks.getSampleStatus = portableSampleStatus;
     config.callbacks.loadSample = portableLoadSample;

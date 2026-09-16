@@ -1,3 +1,4 @@
+#include "../common/s3g_windows_processor_float_mode.h"
 #include "s3g_acapella_source_synth.h"
 #include "s3g_acapella_ensemble_synth.h"
 #include "s3g_acapella_text_compiler.h"
@@ -1835,6 +1836,11 @@ clap_process_status process(const clap_plugin_t* plugin,
             syncAudioParams(*instance, loadRouting);
             pendingParamSync = false;
         }
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+        // Note/parameter delivery above keeps the host's floating-point mode.
+        // Flush the reproduced Windows subnormal tail only while rendering.
+        const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
+#endif
         instance->smoothedOutputGain += (instance->outputGain
             - instance->smoothedOutputGain) * gainCoefficient;
         const auto ensemble = instance->ensemble.processFrame();

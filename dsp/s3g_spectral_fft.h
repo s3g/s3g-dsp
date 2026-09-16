@@ -2,6 +2,9 @@
 
 #include "s3g_math.h"
 #include "s3g_realtime.h"
+#if defined(_WIN32)
+#include "s3g_spectral_windows_fft.h"
+#endif
 
 #if defined(__APPLE__)
 #define S3G_HAS_ACCELERATE_FFT 1
@@ -17,6 +20,22 @@
 #include <vector>
 
 namespace s3g {
+#if defined(_WIN32)
+using spectral_windows_fft::DSPComplex;
+using spectral_windows_fft::DSPSplitComplex;
+using spectral_windows_fft::FFTSetup;
+using spectral_windows_fft::kFFTRadix2;
+using spectral_windows_fft::FFT_FORWARD;
+using spectral_windows_fft::FFT_INVERSE;
+using spectral_windows_fft::vDSP_create_fftsetup;
+using spectral_windows_fft::vDSP_destroy_fftsetup;
+using spectral_windows_fft::vDSP_ctoz;
+using spectral_windows_fft::vDSP_ztoc;
+using spectral_windows_fft::vDSP_fft_zrip;
+using spectral_windows_fft::vDSP_vsmul;
+using spectral_windows_fft::vDSP_vmul;
+using spectral_windows_fft::vDSP_vadd;
+#endif
 
 constexpr uint32_t kSpectralFftMinSize = 64;
 constexpr uint32_t kSpectralFftMaxSize = 16384;
@@ -88,7 +107,7 @@ public:
             return false;
         }
 
-#if !S3G_HAS_ACCELERATE_FFT
+#if !S3G_HAS_ACCELERATE_FFT && !defined(_WIN32)
         (void)channels;
         (void)fftSize;
         (void)overlap;
@@ -247,7 +266,7 @@ private:
 
     void releaseSetup()
     {
-#if S3G_HAS_ACCELERATE_FFT
+#if S3G_HAS_ACCELERATE_FFT || defined(_WIN32)
         if (fftSetup_) {
             vDSP_destroy_fftsetup(fftSetup_);
             fftSetup_ = nullptr;
@@ -258,7 +277,7 @@ private:
     template <typename Kernel>
     void processHop(Kernel& kernel)
     {
-#if S3G_HAS_ACCELERATE_FFT
+#if S3G_HAS_ACCELERATE_FFT || defined(_WIN32)
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             analyzeChannel(ch, binReal_.data(), binImag_.data());
 
@@ -274,7 +293,7 @@ private:
 
     void analyzeChannel(uint32_t ch, float* real, float* imag)
     {
-#if S3G_HAS_ACCELERATE_FFT
+#if S3G_HAS_ACCELERATE_FFT || defined(_WIN32)
         auto& state = states_[ch];
         const uint32_t first = fftSize_ - writePos_;
         vDSP_vmul(
@@ -309,7 +328,7 @@ private:
 
     void synthesizeChannel(uint32_t ch, const float* real, const float* imag)
     {
-#if S3G_HAS_ACCELERATE_FFT
+#if S3G_HAS_ACCELERATE_FFT || defined(_WIN32)
         splitReal_[0] = real[0];
         splitImag_[0] = real[halfSize_];
         if (halfSize_ > 1u) {
@@ -347,7 +366,7 @@ private:
     template <typename Kernel>
     void processHopBlock(Kernel& kernel)
     {
-#if S3G_HAS_ACCELERATE_FFT
+#if S3G_HAS_ACCELERATE_FFT || defined(_WIN32)
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             analyzeChannel(
                 ch,
@@ -371,7 +390,7 @@ private:
 #endif
     }
 
-#if S3G_HAS_ACCELERATE_FFT
+#if S3G_HAS_ACCELERATE_FFT || defined(_WIN32)
     FFTSetup fftSetup_ = nullptr;
 #endif
     uint32_t channels_ = 0u;
