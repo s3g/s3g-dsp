@@ -3,6 +3,9 @@
 #include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 #include "../common/s3g_clap_gui_param_queue.h"
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+#include "s3g_pyrosphere_windows_float_mode.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -1350,6 +1353,9 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             spanOutputs[ch] = output.data32[ch]
                 ? output.data32[ch] + surfaceOffset : nullptr;
         }
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+        const s3g::clap_detail::ScopedPyrosphereWindowsFloatMode floatMode;
+#endif
         p->engine.process(spanOutputs.data(), outChannels, spanFrames);
         surfaceOffset += spanFrames;
     }

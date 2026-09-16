@@ -1,3 +1,7 @@
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+#include "../common/s3g_windows_dsp_float_mode.h"
+#endif
+
 #include "s3g_ambi_imprint.h"
 #include "s3g_realtime.h"
 
@@ -745,7 +749,14 @@ clap_process_status processTyped(Plugin& plugin,
     auto* processor = plugin.activeProcessor.load(std::memory_order_acquire);
     if (!processor || !inputData || !outputData) return CLAP_PROCESS_CONTINUE;
     processor->setParams(plugin.params);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    {
+        s3g::clap_detail::ScopedWindowsDspFloatMode floatMode;
+        processor->process(inputData, input.channel_count, outputData, output.channel_count, frames);
+    }
+#else
     processor->process(inputData, input.channel_count, outputData, output.channel_count, frames);
+#endif
     for (uint32_t profile = 0u; profile < s3g::kAmbiImprintMaxProfiles; ++profile) {
         plugin.listenEnvelope[profile].store(
             processor->fieldListenEnvelope(profile), std::memory_order_relaxed);

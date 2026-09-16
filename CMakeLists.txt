@@ -839,10 +839,14 @@ if(S3G_BUILD_CLAP_PLUGIN AND S3G_ENABLE_PORTABLE_CLAP_GUI
     GIT_SHALLOW FALSE
   )
   FetchContent_MakeAvailable(vstgui)
+  if(WIN32)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GVSTGUIWindowsTextLayout.cmake")
+  endif()
   set_target_properties(vstgui PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     EXCLUDE_FROM_ALL TRUE)
   if(WIN32)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GVSTGUIWindowsClipboard.cmake")
     if(CMAKE_CROSSCOMPILING
         AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
       # VSTGUI checks its build host when adding platform libraries. Remove
@@ -1028,6 +1032,24 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GScoreEncoderTests.cmake")
 if(S3G_BUILD_CLAP_PLUGIN)
   if(BUILD_TESTING)
     if(S3G_VSTGUI_AVAILABLE)
+      if(WIN32)
+        add_executable(s3g_vstgui_windows_font_smoke tests/vstgui_windows_font_smoke.cpp)
+        s3g_enable_vstgui_gui(s3g_vstgui_windows_font_smoke
+          "${PROJECT_SOURCE_DIR}/plugins/common/s3g_vstgui_foundation.h"
+          S3G_ENABLE_VSTGUI_CANVAS_GUI)
+        # Match the suite's shared font directory: Fira must remain selected
+        # even when the platform enumerates Tracker's IBM family afterward.
+        add_custom_command(TARGET s3g_vstgui_windows_font_smoke POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/tracker/resources/fonts/IBMPlexMono-Regular.ttf"
+            "$<TARGET_FILE_DIR:s3g_vstgui_windows_font_smoke>/Resources/Fonts/IBMPlexMono-Regular.ttf"
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/tracker/resources/fonts/OFL.txt"
+            "$<TARGET_FILE_DIR:s3g_vstgui_windows_font_smoke>/Resources/Fonts/IBMPlexMono-OFL.txt"
+          VERBATIM)
+        add_test(NAME s3g_vstgui_windows_font_smoke COMMAND $<TARGET_FILE:s3g_vstgui_windows_font_smoke>)
+        set_tests_properties(s3g_vstgui_windows_font_smoke PROPERTIES LABELS "non_nim;windows;gui;fonts" TIMEOUT 30)
+      endif()
       add_executable(s3g_vstgui_dropdown_smoke tests/vstgui_dropdown_smoke.cpp)
       target_link_libraries(s3g_vstgui_dropdown_smoke PRIVATE s3g_dsp)
       target_include_directories(s3g_vstgui_dropdown_smoke PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
@@ -1562,6 +1584,19 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(s3g_clap_realtime_audit PRIVATE
       -Wall -Wextra -Wpedantic)
+  endif()
+
+  if(WIN32 AND MSVC)
+    add_executable(s3g_nim_windows_bit_scan tests/nim_windows_bit_scan.cpp)
+    target_compile_features(s3g_nim_windows_bit_scan PRIVATE cxx_std_17)
+    add_test(NAME s3g_nim_windows_bit_scan COMMAND s3g_nim_windows_bit_scan)
+  endif()
+
+  if(WIN32)
+    add_executable(s3g_spectral_windows_fft tests/spectral_windows_fft.cpp)
+    target_include_directories(s3g_spectral_windows_fft PRIVATE "${PROJECT_SOURCE_DIR}/dsp")
+    target_compile_features(s3g_spectral_windows_fft PRIVATE cxx_std_17)
+    add_test(NAME s3g_spectral_windows_fft COMMAND s3g_spectral_windows_fft)
   endif()
 
   add_executable(s3g_clap_state_fixture_smoke
@@ -3219,6 +3254,18 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_FUTURE_COMPONENTS)
     set(S3G_HORIZON_REALTIME_REPORT
       "${CMAKE_BINARY_DIR}/ambi-horizon-realtime.json")
+    # The existing encoder GUI checker is Cocoa-only. Keep the non-Windows
+    # command/dependency intact without naming that absent target on Windows.
+    set(S3G_HORIZON_GUI_COMMAND)
+    set(S3G_HORIZON_GUI_DEPENDENCY)
+    if(NOT WIN32)
+      set(S3G_HORIZON_GUI_COMMAND
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
+          org.s3g.s3g-dsp.ambi-horizon-encoder-64
+          1160 760 "s3g Ambi Encoder Horizon 64" responsive)
+      set(S3G_HORIZON_GUI_DEPENDENCY s3g_encoder_family_gui_smoke)
+    endif()
     add_custom_target(audit_ambi_horizon
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_smoke>
       COMMAND $<TARGET_FILE:s3g_ambi_horizon_encoder_clap_smoke>
@@ -3233,17 +3280,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND ${CMAKE_COMMAND}
         "-DREPORT=${S3G_HORIZON_REALTIME_REPORT}"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_horizon_realtime_report.cmake
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
-        $<TARGET_FILE:s3g_ambi_horizon_encoder_clap>
-        org.s3g.s3g-dsp.ambi-horizon-encoder-64
-        1160 760 "s3g Ambi Encoder Horizon 64" responsive
+      ${S3G_HORIZON_GUI_COMMAND}
       DEPENDS
         s3g_ambi_horizon_encoder_smoke
         s3g_ambi_horizon_encoder_clap_smoke
         s3g_clap_realtime_audit
-        s3g_encoder_family_gui_smoke
+        ${S3G_HORIZON_GUI_DEPENDENCY}
         s3g_ambi_horizon_encoder_clap
-      COMMENT "Validating Horizon DSP, realtime CLAP, and GUI")
+      COMMENT "Validating Horizon DSP, realtime CLAP, and available GUI checks")
 
     if(TARGET s3g_realtime_alloc_probe)
       set(S3G_HORIZON_ALLOC_REPORT
@@ -4005,4 +4049,45 @@ if(S3G_BUILD_STANDALONE_APPS)
   add_subdirectory(standalone)
   add_subdirectory(apps/no_input_mixer_standalone)
   add_subdirectory(apps/vox_builder)
+endif()
+
+
+if(WIN32 AND BUILD_TESTING)
+  add_executable(s3g_windows_dsp_float_mode tests/windows_dsp_float_mode.cpp)
+  add_test(NAME s3g_windows_dsp_float_mode COMMAND s3g_windows_dsp_float_mode)
+  set_tests_properties(s3g_windows_dsp_float_mode PROPERTIES
+    LABELS "non_nim;windows;dsp;performance" SKIP_RETURN_CODE 77)
+endif()
+
+if(WIN32 AND MSVC AND BUILD_TESTING)
+  add_library(s3g_windows_pyro_coefficients_reference OBJECT tests/windows_pyro_coefficients_adapter.cpp)
+  target_compile_definitions(s3g_windows_pyro_coefficients_reference PRIVATE S3G_WINDOWS_TEST_REFERENCE=1)
+  target_compile_features(s3g_windows_pyro_coefficients_reference PRIVATE cxx_std_17)
+  target_include_directories(s3g_windows_pyro_coefficients_reference PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dsp")
+  add_executable(s3g_windows_pyro_coefficients tests/windows_pyro_coefficients.cpp tests/windows_pyro_coefficients_adapter.cpp $<TARGET_OBJECTS:s3g_windows_pyro_coefficients_reference>)
+  target_compile_features(s3g_windows_pyro_coefficients PRIVATE cxx_std_17)
+  target_include_directories(s3g_windows_pyro_coefficients PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dsp")
+  add_test(NAME s3g_windows_pyro_coefficients COMMAND s3g_windows_pyro_coefficients)
+  set_tests_properties(s3g_windows_pyro_coefficients PROPERTIES TIMEOUT 300 LABELS "windows;dsp")
+endif()
+
+if(WIN32 AND MSVC AND BUILD_TESTING)
+  add_executable(s3g_windows_encoder_basis tests/windows_encoder_basis.cpp)
+  target_compile_features(s3g_windows_encoder_basis PRIVATE cxx_std_17)
+  target_include_directories(s3g_windows_encoder_basis PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dsp")
+  add_test(NAME s3g_windows_encoder_basis COMMAND s3g_windows_encoder_basis)
+  set_tests_properties(s3g_windows_encoder_basis PROPERTIES TIMEOUT 300 LABELS "windows;dsp")
+endif()
+
+if(WIN32 AND BUILD_TESTING)
+  add_executable(s3g_windows_processor_float_mode tests/windows_processor_float_mode.cpp)
+  target_compile_features(s3g_windows_processor_float_mode PRIVATE cxx_std_17)
+  add_test(NAME s3g_windows_processor_float_mode COMMAND s3g_windows_processor_float_mode)
+endif()
+
+if(BUILD_TESTING AND WIN32)
+  add_executable(s3g_windows_spectral_butterflies tests/windows_spectral_butterflies.cpp)
+  target_include_directories(s3g_windows_spectral_butterflies PRIVATE "${PROJECT_SOURCE_DIR}/dsp")
+  target_compile_features(s3g_windows_spectral_butterflies PRIVATE cxx_std_17)
+  add_test(NAME s3g_windows_spectral_butterflies COMMAND s3g_windows_spectral_butterflies)
 endif()

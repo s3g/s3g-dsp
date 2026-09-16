@@ -1,3 +1,4 @@
+#include "../common/s3g_windows_processor_float_mode.h"
 #include "s3g_processor_lowform.h"
 #include "s3g_processor_lowform_presets.h"
 #include "s3g_processor_stack.h"
@@ -1847,7 +1848,14 @@ clap_process_status process(const clap_plugin_t* plugin,
         p->engine.setTransport(clock.beat, clock.tempo, clock.playing);
         float left = 0.0f;
         float right = 0.0f;
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    {
+        const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
+#endif
         p->engine.processFrame(left, right);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    }
+#endif
         blockPeak = std::max(blockPeak,
             std::max(std::fabs(left), std::fabs(right)));
         for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {

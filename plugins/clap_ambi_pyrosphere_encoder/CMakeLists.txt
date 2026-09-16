@@ -33,3 +33,14 @@ if(APPLE)
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
   )
 endif()
+
+if(WIN32 AND BUILD_TESTING)
+  add_executable(s3g_pyrosphere_windows_float_mode
+    "${PROJECT_SOURCE_DIR}/tests/pyrosphere_windows_float_mode.cpp")
+  target_compile_features(s3g_pyrosphere_windows_float_mode PRIVATE cxx_std_17)
+  target_include_directories(s3g_pyrosphere_windows_float_mode PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  add_dependencies(s3g_pyrosphere_windows_float_mode s3g_ambi_pyrosphere_encoder_clap)
+  add_test(NAME s3g_pyrosphere_windows_float_mode
+    COMMAND s3g_pyrosphere_windows_float_mode $<TARGET_FILE:s3g_ambi_pyrosphere_encoder_clap>)
+  set_tests_properties(s3g_pyrosphere_windows_float_mode PROPERTIES SKIP_RETURN_CODE 77)
+endif()

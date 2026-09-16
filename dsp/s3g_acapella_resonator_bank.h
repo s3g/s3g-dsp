@@ -9,6 +9,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+#include <cstddef>
+#include <cstring>
+#include <xmmintrin.h>
+#endif
 
 namespace s3g {
 
@@ -739,10 +744,22 @@ struct TptBandpass {
         // The control target may update every 16 samples, but the actual TPT
         // coefficients move every sample. This retains the integrator state
         // without hard coefficient jumps during Shift/Stretch/Q automation.
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+        // Four independent scalar slews, with the same float operations and
+        // order in each SSE lane. No approximate reciprocal or fused multiply.
+        static_assert(offsetof(TptBandpass, damping) - offsetof(TptBandpass, a1) == 3 * sizeof(float));
+        static_assert(offsetof(TptBandpass, targetDamping) - offsetof(TptBandpass, targetA1) == 3 * sizeof(float));
+        __m128 current, target;
+        std::memcpy(&current, reinterpret_cast<const unsigned char*>(this) + offsetof(TptBandpass, a1), sizeof(current));
+        std::memcpy(&target, reinterpret_cast<const unsigned char*>(this) + offsetof(TptBandpass, targetA1), sizeof(target));
+        current = _mm_add_ps(current, _mm_mul_ps(_mm_sub_ps(target, current), _mm_set1_ps(coefficientSlew)));
+        std::memcpy(reinterpret_cast<unsigned char*>(this) + offsetof(TptBandpass, a1), &current, sizeof(current));
+#else
         a1 += (targetA1 - a1) * coefficientSlew;
         a2 += (targetA2 - a2) * coefficientSlew;
         a3 += (targetA3 - a3) * coefficientSlew;
         damping += (targetDamping - damping) * coefficientSlew;
+#endif
         bandNormalization += (targetBandNormalization - bandNormalization)
             * coefficientSlew;
         if (!std::isfinite(input)
@@ -1999,6 +2016,12 @@ private:
                 centerFrequencies_[band] = top;
             }
         }
+#if defined(_WIN32)
+        // Frequency-dependent weights change only with the band layout/rate.
+        for (uint32_t zone = 0u; zone < 3u; ++zone)
+            for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band)
+                windowsConsonantWeights_[zone][band] = consonantZoneWeight(zone, centerFrequencies_[band]);
+#endif
         const float analysisQ = analysisStageQ(params_);
         for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
             analysisLeft_[band].configure(
@@ -2337,8 +2360,12 @@ private:
         float weighted = 0.0f;
         float weight = 0.0f;
         for (uint32_t zone = 0u; zone < 3u; ++zone) {
+#if defined(_WIN32)
+            const float zoneWeight = windowsConsonantWeights_[zone][band];
+#else
             const float zoneWeight = consonantZoneWeight(
                 zone, centerFrequencies_[band]);
+#endif
             weighted += consonantZoneEnvelope_[zone] * zoneWeight;
             weight += zoneWeight;
         }
@@ -2612,8 +2639,12 @@ private:
             float zoneWeightSum = 0.0f;
             float zoneFlux = 0.0f;
             for (uint32_t band = 0u; band < activeBands; ++band) {
+#if defined(_WIN32)
+                const float weight = windowsConsonantWeights_[zone][band];
+#else
                 const float weight = consonantZoneWeight(
                     zone, centerFrequencies_[band]);
+#endif
                 zoneSquare += precisionEnvelope_[band]
                     * precisionEnvelope_[band] * weight;
                 zoneFlux += bandTransient_[band] * weight;
@@ -2908,6 +2939,9 @@ private:
         return lerp(blurredEnvelope_[band], capture, smoothed_.freeze);
     }
 
+#if defined(_WIN32)
+    std::array<std::array<float, kAcapellaResonatorBands>, 3u> windowsConsonantWeights_ {};
+#endif
     void mapEnvelope()
     {
         for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {

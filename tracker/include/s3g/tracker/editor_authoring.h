@@ -89,6 +89,9 @@ public:
   std::string status;
   uint32_t repeats = 1;
   bool wholePreview = true;
+#if defined(_WIN32)
+  uint32_t effectiveTargetTrack() const;
+#endif
   void reload();
   void changed();
   std::size_t rows() const;

@@ -1,3 +1,4 @@
+#include "../common/s3g_windows_processor_float_mode.h"
 #include "s3g_macro_fracture.h"
 #include "s3g_realtime.h"
 
@@ -370,8 +371,15 @@ clap_process_status process(
         for (uint32_t ch = channels; ch < kChannelCount; ++ch) {
             p->frameIn[ch] = 0.0f;
         }
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    {
+        const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
+#endif
         p->fracture.processFrame(
             p->frameIn.data(), p->frameOut.data());
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    }
+#endif
         for (uint32_t ch = 0u; ch < channels; ++ch) {
             if (output.data32 && output.data32[ch]) {
                 output.data32[ch][i] = p->frameOut[ch];

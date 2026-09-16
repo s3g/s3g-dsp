@@ -45,6 +45,14 @@ add_custom_command(TARGET s3g_tracker_clap POST_BUILD
   VERBATIM)
 
 if(BUILD_TESTING)
+  add_executable(s3g_tracker_windows_clipboard
+    ${CMAKE_SOURCE_DIR}/tests/tracker_windows_clipboard.cpp)
+  target_include_directories(s3g_tracker_windows_clipboard PRIVATE ${vstgui_SOURCE_DIR})
+  target_compile_features(s3g_tracker_windows_clipboard PRIVATE cxx_std_17)
+  target_link_libraries(s3g_tracker_windows_clipboard PRIVATE vstgui)
+  add_test(NAME s3g_tracker_windows_clipboard COMMAND s3g_tracker_windows_clipboard)
+  set_tests_properties(s3g_tracker_windows_clipboard PROPERTIES
+    LABELS "non_nim;tracker;windows;clipboard" TIMEOUT 30)
   add_executable(s3g_tracker_windows_clap_smoke
     ${CMAKE_SOURCE_DIR}/tests/tracker_windows_clap_smoke.cpp)
   target_include_directories(s3g_tracker_windows_clap_smoke PRIVATE
@@ -55,7 +63,7 @@ if(BUILD_TESTING)
     # Multiple complete project fixtures exceed the default 1 MiB test stack.
     target_link_options(s3g_tracker_windows_clap_smoke PRIVATE /STACK:8388608)
   endif()
-  add_dependencies(s3g_tracker_windows_clap_smoke s3g_tracker_clap)
+  add_dependencies(s3g_tracker_windows_clap_smoke s3g_tracker_clap s3g_tracker_windows_clipboard)
   add_test(NAME s3g_tracker_windows_clap_smoke
     COMMAND s3g_tracker_windows_clap_smoke $<TARGET_FILE:s3g_tracker_clap>)
   set_tests_properties(s3g_tracker_windows_clap_smoke PROPERTIES

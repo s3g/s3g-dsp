@@ -1,3 +1,4 @@
+#include "../common/s3g_windows_processor_float_mode.h"
 #include "s3g_array_calibrate.h"
 #include "s3g_realtime.h"
 #include "../common/s3g_objc_class_name.h"
@@ -259,8 +260,15 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         return CLAP_PROCESS_CONTINUE;
     }
     p->calibrate.setParams(p->params);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    {
+        const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
+#endif
     p->calibrate.processBlock(input.data32, output.data32,
         inChannels, outChannels, frames);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    }
+#endif
     s3g::clearAudioBufferFromChannel(output,
         std::min<uint32_t>(outChannels, p->params.activeChannels), frames);
     const float peak = peakForChannels(output.data32,

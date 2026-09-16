@@ -3,6 +3,9 @@
 #include "s3g_realtime.h"
 #include "s3g_ring_output_mixdown.h"
 #include "../common/s3g_nim_midi_feedback.h"
+#if defined(_WIN32) && defined(_MSC_VER)
+#include "s3g_nim_windows_bit_scan.h"
+#endif
 
 #include <clap/clap.h>
 #include <clap/ext/note-ports.h>
@@ -1109,7 +1112,11 @@ void refreshMidiMatrixOverlayState(Plugin& plugin)
     uint64_t tracked = plugin.matrixFeedbackTrackedMask;
     while (tracked != 0u) {
         const uint32_t index = static_cast<uint32_t>(
+#if defined(_WIN32) && defined(_MSC_VER)
+            s3g::nim_windows::trailingZeroCountNonzero(tracked));
+#else
             __builtin_ctzll(tracked));
+#endif
         const uint64_t bit = uint64_t { 1u } << index;
         tracked &= ~bit;
         const uint8_t previousValue =
@@ -1253,7 +1260,11 @@ void emitMatrixFeedback(Plugin& plugin,
     uint64_t dirty = plugin.matrixFeedbackDirtyMask;
     while (dirty != 0u) {
         const uint32_t index = static_cast<uint32_t>(
+#if defined(_WIN32) && defined(_MSC_VER)
+            s3g::nim_windows::trailingZeroCountNonzero(dirty));
+#else
             __builtin_ctzll(dirty));
+#endif
         const uint64_t bit = uint64_t { 1u } << index;
         dirty &= ~bit;
         const uint8_t value = s3g::encodeNoInputMatrixFeedbackValue(
@@ -2499,7 +2510,11 @@ void emitNrpnFeedback(Plugin& plugin,
         uint64_t dirty = plugin.nrpnFeedbackDirty[word];
         while (dirty != 0u && emitted < kNrpnFeedbackParamsPerBlock) {
             const uint32_t bitIndex = static_cast<uint32_t>(
+#if defined(_WIN32) && defined(_MSC_VER)
+                s3g::nim_windows::trailingZeroCountNonzero(dirty));
+#else
                 __builtin_ctzll(dirty));
+#endif
             const uint64_t bit = uint64_t { 1u } << bitIndex;
             const uint32_t index = word * 64u + bitIndex;
             dirty &= ~bit;

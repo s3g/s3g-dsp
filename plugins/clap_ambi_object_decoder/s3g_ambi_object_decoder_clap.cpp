@@ -1,3 +1,7 @@
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+#include "../common/s3g_windows_dsp_float_mode.h"
+#endif
+
 #include "s3g_ambi_object_decoder.h"
 #include "s3g_realtime.h"
 
@@ -535,7 +539,14 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
     updateObjectDirectionMeter(*p, input.data32, inChannels, frames);
     p->decoder.setParams(p->params);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+    {
+        s3g::clap_detail::ScopedWindowsDspFloatMode floatMode;
+        p->decoder.processBlock(input.data32, output.data32, inChannels, outChannels, frames);
+    }
+#else
     p->decoder.processBlock(input.data32, output.data32, inChannels, outChannels, frames);
+#endif
     s3g::clearAudioBufferFromChannel(output, std::min<uint32_t>(outChannels, p->params.decoder.activeSpeakers), frames);
     const float peak = peakForChannels(output.data32, std::min<uint32_t>(outChannels, p->params.decoder.activeSpeakers), frames);
     p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);

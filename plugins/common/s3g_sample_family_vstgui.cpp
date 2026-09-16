@@ -1,5 +1,8 @@
 #include "s3g_sample_family_vstgui.h"
 #include "s3g_sample_cursor_presenter.h"
+#if defined(_WIN32)
+#include "s3g_windows_sample_rings_cache.h"
+#endif
 
 #include "s3g_gui_layout.h"
 #include "s3g_vstgui_foundation.h"
@@ -917,11 +920,38 @@ private:
 
     const sample::SampleAsset* asset(uint32_t slot) const
     {
+#if defined(_WIN32)
+        if (config.visualization == SampleFamilyVisualization::Rings
+            && config.callbacks.getWindowsOwnedAsset && slot < windowsRingsAssets.size()) {
+            auto next = config.callbacks.getWindowsOwnedAsset(config.callbacks.context, slot);
+            auto& cached = windowsRingsAssets[slot];
+            if (cached.owner != next) {
+                // Retain ownership so allocator address reuse cannot hit a stale
+                // validation/path entry. Source replacement/clear invalidates all paths.
+                for (auto& geometry : windowsRingsPaths) geometry = {};
+                cached.owner = std::move(next);
+                cached.valid = cached.owner && cached.owner->valid();
+            }
+            return cached.owner.get();
+        }
+#endif
         return config.callbacks.getAsset
             ? config.callbacks.getAsset(config.callbacks.context, slot)
             : nullptr;
     }
 
+#if defined(_WIN32)
+    bool windowsAssetValid(const sample::SampleAsset* current) const
+    {
+        if (!current) return false;
+        if (config.visualization == SampleFamilyVisualization::Rings && config.callbacks.getWindowsOwnedAsset)
+            for (const auto& cached : windowsRingsAssets)
+                if (cached.owner.get() == current) return cached.valid;
+        return current->valid();
+    }
+    mutable std::array<WindowsRingsAssetCache, 4u> windowsRingsAssets;
+    mutable std::array<WindowsRingsPathCache, 32u> windowsRingsPaths;
+#endif
     double param(uint32_t id) const
     {
         return config.callbacks.getParam
@@ -1851,7 +1881,11 @@ private:
                     CPoint(x, wave.bottom));
             }
         }
+#if defined(_WIN32)
+        if (const auto* current = asset(0u); current && windowsAssetValid(current)) {
+#else
         if (const auto* current = asset(0u); current && current->valid()) {
+#endif
             uint32_t activeVoices = 0u;
             if (config.callbacks.getMotionScopeState) {
                 SampleFamilyMotionScopeState state {};
@@ -2189,7 +2223,11 @@ private:
             context.drawRect(badge, kDrawStroked);
             const auto* current = asset(slot);
             char label[64] {};
+#if defined(_WIN32)
+            if (current && windowsAssetValid(current)) {
+#else
             if (current && current->valid()) {
+#endif
                 std::snprintf(label, sizeof(label), "%c  %uCH  %.2fS",
                     static_cast<int>('A' + slot),
                     static_cast<unsigned>(current->channelCount),
@@ -2277,7 +2315,11 @@ private:
         uint32_t slot, int cursorFilter)
     {
         const auto* current = asset(slot);
+#if defined(_WIN32)
+        if (!current || !windowsAssetValid(current)) {
+#else
         if (!current || !current->valid()) {
+#endif
             char empty[32] {};
             std::snprintf(empty, sizeof(empty), sampleSlotCount() == 1u
                 ? "DROP AUDIO HERE" : "SLOT %c / DROP AUDIO",
@@ -3089,7 +3131,11 @@ private:
         for (uint32_t slot = 0u; slot < std::min(4u, sampleSlotCount());
              ++slot) {
             const auto* current = asset(slot);
+#if defined(_WIN32)
+            if (!current || !windowsAssetValid(current)) continue;
+#else
             if (!current || !current->valid()) continue;
+#endif
             first[slot] = static_cast<int32_t>(ringCount);
             const uint32_t width = std::min<uint32_t>(current->channelCount,
                 8u);
@@ -3098,7 +3144,11 @@ private:
                 catalog[ringCount++] = {slot, channel};
             last[slot] = static_cast<int32_t>(ringCount) - 1;
         }
+#if defined(_WIN32) && defined(_MSC_VER)
+        const auto radiusForRing = [ringCount, innerRadius, outerRadius](uint32_t ring) {
+#else
         const auto radiusForRing = [ringCount](uint32_t ring) {
+#endif
             return ringCount <= 1u ? (innerRadius + outerRadius) * 0.5
                 : innerRadius + (outerRadius - innerRadius) * ring
                     / static_cast<double>(ringCount - 1u);
@@ -3124,6 +3174,15 @@ private:
                 radius * 2.0, radius * 2.0), kDrawStroked);
             const auto& samples = current->channels[ref.channel];
             if (samples.empty()) continue;
+#if defined(_WIN32)
+            if (config.callbacks.getWindowsOwnedAsset) {
+                char cacheNudgeName[64] {};
+                std::snprintf(cacheNudgeName, sizeof(cacheNudgeName), "Slot %c Wrap Nudge", static_cast<int>('A' + ref.slot));
+                if (windowsRingsPaths[ring].draw(context, *current, ref.channel, radius, pitch,
+                        paramNamed(cacheNudgeName), center, ref.slot == selectedSlot ? 0xd8d8d8 : slotColors[ref.slot]))
+                    continue;
+            }
+#endif
             std::array<float, segments + 1u> peaks {};
             std::array<float, segments + 1u> rms {};
             std::array<float, segments + 1u> means {};

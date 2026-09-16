@@ -1,3 +1,4 @@
+#include "../common/s3g_windows_processor_float_mode.h"
 #include "s3g_processor_fissure.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
@@ -1869,6 +1870,11 @@ clap_process_status process(const clap_plugin_t* plugin,
             }
         }
         p->frameOutput.fill(0.0f);
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+        // Note/parameter delivery above keeps the host's floating-point mode.
+        // Flush the reproduced Windows subnormal tail only while rendering.
+        const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
+#endif
         p->engine.processFrame(p->frameInput.data(), p->frameOutput.data(),
             activeOutputs);
         for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {

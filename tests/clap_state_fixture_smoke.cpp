@@ -6,7 +6,14 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -75,7 +82,11 @@ int64_t stateRead(const clap_istream_t* stream,
 }
 
 struct LoadedPlugin {
+#if defined(_WIN32)
+    HMODULE library = nullptr;
+#else
     void* library = nullptr;
+#endif
     const clap_plugin_entry_t* entry = nullptr;
     const clap_plugin_t* plugin = nullptr;
 
@@ -83,7 +94,11 @@ struct LoadedPlugin {
     {
         if (plugin) plugin->destroy(plugin);
         if (entry) entry->deinit();
+#if defined(_WIN32)
+        if (library) FreeLibrary(library);
+#else
         if (library) dlclose(library);
+#endif
     }
 };
 
@@ -95,16 +110,36 @@ bool loadPlugin(const std::filesystem::path& supplied,
         std::cerr << "Could not resolve CLAP binary from " << supplied << "\n";
         return false;
     }
+#if defined(_WIN32)
+    loaded.library = LoadLibraryW(binary.c_str());
+#else
     loaded.library = dlopen(binary.c_str(), RTLD_LOCAL | RTLD_NOW);
+#endif
     if (!loaded.library) {
+#if defined(_WIN32)
+        std::cerr << "Could not load " << binary << ": Win32 error "
+                  << GetLastError() << "\n";
+#else
         std::cerr << "Could not load " << binary << ": " << dlerror() << "\n";
+#endif
         return false;
     }
+#if defined(_WIN32)
+    loaded.entry = reinterpret_cast<const clap_plugin_entry_t*>(
+        GetProcAddress(loaded.library, "clap_entry"));
+#else
     loaded.entry = static_cast<const clap_plugin_entry_t*>(
         dlsym(loaded.library, "clap_entry"));
+#endif
     const auto entryPath = std::filesystem::is_directory(supplied)
         ? supplied : binary;
+#if defined(_WIN32)
+    // CLAP entry paths are UTF-8; Windows filesystem paths above are UTF-16.
+    const auto entryUtf8 = entryPath.u8string();
+    if (!loaded.entry || !loaded.entry->init(entryUtf8.c_str())) {
+#else
     if (!loaded.entry || !loaded.entry->init(entryPath.c_str())) {
+#endif
         std::cerr << "Could not initialize CLAP entry in " << binary << "\n";
         loaded.entry = nullptr;
         return false;
@@ -484,6 +519,27 @@ int main(int argc, char** argv)
         || !parameterSnapshotsMatch(releasedParameters, migratedParameters)
         || !saveState(loaded.plugin, migratedAgain)
         || migratedAgain.bytes != migrated.bytes) {
+#if defined(_WIN32)
+        std::cerr << "Windows state diagnostic: released read " << released.offset
+                  << '/' << released.bytes.size() << ", migrated "
+                  << migrated.bytes.size() << ", resaved "
+                  << migratedAgain.bytes.size() << " bytes\n";
+        if (!migrated.bytes.empty() && !migratedAgain.bytes.empty()) {
+            const auto count = std::min(migrated.bytes.size(), migratedAgain.bytes.size());
+            size_t first = 0;
+            while (first < count && migrated.bytes[first] == migratedAgain.bytes[first]) ++first;
+            std::cerr << "First resave difference at byte " << first << '\n';
+            if (first < count) {
+                const auto begin = first > 40 ? first - 40 : 0;
+                const auto length = std::min<size_t>(120, count - begin);
+                std::cerr << "Before: ";
+                std::cerr.write(reinterpret_cast<const char*>(migrated.bytes.data() + begin), length);
+                std::cerr << "\nAfter: ";
+                std::cerr.write(reinterpret_cast<const char*>(migratedAgain.bytes.data() + begin), length);
+                std::cerr << '\n';
+            }
+        }
+#endif
         std::cerr << "Released state fixture did not migrate cleanly: "
                   << fixture << "\n";
         return 1;

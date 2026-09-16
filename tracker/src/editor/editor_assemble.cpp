@@ -184,15 +184,29 @@ int AssembleEditor::blockAt(double point, bool insertion) const {
   }
   return insertion ? int(state.assembly.blocks.size()) : -1;
 }
+#if defined(_WIN32)
+uint32_t AssembleEditor::effectiveTargetTrack() const {
+  const auto count = state.session.pattern.tracks.size();
+  return count == 0 ? state.assembly.targetTrack
+                    : std::min(state.assembly.targetTrack, uint32_t(count - 1));
+}
+#endif
 void AssembleEditor::reload() {
   auto &a = state.assembly;
+#if !defined(_WIN32)
   a.targetPatternId = state.patternBank.activePatternId;
   if (!state.session.pattern.tracks.empty())
     a.targetTrack = std::min(a.targetTrack,
                              uint32_t(state.session.pattern.tracks.size() - 1));
+#endif
+  // Windows refresh leaves saved targets intact until a deliberate edit.
   selected.erase(selected.lower_bound(a.blocks.size()), selected.end());
 }
 void AssembleEditor::changed() {
+#if defined(_WIN32)
+  state.assembly.targetPatternId = state.patternBank.activePatternId;
+  state.assembly.targetTrack = effectiveTargetTrack();
+#endif
   if (callbacks.patternChanged)
     callbacks.patternChanged();
   reload();
@@ -264,11 +278,22 @@ void AssembleEditor::clear() {
 }
 bool AssembleEditor::place() {
   auto &a = state.assembly;
+#if defined(_WIN32)
+  const auto targetTrack = effectiveTargetTrack();
+#endif
   if (state.songPlaybackActive ||
+#if defined(_WIN32)
+      targetTrack >= state.session.pattern.tracks.size() || a.blocks.empty())
+#else
       a.targetTrack >= state.session.pattern.tracks.size() || a.blocks.empty())
+#endif
     return false;
   auto candidate = state.session.pattern;
+#if defined(_WIN32)
+  auto &track = candidate.tracks[targetTrack];
+#else
   auto &track = candidate.tracks[a.targetTrack];
+#endif
   bool merge = a.placementMode == AssemblyPlacementMode::MergeIntoEmpty;
   std::size_t sequence = 0, maxWritten = candidate.visibleRows;
   for (auto &block : a.blocks) {
@@ -309,15 +334,27 @@ placed:
         std::max(pair.valueColumn.length, candidate.visibleRows);
   }
   state.session.pattern = std::move(candidate);
+#if defined(_WIN32)
+  state.session.selectedTrack = targetTrack;
+#else
   state.session.selectedTrack = a.targetTrack;
+#endif
   state.session.selectedRow = a.targetRow;
   status = format("PLACED %lu ROWS IN L%02u",
+#if defined(_WIN32)
+                  static_cast<unsigned long>(sequence), targetTrack + 1);
+#else
                   static_cast<unsigned long>(sequence), a.targetTrack + 1);
+#endif
   changed();
   return true;
 }
 void AssembleEditor::reveal() {
+#if defined(_WIN32)
+  state.session.selectedTrack = effectiveTargetTrack();
+#else
   state.session.selectedTrack = state.assembly.targetTrack;
+#endif
   state.session.selectedRow = state.assembly.targetRow;
   if (callbacks.showTrackerPage)
     callbacks.showTrackerPage();
