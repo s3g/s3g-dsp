@@ -66,8 +66,9 @@ Verification on 2026-09-11:
 - PNG captures were visually reviewed against the original surfaces. Set
   `S3G_MIDI_CAPTURE_DIR` when running the direct tests to regenerate them.
 
-Scoped installer: `bash scripts/install-vstgui-midi-tools.sh [--dry-run]`.
-It backs up and verifies only these two bundles. Building does not install.
+For full-collection Mac installation, follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local).
+Back up existing bundles before replacing them. Building does not install.
 Windows ZIP: `cmake -P scripts/package-windows-midi-tools.cmake`, with PE/export
 and runtime-linkage checks, Fira Code, licenses, instructions and SHA-256 hashes.
 

@@ -88,7 +88,7 @@ on the Windows test machine.
 bundles. `scripts/package-windows-circuit-encoders.cmake` creates a timestamped
 folder/ZIP with Resources, Fira Code's license, notices and SHA-256 checksums.
 
-`bash scripts/install-vstgui-circuit-encoders.sh --dry-run` checks the Mac scope.
-Running it without that flag performs installation with verified pre-update
-backups and a separate scoped receipt. Installation is an explicit user step;
-building/packaging does not update the installed copies.
+For full-collection Mac installation, follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local).
+Back up current bundles before replacing them and preview changes with
+`--dry-run`. Building/packaging does not update the installed copies.

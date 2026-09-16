@@ -88,8 +88,10 @@ Verification, 2026-09-11:
   maximum sample difference is zero. Fault's truncated-state regression is
   included, with the loader correction in both independently built variants.
 
-Scoped installation is separate: `scripts/install-vstgui-feedback-processors.sh`
-backs up and verifies installed bundles. Windows packaging:
+Mac installation is separate; follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local)
+for the full collection and back up existing bundles before replacing them.
+Windows packaging:
 `cmake -P scripts/package-windows-feedback-processors.cmake` verifies PE x64,
 CLAP export and static MinGW runtime linkage, then includes Fira Code, licenses,
 manual acceptance instructions and SHA-256 hashes.

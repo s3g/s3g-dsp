@@ -69,9 +69,10 @@ factory, menu, first-open, live and restored PNGs. The independent
 binaries for metadata, chunked state exchange and audio. VOT's original lack
 of double-precision audio support is unchanged; Acid/Horizon retain theirs.
 
-The scoped manifest/installer is `scripts/clap-vstgui-score-encoders.tsv` /
-`scripts/install-vstgui-score-encoders.sh`. Installation is a separate operation
-with verified recoverable backups. Windows packaging uses
+The scoped package manifest is `scripts/clap-vstgui-score-encoders.tsv`.
+For full-collection Mac installation, follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local)
+and back up existing bundles before replacing them. Windows packaging uses
 `cmake -P scripts/package-windows-score-encoders.cmake`, checking x64 PE,
 `clap_entry`, static runtime linkage, font/licenses and SHA-256 hashes. The ZIP
 includes the repository VOT atlases for manual import. Windows REAPER acceptance

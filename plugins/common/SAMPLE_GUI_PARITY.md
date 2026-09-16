@@ -21,8 +21,8 @@ as the Cocoa view.
 | Shared controls | Cocoa `drawControl`/`drawSlider` and per-plugin conditional presentation | Center labels and values on tracks; center menu labels on menus. Keep original disabled behavior and manual emphasis. Preserve control bounds and typography; do not substitute new explanatory layouts. |
 | Sample lifecycle | Per-plugin workers, `s3g_sample_storage.h` | Windows uses the same import/analysis lifecycle and PROJECT/LINK services. Preserve selected-lane reanalysis and consecutive multi-file drops. Cancel stale loads on clear/restore. UTF-8 locators must survive filesystem and project-state boundaries. |
 
-See [audit remediation](SAMPLE_GUI_AUDIT_WORK.md) for implementation status and
-the explicit boundaries of automated versus hosted verification.
+The automated checks below cover the implementation contracts; they do not
+replace hosted audio, interaction, or compositor-presentation testing.
 
 ## Automated acceptance
 

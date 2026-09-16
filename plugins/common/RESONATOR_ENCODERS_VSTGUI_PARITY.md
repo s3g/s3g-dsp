@@ -93,6 +93,7 @@ independently built Cocoa binaries exactly (maximum sample difference 0).
 
 `scripts/clap-vstgui-resonator-encoders.tsv` contains exactly these three bundles.
 `cmake -P scripts/package-windows-resonator-encoders.cmake` creates a timestamped
-folder and ZIP. `bash scripts/install-vstgui-resonator-encoders.sh --dry-run`
-checks native install scope; running without the flag makes verified recoverable
-backups and a separate receipt. Building/packaging does not install the plugins.
+folder and ZIP. For full-collection Mac installation, follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local).
+Back up existing bundles and preview changes with `--dry-run` before replacing
+them. Building/packaging does not install the plugins.

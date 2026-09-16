@@ -83,15 +83,14 @@ matched the validated build sources. The final Windows package is
 36-plugin manifest, archive integrity and SHA-256 sums were verified.
 
 ```sh
-bash scripts/install-vstgui-menu-rollout.sh --dry-run
-bash scripts/install-vstgui-menu-rollout.sh
 cmake -P scripts/package-windows-vstgui-menu-rollout.cmake
 ```
 
-The scoped installer validates every source and destination before writing,
-copies the previous canonical bundles to a recoverable backup, and verifies
-installed signatures and contents. It uses its own receipt and an empty legacy
-manifest to avoid retiring unrelated plugins or replacing the full-set receipt.
+For full-collection Mac installation, follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local).
+Back up existing bundles before replacing them and preview the changes with
+`--dry-run`. The family/menu manifests remain inputs to the Windows packagers;
+building or packaging does not install plug-ins.
 
 Windows packaging reads the same 36-plugin manifest, checks PE x64/CLAP exports
 and static MinGW runtime linkage, strips only staged copies, merges all runtime

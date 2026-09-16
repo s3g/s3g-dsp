@@ -72,8 +72,9 @@ chunked state streams, automation backpressure/gesture balance, audio and native
 parenting/65–200% resizing. Separate Cocoa/VSTGUI modules are compared with
 `s3g_input_encoder_clap_parity_smoke` for state, metadata, float and double audio.
 
-Scoped installation is separate: `scripts/install-vstgui-stereo-processors.sh`
-validates sources, preserves verified backups and verifies installed bundles.
+Mac installation is separate; follow the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local)
+for the full collection and back up existing bundles before replacing them.
 Windows packaging: `cmake -P scripts/package-windows-stereo-processors.cmake`.
 It verifies x64 PE/export/static-runtime linkage and packages font/license files,
 manual acceptance notes and SHA-256 hashes. Actual Windows REAPER GUI/dialog and

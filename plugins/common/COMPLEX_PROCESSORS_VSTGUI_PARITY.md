@@ -97,15 +97,15 @@ These are macOS and cross-build checks, **not** a Windows REAPER runtime pass.
 Native Windows dialogs, editing/IME, host automation/undo and window behavior
 still need the separate machine. See `COMPLEX_PROCESSORS_WINDOWS_README.txt`.
 
-Install only when requested:
-`bash scripts/install-vstgui-complex-processors.sh [--dry-run]`.
-The installer verifies canonical identities, backs up existing bundles, and
-checks the copied signatures/content. Building does not install.
+For full-collection Mac installation, use the maintained
+[local-build installation guide](../../docs/building-from-source.html#install-local).
+Back up existing bundles and preview the changes with `--dry-run` before
+installation. Building does not install.
 
 Package: `cmake -P scripts/package-windows-complex-processors.cmake`.
 The ZIP checks PE/export/static-runtime linkage and includes SHA-256 hashes,
 font, atlas, instructions and licenses.
 
-Tracker and Ambi Energy are explicitly deferred Mac-only products. Their CLAP
-targets are gated to Apple, and neither is included in this Windows package.
-See `DEFERRED_MAC_ONLY_PLUGINS.md` for the later-release decision.
+This family-specific package does not include Tracker or Ambi Energy. Tracker
+is included in the experimental Windows suite; Ambi Energy remains Mac-only.
+See the current [platform and installation guide](../../docs/installing-plugins.html#windows-suite).
