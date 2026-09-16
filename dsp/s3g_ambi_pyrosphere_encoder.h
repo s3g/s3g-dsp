@@ -7,8 +7,8 @@
 #include "s3g_structural_failure.h"
 #include "s3g_turbulent_flame_jet.h"
 
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
-#include "s3g_pyrosphere_windows_coefficients.h"
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#include "s3g_pyrosphere_coefficients.h"
 #endif
 
 #include <algorithm>
@@ -444,10 +444,10 @@ public:
         const uint32_t ambiChannels = std::min<uint32_t>(
             ambiChannelsForOrder(params_.order), outputChannels);
         const uint32_t voiceCount = processingVoiceCount();
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
         const auto& coefficientMaterial = kAmbiPyrosphereMaterialProfiles[
             std::min<uint32_t>(params_.materialMode, kAmbiPyrosphereMaterialCount - 1u)];
-        const PyrosphereWindowsCoefficients coefficients(
+        const PyrosphereCoefficients coefficients(
             params_, coefficientMaterial, static_cast<float>(sampleRate_));
 #endif
         const float voiceNorm = std::pow(field_.voiceMass(), 0.46f);
@@ -489,7 +489,7 @@ public:
                 for (uint32_t voice = 0u; voice < voiceCount; ++voice) {
                     const float membership = field_.voiceRenderGain(voice);
                     if (membership <= 1.0e-7f) continue;
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
                     float sample = processVoice(voice, coefficients)
 #else
                     float sample = processVoice(voice)
@@ -1027,8 +1027,8 @@ private:
         return std::isfinite(sample) ? sample : 0.0f;
     }
 
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
-    float processVoice(uint32_t index, const PyrosphereWindowsCoefficients& coefficients)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+    float processVoice(uint32_t index, const PyrosphereCoefficients& coefficients)
 #else
     float processVoice(uint32_t index)
 #endif
@@ -1044,7 +1044,7 @@ private:
         const float sr = static_cast<float>(sampleRate_);
         const float dt = 1.0f / sr;
         const float white = randomSigned(voice.rng);
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
         voice.infraNoise += (white - voice.infraNoise) * coefficients.infra;
         voice.subNoise += (white - voice.subNoise) * coefficients.sub;
         voice.slowNoise += (white - voice.slowNoise) * coefficients.slow;
@@ -1284,7 +1284,7 @@ private:
                     * (params_.particles + params_.grit * 0.22f));
         }
 
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
         voice.fractureEnvelope *= coefficients.fracture;
         voice.spallEnvelope *= coefficients.spall;
         voice.debrisEnvelope *= coefficients.debris;
@@ -1315,7 +1315,7 @@ private:
         }
         const float massMode = std::sin(voice.massPhase)
             * voice.massEnvelope;
-#if defined(_WIN32) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_PYRO_COEFFICIENTS_REFERENCE)
         voice.massEnvelope *= coefficients.mass;
 #else
         voice.massEnvelope *= std::exp(-dt

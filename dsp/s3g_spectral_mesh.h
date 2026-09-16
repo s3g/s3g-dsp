@@ -40,8 +40,8 @@ public:
         }
 
         bins_ = fft_.bins();
-#if defined(_WIN32)
-        windowsBandMaskValid_.fill(false);
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
+        bandMaskValid_.fill(false);
 #endif
         const size_t spectrumSize = static_cast<size_t>(channels_) * bins_;
         normalizedFrequency_.assign(bins_, 0.0f);
@@ -675,12 +675,12 @@ private:
     {
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             const auto& params = smoothedLaneParams_[ch];
-#if defined(_WIN32)
-            if (windowsBandMaskValid_[ch] && windowsBandMaskLo_[ch] == params.loFreq
-                && windowsBandMaskHi_[ch] == params.hiFreq) continue;
-            windowsBandMaskLo_[ch] = params.loFreq;
-            windowsBandMaskHi_[ch] = params.hiFreq;
-            windowsBandMaskValid_[ch] = true;
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
+            if (bandMaskValid_[ch] && bandMaskLo_[ch] == params.loFreq
+                && bandMaskHi_[ch] == params.hiFreq) continue;
+            bandMaskLo_[ch] = params.loFreq;
+            bandMaskHi_[ch] = params.hiFreq;
+            bandMaskValid_[ch] = true;
 #endif
             const size_t offset = static_cast<size_t>(ch) * bins_;
             for (uint32_t bin = 0; bin < bins_; ++bin) {
@@ -1333,9 +1333,9 @@ private:
     bool freezeWasActive_ = false;
     bool telemetryEnabled_ = true;
 
-#if defined(_WIN32)
-    std::array<float, kSpectralMeshMaxChannels> windowsBandMaskLo_ {}, windowsBandMaskHi_ {};
-    std::array<bool, kSpectralMeshMaxChannels> windowsBandMaskValid_ {};
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
+    std::array<float, kSpectralMeshMaxChannels> bandMaskLo_ {}, bandMaskHi_ {};
+    std::array<bool, kSpectralMeshMaxChannels> bandMaskValid_ {};
 #endif
     SpectralFftProcessor fft_;
     TopologyState topology_ {};

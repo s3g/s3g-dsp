@@ -3,6 +3,8 @@
 #include "../plugins/common/s3g_sample_family_vstgui.cpp"
 #include "vstgui/lib/coffscreencontext.h"
 #include <iostream>
+#include <chrono>
+#include <limits>
 
 namespace {
 using namespace s3g::portable_gui;
@@ -60,7 +62,9 @@ void click(SampleFamilyView& view, double x, double y)
 }
 } // namespace
 
-int main()
+#include "sample_rings_cache_checks.inc"
+
+int main(int argc, char** argv)
 {
     if (!foundation::acquireRuntime()) return 2;
     bool ok = true;
@@ -144,6 +148,7 @@ int main()
         expect(f.cueDeck == 0 && std::abs(f.cuePosition - .6f) < .001f,
             "Doubles direct cue drag did not retain deck and normalized placement");
     }
+    ok = ringsCacheChecks(argc==2 && std::string(argv[1])=="--benchmark") && ok;
     foundation::releaseRuntime();
     return ok ? 0 : 1;
 }

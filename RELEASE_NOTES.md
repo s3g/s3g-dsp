@@ -40,6 +40,12 @@ number of host entries is larger than the number of installed files.
   handling, preset dialogs, drawing/font caches and native MSVC builds.
   Performance work includes denormal handling, FFT paths and selected heavy
   encoders/processors. These improvements do not eliminate all CPU limits.
+- Shared efficiency improvements bring lower-order basis preparation in Water,
+  Wind and Insect, Pyrosphere coefficient reuse, Formant Matrix weight caching,
+  and Spectral 8/24 frequency-mask reuse to macOS as well as Windows. Sample
+  Doubles no longer rescans sample audio during cursor publication; Sample
+  Rings reuses validated sources and waveform geometry without changing its
+  appearance. Apple silicon continues to use Accelerate for FFT processing.
 
 ## Experimental Windows status and limitations
 

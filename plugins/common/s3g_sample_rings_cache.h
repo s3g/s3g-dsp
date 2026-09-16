@@ -1,7 +1,4 @@
 #pragma once
-#if !defined(_WIN32)
-#error "Windows Sample Rings cache only"
-#endif
 #include "s3g_sample_asset.h"
 #include "vstgui/lib/cdrawcontext.h"
 #include "vstgui/lib/cgraphicspath.h"
@@ -11,14 +8,14 @@
 #include <memory>
 
 namespace s3g::portable_gui {
-struct WindowsRingsAssetCache {
+struct RingsAssetCache {
     std::shared_ptr<const sample::SampleAsset> owner;
     bool valid = false;
 };
 
 // Cache device-independent vector geometry, not pixels: the host's normal
 // transform and antialiasing still apply at every supported editor size/DPI.
-struct WindowsRingsPathCache {
+struct RingsPathCache {
     const sample::SampleAsset* asset = nullptr;
     uint32_t channel = 0;
     double radius = 0, pitch = 0, nudge = 0;

@@ -1,4 +1,4 @@
-#include "s3g_windows_encoder_basis.h"
+#include "s3g_ambi_encoder_basis.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -20,7 +20,7 @@ int main(){
         for(auto direction:directions){
             const auto reference=s3g::acnSn3dBasis7(direction);
             for(unsigned channels=0;channels<=64;++channels){
-                const auto candidate=s3g::windowsEncoderBasis(direction,channels);
+                const auto candidate=s3g::ambiEncoderBasisForChannels(direction,channels);
                 for(unsigned c=0;c<channels;++c){++checked;if(std::memcmp(&reference[c],&candidate[c],sizeof(float))){std::fprintf(stderr,"FAIL channels=%u coefficient=%u rounding=%u\n",channels,c,rounding);return 1;}}
             }
         }
@@ -31,7 +31,7 @@ int main(){
         std::vector<double> elapsed[2];
         for(unsigned batch=0;batch<24;++batch)for(unsigned execution=0;execution<2;++execution){
             const unsigned m=(batch+execution)&1;const auto start=Clock::now();
-            for(unsigned n=0;n<4096;++n){const auto p=directions[(n+batch)%directions.size()];const auto b=m?s3g::windowsEncoderBasis(p,channels):s3g::acnSn3dBasis7(p);sink=sink+b[n%channels];}
+            for(unsigned n=0;n<4096;++n){const auto p=directions[(n+batch)%directions.size()];const auto b=m?s3g::ambiEncoderBasisForChannels(p,channels):s3g::acnSn3dBasis7(p);sink=sink+b[n%channels];}
             elapsed[m].push_back(std::chrono::duration<double,std::milli>(Clock::now()-start).count());
         }
         for(auto& e:elapsed)std::sort(e.begin(),e.end());

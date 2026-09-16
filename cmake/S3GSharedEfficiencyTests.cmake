@@ -1,0 +1,30 @@
+if(NOT BUILD_TESTING OR NOT (APPLE OR WIN32))
+  return()
+endif()
+
+add_library(s3g_shared_efficiency_reference OBJECT tests/shared_efficiency_adapter.cpp)
+target_link_libraries(s3g_shared_efficiency_reference PRIVATE s3g_dsp)
+target_compile_definitions(s3g_shared_efficiency_reference PRIVATE S3G_DSP_EFFICIENCY_REFERENCE=1)
+add_executable(s3g_shared_efficiency_dsp
+  tests/shared_efficiency_tests.cpp tests/shared_efficiency_adapter.cpp
+  $<TARGET_OBJECTS:s3g_shared_efficiency_reference>)
+target_link_libraries(s3g_shared_efficiency_dsp PRIVATE s3g_dsp)
+if(APPLE)
+  target_link_libraries(s3g_shared_efficiency_dsp PRIVATE "-framework Accelerate")
+endif()
+add_test(NAME s3g_shared_efficiency_dsp COMMAND s3g_shared_efficiency_dsp)
+set_tests_properties(s3g_shared_efficiency_dsp PROPERTIES LABELS "non_nim;efficiency;dsp" TIMEOUT 300)
+
+if(S3G_BUILD_CLAP_PLUGIN AND S3G_BUILD_SAMPLE_DOUBLES_PREVIEW)
+  add_executable(s3g_shared_efficiency_doubles tests/shared_efficiency_doubles.cpp)
+  target_include_directories(s3g_shared_efficiency_doubles PRIVATE "${S3G_CLAP_INCLUDE_DIR}")
+  target_link_libraries(s3g_shared_efficiency_doubles PRIVATE s3g_dsp Threads::Threads)
+  if(APPLE)
+    set_source_files_properties(tests/shared_efficiency_doubles.cpp PROPERTIES LANGUAGE OBJCXX)
+    target_compile_options(s3g_shared_efficiency_doubles PRIVATE -fobjc-arc)
+    target_link_libraries(s3g_shared_efficiency_doubles PRIVATE
+      "-framework Cocoa" "-framework AVFoundation" "-framework QuartzCore")
+  endif()
+  add_test(NAME s3g_shared_efficiency_doubles COMMAND s3g_shared_efficiency_doubles)
+  set_tests_properties(s3g_shared_efficiency_doubles PROPERTIES LABELS "non_nim;efficiency;sample" TIMEOUT 60)
+endif()

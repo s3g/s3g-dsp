@@ -4091,3 +4091,10 @@ if(BUILD_TESTING AND WIN32)
   target_compile_features(s3g_windows_spectral_butterflies PRIVATE cxx_std_17)
   add_test(NAME s3g_windows_spectral_butterflies COMMAND s3g_windows_spectral_butterflies)
 endif()
+
+include(cmake/S3GSharedEfficiencyTests.cmake)
+
+if(WIN32 AND BUILD_TESTING AND S3G_BUILD_CLAP_PLUGIN)
+  include(cmake/S3GWindowsPrerelease.cmake)
+  s3g_add_windows_prerelease_target()
+endif()

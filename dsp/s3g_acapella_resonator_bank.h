@@ -2016,11 +2016,11 @@ private:
                 centerFrequencies_[band] = top;
             }
         }
-#if defined(_WIN32)
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
         // Frequency-dependent weights change only with the band layout/rate.
         for (uint32_t zone = 0u; zone < 3u; ++zone)
             for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band)
-                windowsConsonantWeights_[zone][band] = consonantZoneWeight(zone, centerFrequencies_[band]);
+                consonantWeights_[zone][band] = consonantZoneWeight(zone, centerFrequencies_[band]);
 #endif
         const float analysisQ = analysisStageQ(params_);
         for (uint32_t band = 0u; band < kAcapellaResonatorBands; ++band) {
@@ -2360,8 +2360,8 @@ private:
         float weighted = 0.0f;
         float weight = 0.0f;
         for (uint32_t zone = 0u; zone < 3u; ++zone) {
-#if defined(_WIN32)
-            const float zoneWeight = windowsConsonantWeights_[zone][band];
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
+            const float zoneWeight = consonantWeights_[zone][band];
 #else
             const float zoneWeight = consonantZoneWeight(
                 zone, centerFrequencies_[band]);
@@ -2639,8 +2639,8 @@ private:
             float zoneWeightSum = 0.0f;
             float zoneFlux = 0.0f;
             for (uint32_t band = 0u; band < activeBands; ++band) {
-#if defined(_WIN32)
-                const float weight = windowsConsonantWeights_[zone][band];
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
+                const float weight = consonantWeights_[zone][band];
 #else
                 const float weight = consonantZoneWeight(
                     zone, centerFrequencies_[band]);
@@ -2939,8 +2939,8 @@ private:
         return lerp(blurredEnvelope_[band], capture, smoothed_.freeze);
     }
 
-#if defined(_WIN32)
-    std::array<std::array<float, kAcapellaResonatorBands>, 3u> windowsConsonantWeights_ {};
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE)
+    std::array<std::array<float, kAcapellaResonatorBands>, 3u> consonantWeights_ {};
 #endif
     void mapEnvelope()
     {

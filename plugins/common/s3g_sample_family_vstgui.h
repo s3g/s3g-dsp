@@ -4,9 +4,7 @@
 #include "s3g_sample_cursor_clock.h"
 
 #include <cstdint>
-#if defined(_WIN32)
 #include <memory>
-#endif
 
 namespace s3g::portable_gui {
 
@@ -150,10 +148,9 @@ struct SampleFamilyEditorCallbacks {
 
     uint32_t (*getSampleSlotCount)(void*) = nullptr;
     const s3g::sample::SampleAsset* (*getAsset)(void*, uint32_t) = nullptr;
-#if defined(_WIN32)
-    // Optional immutable ownership for per-editor Windows drawing caches.
-    std::shared_ptr<const s3g::sample::SampleAsset> (*getWindowsOwnedAsset)(void*, uint32_t) = nullptr;
-#endif
+    // Optional immutable ownership for per-editor drawing caches. Asset
+    // contents must not mutate while this shared ownership is held.
+    std::shared_ptr<const s3g::sample::SampleAsset> (*getOwnedAsset)(void*, uint32_t) = nullptr;
     const char* (*getSamplePath)(void*, uint32_t) = nullptr;
     const char* (*getSampleStatus)(void*, uint32_t) = nullptr;
     bool (*loadSample)(void*, uint32_t, const char*) = nullptr;

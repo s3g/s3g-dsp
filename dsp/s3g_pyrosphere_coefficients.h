@@ -5,15 +5,15 @@
 
 namespace s3g {
 
-// Windows render-span constants. Recomputed inside process(), under the same
+// Render-span constants. Recomputed inside process(), under the same
 // floating-point mode as the voices, so parameter/sample-rate changes need no
 // persistent cache invalidation and sample-accurate CLAP spans stay independent.
-struct PyrosphereWindowsCoefficients {
+struct PyrosphereCoefficients {
     float infra, sub, slow, mid, air;
     float fracture, spall, debris, fragment, pressure, force, mass;
 
     template<class Params, class Material>
-    PyrosphereWindowsCoefficients(const Params& p, const Material& material, float sr)
+    PyrosphereCoefficients(const Params& p, const Material& material, float sr)
     {
         const float dt = 1.0f / sr;
         const float infraHz = 2.4f + (1.0f - p.body) * 5.6f

@@ -6,9 +6,7 @@
 #include "s3g_parameter_surface.h"
 #include "s3g_realtime.h"
 
-#if defined(_WIN32) && !defined(S3G_WINDOWS_ENCODER_BASIS_REFERENCE)
-#include "s3g_windows_encoder_basis.h"
-#endif
+#include "s3g_ambi_encoder_basis.h"
 
 #include <algorithm>
 #include <array>
@@ -409,8 +407,8 @@ public:
             std::array<float, kAmbiWindMaxVoices> distGain {};
             for (uint32_t v = 0u; v < voices; ++v) {
                 directions[v] = directionFromAed(points_[v].azimuthDeg, points_[v].elevationDeg);
-#if defined(_WIN32) && !defined(S3G_WINDOWS_ENCODER_BASIS_REFERENCE)
-                basis[v] = windowsEncoderBasis(directions[v], ambiChannels);
+#if !defined(S3G_DSP_EFFICIENCY_REFERENCE) && !defined(S3G_WINDOWS_ENCODER_BASIS_REFERENCE)
+                basis[v] = ambiEncoderBasisForChannels(directions[v], ambiChannels);
 #else
                 basis[v] = acnSn3dBasis7(directions[v]);
 #endif

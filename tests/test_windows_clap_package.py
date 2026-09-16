@@ -2,7 +2,10 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
+import shutil
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,6 +18,96 @@ SPEC.loader.exec_module(PACKAGE)
 
 
 class WindowsPackageTests(unittest.TestCase):
+    def test_release_build_preset_uses_complete_platform_target(self):
+        presets = json.loads((ROOT / "CMakePresets.json").read_text())
+        windows = next(item for item in presets["buildPresets"]
+                       if item["name"] == "clap-windows-release")
+        self.assertEqual(windows["targets"], ["s3g_windows_prerelease"])
+        mac = next(item for item in presets["buildPresets"]
+                   if item["name"] == "clap-release")
+        self.assertNotIn("targets", mac)
+
+    @unittest.skipUnless(shutil.which("cmake"), "CMake unavailable")
+    def test_windows_release_target_builds_plugins_and_selected_regressions(self):
+        helper = ROOT / "cmake/S3GWindowsPrerelease.cmake"
+        workflow = (ROOT / ".github/workflows/windows-prerelease.yml").read_text()
+        selection = re.search(r'-R "([^"]+)"', workflow).group(1)
+        self.assertIn(f'target MATCHES "{selection}"', helper.read_text())
+        self.assertIn(f'-R "{selection}"',
+                      (ROOT / "docs/building-from-source.html").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, build = root / "source", root / "build"
+            source.mkdir()
+            (source / "ok.cpp").write_text("int main() { return 0; }\n")
+            (source / "unported.cpp").write_text('#error "Not part of this release target"\n')
+            test_helper = '''
+function(regression target)
+  add_executable(${target} "${PROJECT_SOURCE_DIR}/ok.cpp")
+  add_test(NAME ${target} COMMAND ${target})
+endfunction()
+'''
+            (source / "CMakeLists.txt").write_text(f'''
+cmake_minimum_required(VERSION 3.20)
+project(release_target_fixture LANGUAGES CXX)
+enable_testing()
+{test_helper}
+regression(s3g_windows_dsp_float_mode)
+regression(s3g_vstgui_windows_font_smoke)
+regression(s3g_spectral_windows_fft)
+regression(s3g_nim_windows_bit_scan)
+regression(s3g_shared_efficiency_dsp)
+regression(s3g_sample_family_interaction_smoke)
+add_executable(s3g_clap_realtime_audit unported.cpp)
+add_executable(s3g_stereo_conduit_canvas_smoke unported.cpp)
+add_subdirectory(tracker)
+add_subdirectory(plugins/clap_example)
+add_subdirectory(plugins/clap_tracker)
+include("{helper.as_posix()}")
+s3g_add_windows_prerelease_target()
+''')
+            for relative, contents in {
+                "tracker": '''
+regression(s3g_tracker_core_tests)
+add_executable(s3g_tracker_starter_pack_generator "${PROJECT_SOURCE_DIR}/ok.cpp")
+add_test(NAME s3g_tracker_starter_pack_generator_tests COMMAND s3g_tracker_starter_pack_generator)
+''',
+                "plugins/clap_example": '''
+foreach(target example_8 example_24)
+  add_library(${target} MODULE "${PROJECT_SOURCE_DIR}/ok.cpp")
+  set_target_properties(${target} PROPERTIES PREFIX "" SUFFIX ".clap")
+endforeach()
+regression(s3g_macro_delay_windows_clap_smoke)
+add_executable(example_unported_tool "${PROJECT_SOURCE_DIR}/unported.cpp")
+''',
+                "plugins/clap_tracker": '''
+add_library(s3g_tracker_clap MODULE "${PROJECT_SOURCE_DIR}/ok.cpp")
+set_target_properties(s3g_tracker_clap PROPERTIES PREFIX "" OUTPUT_NAME "s3g_tracker" SUFFIX ".clap")
+regression(s3g_tracker_windows_clap_smoke)
+''',
+            }.items():
+                folder = source / relative
+                folder.mkdir(parents=True)
+                (folder / "CMakeLists.txt").write_text(contents)
+
+            def run(*command):
+                result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                return result.stdout
+
+            run("cmake", "-S", str(source), "-B", str(build))
+            run("cmake", "--build", str(build), "--config", "Release",
+                "--target", "s3g_windows_prerelease", "--parallel", "2")
+            self.assertEqual({path.name for path in build.rglob("*.clap")},
+                             {"example_8.clap", "example_24.clap", "s3g_tracker.clap"})
+            tests = json.loads(run("ctest", "--test-dir", str(build), "-C", "Release",
+                                   "--show-only=json-v1", "-R", selection))["tests"]
+            self.assertEqual(len(tests), 10)
+            for test in tests:
+                self.assertTrue(Path(test["command"][0]).is_file(), test["name"])
+            run("ctest", "--test-dir", str(build), "-C", "Release",
+                "--output-on-failure", "--no-tests=error", "-R", selection)
+
     def test_complete_manifest_excludes_only_energy(self):
         inventory = PACKAGE.windows_inventory(ROOT / "scripts/clap-bundles.tsv")
         self.assertEqual(len(inventory), 121)

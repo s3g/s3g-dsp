@@ -33,7 +33,7 @@ jobs:
         run: >-
           ctest --test-dir build-clap-windows-release -C Release
           --output-on-failure --no-tests=error --timeout 300
-          -R "^(s3g_windows_|s3g_tracker_|s3g_macro_delay_windows_clap_smoke)"
+          -R "^(s3g_windows_|s3g_tracker_|s3g_[a-z0-9_]*_windows_|s3g_shared_efficiency_|s3g_sample_family_interaction_smoke$)"
       - name: Package and verify runtime descriptors and extracted archive
         run: python scripts/package-windows-clap-prerelease.py
       - name: Preserve test evidence

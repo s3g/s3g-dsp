@@ -214,7 +214,8 @@
     {
       "name": "clap-windows-release",
       "configurePreset": "clap-windows-release",
-      "configuration": "Release"
+      "configuration": "Release",
+      "targets": ["s3g_windows_prerelease"]
     },
     {
       "name": "clap-windows-cross",

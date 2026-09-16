@@ -25,12 +25,11 @@ using namespace s3g::tracker::editor;
                                 field:(std::size_t)field;
 @end
 
-int trackerCocoaParity(MainPageView& page, app::TrackerViewState& state)
+static int compareCocoa(MainPageView& page, app::TrackerViewState& state,
+    app::TrackerViewState& nativeState, app::WorkspaceCallbacks& callbacks)
 {
     const auto saved = state;
-    app::TrackerViewState nativeState = state;
     state.sequenceColumnsExpanded = nativeState.sequenceColumnsExpanded = true;
-    app::WorkspaceCallbacks callbacks;
     S3GTrackerWorkspaceController* native =
         [[S3GTrackerWorkspaceController alloc] initWithState:&nativeState callbacks:&callbacks];
     (void)native.view;
@@ -247,4 +246,16 @@ int trackerCocoaParity(MainPageView& page, app::TrackerViewState& state)
     std::cout << "Tracker direct Cocoa comparison: " << grammarChecks << " grammar / "
               << operationChecks << " selection-operation / " << keyChecks << " keyboard cases\n";
     return failures;
+}
+
+int trackerCocoaParity(MainPageView& page, app::TrackerViewState& state)
+{
+    app::TrackerViewState nativeState = state;
+    app::WorkspaceCallbacks callbacks;
+    // The reference views borrow these C++ objects. Drain their autoreleased
+    // windows/views while the owners still exist, before the caller next pumps
+    // AppKit tracking-area updates on the portable page.
+    @autoreleasepool {
+        return compareCocoa(page, state, nativeState, callbacks);
+    }
 }
