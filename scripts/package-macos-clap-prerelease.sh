@@ -9,7 +9,7 @@ legacy_manifest="$repo_root/scripts/clap-legacy-bundles.tsv"
 manifest_checker="$repo_root/scripts/check-clap-bundle-manifest.py"
 objc_symbol_checker="$repo_root/scripts/check-clap-objc-symbols.py"
 package_verifier="$repo_root/scripts/verify-macos-clap-package.py"
-release_version="${S3G_RELEASE_VERSION:-0.9.0-pre}"
+release_version="${S3G_RELEASE_VERSION:-0.10.0-pre}"
 release_date="${S3G_RELEASE_DATE:-$(date +%F)}"
 codesign_identity="${S3G_CODESIGN_IDENTITY:--}"
 allow_dirty="${S3G_PACKAGE_ALLOW_DIRTY:-0}"
@@ -18,7 +18,7 @@ final_staging="$dist_root/$package_name"
 zip_path="$dist_root/$package_name.zip"
 checksum_path="$zip_path.sha256"
 expected_bundle_count=122
-expected_descriptor_count=128
+expected_descriptor_count=129
 
 codesign_args=(--force --deep --sign "$codesign_identity")
 if [[ "$codesign_identity" != "-" ]]; then
@@ -41,6 +41,12 @@ fi
 if [[ "$allow_dirty" != "0" && "$allow_dirty" != "1" ]]; then
   echo "S3G_PACKAGE_ALLOW_DIRTY must be 0 or 1" >&2
   exit 2
+fi
+
+if [[ -e "$final_staging" || -e "$zip_path" || -e "$checksum_path" ]]; then
+  echo "Refusing to replace an existing package: $package_name" >&2
+  echo "Preserve the previous package and choose a new package name for another rehearsal." >&2
+  exit 1
 fi
 
 if [[ ! -d "$build_dir_input" ]]; then
@@ -117,7 +123,7 @@ if [[ "$bundle_count" -ne "$expected_bundle_count" ]]; then
 fi
 
 echo "Building exact Release artifact tree: $build_dir"
-cmake --build "$build_dir" --config Release --parallel
+cmake --build "$build_dir" --config Release --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-4}"
 cache_project_version="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "$cache")"
 if [[ -z "$cache_project_version" ]]; then
   echo "Release CMake cache has no project version: $cache" >&2
@@ -355,8 +361,11 @@ python3 "$package_verifier" "$candidate_zip" \
 (cd "$package_work_root" && shasum -a 256 "$package_name.zip" > "$package_name.zip.sha256")
 
 # Publish only after both the staging tree and independently extracted archive
-# pass. A failed build or verification leaves the previous package untouched.
-rm -rf "$final_staging" "$zip_path" "$checksum_path"
+# pass. Never remove a previous package, including one created during the build.
+if [[ -e "$final_staging" || -e "$zip_path" || -e "$checksum_path" ]]; then
+  echo "Package destination appeared during the build; refusing to replace it." >&2
+  exit 1
+fi
 mv "$staging" "$final_staging"
 mv "$candidate_zip" "$zip_path"
 mv "$candidate_checksum" "$checksum_path"

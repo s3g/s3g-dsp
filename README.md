@@ -3,17 +3,20 @@
 A pre-release collection of CLAP audio plugins for multichannel and ambisonic
 work in REAPER.
 
-The packaged release supports Apple silicon (`arm64`) Macs. Other platforms,
-Intel Macs, DAWs, and plugin formats are not currently supported. Plugin names,
-parameters, and saved-state formats may change before a stable release.
+The `0.10.0-pre` packages target REAPER on Apple silicon (`arm64`) Macs and
+**experimental Windows x64**. Windows testing has used Windows 10; Windows 11
+is not yet validated. Intel Macs, native Windows ARM64, other DAWs, and other
+plugin formats are not validated targets. Plugin names, parameters, and
+saved-state formats may change before a stable release.
 
 Full documentation, plugin guides, routing notes, and build instructions:
 <https://s3g.github.io/s3g-dsp/>.
 
-## Install
+## Install on Mac
 
-The packaged pre-release supports REAPER on Apple silicon (`arm64`) Macs. It is
-not notarized, so macOS requires one Gatekeeper approval for the installer.
+The packaged pre-release targets REAPER on Apple silicon (`arm64`) Macs with
+macOS 15.0 or newer (tested on 15.7.4). It is not notarized, so macOS requires
+one Gatekeeper approval for the installer.
 
 1. Quit REAPER, download the macOS CLAP zip from the
    [GitHub releases page](https://github.com/s3g/s3g-dsp/releases), and unzip
@@ -38,9 +41,10 @@ for the same approval process. If a binary is unavailable, see
 ~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/
 ```
 
-On upgrades, the installer moves identity-verified older s3g-dsp
-bundles—including copies in the former top-level CLAP location—to a timestamped
-backup. Other CLAP products are untouched.
+Back up your current plug-ins before upgrading. The installer replaces current
+canonical bundles and moves verified renamed/retired aliases—including copies
+in the former top-level CLAP location—to a timestamped backup. Other CLAP
+products are untouched.
 
 The installer verifies each bundle, removes only `com.apple.quarantine` from
 its staged s3g-dsp copies, and preserves other extended attributes. It writes
@@ -52,7 +56,7 @@ REAPER should not show a separate Gatekeeper dialog for each plugin afterward.
 
 Use this only for a fresh manual install; it cannot migrate older top-level
 copies or retire renamed aliases. In Terminal, type `cd` followed by a space,
-drag the unzipped `s3g-dsp-macos-clap-0.9.0-pre` folder from Finder into the
+drag the unzipped `s3g-dsp-macos-clap-0.10.0-pre` folder from Finder into the
 Terminal window, and press Return. Then run:
 
 ```sh
@@ -77,9 +81,24 @@ done
 For more detail, see the
 [installation guide](https://s3g.github.io/s3g-dsp/installing-plugins.html).
 
-Release downloads contain the CLAP collection only. Experimental standalone
+## Install on Windows (experimental)
+
+1. Quit REAPER and extract the complete
+   `s3g-dsp-windows-x64-clap-0.10.0-pre-experimental.zip` to a fresh folder.
+2. Add that folder to REAPER's CLAP search paths and rescan. Keep the `.clap`
+   files beside the shared `Resources` folder, including fonts and licenses.
+   No system font installation or Mac installer is needed.
+3. Keep older packages outside the scan paths as backups to avoid duplicate
+   CLAP identifiers. Test with a disposable project and conservative levels.
+
+Mac includes 122 bundles / 129 plug-in descriptors; Windows includes 121 files /
+128 descriptors. **Ambi Energy remains Mac-only.** Heavy ambisonic configurations
+can overload older CPUs; the tested i7-4510U / 8 GB laptop is not a recommended
+minimum specification. See the packaged README and [release notes](RELEASE_NOTES.md).
+
+Current release downloads contain the CLAP collection only. Experimental standalone
 application targets remain available in the source tree but are not packaged
-or published as releases.
+for this release; Tracker's standalone app has been retired.
 
 ## Build From Source
 

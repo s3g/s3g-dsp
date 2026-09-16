@@ -28,7 +28,7 @@
 
         <p>Use this procedure to build the s3g-dsp CLAP plugins from source. Because this is pre-release software, plugin names, parameters, saved states, and included plugins may change.</p>
 
-        <p>The packaged pre-release targets macOS with REAPER. There is also a <a href="#windows-suite">consolidated Windows x64 test package</a>, with Ambi Energy excluded. See <a href="#tracker-builds">Tracker VSTGUI builds</a> for Tracker's focused build options and acceptance limits.</p>
+        <p>The prerelease targets REAPER on Apple silicon macOS and <a href="#windows-suite">experimental Windows x64</a>, with Ambi Energy excluded on Windows. See <a href="#tracker-builds">Tracker VSTGUI builds</a> for Tracker's focused build options and acceptance limits.</p>
 
         <h2 id="requirements">Requirements</h2>
 
@@ -121,9 +121,16 @@ ctest --test-dir build-tracker-windows -C Release -R "^s3g_tracker_" --output-on
 
         <p>Windows remains a test target pending native REAPER acceptance, including DPI scaling, detached tools, keyboard focus, Unicode file paths, project recall, and MIDI/display synchronization. A successful compile or mock-host smoke check is not that acceptance. See the <a href="s3g-tracker.html#platforms">Tracker platform guide</a> and <code>plugins/common/TRACKER_WINDOWS_README.txt</code>.</p>
 
-        <h2 id="windows-suite">Consolidated Windows Test Package</h2>
+        <h2 id="windows-suite">Windows Prerelease and Test Packages</h2>
 
-        <p>The current suite contains 121 canonical CLAP files: every entry in <code>scripts/clap-bundles.tsv</code> except <code>s3g_analyzer_ambi_energy_64.clap</code>. Ambi Energy's separate renderer prototype is not a Windows plug-in. This is a development test package, not an accepted Windows release.</p>
+        <p>The Windows suite contains 121 canonical CLAP files exposing 128 descriptors: every entry in <code>scripts/clap-bundles.tsv</code> except <code>s3g_analyzer_ambi_energy_64.clap</code>. Ambi Energy's separate renderer prototype is not a Windows plug-in. Windows downloads are explicitly experimental.</p>
+        <p>For a native prerelease build, install Visual Studio's x64 C++ build tools and Windows SDK, CMake 3.25 or newer, Git, and 64-bit Python 3.10 or newer. The preset lets CMake select the installed Visual Studio toolchain. From a clean, committed checkout:</p>
+        <pre><code>cmake --preset clap-windows-release
+cmake --build --preset clap-windows-release --parallel 4
+ctest --test-dir build-clap-windows-release -C Release --output-on-failure --no-tests=error --timeout 300 -R "^(s3g_windows_|s3g_tracker_|s3g_macro_delay_windows_clap_smoke)"
+python scripts/package-windows-clap-prerelease.py</code></pre>
+        <p>The native packager requires Release x64 with the static MSVC runtime, rebuilds every manifest target, checks PE architecture and CLAP exports, loads all runtime descriptors, merges resources only when identical, and verifies the extracted ZIP. It refuses a dirty source tree or existing output. <code>--allow-dirty</code> is only for explicitly named rehearsal archives. The result is <code>dist/s3g-dsp-windows-x64-clap-0.10.0-pre-experimental.zip</code> and its SHA-256 file. The manually dispatched <code>Experimental Windows prerelease</code> GitHub Actions workflow builds and uploads these candidate assets; it does not create tags or publish a release. Native REAPER testing of the exact archive remains a separate gate.</p>
+        <p>The older cross-build route remains useful for development snapshots; it does not exercise MSVC-specific optimizations:</p>
         <p>From a Mac with MinGW-w64 on PATH, configure the cross-build with the full component set, Tracker, Sample Slicer, testing, and WORLD enabled. The older pilot preset alone disables some of these options:</p>
         <pre><code>cmake --preset clap-windows-cross \
   -DS3G_BUILD_FUTURE_COMPONENTS=ON \
@@ -282,7 +289,7 @@ python3 scripts/check-docs.py
 
         <p>The archive is written to <code>dist/</code> and includes every manifest-listed CLAP product, <code>Install s3g-dsp CLAPs.command</code>, the active and legacy manifests, VOT wavetables, the Ambi Vox demo voicebank, the project license, and third-party notices. Packaging rebuilds and consumes <code>build-clap-release/plugins/</code> by default, verifies that its CMake cache names this source tree and a Release configuration, and refuses a dirty source tree. Use <code>S3G_CLAP_BUILD_DIR</code> to select another verified Release build of this source tree; <code>S3G_PACKAGE_ALLOW_DIRTY=1</code> is reserved for explicitly non-final test packages. Packaging and local installation consume the same manifest, so the archive inventory, installed filenames, and generated product list cannot drift independently.</p>
 
-        <p>Before signing, the packager synchronizes each staged bundle's version metadata from its runtime CLAP descriptor; component versions remain independent of the suite archive version. It then requires exactly 119 manifest IDs and 125 unique runtime descriptors, arm64-only executables, matching descriptor, plist, ID, and host-name metadata, valid bundle signatures, and a successful isolated installer dry-run. The same checks run again after extracting the finished zip, and a <code>.zip.sha256</code> checksum is written beside it. Bundles are ad-hoc signed by default for integrity verification. Set <code>S3G_CODESIGN_IDENTITY</code> to a Developer ID Application identity to enable hardened runtime and a secure timestamp, and set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. A public release that opens without manual Gatekeeper approval must also be submitted to Apple notarization; a separately signed and notarized installer package is the preferred distribution path.</p>
+        <p>The <code>clap-release</code> preset enables the completed VSTGUI migrations, including Tracker's portable shell and all ten pages. Before signing, the packager synchronizes each staged bundle's version metadata from its runtime CLAP descriptor; component versions remain independent of the suite archive version. It then requires exactly 122 manifest IDs and 129 unique runtime descriptors, arm64-only executables, matching descriptor, plist, ID, and host-name metadata, valid bundle signatures, and a successful isolated installer dry-run. The same checks run again after extracting the finished zip, and a <code>.zip.sha256</code> checksum is written beside it. Bundles are ad-hoc signed by default for integrity verification. Set <code>S3G_CODESIGN_IDENTITY</code> to a Developer ID Application identity to enable hardened runtime and a secure timestamp, and set <code>S3G_RELEASE_VERSION</code> and <code>S3G_RELEASE_DATE</code> to override the pre-release metadata. A public release that opens without manual Gatekeeper approval must also be submitted to Apple notarization; a separately signed and notarized installer package is the preferred distribution path.</p>
 
         <h2 id="cleanup">Cleanup</h2>
 

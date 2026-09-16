@@ -1,0 +1,54 @@
+name: Experimental Windows prerelease
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: free-audio/clap
+          ref: '1.2.6'
+          path: build-release-clap-sdk
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Release-tooling tests
+        run: python -m unittest discover -s tests -p "test_*clap*package*.py"
+      - name: Configure full native suite
+        run: >-
+          cmake --preset clap-windows-release
+          -DS3G_TRACKER_CLAP_TEST_INCLUDE_DIR=${{ github.workspace }}/build-release-clap-sdk/include
+      - name: Build plugins and regressions
+        run: cmake --build --preset clap-windows-release --parallel 4
+      - name: Windows and portable Tracker regressions
+        run: >-
+          ctest --test-dir build-clap-windows-release -C Release
+          --output-on-failure --no-tests=error --timeout 300
+          -R "^(s3g_windows_|s3g_tracker_|s3g_macro_delay_windows_clap_smoke)"
+      - name: Package and verify runtime descriptors and extracted archive
+        run: python scripts/package-windows-clap-prerelease.py
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-prerelease-test-evidence
+          path: build-clap-windows-release/Testing/Temporary/*.log
+          if-no-files-found: warn
+      - name: Upload candidate release assets (does not publish a GitHub release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: s3g-dsp-windows-x64-prerelease
+          compression-level: 0
+          path: |
+            dist/s3g-dsp-windows-x64-clap-*-experimental.zip
+            dist/s3g-dsp-windows-x64-clap-*-experimental.zip.sha256
+          if-no-files-found: error

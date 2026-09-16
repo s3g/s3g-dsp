@@ -2,8 +2,9 @@ s3g Tracker - Windows x64 CLAP TEST BUILD
 
 STATUS
 All ten existing VSTGUI pages and the MIDI engine are connected to the Win32
-host. This package was cross-built on macOS. Native Windows execution and
-REAPER acceptance are still required; this is not a signed release build.
+host. Builds may be native MSVC or cross-built; see the suite README and source
+provenance for this package's build method and revision. Verify the exact
+archive in REAPER; this remains unsigned, experimental Windows software.
 There is no retired standalone app or built-in synth/sample playback engine.
 Tracker generates MIDI; route its output to an instrument in REAPER.
 

@@ -18,8 +18,6 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 KIT_ROOT = "s3g-dsp-windows-handoff"
 HANDOFF_FILES = {
-    "WINDOWS_CODE_INTEGRATION.md",
-    "WINDOWS_TESTING_HANDOFF.md",
     "scripts/package-windows-handoff.py",
     "scripts/windows-handoff/START_HERE.md",
     "scripts/windows-handoff/CODEX_START_PROMPT.txt",
@@ -117,7 +115,7 @@ def main():
     payload = {}
     for name, metadata in sorted(sources.items()):
         validate_name(name)
-        if any(part in {".git", ".codex", ".agents", ".env"} for part in PurePosixPath(name).parts):
+        if any(part in {".git", ".codex", ".agents", ".env", ".notes"} for part in PurePosixPath(name).parts):
             raise ValueError(f"Private configuration is outside this transfer: {name}")
         path = regular_source(name)
         metadata.update(sha256=sha256_file(path), bytes=path.stat().st_size)

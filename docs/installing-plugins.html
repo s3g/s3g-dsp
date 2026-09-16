@@ -26,7 +26,7 @@
       <main class="content" id="content">
         <h1>Install s3g-dsp CLAP Plugins</h1>
 
-        <p>The packaged pre-release supports REAPER on Apple silicon (<code>arm64</code>) Macs. It is not notarized, so macOS requires one Gatekeeper approval for the installer.</p>
+        <p>The 0.10.0-pre release has Apple silicon (<code>arm64</code>) Mac and <a href="#windows-suite">experimental Windows x64</a> packages for REAPER. The Mac package is not notarized, so macOS requires one Gatekeeper approval for its installer. Windows uses manual folder installation.</p>
 
         <h2 id="download">Download and Install</h2>
 
@@ -44,7 +44,7 @@
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code></pre>
 
-        <p>On upgrades, the installer moves identity-verified older s3g-dsp bundles—including copies in the former top-level CLAP location—to a timestamped backup. Other CLAP products are untouched.</p>
+        <p>Back up your current plug-ins before upgrading. The installer replaces current canonical bundles and moves verified renamed/retired aliases—including copies in the former top-level CLAP location—to a timestamped backup. Other CLAP products are untouched.</p>
 
         <div class="callout">
           <p>The installer verifies each bundle, removes only <code>com.apple.quarantine</code> from its staged s3g-dsp copies, and preserves other extended attributes. It writes to the current user's Library without <code>sudo</code> and does not change global Gatekeeper settings or unrelated plugins.</p>
@@ -53,7 +53,7 @@
 
         <h2 id="manual">Manual Installation</h2>
 
-        <p>Use this only for a fresh manual install; it cannot migrate older top-level copies or retire renamed aliases. In Terminal, type <code>cd</code> followed by a space, drag the unzipped <code>s3g-dsp-macos-clap-0.9.0-pre</code> folder from Finder into the Terminal window, and press Return. Then run:</p>
+        <p>Use this only for a fresh manual install; it cannot migrate older top-level copies or retire renamed aliases. In Terminal, type <code>cd</code> followed by a space, drag the unzipped <code>s3g-dsp-macos-clap-0.10.0-pre</code> folder from Finder into the Terminal window, and press Return. Then run:</p>
 
         <pre><code>destination="$HOME/Library/Audio/Plug-Ins/CLAP/s3g-dsp"
 mkdir -p "$destination"
@@ -69,9 +69,9 @@ done</code></pre>
         <p>The separate Windows x64 Tracker package is a <strong>test build, not an accepted release</strong>. Copy its complete folder to a location in REAPER's CLAP search paths, keeping <code>s3g_tracker.clap</code> beside <code>Resources</code> and retaining the license notices. Run the included <code>run-windows-check.cmd</code> where supplied; it checks the plug-in without installing it and does not replace host testing. Do not use the Mac installer for Windows.</p>
         <p>The bundled fonts need no system-wide installation. Mac font resources live inside the CLAP bundle; Windows resources stay in the sibling Resources folder. See <a href="s3g-tracker.html#platforms">Tracker platforms and fonts</a> and <a href="building-from-source.html#tracker-builds">Tracker source builds</a> for details.</p>
 
-        <h2 id="windows-suite">Consolidated Windows Test Suite</h2>
+        <h2 id="windows-suite">Experimental Windows x64 Suite</h2>
 
-        <p>The <code>s3g-dsp-windows-clap-suite-x64-test-*.zip</code> development package contains 121 plug-ins, including Tracker with VIEW Live Code commands. Ambi Energy is the only excluded inventory entry; its renderer prototype is not a CLAP. This package is for native Windows/REAPER testing, not an accepted Windows release.</p>
+        <p>The <code>s3g-dsp-windows-x64-clap-0.10.0-pre-experimental.zip</code> package contains 121 CLAP files exposing 128 plug-in descriptors, including Tracker with VIEW Live Code commands. Ambi Energy is the only excluded inventory entry; its renderer prototype is not a CLAP. This is an <strong>experimental prerelease</strong>, not a stable Windows release. Testing has used Windows 10 x64 and REAPER; Windows 11 is not yet validated. The earlier timestamped <code>s3g-dsp-windows-clap-suite-x64-test-*.zip</code> files are development snapshots.</p>
         <ol>
           <li>Save your work and quit REAPER. Extract the entire ZIP to a fresh test folder.</li>
           <li>Add that folder to REAPER's CLAP search paths. Keep the <code>.clap</code> files beside the shared <code>Resources</code> directory, with all fonts, atlases, and license notices intact.</li>
@@ -116,7 +116,7 @@ done</code></pre>
           <a href="#location">Location and Safety</a>
           <a href="#manual">Manual Installation</a>
           <a href="#tracker">Tracker Development Builds</a>
-          <a href="#windows-suite">Windows Test Suite</a>
+          <a href="#windows-suite">Windows (Experimental)</a>
           <a href="#troubleshooting">Troubleshooting</a>
         </div>
       </aside>

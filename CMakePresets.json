@@ -34,6 +34,28 @@
       "binaryDir": "${sourceDir}/build-clap-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "S3G_ENABLE_PORTABLE_CLAP_GUI": "ON",
+        "S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS": "ON",
+        "S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_TOPOLOGY_FAMILY_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_ROUTING_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_AMBI_BUS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_AMBI_EFFECTS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_DECODERS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_INPUT_ENCODERS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_MAP_ENCODERS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_CIRCUIT_ENCODERS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_RESONATOR_ENCODERS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_FEEDBACK_PROCESSORS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_MIDI_TOOLS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_COMPLEX_PROCESSORS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_STEREO_PROCESSORS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_SCORE_ENCODERS_VSTGUI_ON_MACOS": "ON",
+        "S3G_ENABLE_ENVIRONMENT_ENCODERS_VSTGUI_ON_MACOS": "ON",
         "S3G_BUILD_CLAP_PLUGIN": "ON",
         "S3G_ENABLE_REALTIME_ALLOC_PROBE": "ON",
         "S3G_BUILD_FUTURE_COMPONENTS": "ON",
@@ -89,6 +111,30 @@
         "S3G_BUILD_FUTURE_COMPONENTS": "OFF",
         "S3G_ENABLE_PORTABLE_CLAP_GUI": "ON",
         "S3G_ENABLE_WORLD": "OFF"
+      }
+    },
+    {
+      "name": "clap-windows-release",
+      "displayName": "Experimental Windows x64 CLAP Prerelease (native MSVC)",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build-clap-windows-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "S3G_BUILD_CLAP_PLUGIN": "ON",
+        "S3G_BUILD_STANDALONE_APPS": "OFF",
+        "S3G_BUILD_FUTURE_COMPONENTS": "ON",
+        "S3G_BUILD_DRUM_OVERLOAD_PREVIEW": "OFF",
+        "S3G_BUILD_TRACKER_PREVIEW": "ON",
+        "S3G_BUILD_RELAY_PREVIEW": "ON",
+        "S3G_BUILD_BREAKBEAT_SLICER_PREVIEW": "ON",
+        "S3G_ENABLE_PORTABLE_CLAP_GUI": "ON",
+        "S3G_ENABLE_WORLD": "ON"
       }
     },
     {
@@ -164,6 +210,11 @@
         "s3g_ambi_stochastic_encoder_clap",
         "s3g_macro_delay_windows_clap_smoke"
       ]
+    },
+    {
+      "name": "clap-windows-release",
+      "configurePreset": "clap-windows-release",
+      "configuration": "Release"
     },
     {
       "name": "clap-windows-cross",

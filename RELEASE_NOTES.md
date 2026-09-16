@@ -1,3 +1,71 @@
+# s3g-dsp 0.10.0-pre
+
+Prepared September 16, 2026. A prerelease for REAPER, with Apple silicon macOS
+and **experimental Windows x64** downloads. Back up important projects and
+existing plug-ins before upgrading; this is not a stable compatibility promise.
+
+## Downloads
+
+- `s3g-dsp-macos-clap-0.10.0-pre.zip`: 122 Apple silicon CLAP bundles exposing
+  129 plug-in descriptors. Includes Ambi Energy. Ad-hoc signed, not notarized;
+  use the included installer and its macOS approval instructions.
+- `s3g-dsp-windows-x64-clap-0.10.0-pre-experimental.zip`: 121 CLAP files exposing
+  128 plug-in descriptors. **Ambi Energy is excluded** while its Windows
+  integration remains unfinished. Extract the complete folder, including
+  `Resources`, and add it to REAPER's CLAP search paths.
+- SHA-256 files accompany both archives. These packages contain CLAP plug-ins,
+  not standalone applications. Tracker's standalone Mac app has been retired.
+
+Some Sample-family files expose more than one channel-width variant, so the
+number of host entries is larger than the number of installed files.
+
+## Changes since 0.9.0-pre
+
+- Portable VSTGUI editors across the converted families on macOS and Windows:
+  shared typography and controls, custom menus, proportional 65–200% resizing,
+  and bundled fonts with fallback handling. No system font installation is
+  required. Ambi Energy retains its Mac-specific interface.
+- New products: **Relay**, **Sample Cutups 2/32**, and **Processor Lowform 2**.
+- Tracker now has a portable multipage CLAP interface, expanded polyphonic and
+  polymetric sequencing, Song arrangement, Phrases, Assemble, Pitch Map,
+  Geometry, Bursts, Warps and Reshape workflows, and updated documentation.
+  VIEW supports the default static grid, scrolling follow and paging in blocks
+  of up to 16 rows,
+  with a selectable lane to follow and corresponding Live Code commands.
+- Sample-family migration preserves waveform and lane displays, grain and
+  breakpoint editing, deck/cursor colors, custom menus and presets. Windows
+  sample import and Unicode file paths are supported. Ambi Grain's sample
+  storage and recall handling have also been updated.
+- Windows fixes cover Tracker page visibility, text entry and clipboard
+  handling, preset dialogs, drawing/font caches and native MSVC builds.
+  Performance work includes denormal handling, FFT paths and selected heavy
+  encoders/processors. These improvements do not eliminate all CPU limits.
+
+## Experimental Windows status and limitations
+
+Windows testing to date has used Windows 10 x64 and REAPER, including an Intel
+Core i7-4510U with 8 GB RAM. That machine is a test reference, **not a recommended
+minimum specification**. Windows 11 and other hosts are not yet validated.
+No native Windows ARM64 or Intel Mac package is provided. The current Mac
+binaries have a macOS 15.0 deployment minimum and were tested on macOS 15.7.4.
+
+High-order/high-density ambisonic processing can exceed older CPUs' realtime
+budgets. If playback drops out, reduce ambisonic order or point/voice counts,
+increase the audio buffer, and compare performance with the editor closed.
+Report the plug-in/preset, OS, REAPER version, CPU, driver, sample rate, buffer
+size and display scale with reproducible issues.
+
+Use a disposable project for first tests, particularly with self-generating
+sound and feedback processors. Verify project recall, automation, file import,
+resizing and MIDI in your own setup before relying on the prerelease. Keep
+older builds outside the host's scan paths for rollback, avoiding duplicate
+CLAP identifiers. Stable plug-in IDs are preserved; component version numbers
+remain independent of this collection's archive version.
+
+Documentation: <https://s3g.github.io/s3g-dsp/>.
+
+---
+
 # s3g-dsp 0.9.0-pre
 
 Apple silicon macOS CLAP collection pre-release, prepared August 27, 2026.

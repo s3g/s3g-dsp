@@ -1,13 +1,14 @@
 We are continuing s3g-dsp testing on Windows 10, Intel Core i7-4510U @ 2.00 GHz,
 8 GB RAM, using REAPER. Windows 11 is not our tested baseline.
 
-Read WINDOWS_TESTING_HANDOFF.md completely before taking task actions. The
-parent folder has SOURCE_SNAPSHOT.json and the exact Windows test packages.
-Source baseline: main, 892e0af704b5316fce6b1c388f96f6c49ed2389b; this is a
-source snapshot without .git, plus new handoff/packaging files. Verify transfer
-hashes before edits. Do not assume the old Mac chat or build caches are present.
-Before making source revisions, also read WINDOWS_CODE_INTEGRATION.md and use
-its fresh-clone, short-lived branch and reviewed integration workflow.
+Read docs/installing-plugins.html, docs/building-from-source.html and the
+README in the selected test package before taking task actions. The parent
+folder has SOURCE_SNAPSHOT.json and the exact Windows test packages. Use that
+manifest for the source baseline; this is a source snapshot without .git.
+Verify transfer hashes before edits. Do not assume private development notes,
+the old Mac chat or build caches are present. For source revisions intended for
+integration, use a separate fresh clone, a short-lived branch and a reviewed
+merge; preserve the supplied snapshot and packages as the testing baseline.
 
 First help me run the supplied Tracker integration checker from an ordinary
 interactive Windows desktop and verify the existing page-visibility correction

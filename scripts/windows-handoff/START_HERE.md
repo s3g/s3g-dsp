@@ -12,16 +12,18 @@
    protections. You can also compare individual files with `Get-FileHash -Algorithm
    SHA256` against `SHA256SUMS.txt`. Verification is for transfer integrity, not
    proof of publisher trust. The separate outer ZIP `.sha256` verifies the archive.
-3. Open `s3g-dsp/WINDOWS_TESTING_HANDOFF.md`. Start with the **prebuilt Tracker
-   page-visibility check**. Compilers are not required for this first test.
+3. Open `s3g-dsp/docs/installing-plugins.html` for Windows installation guidance
+   and follow the README inside the selected test package. Compilers are not
+   required to test prebuilt plug-ins.
 4. For source work, open **`s3g-dsp`** in VS Code with the official OpenAI Codex
    extension, sign in, start a new conversation and paste `CODEX_START_PROMPT.txt`.
 
 Contents:
 
-- `s3g-dsp/`: source snapshot, documentation and build/test scripts; no `.git`.
-- `s3g-dsp/WINDOWS_CODE_INTEGRATION.md`: required Git workflow for source
-  revisions that must merge back into the shared repository.
+- `s3g-dsp/`: source snapshot, public documentation and build/test scripts;
+  no `.git` or private development notes. For revisions intended for integration,
+  use a separate Git clone and a short-lived branch; preserve the snapshot as
+  the testing baseline and review changes before merging.
 - `windows-test-packages/`: latest full suite (121 CLAPs, excluding Ambi Energy)
   and a Tracker-only alternative. **Install only one Tracker copy.**
 - `SOURCE_SNAPSHOT.json`: base commit, working-tree status, source file hashes
