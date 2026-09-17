@@ -97,7 +97,7 @@ GUI_COMMAND_RE = re.compile(
     (?P<width>[0-9]+)[ \t]+
     (?P<height>[0-9]+|\$\{s3g_spectral_24_gui_height\})
     (?:[ \t]+"(?P<prefix>[^"\r\n]+)"[ \t]+
-    (?P<mode>responsive-wide|responsive|proportional|dynamic|fixed|\$\{s3g_(?:macro|sample_player|sample_family|sample_rings|drum|topology|memory_effects|autogain)_gui_smoke_mode\}))?
+    (?P<mode>responsive-wide|responsive|proportional|dynamic|fixed|\$\{s3g_[A-Za-z0-9_]+_gui_smoke_mode\}))?
     [ \t]*(?:\#[^\r\n]*)?$
     """,
     re.VERBOSE,
@@ -246,6 +246,9 @@ def logical_gui_commands(path: Path) -> list[tuple[int, str]]:
                 matched = True
                 index += 1
                 break
+            if candidate.endswith(")"):
+                index += 1
+                break
             index += 1
             if index >= len(lines) or len(parts) >= 8:
                 break
@@ -278,39 +281,65 @@ def cmake_cache_bool(build_dir: Path, name: str, default: bool) -> bool:
     return match.group(1).upper() in {"ON", "TRUE", "1"}
 
 
+CONFIGURED_GUI_MODES = {
+    "${s3g_sample_family_gui_smoke_mode}": (
+        "S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_sample_rings_gui_smoke_mode}": (
+        "S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS", "responsive-wide"
+    ),
+    "${s3g_drum_gui_smoke_mode}": (
+        "S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_topology_gui_smoke_mode}": (
+        "S3G_ENABLE_TOPOLOGY_FAMILY_VSTGUI_ON_MACOS", "responsive-wide"
+    ),
+    "${s3g_memory_effects_gui_smoke_mode}": (
+        "S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_autogain_gui_smoke_mode}": (
+        "S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_decoder_gui_smoke_mode}": (
+        "S3G_ENABLE_DECODERS_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_ambi_effect_gui_smoke_mode}": (
+        "S3G_ENABLE_AMBI_EFFECTS_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_routing_gui_smoke_mode}": (
+        "S3G_ENABLE_ROUTING_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_feedback_processors_gui_smoke_mode}": (
+        "S3G_ENABLE_FEEDBACK_PROCESSORS_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_midi_tools_gui_smoke_mode}": (
+        "S3G_ENABLE_MIDI_TOOLS_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_complex_processors_gui_smoke_mode}": (
+        "S3G_ENABLE_COMPLEX_PROCESSORS_VSTGUI_ON_MACOS", "responsive"
+    ),
+    "${s3g_complex_mixer_gui_smoke_mode}": (
+        "S3G_ENABLE_COMPLEX_PROCESSORS_VSTGUI_ON_MACOS", "responsive-wide"
+    ),
+    "${s3g_stereo_processors_gui_smoke_mode}": (
+        "S3G_ENABLE_STEREO_PROCESSORS_VSTGUI_ON_MACOS", "responsive"
+    ),
+}
+
+
 def resolve_configured_gui_mode(mode: str | None, build_dir: Path) -> str | None:
     portable = cmake_cache_bool(
         build_dir, "S3G_ENABLE_PORTABLE_CLAP_GUI", True
     )
     if mode in {"${s3g_macro_gui_smoke_mode}", "${s3g_sample_player_gui_smoke_mode}"}:
         return "proportional" if portable else "responsive"
-    sample_portable = portable and cmake_cache_bool(
-        build_dir, "S3G_ENABLE_SAMPLE_FAMILY_VSTGUI_ON_MACOS", False
-    )
-    if mode == "${s3g_sample_family_gui_smoke_mode}":
-        return "proportional" if sample_portable else "responsive"
-    if mode == "${s3g_sample_rings_gui_smoke_mode}":
-        return "proportional" if sample_portable else "responsive-wide"
-    if mode == "${s3g_drum_gui_smoke_mode}":
-        drum_portable = portable and cmake_cache_bool(
-            build_dir, "S3G_ENABLE_DRUM_FAMILY_VSTGUI_ON_MACOS", False
-        )
-        return "proportional" if drum_portable else "responsive"
-    if mode == "${s3g_topology_gui_smoke_mode}":
-        topology_portable = portable and cmake_cache_bool(
-            build_dir, "S3G_ENABLE_TOPOLOGY_FAMILY_VSTGUI_ON_MACOS", False
-        )
-        return "proportional" if topology_portable else "responsive-wide"
-    if mode == "${s3g_memory_effects_gui_smoke_mode}":
-        memory_portable = portable and cmake_cache_bool(
-            build_dir, "S3G_ENABLE_MEMORY_EFFECTS_VSTGUI_ON_MACOS", False
-        )
-        return "proportional" if memory_portable else "responsive"
-    if mode == "${s3g_autogain_gui_smoke_mode}":
-        monitoring_portable = portable and cmake_cache_bool(
-            build_dir, "S3G_ENABLE_MONITORING_VSTGUI_ON_MACOS", False
-        )
-        return "proportional" if monitoring_portable else "responsive"
+    configured = CONFIGURED_GUI_MODES.get(mode or "")
+    if configured is not None:
+        option, fallback = configured
+        enabled = portable and cmake_cache_bool(build_dir, option, False)
+        return "proportional" if enabled else fallback
+    if mode is not None and mode.startswith("${s3g_"):
+        raise UsageError(f"unsupported configured GUI smoke mode {mode!r}")
     return mode
 
 
