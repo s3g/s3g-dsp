@@ -13,14 +13,30 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 SCREENSHOT_MANIFEST = ROOT / "scripts" / "doc-screenshot-manifest.tsv"
+CLAP_BUNDLE_MANIFEST = ROOT / "scripts" / "clap-bundles.tsv"
 PLUGIN_GUI_ASSETS = DOCS / "assets" / "plugin-guis"
 PLUGIN_GUI_MASTERS = PLUGIN_GUI_ASSETS / "masters"
 LIGHTBOX_SCRIPT = DOCS / "lightbox.js"
 MANIFEST_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+PLUGIN_INDEX_ENTRY_PATTERN = re.compile(
+    r'<a class="plugin-index-link" href="[^"]+">([^<]+)</a>'
+)
+# These bundles expose a second runtime descriptor. The active bundle manifest
+# records only the primary descriptor used to verify and install each file.
+SECONDARY_PLUGIN_HOST_NAMES = (
+    "s3g Sample Cutups 32",
+    "s3g Sample Grains 32",
+    "s3g Sample Lanes 32",
+    "s3g Sample Motion 32",
+    "s3g Sample Player 16",
+    "s3g Sample Slicer 2",
+    "s3g Sample Wavesets 32",
+)
 EXPECTED_TOP_NAV = [
     "index.html",
     "building-from-source.html",
     "installing-plugins.html",
+    "plugin-index.html",
     "multichannel.html",
     "ambisonics.html",
     "instruments.html",
@@ -285,6 +301,7 @@ DOC_SEQUENCE = [
     "index.html",
     "building-from-source.html",
     "installing-plugins.html",
+    "plugin-index.html",
     "stereo-listening.html",
     "multichannel.html",
     "multichannel-effects.html",
@@ -422,6 +439,7 @@ NON_PRODUCT_PAGE_NAMES = {
     "building-from-source.html",
     "index.html",
     "installing-plugins.html",
+    "plugin-index.html",
     "instruments.html",
     "drums.html",
     "interpreting-color.html",
@@ -840,6 +858,54 @@ def parse_screenshot_manifest(path: Path) -> tuple[dict[str, str], list[str]]:
     return entries, errors
 
 
+def check_plugin_index() -> list[str]:
+    errors: list[str] = []
+    host_names: list[str] = []
+    for line_number, raw_line in enumerate(
+        CLAP_BUNDLE_MANIFEST.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not raw_line or raw_line.startswith("#"):
+            continue
+        fields = raw_line.split("\t")
+        if len(fields) != 4:
+            errors.append(
+                f"{CLAP_BUNDLE_MANIFEST.relative_to(ROOT)}:{line_number}: "
+                "cannot validate plugin index from malformed manifest row"
+            )
+            continue
+        host_names.append(fields[3])
+
+    index_path = DOCS / "plugin-index.html"
+    index_text = index_path.read_text(encoding="utf-8")
+    indexed_names = [
+        unescape(match.group(1)).strip()
+        for match in PLUGIN_INDEX_ENTRY_PATTERN.finditer(index_text)
+    ]
+    expected_names = sorted(
+        (name.removeprefix("s3g ") for name in host_names + list(SECONDARY_PLUGIN_HOST_NAMES)),
+        key=str.casefold,
+    )
+
+    missing_names = sorted(set(expected_names) - set(indexed_names), key=str.casefold)
+    extra_names = sorted(set(indexed_names) - set(expected_names), key=str.casefold)
+    if missing_names:
+        errors.append(
+            "docs/plugin-index.html: missing manifest plugin names: "
+            + ", ".join(missing_names)
+        )
+    if extra_names:
+        errors.append(
+            "docs/plugin-index.html: contains non-manifest plugin names: "
+            + ", ".join(extra_names)
+        )
+    if len(indexed_names) != len(set(indexed_names)):
+        errors.append("docs/plugin-index.html: contains duplicate plugin names")
+    if not missing_names and not extra_names and indexed_names != expected_names:
+        errors.append("docs/plugin-index.html: plugin names are not alphabetized")
+
+    return errors
+
+
 def local_target(source: Path, reference: str) -> tuple[Path, str] | None:
     parts = urlsplit(reference)
     if parts.scheme or parts.netloc or reference.startswith("//"):
@@ -880,6 +946,7 @@ def format_reference_counts(counts: Counter[Path]) -> str:
 def main() -> int:
     pages = {path.resolve(): parse_document(path) for path in sorted(DOCS.glob("*.html"))}
     errors: list[str] = []
+    errors.extend(check_plugin_index())
     local_reference_count = 0
     manifest, manifest_errors = parse_screenshot_manifest(SCREENSHOT_MANIFEST)
     errors.extend(manifest_errors)

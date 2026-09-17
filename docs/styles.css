@@ -101,6 +101,11 @@ a:focus-visible {
   padding: 26px 24px 64px;
 }
 
+.plugin-index-shell {
+  grid-template-columns: minmax(0, 1000px);
+  max-width: 1048px;
+}
+
 .content {
   min-width: 0;
   padding: 26px 34px 40px;
@@ -196,6 +201,38 @@ a:focus-visible {
 
 .content li + li {
   margin-top: 0.25rem;
+}
+
+.plugin-index-list {
+  column-count: 2;
+  column-gap: 2rem;
+  margin: 1rem 0 1.4rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.content .plugin-index-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+}
+
+.content .plugin-index-group + .plugin-index-group {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.content .plugin-index-group li {
+  margin: 0 0 0.35rem;
+}
+
+.plugin-index-link {
+  font-family: "IBM Plex Mono", Monaco, Menlo, "Courier New", monospace;
+  font-size: 12px;
 }
 
 .content .bibliography {
@@ -583,6 +620,10 @@ a:focus-visible {
   .panel-gallery,
   .page-nav {
     grid-template-columns: 1fr;
+  }
+
+  .plugin-index-list {
+    column-count: 1;
   }
 
   .panel-gallery-primary {
