@@ -88,7 +88,8 @@ void drawButton(VSTGUI::CDrawContext& context, const VSTGUI::CRect& bounds,
     VSTGUI::CColor inactiveColor = color(0x484848));
 void drawMenuBox(VSTGUI::CDrawContext& context,
     const VSTGUI::CRect& bounds, const std::string& value,
-    VSTGUI::CFontRef font, const Palette& style = palette());
+    VSTGUI::CFontRef font, const Palette& style = palette(),
+    VSTGUI::CHoriTxtAlign alignment = VSTGUI::kLeftText);
 // Call after the row background/selection fill and before its text. Row zero
 // has no internal rule; subsequent rows retain the original Cocoa separator.
 inline void drawDropdownItemSeparator(VSTGUI::CDrawContext& context,

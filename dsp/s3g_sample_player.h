@@ -49,6 +49,12 @@ struct RenderEvent {
     uint8_t key = 60u;
     float velocity = 1.0f;
     uint8_t midiChannel = 0u;
+    // Optional per-trigger offsets used by instruments that humanize hits.
+    // Plain Sample Player events leave these at their neutral defaults.
+    float gainOffsetDecibels = 0.0f;
+    float fineTuneOffsetCents = 0.0f;
+    double startOffsetNormalized = 0.0;
+    uint8_t variationIndex = 0xffu;
 };
 
 struct VoiceCursor {
@@ -262,7 +268,8 @@ public:
                 if (!voice.active || !voice.asset) continue;
                 const float envelope = voice.envelopeLevel
                     * boundaryFade(voice);
-                const float level = voice.velocityLevel * envelope;
+                const float level = voice.velocityLevel * envelope
+                    * voice.eventGain;
                 const uint32_t sourceChannels = voice.asset->channelCount;
                 const FilterCoefficients filter = makeFilterCoefficients(
                     voice, settings);
@@ -373,6 +380,8 @@ private:
         PitchMode pitchMode = PitchMode::Rate;
         EnvelopeStage envelopeStage = EnvelopeStage::Sustain;
         float velocityLevel = 0.0f;
+        float eventGain = 1.0f;
+        float fineTuneOffsetCents = 0.0f;
         float envelopeLevel = 1.0f;
         float releaseStartLevel = 0.0f;
         float sustainLevel = 1.0f;
@@ -470,11 +479,13 @@ private:
     }
 
     static double pitchRatioFor(uint8_t key, uint8_t rootNote,
-        const PlayerSettings& settings) noexcept
+        const PlayerSettings& settings, float eventFineTuneCents = 0.0f)
+        noexcept
     {
         const float semitones = static_cast<float>(
             static_cast<int>(key) - static_cast<int>(rootNote))
-            + settings.tuneSemitones + settings.fineTuneCents * 0.01f;
+            + settings.tuneSemitones
+            + (settings.fineTuneCents + eventFineTuneCents) * 0.01f;
         return std::pow(2.0, static_cast<double>(semitones) / 12.0);
     }
 
@@ -546,7 +557,8 @@ private:
         const PlayerSettings& settings) const noexcept
     {
         const double target = pitchRatioFor(
-            voice.key, voice.rootNote, settings);
+            voice.key, voice.rootNote, settings,
+            voice.fineTuneOffsetCents);
         if (std::abs(target - voice.targetPitchRatio)
             <= std::max(1.0, target) * 1.0e-12) return;
         const uint32_t smoothingFrames = voice.glideFramesRemaining != 0u
@@ -874,12 +886,27 @@ private:
         if (!asset_) return;
         const uint32_t frames = asset_->frameCount();
         if (frames == 0u) return;
-        const uint32_t start = std::min(normalizedFrame(settings.start,
+        const uint32_t baseStart = std::min(normalizedFrame(settings.start,
             frames), frames - 1u);
         const uint32_t requestedLength = std::max(1u,
             normalizedFrame(settings.length, frames));
-        const uint32_t end = std::min(frames, start + std::min(
-            requestedLength, frames - start));
+        const uint32_t baseEnd = std::min(frames, baseStart + std::min(
+            requestedLength, frames - baseStart));
+        const int64_t offsetFrames = static_cast<int64_t>(std::llround(
+            std::clamp(event.startOffsetNormalized, -1.0, 1.0)
+                * static_cast<double>(frames)));
+        uint32_t start = baseStart;
+        uint32_t end = baseEnd;
+        if (isReverse(settings.playMode)) {
+            end = static_cast<uint32_t>(std::clamp<int64_t>(
+                static_cast<int64_t>(baseEnd) + offsetFrames,
+                static_cast<int64_t>(baseStart) + 1,
+                static_cast<int64_t>(frames)));
+        } else {
+            start = static_cast<uint32_t>(std::clamp<int64_t>(
+                static_cast<int64_t>(baseStart) + offsetFrames, 0,
+                static_cast<int64_t>(baseEnd) - 1));
+        }
         if (end <= start) return;
 
         Voice& voice = *voiceToStart();
@@ -891,6 +918,10 @@ private:
         voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
         voice.playMode = settings.playMode;
+        voice.eventGain = std::pow(10.0f, std::clamp(
+            event.gainOffsetDecibels, -12.0f, 12.0f) * 0.05f);
+        voice.fineTuneOffsetCents = std::clamp(
+            event.fineTuneOffsetCents, -100.0f, 100.0f);
         voice.playStartFrame = start;
         voice.playEndFrame = end;
         const bool reverse = isReverse(settings.playMode);
@@ -900,7 +931,8 @@ private:
         voice.sourceRatio = sourceRatio;
         voice.syncRatio = tempoRatio(settings);
         voice.pitchRatio = pitchRatioFor(
-            event.key, voice.rootNote, settings);
+            event.key, voice.rootNote, settings,
+            voice.fineTuneOffsetCents);
         voice.targetPitchRatio = voice.pitchRatio;
         voice.increment = sourceRatio * (reverse ? -1.0 : 1.0);
         configurePitchMode(voice, settings.pitchMode,
@@ -944,10 +976,15 @@ private:
         voice.key = event.key;
         voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
+        voice.eventGain = std::pow(10.0f, std::clamp(
+            event.gainOffsetDecibels, -12.0f, 12.0f) * 0.05f);
+        voice.fineTuneOffsetCents = std::clamp(
+            event.fineTuneOffsetCents, -100.0f, 100.0f);
         configurePitchMode(voice, settings.pitchMode,
             event.key, voice.rootNote);
         const double target = pitchRatioFor(
-            event.key, voice.rootNote, settings);
+            event.key, voice.rootNote, settings,
+            voice.fineTuneOffsetCents);
         const uint32_t glideFrames = static_cast<uint32_t>(
             std::clamp(std::round(settings.glideSeconds * sampleRate_),
                 0.0, static_cast<double>(

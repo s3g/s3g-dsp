@@ -168,11 +168,11 @@ public:
   }
   void menu(CRect b, const std::string &value, std::vector<std::string> items,
             int selected, std::function<void(int)> apply, bool enabled = true,
-            int columns = 1) {
+            int columns = 1, CHoriTxtAlign valueAlignment = kLeftText) {
     auto s = style;
     if (!enabled)
       s.value = color(0x686868);
-    foundation::drawMenuBox(*context, b, value, font, s);
+    foundation::drawMenuBox(*context, b, value, font, s, valueAlignment);
     hit(
         b,
         [this, b, items = std::move(items), selected, apply = std::move(apply),

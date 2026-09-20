@@ -47,6 +47,8 @@ option(S3G_BUILD_SAMPLE_GRAINS_PREVIEW
   "Build the s3g Sample Grains 2/32 four-file CLAP family" ON)
 option(S3G_BUILD_SAMPLE_CUTUPS_PREVIEW
   "Build the s3g Sample Cutups 2/32 four-file CLAP family" ON)
+option(S3G_BUILD_SAMPLE_KIT_PREVIEW
+  "Build the s3g Sample Kit 16-pad/32-channel CLAP" ON)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -94,6 +96,14 @@ add_executable(s3g_sample_player_smoke
 target_link_libraries(s3g_sample_player_smoke PRIVATE s3g_dsp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_player_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_sample_kit_smoke
+  tests/sample_kit_smoke.cpp)
+target_link_libraries(s3g_sample_kit_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_kit_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
@@ -478,6 +488,7 @@ if(BUILD_TESTING)
     s3g_crcltr_smoke
     s3g_breakbeat_slicer_smoke
     s3g_sample_player_smoke
+    s3g_sample_kit_smoke
     s3g_sample_doubles_smoke
     s3g_sample_wavesets_smoke
     s3g_sample_motion_smoke
@@ -2062,6 +2073,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_SAMPLE_CUTUPS_PREVIEW)
     add_subdirectory(plugins/clap_sample_cutups)
   endif()
+  if(S3G_BUILD_SAMPLE_KIT_PREVIEW)
+    add_subdirectory(plugins/clap_sample_kit)
+  endif()
   if(S3G_BUILD_TRACKER_PREVIEW AND APPLE AND BUILD_TESTING)
     add_test(NAME s3g_tracker_clap_smoke
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
@@ -2141,6 +2155,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
         $<TARGET_FILE:s3g_sample_player_clap>)
     set_tests_properties(s3g_sample_player_clap_smoke PROPERTIES
       LABELS "non_nim;sample;clap;smoke" TIMEOUT 120)
+  endif()
+  if(S3G_BUILD_SAMPLE_KIT_PREVIEW AND BUILD_TESTING AND APPLE)
+    add_test(NAME s3g_sample_kit_gui_smoke
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_sample_kit_clap>
+        org.s3g.s3g-dsp.sample-kit
+        1120 760 "s3g Sample Kit 32" proportional)
+    set_tests_properties(s3g_sample_kit_gui_smoke PROPERTIES
+      LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
   endif()
   if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_sample_doubles_clap_smoke
@@ -2296,7 +2319,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       AND S3G_BUILD_SAMPLE_MOTION_PREVIEW
       AND S3G_BUILD_SAMPLE_LANES_PREVIEW
       AND S3G_BUILD_SAMPLE_GRAINS_PREVIEW
-      AND S3G_BUILD_SAMPLE_CUTUPS_PREVIEW AND BUILD_TESTING)
+      AND S3G_BUILD_SAMPLE_CUTUPS_PREVIEW
+      AND S3G_BUILD_SAMPLE_KIT_PREVIEW AND BUILD_TESTING)
     add_custom_target(audit_sample_family
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_smoke>
       COMMAND $<TARGET_FILE:s3g_breakbeat_slicer_clap_smoke>
@@ -2322,6 +2346,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_sample_cutups_smoke>
       COMMAND $<TARGET_FILE:s3g_sample_cutups_clap_smoke>
         $<TARGET_FILE:s3g_sample_cutups_clap>
+      COMMAND $<TARGET_FILE:s3g_sample_kit_smoke>
       COMMAND $<TARGET_FILE:s3g_sample_rings_smoke>
       COMMAND $<TARGET_FILE:s3g_sample_rings_clap_smoke>
         $<TARGET_FILE:s3g_sample_rings_clap>
@@ -2350,10 +2375,12 @@ if(S3G_BUILD_CLAP_PLUGIN)
         s3g_sample_cutups_smoke
         s3g_sample_cutups_clap_smoke
         s3g_sample_cutups_clap
+        s3g_sample_kit_smoke
+        s3g_sample_kit_clap
         s3g_sample_rings_smoke
         s3g_sample_rings_clap_smoke
         s3g_sample_rings_clap
-      COMMENT "Validating the Sample Slicer, Player, Doubles, Wavesets, Motion, Lanes, Grains, Cutups, and Rings family")
+      COMMENT "Validating the Sample Slicer, Player, Kit, Doubles, Wavesets, Motion, Lanes, Grains, Cutups, and Rings family")
   endif()
   add_subdirectory(plugins/clap_ambi_imprint)
   add_subdirectory(plugins/clap_ambi_ray_encoder)
@@ -3902,6 +3929,17 @@ if(S3G_BUILD_CLAP_PLUGIN)
           s3g_sample_player_clap
         COMMENT "Rendering and validating the Sample Player family GUIs")
     endif()
+    if(S3G_BUILD_SAMPLE_KIT_PREVIEW)
+      add_custom_target(audit_gui_sample_kit
+        COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+          $<TARGET_FILE:s3g_sample_kit_clap>
+          org.s3g.s3g-dsp.sample-kit
+          1120 760 "s3g Sample Kit 32" proportional
+        DEPENDS
+          s3g_encoder_family_gui_smoke
+          s3g_sample_kit_clap
+        COMMENT "Rendering and validating the Sample Kit GUI")
+    endif()
     if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW)
       add_custom_target(audit_gui_sample_doubles
         COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
@@ -3992,6 +4030,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       add_dependencies(audit_sample_family
         audit_gui_breakbeat_slicer
         audit_gui_sample_player
+        audit_gui_sample_kit
         audit_gui_sample_doubles
         audit_gui_sample_wavesets
         audit_gui_sample_motion

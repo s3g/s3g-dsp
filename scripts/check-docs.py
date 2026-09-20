@@ -145,6 +145,7 @@ EXPECTED_SHARED_TOC_LINKS = {
     "Sample": [
         "sample-instruments.html",
         "sample-player.html",
+        "sample-kit.html",
         "sample-doubles.html",
         "sample-wavesets.html",
         "sample-motion.html",
@@ -411,6 +412,7 @@ DOC_SEQUENCE = [
     "processor-errant.html",
     "sample-instruments.html",
     "sample-player.html",
+    "sample-kit.html",
     "sample-doubles.html",
     "sample-wavesets.html",
     "sample-motion.html",
@@ -484,6 +486,7 @@ EXPECTED_SHARED_TOC_PAGES = {
     "Sample": [
         "sample-instruments.html",
         "sample-player.html",
+        "sample-kit.html",
         "sample-doubles.html",
         "sample-wavesets.html",
         "sample-motion.html",

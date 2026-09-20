@@ -519,7 +519,8 @@ void drawButton(CDrawContext& context, const CRect& bounds,
 }
 
 void drawMenuBox(CDrawContext& context, const CRect& bounds,
-    const std::string& value, CFontRef font, const Palette& style)
+    const std::string& value, CFontRef font, const Palette& style,
+    CHoriTxtAlign alignment)
 {
     context.setFillColor(style.strip);
     context.drawRect(bounds, kDrawFilled);
@@ -529,7 +530,7 @@ void drawMenuBox(CDrawContext& context, const CRect& bounds,
     auto valueBounds = bounds;
     valueBounds.left += 8.0;
     valueBounds.right -= 20.0;
-    drawTextInRect(context, value, valueBounds, style.value, font, kLeftText);
+    drawTextInRect(context, value, valueBounds, style.value, font, alignment);
     auto disclosureBounds = bounds;
     disclosureBounds.left = disclosureBounds.right - 18.0;
     disclosureBounds.right -= 4.0;
