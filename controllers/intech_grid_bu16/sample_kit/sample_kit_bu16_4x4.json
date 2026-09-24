@@ -1,0 +1,309 @@
+{
+  "id": "08a37c24-1770-4f0e-958f-993920557da5",
+  "modifiedAt": "2026-09-23T20:00:00.000Z",
+  "createdAt": "2026-09-23T20:00:00.000Z",
+  "name": "s3g Sample Kit BU16 4x4",
+  "description": "One velocity-sensitive BU16 mapped to Sample Kit Pads 1-16 on MIDI channel 1 and notes 36-51. Native strike velocity is expanded 2.5x and clipped at 127. Physical rows match the plugin: Pads 1-4 at the bottom and Pads 13-16 at the top. Pads glow teal at rest and orange while held.",
+  "type": "BU16",
+  "version": {
+    "major": "1",
+    "minor": "5",
+    "patch": "7"
+  },
+  "configType": "profile",
+  "configs": [
+    {
+      "controlElementNumber": 0,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,48,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,48,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 1,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,49,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,49,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 2,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,50,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,50,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 3,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,51,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,51,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 4,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,44,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,44,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 5,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,45,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,45,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 6,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,46,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,46,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 7,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,47,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,47,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 8,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,40,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,40,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 9,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,41,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,41,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 10,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,42,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,42,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 11,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,43,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,43,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 12,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,36,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,36,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 13,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,37,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,37,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 14,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,38,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,38,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 15,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@sbc]] self:bmo(-1) self:bmi(0) self:bma(127)--[[@sglc]] self:glc(1,{{119,169,155,1}}) self:glp(1,48)"
+        },
+        {
+          "event": 3,
+          "config": "--[[@cb]] local v=self:bva() if self:bst()>0 then if v<1 then v=1 end v=(v*5+1)//2 if v>127 then v=127 end self:gms(0,144,39,v) self:glc(1,{{218,139,104,1}}) self:glp(1,255) else self:gms(0,128,39,0) self:glc(1,{{119,169,155,1}}) self:glp(1,48) end"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    },
+    {
+      "controlElementNumber": 255,
+      "events": [
+        {
+          "event": 0,
+          "config": "--[[@cb]] --[[no host feedback required]]"
+        },
+        {
+          "event": 4,
+          "config": "--[[@cb]] gpl(gpn())"
+        },
+        {
+          "event": 5,
+          "config": "--[[@cb]] --[[MIDI receive unused]]"
+        },
+        {
+          "event": 6,
+          "config": "--[[@cb]] --[[timer unused]]"
+        }
+      ]
+    }
+  ]
+}

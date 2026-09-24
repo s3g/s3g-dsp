@@ -15,6 +15,7 @@ namespace s3g::sample {
 
 constexpr std::size_t kSampleKitPadCount = 16u;
 constexpr std::size_t kSampleKitVariationCount = 8u;
+constexpr std::size_t kSampleKitMaximumChops = 16u;
 constexpr uint32_t kSampleKitOutputChannels = 32u;
 constexpr std::size_t kSampleKitMaximumBlockEvents = 2048u;
 constexpr std::size_t kSampleKitMaximumEventsPerPad = 256u;
@@ -26,6 +27,177 @@ enum class SampleKitVariationMode : uint8_t {
     NoRepeat,
     Velocity,
 };
+
+enum class SampleKitVelocityCurve : uint8_t {
+    VerySoft = 0u,
+    Soft,
+    Linear,
+    Hard,
+    Fixed,
+};
+
+inline float applySampleKitVelocityCurve(float velocity,
+    SampleKitVelocityCurve curve) noexcept
+{
+    const float unit = std::clamp(
+        std::isfinite(velocity) ? velocity : 0.0f, 0.0f, 1.0f);
+    if (!(unit > 0.0f)) return 0.0f;
+    switch (curve) {
+    case SampleKitVelocityCurve::VerySoft:
+        return std::pow(unit, 0.35f);
+    case SampleKitVelocityCurve::Soft:
+        return std::pow(unit, 0.60f);
+    case SampleKitVelocityCurve::Linear:
+        return unit;
+    case SampleKitVelocityCurve::Hard:
+        return std::pow(unit, 1.5f);
+    case SampleKitVelocityCurve::Fixed:
+        return 1.0f;
+    }
+    return unit;
+}
+
+enum class SampleKitChopMode : uint8_t {
+    LiveMark = 0u,
+    Transient,
+    Equal,
+    BeatGrid,
+};
+
+struct SampleKitChopLayout {
+    std::array<double, kSampleKitMaximumChops + 1u> boundaries {{
+        0.0, 1.0,
+    }};
+    uint8_t sliceCount = 1u;
+
+    bool valid() const noexcept
+    {
+        if (sliceCount == 0u || sliceCount > kSampleKitMaximumChops
+            || boundaries[0u] != 0.0
+            || boundaries[sliceCount] != 1.0) return false;
+        for (std::size_t index = 0u; index <= sliceCount; ++index) {
+            if (!std::isfinite(boundaries[index])
+                || boundaries[index] < 0.0
+                || boundaries[index] > 1.0
+                || (index != 0u
+                    && boundaries[index] <= boundaries[index - 1u]))
+                return false;
+        }
+        return true;
+    }
+};
+
+inline SampleKitChopLayout equalChopLayout(std::size_t sliceCount) noexcept
+{
+    SampleKitChopLayout result;
+    sliceCount = std::clamp<std::size_t>(
+        sliceCount, 1u, kSampleKitMaximumChops);
+    result.sliceCount = static_cast<uint8_t>(sliceCount);
+    result.boundaries.fill(0.0);
+    for (std::size_t index = 0u; index <= sliceCount; ++index)
+        result.boundaries[index] = static_cast<double>(index)
+            / static_cast<double>(sliceCount);
+    return result;
+}
+
+inline SampleKitChopLayout transientChopLayout(
+    const float* starts, std::size_t startCount,
+    std::size_t maximumSlices = kSampleKitMaximumChops) noexcept
+{
+    SampleKitChopLayout result;
+    result.boundaries.fill(0.0);
+    result.boundaries[0u] = 0.0;
+    maximumSlices = std::clamp<std::size_t>(
+        maximumSlices, 1u, kSampleKitMaximumChops);
+    std::size_t count = 1u;
+    if (starts) {
+        for (std::size_t index = 0u;
+             index < startCount && count < maximumSlices; ++index) {
+            const double position = starts[index];
+            if (!std::isfinite(position) || position <= 0.0
+                || position >= 1.0
+                || position <= result.boundaries[count - 1u]) continue;
+            result.boundaries[count++] = position;
+        }
+    }
+    result.sliceCount = static_cast<uint8_t>(count);
+    result.boundaries[count] = 1.0;
+    return result;
+}
+
+inline SampleKitChopLayout beatGridChopLayout(double durationSeconds,
+    double sourceBpm, double beatsPerSlice) noexcept
+{
+    if (!(durationSeconds > 0.0) || !std::isfinite(durationSeconds)
+        || !(sourceBpm > 0.0) || !std::isfinite(sourceBpm)
+        || !(beatsPerSlice > 0.0) || !std::isfinite(beatsPerSlice))
+        return equalChopLayout(1u);
+    const double sliceSeconds = 60.0 / sourceBpm * beatsPerSlice;
+    const std::size_t sliceCount = std::clamp<std::size_t>(
+        static_cast<std::size_t>(std::ceil(
+            durationSeconds / sliceSeconds)),
+        1u, kSampleKitMaximumChops);
+    SampleKitChopLayout result;
+    result.boundaries.fill(0.0);
+    result.sliceCount = static_cast<uint8_t>(sliceCount);
+    for (std::size_t index = 0u; index < sliceCount; ++index)
+        result.boundaries[index] = std::clamp(
+            static_cast<double>(index) * sliceSeconds / durationSeconds,
+            0.0, 1.0);
+    result.boundaries[sliceCount] = 1.0;
+    return result;
+}
+
+inline double preRolledChopPosition(double position,
+    double durationSeconds, double preRollMilliseconds) noexcept
+{
+    if (!std::isfinite(position) || !std::isfinite(durationSeconds)
+        || !std::isfinite(preRollMilliseconds) || !(durationSeconds > 0.0))
+        return std::clamp(std::isfinite(position) ? position : 0.0,
+            0.0, 1.0);
+    return std::clamp(position
+            - std::max(0.0, preRollMilliseconds) * 0.001 / durationSeconds,
+        0.0, 1.0);
+}
+
+inline bool addChopMarker(SampleKitChopLayout& layout,
+    double position) noexcept
+{
+    if (!layout.valid()
+        || layout.sliceCount >= kSampleKitMaximumChops
+        || !std::isfinite(position) || position <= 0.0 || position >= 1.0)
+        return false;
+    std::size_t insertion = 1u;
+    while (insertion < layout.sliceCount
+        && layout.boundaries[insertion] < position) ++insertion;
+    constexpr double minimumGap = 1.0e-6;
+    if (position - layout.boundaries[insertion - 1u] <= minimumGap
+        || layout.boundaries[insertion] - position <= minimumGap)
+        return false;
+    for (std::size_t index = layout.sliceCount + 1u;
+         index > insertion; --index)
+        layout.boundaries[index] = layout.boundaries[index - 1u];
+    layout.boundaries[insertion] = position;
+    ++layout.sliceCount;
+    return true;
+}
+
+inline bool moveChopMarker(SampleKitChopLayout& layout,
+    std::size_t markerIndex, double position) noexcept
+{
+    if (!layout.valid() || markerIndex == 0u
+        || markerIndex >= layout.sliceCount || !std::isfinite(position))
+        return false;
+    constexpr double minimumGap = 1.0e-6;
+    if (layout.boundaries[markerIndex + 1u]
+            - layout.boundaries[markerIndex - 1u]
+        <= minimumGap * 2.0)
+        return false;
+    layout.boundaries[markerIndex] = std::clamp(position,
+        layout.boundaries[markerIndex - 1u] + minimumGap,
+        layout.boundaries[markerIndex + 1u] - minimumGap);
+    return true;
+}
 
 struct SampleKitPadSettings {
     float gainDecibels = -6.0f;
@@ -66,6 +238,13 @@ struct SampleKitSettings {
     uint8_t rateReduction = 1u;
     bool naturalEnabled = true;
     uint32_t randomSeed = 1u;
+};
+
+struct SampleKitNaturalOffsets {
+    float gainDecibels = 0.0f;
+    float pitchCents = 0.0f;
+    float startMilliseconds = 0.0f;
+    float timingMilliseconds = 0.0f;
 };
 
 class SampleKitEngine {
@@ -125,6 +304,7 @@ public:
         heldSamples_.fill(0.0f);
         padPeaks_.fill(0.0f);
         lastSelectedVariations_.fill(0xffu);
+        lastNaturalOffsets_.fill({});
         pendingEvents_ = {};
         reseed(randomSeed_);
         decimationPhase_ = 0u;
@@ -182,6 +362,13 @@ public:
     {
         return pad < lastSelectedVariations_.size()
             ? lastSelectedVariations_[pad] : 0xffu;
+    }
+
+    SampleKitNaturalOffsets lastNaturalOffsets(
+        std::size_t pad) const noexcept
+    {
+        return pad < lastNaturalOffsets_.size()
+            ? lastNaturalOffsets_[pad] : SampleKitNaturalOffsets {};
     }
 
     std::size_t activeVoiceCount() const noexcept
@@ -529,14 +716,17 @@ private:
         RenderEvent event = source;
         event.variationIndex = variation;
         uint32_t delayFrames = 0u;
+        SampleKitNaturalOffsets offsets;
         if (natural) {
             auto& random = selectionStates_[pad].random;
             event.gainOffsetDecibels = static_cast<float>(bellRandom(random)
                 * std::clamp(padSettings.naturalGainDecibels,
                     0.0f, 6.0f));
+            offsets.gainDecibels = event.gainOffsetDecibels;
             event.fineTuneOffsetCents = static_cast<float>(bellRandom(random)
                 * std::clamp(padSettings.naturalPitchCents,
                     0.0f, 100.0f));
+            offsets.pitchCents = event.fineTuneOffsetCents;
             const auto* asset = assets_[pad][variation];
             if (asset && asset->frameCount() != 0u) {
                 const double offsetFrames = bellRandom(random)
@@ -545,13 +735,18 @@ private:
                     * asset->sampleRate * 0.001;
                 event.startOffsetNormalized = offsetFrames
                     / static_cast<double>(asset->frameCount());
+                offsets.startMilliseconds = static_cast<float>(
+                    offsetFrames * 1000.0 / asset->sampleRate);
             }
             const double timingShape = std::abs(bellRandom(random));
+            offsets.timingMilliseconds = static_cast<float>(timingShape
+                * std::clamp<double>(
+                    padSettings.naturalTimingMilliseconds, 0.0, 50.0));
             delayFrames = static_cast<uint32_t>(std::llround(
-                timingShape * std::clamp<double>(
-                    padSettings.naturalTimingMilliseconds, 0.0, 50.0)
+                static_cast<double>(offsets.timingMilliseconds)
                     * sampleRate_ * 0.001));
         }
+        lastNaturalOffsets_[pad] = offsets;
         const uint64_t scheduled = static_cast<uint64_t>(source.frameOffset)
             + delayFrames;
         if (scheduled < frameCount) {
@@ -677,6 +872,8 @@ private:
     std::array<float, kSampleKitOutputChannels> heldSamples_ {};
     std::array<float, kSampleKitPadCount> padPeaks_ {};
     std::array<uint8_t, kSampleKitPadCount> lastSelectedVariations_ {};
+    std::array<SampleKitNaturalOffsets, kSampleKitPadCount>
+        lastNaturalOffsets_ {};
     uint32_t randomSeed_ = 1u;
     uint32_t decimationPhase_ = 0u;
     float outputPeak_ = 0.0f;

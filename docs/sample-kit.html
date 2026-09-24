@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Sample Kit</h1>
 
-        <p><code>Sample Kit 32</code> puts sixteen independent mono/stereo samplers behind a 4×4 pad layout. Every pad can hold eight alternate recordings. It combines an MPC-style kit workflow with Sample Player playback, per-pad Elektron-style sound pages, deterministic Natural variation, a sixteen-strip mixer, choke groups, and SP-inspired character effects.</p>
+        <p><code>Sample Kit 32</code> puts sixteen independent mono/stereo samplers behind a 4×4 pad layout. Every pad can hold eight alternate recordings, and the dedicated Chop page can divide one shared source across the complete pad bank. It combines an MPC-style kit workflow with Sample Player playback, per-pad Elektron-style sound pages, deterministic Natural variation, a sixteen-strip mixer, choke groups, and SP-inspired character effects.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -36,6 +36,7 @@
           <li>Establish monitoring for channels 1–2, then enable more stereo pairs in the host when you want discrete outputs. Active Output Pairs keeps every pad audible by folding assignments into the available width.</li>
           <li>Drop one file on a pad to load the selected variation, or drop up to eight files together to fill that pad's variation row. LOAD SAMPLE and CLEAR operate on the selected numbered variation.</li>
           <li>Play pads from MIDI notes 36–51. Base Note shifts the complete sixteen-note map, and MIDI Receive can select Omni or one MIDI channel.</li>
+          <li>Use Chop to load one phrase, mark regions live against its preview, detect transients, make equal divisions, or build a beat grid, then map up to sixteen regions to the pads.</li>
           <li>Use Sound for Start, End, Tune, Velocity, playback direction/looping, launch behavior, and loop crossfade.</li>
           <li>Use Amp / Filter for proportional Attack, Decay, Sustain, Release and the multimode resonant filter.</li>
           <li>Use Natural to enable the pad's alternate-sample selection and subtle gain, pitch, start, and timing ranges. The global Natural control bypasses every pad at once.</li>
@@ -48,11 +49,23 @@
 
         <p>Every pad owns up to eight immutable mono or stereo sources, each with an independent 32-voice Sample Player bank. The numbered variation row selects the waveform, LOAD, and CLEAR target. Repeated hits restart matching voices while different recordings can overlap. One Shot ignores note-off, Gate releases on note-off, and Toggle alternates playback and release. Forward and Reverse play once; their Loop variants wrap through the selected Start/End region; Ping Pong reflects at the boundaries.</p>
 
+        <p>A ready-to-load <code>s3g Sample Kit BU16 4x4</code> Grid Editor profile maps one velocity-sensitive Intech Grid BU16 to all sixteen pads on MIDI channel 1. Its physical orientation matches the editor: Pads 1–4 and notes 36–39 occupy the bottom row, while Pads 13–16 and notes 48–51 occupy the top. The controller expands its normally low native strike values by 2.5×, glows muted teal at rest and orange while held, and sends Note Off for Gate and Toggle operation.</p>
+
+        <p>The global Velocity Curve on the Output page shapes every incoming hit before per-pad velocity sensitivity or Velocity variation selection. Very Soft and Soft make low controller values reach louder layers more easily, Linear preserves the received value, Hard requires a firmer strike, and Fixed 127 makes every nonzero hit full velocity. Existing kits migrate to Linear.</p>
+
         <p>Choke Group Off leaves a pad independent. Groups 1–4 immediately stop voices on other pads in the same group at the incoming hit's exact event time. This is intended for open/closed hats, alternate articulations, and phrase pads.</p>
+
+        <h2 id="chop">Chop</h2>
+
+        <p>The Chop page owns one shared mono/stereo source. Live Mark plays the complete source while pad taps place boundaries at the current playhead; its preview can run at 1×, 3/4×, 1/2×, or 1/4× speed for more exact manual marking. Transient uses detected attacks, Equal divides the file evenly, and Beat Grid uses an editable source BPM with half-, one-, two-, or four-beat regions. Live Mark and Transient share a 0–20 ms Pre-roll control that moves generated boundaries earlier without changing Equal, Beat Grid, or manually dragged markers.</p>
+
+        <p>Scroll over the waveform to zoom around the pointer, Shift-scroll or scroll horizontally to pan, and drag the navigator handle below the waveform to move through the source. Double-click the waveform to add a manual marker at the displayed position, up to the sixteen-region limit; internal markers remain draggable at every zoom level. Manual markers do not receive Pre-roll. The chop pads use the main Kit orientation—Pads 1–4 on the bottom row and Pads 13–16 on top—and each populated pad auditions its region through outputs 1–2.</p>
+
+        <p>MAP TO PADS assigns up to sixteen regions to Pad 1–16 as Variation 1. The pads share one immutable decoded source rather than holding duplicate audio. Mapping clears Variations 2–8 on the affected pads, sets Forward and One Shot playback, and bypasses Natural selection while preserving each pad's gain, pan, tune, envelope, filter, mute, solo, and output assignment. MONO CHOKE additionally maps the regions to Choke Group 1 for classic phrase-cut behavior. Kit state deduplicates the shared source when it is embedded.</p>
 
         <h2 id="natural">Natural Variations</h2>
 
-        <p>Natural is opt-in per pad and has a global bypass. When bypassed, a pad always uses its first loaded variation with no hit jitter. Cycle walks through the loaded recordings in order. Shuffle plays each once before reshuffling and avoids repeating the previous deck's final recording. Random is unrestricted, No Repeat excludes the most recent choice, and Velocity divides the loaded recordings into ordered velocity layers.</p>
+        <p>Natural is opt-in per pad and has a global bypass, with both switches visible on the Natural page. When bypassed, a pad always uses its first loaded variation with no hit jitter. A pad with one loaded sample still receives gain, pitch, start, and timing variation; only alternate-sample selection is inactive. The Last Hit readouts show the exact offsets applied without moving or automating the saved range controls. Cycle walks through the loaded recordings in order. Shuffle plays each once before reshuffling and avoids repeating the previous deck's final recording. Random is unrestricted, No Repeat excludes the most recent choice, and Velocity divides the loaded recordings into ordered velocity layers.</p>
 
         <p>Gain and Pitch are bipolar bell-shaped offsets, so small changes occur more often than extremes. Start applies a bipolar source offset, while Timing adds only delay because a live instrument cannot safely anticipate a note before MIDI arrives. Delayed hits survive audio-block boundaries and are cancelled correctly by note-off or choke events. The stored seed makes playback and offline renders repeatable; NEXT advances to a new deterministic sequence.</p>
 
@@ -97,6 +110,7 @@
           <h2>On This Page</h2>
           <a href="#workflow">Workflow</a>
           <a href="#pads">Pads and Voices</a>
+          <a href="#chop">Chop</a>
           <a href="#natural">Natural Variations</a>
           <a href="#mixer">Mixer and Routing</a>
           <a href="#effects">Effects</a>

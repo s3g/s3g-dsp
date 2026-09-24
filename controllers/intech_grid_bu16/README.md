@@ -1,5 +1,9 @@
 # One or four Intech Grid BU16 modules: No Input Mixer matrix
 
+The dedicated single-BU16 profile for Sample Kit's sixteen pads is in
+[`sample_kit`](sample_kit/README.md). The remainder of this document describes
+the separate four-quadrant No Input Mixer mapping.
+
 No Input Mixer accepts four 4-by-4 note-grid layouts as one velocity-sensitive
 8-by-8 feedback matrix. The mapping works identically in the CLAP and
 standalone app. The four layouts can be deployed in either of two ways:

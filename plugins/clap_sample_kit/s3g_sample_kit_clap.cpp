@@ -1,4 +1,5 @@
 #include "s3g_sample_kit.h"
+#include "s3g_sample_cutups_analysis.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_sample_file_decode.h"
@@ -51,13 +52,19 @@ namespace {
 using s3g::sample::EventKind;
 using s3g::sample::FilterType;
 using s3g::sample::PlayMode;
+using s3g::sample::PlayerSettings;
 using s3g::sample::RenderEvent;
 using s3g::sample::SampleAsset;
+using s3g::sample::SampleKitChopLayout;
+using s3g::sample::SampleKitChopMode;
 using s3g::sample::SampleKitEngine;
 using s3g::sample::SampleKitPadSettings;
 using s3g::sample::SampleKitSettings;
 using s3g::sample::SampleKitVariationMode;
+using s3g::sample::SampleKitVelocityCurve;
+using s3g::sample::SamplePlayerEngine;
 using s3g::sample::TriggerMode;
+using s3g::sample::CutupsLaneMetadata;
 using s3g::sample_storage::ProjectCopyResult;
 using s3g::sample_storage::ProjectFileRegistration;
 using s3g::sample_storage::ProjectLocation;
@@ -65,7 +72,7 @@ using s3g::sample_storage::ReaperContext;
 using s3g::sample_storage::StorageMode;
 
 constexpr uint32_t kStateMagic = 0x4b533353u; // "S3SK"
-constexpr uint32_t kStateVersion = 2u;
+constexpr uint32_t kStateVersion = 4u;
 constexpr uint32_t kGuiWidth = 1120u;
 constexpr uint32_t kGuiHeight = 760u;
 constexpr uint64_t kMaximumEmbeddedAudioBytes =
@@ -84,13 +91,18 @@ constexpr clap_id kBitDepthParamId = 7u;
 constexpr clap_id kRateReductionParamId = 8u;
 constexpr clap_id kNaturalGlobalParamId = 12u;
 constexpr clap_id kRandomSeedParamId = 13u;
+constexpr clap_id kVelocityCurveParamId = 14u;
 constexpr std::size_t kLegacyGlobalExposedParamCount = 8u;
+constexpr std::size_t kReclaimedGlobalExposedParamCount = 1u;
 constexpr std::size_t kAddedGlobalParamCount = 2u;
 constexpr std::size_t kGlobalExposedParamCount
-    = kLegacyGlobalExposedParamCount + kAddedGlobalParamCount;
-// Retain three retired delay slots in the serialized layout so v1 kits and
-// host states remain readable after removing the built-in send/return path.
+    = kLegacyGlobalExposedParamCount + kReclaimedGlobalExposedParamCount
+    + kAddedGlobalParamCount;
+// Preserve the former delay slots in the serialized layout so v1-v3 kits and
+// host states remain readable. The first slot is reclaimed for Velocity Curve;
+// older states explicitly migrate it to Linear.
 constexpr std::size_t kGlobalStoredParamCount = 11u;
+constexpr std::size_t kVelocityCurveStoredIndex = 8u;
 
 constexpr clap_id kPadParamBase = 1000u;
 constexpr clap_id kPadParamStride = 32u;
@@ -168,7 +180,7 @@ constexpr std::array<ParamDef, kGlobalStoredParamCount> kGlobalParamDefs {{
     { "Drive", "Effects / Character", 0.0, 1.0, 0.0, false },
     { "Bit Depth", "Effects / Character", 4.0, 24.0, 24.0, true },
     { "Rate Reduction", "Effects / Character", 1.0, 32.0, 1.0, true },
-    { "Delay Time", "Effects / Delay", 1.0, 2000.0, 240.0, false },
+    { "Velocity Curve", "MIDI", 0.0, 4.0, 2.0, true },
     { "Delay Feedback", "Effects / Delay", 0.0, 0.95, 0.30, false },
     { "Delay Return", "Effects / Delay", 0.0, 1.0, 0.0, false },
 }};
@@ -237,11 +249,48 @@ struct SavedStateV2Body {
         s3g::sample::kSampleKitPadCount> slots {};
 };
 
+constexpr std::size_t kAssetSlotCount
+    = s3g::sample::kSampleKitPadCount
+    * s3g::sample::kSampleKitVariationCount;
+constexpr std::size_t kMaximumStateAssets = kAssetSlotCount + 1u;
+constexpr uint16_t kNoAssetReference = 0xffffu;
+
+struct AssetReference {
+    uint16_t index = kNoAssetReference;
+};
+
+struct ChopState {
+    uint8_t mode = static_cast<uint8_t>(SampleKitChopMode::Equal);
+    uint8_t sliceCount = 16u;
+    uint8_t equalCount = 16u;
+    uint8_t transientMaximum = 16u;
+    uint8_t beatDivisionIndex = 1u;
+    uint8_t monoChoke = 1u;
+    uint8_t previewRateIndex = 0u;
+    uint8_t preRollTenthsMilliseconds = 10u;
+    double sourceBpm = 120.0;
+    std::array<double, s3g::sample::kSampleKitMaximumChops + 1u>
+        boundaries {};
+};
+
+struct SavedStateV3Body {
+    std::array<double, kStoredParamCount> parameters {};
+    uint16_t assetCount = 0u;
+    uint16_t reserved = 0u;
+    std::array<std::array<AssetReference,
+        s3g::sample::kSampleKitVariationCount>,
+        s3g::sample::kSampleKitPadCount> slots {};
+    AssetReference chopSource {};
+    ChopState chop {};
+    std::array<SlotState, kMaximumStateAssets> assets {};
+};
+
 #if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     uint8_t pad = 0u;
     uint8_t variation = 0u;
+    bool chopSource = false;
     std::string path;
     ProjectLocation projectLocation;
     std::string projectError;
@@ -251,9 +300,11 @@ struct LoadResult {
     uint64_t generation = 0u;
     uint8_t pad = 0u;
     uint8_t variation = 0u;
+    bool chopSource = false;
     std::string sourcePath;
     std::string publishedPath;
     std::shared_ptr<const SampleAsset> asset;
+    CutupsLaneMetadata analysis;
     ProjectCopyResult projectCopy;
     std::string error;
 };
@@ -267,12 +318,14 @@ struct Plugin {
     double sampleRate = 48000.0;
     uint32_t maximumFrames = 0u;
     SampleKitEngine engine;
+    SamplePlayerEngine chopPreviewEngine;
     std::array<std::atomic<double>, kStoredParamCount> parameters {};
     s3g::clap_gui::ParamEventQueue<2048u> guiParamEvents {};
     std::atomic_flag guiParamConsumer = ATOMIC_FLAG_INIT;
     std::array<RenderEvent, kMaximumBlockEvents> blockEvents {};
     std::array<std::vector<float>, s3g::sample::kSampleKitOutputChannels>
         scratch {};
+    std::array<std::vector<float>, 2u> chopPreviewScratch {};
     std::array<std::array<const SampleAsset*,
         s3g::sample::kSampleKitVariationCount>,
         s3g::sample::kSampleKitPadCount> audioAssets {};
@@ -283,6 +336,28 @@ struct Plugin {
         s3g::sample::kSampleKitVariationCount>,
         s3g::sample::kSampleKitPadCount> controlAssets {};
     std::vector<std::shared_ptr<const SampleAsset>> retainedAssets;
+    std::atomic<const SampleAsset*> publishedChopSource { nullptr };
+    const SampleAsset* audioChopSource = nullptr;
+    std::shared_ptr<const SampleAsset> chopSourceAsset;
+    std::string chopSourcePath;
+    std::string chopSourceStatus = "DROP OR LOAD A MONO / STEREO SOURCE";
+    ProjectFileRegistration chopSourceRegistration;
+    CutupsLaneMetadata chopSourceAnalysis;
+    SampleKitChopLayout chopLayout = s3g::sample::equalChopLayout(16u);
+    SampleKitChopMode chopMode = SampleKitChopMode::Equal;
+    uint8_t chopEqualCount = 16u;
+    uint8_t chopTransientMaximum = 16u;
+    uint8_t chopBeatDivisionIndex = 1u;
+    double chopSourceBpm = 120.0;
+    bool chopMonoChoke = true;
+    uint8_t chopPreRollTenthsMilliseconds = 10u;
+    std::atomic<uint8_t> chopPreviewRateIndex { 0u };
+    std::atomic<bool> chopPreviewStart { false };
+    std::atomic<bool> chopPreviewStop { false };
+    std::atomic<double> chopPreviewStartPosition { 0.0 };
+    std::atomic<double> chopPreviewEndPosition { 1.0 };
+    std::atomic<float> chopPreviewPosition { -1.0f };
+    std::atomic<bool> chopPreviewActive { false };
     std::array<std::array<std::string,
         s3g::sample::kSampleKitVariationCount>,
         s3g::sample::kSampleKitPadCount> samplePaths {};
@@ -300,6 +375,14 @@ struct Plugin {
         padPeaks {};
     std::array<std::atomic<uint8_t>, s3g::sample::kSampleKitPadCount>
         lastVariations {};
+    std::array<std::atomic<float>, s3g::sample::kSampleKitPadCount>
+        lastNaturalGain {};
+    std::array<std::atomic<float>, s3g::sample::kSampleKitPadCount>
+        lastNaturalPitch {};
+    std::array<std::atomic<float>, s3g::sample::kSampleKitPadCount>
+        lastNaturalStart {};
+    std::array<std::atomic<float>, s3g::sample::kSampleKitPadCount>
+        lastNaturalTiming {};
     std::atomic<float> outputPeak { 0.0f };
     std::atomic<uint32_t> activeVoices { 0u };
     bool active = false;
@@ -311,6 +394,7 @@ struct Plugin {
     std::array<std::array<uint64_t,
         s3g::sample::kSampleKitVariationCount>,
         s3g::sample::kSampleKitPadCount> loadGenerations {};
+    uint64_t chopSourceGeneration = 0u;
     std::thread loaderThread;
     bool loaderStopping = false;
 #endif
@@ -333,6 +417,11 @@ bool parameterLocation(clap_id id, std::size_t& index,
 {
     if (id >= kActivePairsParamId && id <= kRateReductionParamId) {
         index = static_cast<std::size_t>(id - kActivePairsParamId);
+        definition = &kGlobalParamDefs[index];
+        return true;
+    }
+    if (id == kVelocityCurveParamId) {
+        index = kVelocityCurveStoredIndex;
         definition = &kGlobalParamDefs[index];
         return true;
     }
@@ -364,11 +453,15 @@ bool parameterLocation(clap_id id, std::size_t& index,
 
 clap_id parameterIdAt(std::size_t index) noexcept
 {
-    if (index < kGlobalExposedParamCount)
-        return index < kLegacyGlobalExposedParamCount
-            ? kActivePairsParamId + static_cast<clap_id>(index)
-            : kNaturalGlobalParamId + static_cast<clap_id>(
-                index - kLegacyGlobalExposedParamCount);
+    if (index < kGlobalExposedParamCount) {
+        if (index < kLegacyGlobalExposedParamCount)
+            return kActivePairsParamId + static_cast<clap_id>(index);
+        index -= kLegacyGlobalExposedParamCount;
+        if (index < kReclaimedGlobalExposedParamCount)
+            return kVelocityCurveParamId;
+        return kNaturalGlobalParamId + static_cast<clap_id>(
+            index - kReclaimedGlobalExposedParamCount);
+    }
     index -= kGlobalExposedParamCount;
     const std::size_t pad = index / kExposedPadOffsets.size();
     if (pad >= s3g::sample::kSampleKitPadCount) return CLAP_INVALID_ID;
@@ -599,10 +692,17 @@ std::size_t collectEvents(Plugin& instance,
     const auto append = [&](uint32_t frame, EventKind kind, int64_t noteId,
                             uint8_t key, float velocity, uint8_t channel) {
         if (count >= instance.blockEvents.size()) return;
+        const auto curve = static_cast<SampleKitVelocityCurve>(
+            static_cast<uint8_t>(std::clamp<int>(static_cast<int>(
+                std::lround(paramValue(instance, kVelocityCurveParamId))),
+                0, 4)));
+        const float shapedVelocity = kind == EventKind::NoteOn
+            ? s3g::sample::applySampleKitVelocityCurve(velocity, curve)
+            : 0.0f;
         instance.blockEvents[count++] = {
             std::min(frame, frameCount), kind,
             static_cast<uint64_t>(noteId < 0 ? 0 : noteId), key,
-            std::clamp(velocity, 0.0f, 1.0f), channel,
+            shapedVelocity, channel,
         };
     };
     const uint32_t baseNote = static_cast<uint32_t>(std::lround(
@@ -687,7 +787,10 @@ bool publishAsset(Plugin& instance, std::size_t pad, std::size_t variation,
         instance.samplePaths[pad][variation] = std::move(path);
         instance.statuses[pad][variation]
             = instance.controlAssets[pad][variation]
-            ? sampleDisplayName(instance.samplePaths[pad][variation]) + " / "
+            ? (instance.samplePaths[pad][variation].empty()
+                    ? "EMBEDDED SAMPLE"
+                    : sampleDisplayName(instance.samplePaths[pad][variation]))
+                + " / "
                 + std::to_string(
                     instance.controlAssets[pad][variation]->frameCount())
                 + " FRAMES"
@@ -699,6 +802,98 @@ bool publishAsset(Plugin& instance, std::size_t pad, std::size_t variation,
     requestProcess(instance);
     if (dirty) markStateDirty(instance);
     return true;
+}
+
+constexpr std::array<double, 4u> kChopBeatDivisions {{
+    0.5, 1.0, 2.0, 4.0,
+}};
+
+void regenerateChopLayoutLocked(Plugin& instance) noexcept
+{
+    const auto& source = instance.chopSourceAsset;
+    const double duration = source && source->sampleRate > 0.0
+        ? static_cast<double>(source->frameCount()) / source->sampleRate
+        : 0.0;
+    const double preRollMilliseconds = static_cast<double>(
+        instance.chopPreRollTenthsMilliseconds) * 0.1;
+    switch (instance.chopMode) {
+    case SampleKitChopMode::LiveMark:
+        instance.chopLayout = s3g::sample::equalChopLayout(1u);
+        break;
+    case SampleKitChopMode::Transient:
+        {
+        std::array<float, s3g::sample::kSampleKitMaximumChops>
+            adjustedStarts {};
+        const std::size_t count = std::min<std::size_t>(
+            instance.chopSourceAnalysis.transientRegions.count,
+            adjustedStarts.size());
+        for (std::size_t index = 0u; index < count; ++index)
+            adjustedStarts[index] = static_cast<float>(index == 0u
+                ? 0.0 : s3g::sample::preRolledChopPosition(
+                    instance.chopSourceAnalysis.transientRegions
+                        .starts[index], duration, preRollMilliseconds));
+        instance.chopLayout = s3g::sample::transientChopLayout(
+            adjustedStarts.data(), count,
+            instance.chopTransientMaximum);
+        break;
+        }
+    case SampleKitChopMode::Equal:
+        instance.chopLayout = s3g::sample::equalChopLayout(
+            instance.chopEqualCount);
+        break;
+    case SampleKitChopMode::BeatGrid: {
+        const std::size_t division = std::min<std::size_t>(
+            instance.chopBeatDivisionIndex,
+            kChopBeatDivisions.size() - 1u);
+        instance.chopLayout = s3g::sample::beatGridChopLayout(duration,
+            instance.chopSourceBpm, kChopBeatDivisions[division]);
+        break;
+    }
+    }
+}
+
+bool publishChopSource(Plugin& instance,
+    std::shared_ptr<const SampleAsset> asset, std::string path,
+    const CutupsLaneMetadata& analysis, bool dirty)
+{
+    if (asset && (!asset->valid() || asset->channelCount > 2u)) return false;
+    {
+        std::lock_guard<std::mutex> lock(instance.statusMutex);
+        if (asset) instance.retainedAssets.push_back(asset);
+        instance.chopSourceAsset = std::move(asset);
+        instance.chopSourcePath = std::move(path);
+        instance.chopSourceAnalysis = analysis;
+        if (analysis.tempoValid)
+            instance.chopSourceBpm = std::clamp(
+                analysis.analyzedBpm, 20.0, 999.0);
+        instance.chopSourceStatus = instance.chopSourceAsset
+            ? (instance.chopSourcePath.empty()
+                    ? "EMBEDDED SOURCE"
+                    : sampleDisplayName(instance.chopSourcePath)) + " / "
+                + std::to_string(instance.chopSourceAsset->frameCount())
+                + " FRAMES"
+            : "DROP OR LOAD A MONO / STEREO SOURCE";
+        regenerateChopLayoutLocked(instance);
+        instance.publishedChopSource.store(
+            instance.chopSourceAsset.get(), std::memory_order_release);
+    }
+    instance.chopPreviewStop.store(true, std::memory_order_release);
+    requestProcess(instance);
+    if (dirty) markStateDirty(instance);
+    return true;
+}
+
+void requestChopPreview(Plugin& instance, double start, double end)
+{
+    start = std::clamp(start, 0.0, 1.0);
+    end = std::clamp(end, start, 1.0);
+    if (end - start <= 1.0e-6) return;
+    instance.chopPreviewStartPosition.store(start,
+        std::memory_order_release);
+    instance.chopPreviewEndPosition.store(end,
+        std::memory_order_release);
+    instance.chopPreviewStart.store(true, std::memory_order_release);
+    requestProcess(instance);
 }
 
 #if defined(S3G_SAMPLE_FILE_WORKER)
@@ -779,6 +974,7 @@ void loaderMain(Plugin* instance)
         result.generation = request.generation;
         result.pad = request.pad;
         result.variation = request.variation;
+        result.chopSource = request.chopSource;
         result.sourcePath = std::move(request.path);
         result.publishedPath = result.sourcePath;
         result.error = std::move(request.projectError);
@@ -794,6 +990,12 @@ void loaderMain(Plugin* instance)
         try {
             if (!decodeSampleFile(result.publishedPath, result.asset,
                     decodeError)) result.asset.reset();
+            if (result.asset && result.chopSource)
+                result.analysis = s3g::sample::analyzeCutupsAsset(
+                    *result.asset,
+                    static_cast<uint32_t>(
+                        s3g::sample::kSampleKitMaximumChops),
+                    5.0, 0u, 20.0);
         } catch (...) {
             result.asset.reset();
             decodeError = "SAMPLE DECODE EXCEEDED AVAILABLE MEMORY";
@@ -852,8 +1054,37 @@ void queueSampleLoad(Plugin& instance, std::size_t pad,
         instance.loadRequests.erase(std::remove_if(
             instance.loadRequests.begin(), instance.loadRequests.end(),
             [pad, variation](const LoadRequest& pending) {
-                return pending.pad == pad
+                return !pending.chopSource && pending.pad == pad
                     && pending.variation == variation;
+            }), instance.loadRequests.end());
+        instance.loadRequests.push_back(std::move(request));
+    }
+    instance.loaderCondition.notify_one();
+}
+
+void queueChopSourceLoad(Plugin& instance, std::string path)
+{
+    if (path.empty()) return;
+    LoadRequest request;
+    request.generation = ++instance.chopSourceGeneration;
+    request.chopSource = true;
+    request.path = std::move(path);
+    {
+        std::lock_guard<std::mutex> lock(instance.statusMutex);
+        if (instance.storageMode == StorageMode::Project) {
+            const ReaperContext context = s3g::sample_storage::reaperContext(
+                instance.host);
+            (void)s3g::sample_storage::queryProjectLocation(context,
+                request.projectLocation, &request.projectError);
+        }
+        instance.chopSourceStatus = "DECODING + ANALYZING...";
+    }
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.erase(std::remove_if(
+            instance.loadRequests.begin(), instance.loadRequests.end(),
+            [](const LoadRequest& pending) {
+                return pending.chopSource;
             }), instance.loadRequests.end());
         instance.loadRequests.push_back(std::move(request));
     }
@@ -868,6 +1099,26 @@ void serviceLoads(Plugin& instance)
         results.swap(instance.loadResults);
     }
     for (auto& result : results) {
+        if (result.chopSource) {
+            if (result.generation != instance.chopSourceGeneration)
+                continue;
+            if (!result.asset) {
+                std::lock_guard<std::mutex> lock(instance.statusMutex);
+                instance.chopSourceStatus = result.error.empty()
+                    ? "SOURCE DECODE FAILED" : result.error;
+                continue;
+            }
+            if (result.projectCopy.success) {
+                const ReaperContext context
+                    = s3g::sample_storage::reaperContext(instance.host);
+                (void)instance.chopSourceRegistration.reset(context,
+                    result.projectCopy.absolutePath, nullptr, nullptr,
+                    instance.plugin.desc->name);
+            }
+            (void)publishChopSource(instance, std::move(result.asset),
+                std::move(result.publishedPath), result.analysis, true);
+            continue;
+        }
         const std::size_t pad = result.pad;
         const std::size_t variation = result.variation;
         if (pad >= s3g::sample::kSampleKitPadCount
@@ -906,13 +1157,91 @@ void clearSample(Plugin& instance, std::size_t pad,
         instance.loadRequests.erase(std::remove_if(
             instance.loadRequests.begin(), instance.loadRequests.end(),
             [pad, variation](const LoadRequest& pending) {
-                return pending.pad == pad
+                return !pending.chopSource && pending.pad == pad
                     && pending.variation == variation;
             }), instance.loadRequests.end());
     }
 #endif
     instance.projectRegistrations[pad][variation].clear();
     (void)publishAsset(instance, pad, variation, nullptr, "", true);
+}
+
+void clearChopSource(Plugin& instance)
+{
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    ++instance.chopSourceGeneration;
+    {
+        std::lock_guard<std::mutex> lock(instance.loaderMutex);
+        instance.loadRequests.erase(std::remove_if(
+            instance.loadRequests.begin(), instance.loadRequests.end(),
+            [](const LoadRequest& pending) {
+                return pending.chopSource;
+            }), instance.loadRequests.end());
+    }
+#endif
+    instance.chopSourceRegistration.clear();
+    (void)publishChopSource(instance, nullptr, "", {}, true);
+}
+
+bool mapChopsToPads(Plugin& instance)
+{
+    std::shared_ptr<const SampleAsset> source;
+    std::string path;
+    SampleKitChopLayout layout;
+    bool monoChoke = true;
+    {
+        std::lock_guard<std::mutex> lock(instance.statusMutex);
+        source = instance.chopSourceAsset;
+        path = instance.chopSourcePath;
+        layout = instance.chopLayout;
+        monoChoke = instance.chopMonoChoke;
+    }
+    if (!source || !layout.valid()) return false;
+    const std::size_t count = std::min<std::size_t>(layout.sliceCount,
+        s3g::sample::kSampleKitPadCount);
+    for (std::size_t pad = 0u; pad < count; ++pad) {
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        for (std::size_t variation = 0u;
+             variation < s3g::sample::kSampleKitVariationCount;
+             ++variation)
+            ++instance.loadGenerations[pad][variation];
+        {
+            std::lock_guard<std::mutex> lock(instance.loaderMutex);
+            instance.loadRequests.erase(std::remove_if(
+                instance.loadRequests.begin(), instance.loadRequests.end(),
+                [pad](const LoadRequest& pending) {
+                    return !pending.chopSource && pending.pad == pad;
+                }), instance.loadRequests.end());
+        }
+#endif
+        instance.projectRegistrations[pad][0u].clear();
+        (void)publishAsset(instance, pad, 0u, source, path, false);
+        if (instance.storageMode == StorageMode::Project && !path.empty()) {
+            const ReaperContext context
+                = s3g::sample_storage::reaperContext(instance.host);
+            (void)instance.projectRegistrations[pad][0u].reset(context,
+                path, nullptr, nullptr, instance.plugin.desc->name);
+        }
+        for (std::size_t variation = 1u;
+             variation < s3g::sample::kSampleKitVariationCount;
+             ++variation) {
+            instance.projectRegistrations[pad][variation].clear();
+            (void)publishAsset(instance, pad, variation, nullptr, "", false);
+        }
+        queueGuiParamGesture(instance, padParamId(pad, kPadStart),
+            layout.boundaries[pad]);
+        queueGuiParamGesture(instance, padParamId(pad, kPadEnd),
+            layout.boundaries[pad + 1u]);
+        queueGuiParamGesture(instance, padParamId(pad, kPadPlayMode), 0.0);
+        queueGuiParamGesture(instance, padParamId(pad, kPadTriggerMode), 0.0);
+        queueGuiParamGesture(instance,
+            padParamId(pad, kPadNaturalEnabled), 0.0);
+        queueGuiParamGesture(instance, padParamId(pad, kPadChokeGroup),
+            monoChoke ? 1.0 : 0.0);
+    }
+    markStateDirty(instance);
+    requestProcess(instance);
+    return true;
 }
 
 void cycleStorageMode(Plugin& instance)
@@ -1018,6 +1347,14 @@ const char* variationModeName(int value) noexcept
     return names[static_cast<std::size_t>(std::clamp(value, 0, 4))];
 }
 
+const char* velocityCurveName(int value) noexcept
+{
+    constexpr std::array<const char*, 5u> names {{
+        "Very Soft", "Soft", "Linear", "Hard", "Fixed 127",
+    }};
+    return names[static_cast<std::size_t>(std::clamp(value, 0, 4))];
+}
+
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     char* display, uint32_t size)
 {
@@ -1051,6 +1388,9 @@ bool paramsValueToText(const clap_plugin_t*, clap_id id, double value,
     else if (id == kRateReductionParamId)
         std::snprintf(display, size, "%dx hold",
             static_cast<int>(std::lround(value)));
+    else if (id == kVelocityCurveParamId)
+        std::snprintf(display, size, "%s", velocityCurveName(
+            static_cast<int>(std::lround(value))));
     else if (id == kNaturalGlobalParamId
         || (id >= kPadParamBase && offset == kPadNaturalEnabled))
         std::snprintf(display, size, "%s", value >= 0.5 ? "On" : "Bypass");
@@ -1134,6 +1474,13 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id,
             return true;
         }
     }
+    if (id == kVelocityCurveParamId) {
+        for (int choice = 0; choice < 5; ++choice)
+            if (strcasecmp(display, velocityCurveName(choice)) == 0) {
+                *value = choice;
+                return true;
+            }
+    }
     if (id >= kPadParamBase && offset == kPadChokeGroup
         && strcasecmp(display, "Off") == 0) {
         *value = 0.0;
@@ -1210,7 +1557,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!plugin || !stream || !stream->write) return false;
     auto& instance = *self(plugin);
     StateHeader header;
-    SavedStateV2Body saved;
+    SavedStateV3Body saved {};
     for (std::size_t index = 0u; index < kStoredParamCount; ++index)
         saved.parameters[index] = instance.parameters[index].load(
             std::memory_order_acquire);
@@ -1220,63 +1567,93 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     std::array<std::array<std::string,
         s3g::sample::kSampleKitVariationCount>,
         s3g::sample::kSampleKitPadCount> paths;
+    std::shared_ptr<const SampleAsset> chopSource;
+    std::string chopPath;
     StorageMode mode;
     {
         std::lock_guard<std::mutex> lock(instance.statusMutex);
         assets = instance.controlAssets;
         paths = instance.samplePaths;
+        chopSource = instance.chopSourceAsset;
+        chopPath = instance.chopSourcePath;
         mode = instance.storageMode;
+        saved.chop.mode = static_cast<uint8_t>(instance.chopMode);
+        saved.chop.sliceCount = instance.chopLayout.sliceCount;
+        saved.chop.equalCount = instance.chopEqualCount;
+        saved.chop.transientMaximum = instance.chopTransientMaximum;
+        saved.chop.beatDivisionIndex = instance.chopBeatDivisionIndex;
+        saved.chop.monoChoke = instance.chopMonoChoke ? 1u : 0u;
+        saved.chop.previewRateIndex = instance.chopPreviewRateIndex.load(
+            std::memory_order_acquire);
+        saved.chop.preRollTenthsMilliseconds
+            = instance.chopPreRollTenthsMilliseconds;
+        saved.chop.sourceBpm = instance.chopSourceBpm;
+        saved.chop.boundaries = instance.chopLayout.boundaries;
     }
     header.storageMode = static_cast<uint8_t>(mode);
-    uint64_t embeddedBytes = 0u;
-    for (std::size_t pad = 0u; pad < assets.size(); ++pad) {
+    std::array<std::shared_ptr<const SampleAsset>, kMaximumStateAssets>
+        uniqueAssets {};
+    std::array<std::string, kMaximumStateAssets> uniquePaths {};
+    const auto referenceFor = [&](const std::shared_ptr<const SampleAsset>& asset,
+                                  const std::string& path) {
+        AssetReference reference;
+        if (!asset) return reference;
+        for (uint16_t index = 0u; index < saved.assetCount; ++index) {
+            if (uniqueAssets[index].get() == asset.get()) {
+                reference.index = index;
+                return reference;
+            }
+        }
+        if (saved.assetCount >= kMaximumStateAssets) return reference;
+        reference.index = saved.assetCount++;
+        uniqueAssets[reference.index] = asset;
+        uniquePaths[reference.index] = path;
+        return reference;
+    };
+    for (std::size_t pad = 0u; pad < assets.size(); ++pad)
         for (std::size_t variation = 0u;
-             variation < assets[pad].size(); ++variation) {
-            auto& path = paths[pad][variation];
-            if (mode == StorageMode::Project
-                && instance.projectRegistrations[pad][variation].registered())
-                path = instance.projectRegistrations[pad][variation]
-                    .absolutePath();
-            if (mode == StorageMode::Project && !path.empty()) {
-                const ReaperContext context
-                    = s3g::sample_storage::reaperContext(instance.host);
-                std::string relative;
-                if (s3g::sample_storage::makeProjectRelativePath(context,
-                        path, relative, nullptr)) path = relative;
-            }
-            auto& state = saved.slots[pad][variation];
-            std::snprintf(state.path.data(), state.path.size(), "%s",
-                path.c_str());
-            const auto& asset = assets[pad][variation];
-            if (!asset) continue;
-            state.channelCount = asset->channelCount;
-            state.frameCount = asset->frameCount();
-            state.sampleRate = asset->sampleRate;
-            const uint64_t bytes = static_cast<uint64_t>(state.channelCount)
+             variation < assets[pad].size(); ++variation)
+            saved.slots[pad][variation] = referenceFor(
+                assets[pad][variation], paths[pad][variation]);
+    saved.chopSource = referenceFor(chopSource, chopPath);
+
+    uint64_t embeddedBytes = 0u;
+    for (uint16_t index = 0u; index < saved.assetCount; ++index) {
+        auto path = uniquePaths[index];
+        if (mode == StorageMode::Project && !path.empty()) {
+            const ReaperContext context
+                = s3g::sample_storage::reaperContext(instance.host);
+            std::string relative;
+            if (s3g::sample_storage::makeProjectRelativePath(context,
+                    path, relative, nullptr)) path = relative;
+        }
+        auto& state = saved.assets[index];
+        std::snprintf(state.path.data(), state.path.size(), "%s",
+            path.c_str());
+        const auto& asset = uniqueAssets[index];
+        if (!asset) return false;
+        state.channelCount = asset->channelCount;
+        state.frameCount = asset->frameCount();
+        state.sampleRate = asset->sampleRate;
+        const uint64_t bytes = static_cast<uint64_t>(state.channelCount)
                 * state.frameCount * sizeof(float);
-            if (mode == StorageMode::Embed || path.empty()) {
-                if (bytes > kMaximumEmbeddedAudioBytes - embeddedBytes)
-                    return false;
-                embeddedBytes += bytes;
-                state.embedded = 1u;
-            }
+        if (mode == StorageMode::Embed || path.empty()) {
+            if (bytes > kMaximumEmbeddedAudioBytes - embeddedBytes)
+                return false;
+            embeddedBytes += bytes;
+            state.embedded = 1u;
         }
     }
     if (!s3g::clap_state::writeAll(stream, &header, sizeof(header))
         || !s3g::clap_state::writeAll(stream, &saved, sizeof(saved)))
         return false;
-    for (std::size_t pad = 0u; pad < assets.size(); ++pad) {
-        for (std::size_t variation = 0u;
-             variation < assets[pad].size(); ++variation) {
-            const auto& asset = assets[pad][variation];
-            if (!asset || saved.slots[pad][variation].embedded == 0u)
-                continue;
-            for (uint8_t channel = 0u;
-                 channel < asset->channelCount; ++channel) {
-                const auto& samples = asset->channels[channel];
-                if (!s3g::clap_state::writeAll(stream, samples.data(),
-                        samples.size() * sizeof(float))) return false;
-            }
+    for (uint16_t index = 0u; index < saved.assetCount; ++index) {
+        const auto& asset = uniqueAssets[index];
+        if (saved.assets[index].embedded == 0u) continue;
+        for (uint8_t channel = 0u; channel < asset->channelCount; ++channel) {
+            const auto& samples = asset->channels[channel];
+            if (!s3g::clap_state::writeAll(stream, samples.data(),
+                    samples.size() * sizeof(float))) return false;
         }
     }
     return true;
@@ -1289,27 +1666,6 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     StateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic) return false;
-    SavedStateV2Body saved;
-    for (std::size_t index = 0u; index < kStoredParamCount; ++index)
-        saved.parameters[index] = storedParamDefinitionAt(index).defaultValue;
-    if (header.version == 1u
-        && header.parameterCount == kLegacyStoredParamCount) {
-        SavedStateV1Body legacy;
-        if (!s3g::clap_state::readAll(stream, &legacy, sizeof(legacy)))
-            return false;
-        std::copy(legacy.parameters.begin(), legacy.parameters.end(),
-            saved.parameters.begin());
-        for (std::size_t pad = 0u; pad < legacy.slots.size(); ++pad)
-            saved.slots[pad][0u] = legacy.slots[pad];
-    } else if (header.version == kStateVersion
-        && header.parameterCount == kStoredParamCount) {
-        if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved)))
-            return false;
-    } else return false;
-    for (std::size_t index = 0u; index < kStoredParamCount; ++index)
-        instance.parameters[index].store(clampParam(
-            storedParamDefinitionAt(index), saved.parameters[index]),
-            std::memory_order_release);
     const StorageMode mode = s3g::sample_storage::sanitizeStorageMode(
         header.storageMode);
     {
@@ -1319,72 +1675,225 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 #if defined(S3G_SAMPLE_FILE_WORKER)
     for (auto& pad : instance.loadGenerations)
         for (auto& generation : pad) ++generation;
+    ++instance.chopSourceGeneration;
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
         instance.loadRequests.clear();
     }
 #endif
-    uint64_t embeddedBytes = 0u;
-    for (const auto& pad : saved.slots) {
-        for (const auto& slot : pad) {
-            if (slot.embedded == 0u) continue;
-            const uint64_t bytes = static_cast<uint64_t>(slot.channelCount)
-                * slot.frameCount * sizeof(float);
-            if (slot.channelCount == 0u || slot.channelCount > 2u
-                || slot.frameCount == 0u || !(slot.sampleRate > 0.0)
-                || bytes > kMaximumEmbeddedAudioBytes - embeddedBytes)
-                return false;
-            embeddedBytes += bytes;
-        }
-    }
-    for (std::size_t pad = 0u; pad < saved.slots.size(); ++pad) {
-        for (std::size_t variation = 0u;
-             variation < saved.slots[pad].size(); ++variation) {
-            instance.projectRegistrations[pad][variation].clear();
-            const auto& state = saved.slots[pad][variation];
-            const std::string locator(state.path.data(), strnlen(
-                state.path.data(), state.path.size()));
-            std::string runtimePath = locator;
-            std::shared_ptr<const SampleAsset> asset;
-            if (state.embedded != 0u) {
-                auto decoded = std::make_shared<SampleAsset>();
-                decoded->sampleRate = state.sampleRate;
-                decoded->channelCount = state.channelCount;
-                for (uint8_t channel = 0u; channel < state.channelCount;
-                     ++channel) {
-                    decoded->channels[channel].resize(state.frameCount);
-                    if (!s3g::clap_state::readAll(stream,
-                            decoded->channels[channel].data(),
-                            decoded->channels[channel].size()
-                                * sizeof(float)))
-                        return false;
-                }
-                if (!decoded->valid()) return false;
-                asset = std::move(decoded);
-            } else if (!locator.empty()) {
-                if (mode == StorageMode::Project
-                    && !std::filesystem::u8path(locator).is_absolute()) {
-                    const ReaperContext context
-                        = s3g::sample_storage::reaperContext(instance.host);
-                    (void)s3g::sample_storage::resolveProjectRelativePath(
-                        context, locator, runtimePath, nullptr);
-                }
-#if defined(S3G_SAMPLE_FILE_WORKER)
-                std::string error;
-                if (!runtimePath.empty())
-                    (void)decodeSampleFile(runtimePath, asset, error);
-#endif
+
+    const auto decodeSlot = [&](const SlotState& state,
+                                std::shared_ptr<const SampleAsset>& asset,
+                                std::string& runtimePath) {
+        const std::string locator(state.path.data(), strnlen(
+            state.path.data(), state.path.size()));
+        runtimePath = locator;
+        if (state.embedded != 0u) {
+            auto decoded = std::make_shared<SampleAsset>();
+            decoded->sampleRate = state.sampleRate;
+            decoded->channelCount = state.channelCount;
+            for (uint8_t channel = 0u; channel < state.channelCount;
+                 ++channel) {
+                decoded->channels[channel].resize(state.frameCount);
+                if (!s3g::clap_state::readAll(stream,
+                        decoded->channels[channel].data(),
+                        decoded->channels[channel].size() * sizeof(float)))
+                    return false;
             }
-            (void)publishAsset(instance, pad, variation, std::move(asset),
-                runtimePath, false);
-            if (mode == StorageMode::Project && !runtimePath.empty()) {
+            if (!decoded->valid()) return false;
+            asset = std::move(decoded);
+        } else if (!locator.empty()) {
+            if (mode == StorageMode::Project
+                && !std::filesystem::u8path(locator).is_absolute()) {
                 const ReaperContext context
                     = s3g::sample_storage::reaperContext(instance.host);
-                (void)instance.projectRegistrations[pad][variation].reset(
-                    context, runtimePath, nullptr, nullptr,
-                    instance.plugin.desc->name);
+                (void)s3g::sample_storage::resolveProjectRelativePath(
+                    context, locator, runtimePath, nullptr);
+            }
+#if defined(S3G_SAMPLE_FILE_WORKER)
+            std::string error;
+            if (!runtimePath.empty())
+                (void)decodeSampleFile(runtimePath, asset, error);
+#endif
+        }
+        return true;
+    };
+    const auto validEmbedded = [](const SlotState& slot,
+                                  uint64_t& embeddedBytes) {
+        if (slot.embedded == 0u) return true;
+        const uint64_t bytes = static_cast<uint64_t>(slot.channelCount)
+            * slot.frameCount * sizeof(float);
+        if (slot.channelCount == 0u || slot.channelCount > 2u
+            || slot.frameCount == 0u || !(slot.sampleRate > 0.0)
+            || bytes > kMaximumEmbeddedAudioBytes - embeddedBytes)
+            return false;
+        embeddedBytes += bytes;
+        return true;
+    };
+
+    if ((header.version == kStateVersion || header.version == 3u)
+        && header.parameterCount == kStoredParamCount) {
+        SavedStateV3Body saved {};
+        if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved))
+            || saved.assetCount > kMaximumStateAssets)
+            return false;
+        for (std::size_t index = 0u; index < kStoredParamCount; ++index)
+            instance.parameters[index].store(clampParam(
+                storedParamDefinitionAt(index), saved.parameters[index]),
+                std::memory_order_release);
+        if (header.version == 3u)
+            instance.parameters[kVelocityCurveStoredIndex].store(2.0,
+                std::memory_order_release);
+        const auto validReference = [&saved](AssetReference reference) {
+            return reference.index == kNoAssetReference
+                || reference.index < saved.assetCount;
+        };
+        for (const auto& pad : saved.slots)
+            for (const auto reference : pad)
+                if (!validReference(reference)) return false;
+        if (!validReference(saved.chopSource)) return false;
+        uint64_t embeddedBytes = 0u;
+        for (uint16_t index = 0u; index < saved.assetCount; ++index)
+            if (!validEmbedded(saved.assets[index], embeddedBytes))
+                return false;
+        std::array<std::shared_ptr<const SampleAsset>, kMaximumStateAssets>
+            decodedAssets {};
+        std::array<std::string, kMaximumStateAssets> decodedPaths {};
+        for (uint16_t index = 0u; index < saved.assetCount; ++index)
+            if (!decodeSlot(saved.assets[index], decodedAssets[index],
+                    decodedPaths[index])) return false;
+        for (std::size_t pad = 0u; pad < saved.slots.size(); ++pad) {
+            for (std::size_t variation = 0u;
+                 variation < saved.slots[pad].size(); ++variation) {
+                instance.projectRegistrations[pad][variation].clear();
+                const uint16_t index = saved.slots[pad][variation].index;
+                const bool present = index != kNoAssetReference;
+                (void)publishAsset(instance, pad, variation,
+                    present ? decodedAssets[index] : nullptr,
+                    present ? decodedPaths[index] : std::string(), false);
+                if (present && mode == StorageMode::Project
+                    && !decodedPaths[index].empty()) {
+                    const ReaperContext context
+                        = s3g::sample_storage::reaperContext(instance.host);
+                    (void)instance.projectRegistrations[pad][variation].reset(
+                        context, decodedPaths[index], nullptr, nullptr,
+                        instance.plugin.desc->name);
+                }
             }
         }
+        instance.chopSourceRegistration.clear();
+        const uint16_t chopIndex = saved.chopSource.index;
+        const bool hasChopSource = chopIndex != kNoAssetReference;
+        CutupsLaneMetadata analysis;
+        if (hasChopSource && decodedAssets[chopIndex])
+            analysis = s3g::sample::analyzeCutupsAsset(
+                *decodedAssets[chopIndex],
+                static_cast<uint32_t>(
+                    s3g::sample::kSampleKitMaximumChops),
+                5.0, 0u, 20.0);
+        (void)publishChopSource(instance,
+            hasChopSource ? decodedAssets[chopIndex] : nullptr,
+            hasChopSource ? decodedPaths[chopIndex] : std::string(),
+            analysis, false);
+        if (hasChopSource && mode == StorageMode::Project
+            && !decodedPaths[chopIndex].empty()) {
+            const ReaperContext context
+                = s3g::sample_storage::reaperContext(instance.host);
+            (void)instance.chopSourceRegistration.reset(context,
+                decodedPaths[chopIndex], nullptr, nullptr,
+                instance.plugin.desc->name);
+        }
+        {
+            std::lock_guard<std::mutex> lock(instance.statusMutex);
+            instance.chopMode = static_cast<SampleKitChopMode>(
+                std::min<uint8_t>(saved.chop.mode,
+                    static_cast<uint8_t>(SampleKitChopMode::BeatGrid)));
+            instance.chopEqualCount = std::clamp<uint8_t>(
+                saved.chop.equalCount, 1u, 16u);
+            instance.chopTransientMaximum = std::clamp<uint8_t>(
+                saved.chop.transientMaximum, 1u, 16u);
+            instance.chopBeatDivisionIndex = std::min<uint8_t>(
+                saved.chop.beatDivisionIndex,
+                static_cast<uint8_t>(kChopBeatDivisions.size() - 1u));
+            instance.chopMonoChoke = saved.chop.monoChoke != 0u;
+            instance.chopPreviewRateIndex.store(std::min<uint8_t>(
+                    saved.chop.previewRateIndex, 3u),
+                std::memory_order_release);
+            instance.chopPreRollTenthsMilliseconds = std::min<uint8_t>(
+                saved.chop.preRollTenthsMilliseconds, 200u);
+            instance.chopSourceBpm = std::clamp(
+                std::isfinite(saved.chop.sourceBpm)
+                    ? saved.chop.sourceBpm : 120.0,
+                20.0, 999.0);
+            SampleKitChopLayout storedLayout;
+            storedLayout.sliceCount = saved.chop.sliceCount;
+            storedLayout.boundaries = saved.chop.boundaries;
+            if (storedLayout.valid()) instance.chopLayout = storedLayout;
+            else regenerateChopLayoutLocked(instance);
+        }
+    } else {
+        SavedStateV2Body saved {};
+        for (std::size_t index = 0u; index < kStoredParamCount; ++index)
+            saved.parameters[index]
+                = storedParamDefinitionAt(index).defaultValue;
+        if (header.version == 1u
+            && header.parameterCount == kLegacyStoredParamCount) {
+            SavedStateV1Body legacy {};
+            if (!s3g::clap_state::readAll(stream, &legacy, sizeof(legacy)))
+                return false;
+            std::copy(legacy.parameters.begin(), legacy.parameters.end(),
+                saved.parameters.begin());
+            for (std::size_t pad = 0u; pad < legacy.slots.size(); ++pad)
+                saved.slots[pad][0u] = legacy.slots[pad];
+        } else if (header.version == 2u
+            && header.parameterCount == kStoredParamCount) {
+            if (!s3g::clap_state::readAll(stream, &saved, sizeof(saved)))
+                return false;
+        } else return false;
+        for (std::size_t index = 0u; index < kStoredParamCount; ++index)
+            instance.parameters[index].store(clampParam(
+                storedParamDefinitionAt(index), saved.parameters[index]),
+                std::memory_order_release);
+        instance.parameters[kVelocityCurveStoredIndex].store(2.0,
+            std::memory_order_release);
+        uint64_t embeddedBytes = 0u;
+        for (const auto& pad : saved.slots)
+            for (const auto& slot : pad)
+                if (!validEmbedded(slot, embeddedBytes)) return false;
+        for (std::size_t pad = 0u; pad < saved.slots.size(); ++pad) {
+            for (std::size_t variation = 0u;
+                 variation < saved.slots[pad].size(); ++variation) {
+                instance.projectRegistrations[pad][variation].clear();
+                const auto& state = saved.slots[pad][variation];
+                std::string runtimePath;
+                std::shared_ptr<const SampleAsset> asset;
+                if (!decodeSlot(state, asset, runtimePath)) return false;
+                (void)publishAsset(instance, pad, variation,
+                    std::move(asset), runtimePath, false);
+                if (mode == StorageMode::Project && !runtimePath.empty()) {
+                    const ReaperContext context
+                        = s3g::sample_storage::reaperContext(instance.host);
+                    (void)instance.projectRegistrations[pad][variation].reset(
+                        context, runtimePath, nullptr, nullptr,
+                        instance.plugin.desc->name);
+                }
+            }
+        }
+        instance.chopSourceRegistration.clear();
+        {
+            std::lock_guard<std::mutex> lock(instance.statusMutex);
+            instance.chopMode = SampleKitChopMode::Equal;
+            instance.chopEqualCount = 16u;
+            instance.chopTransientMaximum = 16u;
+            instance.chopBeatDivisionIndex = 1u;
+            instance.chopMonoChoke = true;
+            instance.chopPreRollTenthsMilliseconds = 10u;
+            instance.chopSourceBpm = 120.0;
+            instance.chopLayout = s3g::sample::equalChopLayout(16u);
+        }
+        instance.chopPreviewRateIndex.store(0u,
+            std::memory_order_release);
+        (void)publishChopSource(instance, nullptr, "", {}, false);
     }
     instance.killRequested.store(true, std::memory_order_release);
     if (instance.hostParams && instance.hostParams->rescan)
@@ -1498,16 +2007,27 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
     uint32_t, uint32_t maximumFrames)
 {
     auto& instance = *self(plugin);
-    if (!instance.engine.prepare(sampleRate, maximumFrames)) return false;
+    if (!instance.engine.prepare(sampleRate, maximumFrames)
+        || !instance.chopPreviewEngine.prepare(sampleRate, 2u)) {
+        instance.engine.unprepare();
+        instance.chopPreviewEngine.unprepare();
+        return false;
+    }
     instance.sampleRate = sampleRate;
     instance.maximumFrames = maximumFrames;
     try {
         for (auto& channel : instance.scratch)
             channel.assign(maximumFrames, 0.0f);
+        for (auto& channel : instance.chopPreviewScratch)
+            channel.assign(maximumFrames, 0.0f);
     } catch (...) {
         instance.engine.unprepare();
+        instance.chopPreviewEngine.unprepare();
         return false;
     }
+    instance.audioChopSource = instance.publishedChopSource.load(
+        std::memory_order_acquire);
+    instance.chopPreviewEngine.setPreparedAsset(instance.audioChopSource);
     for (std::size_t pad = 0u; pad < instance.audioAssets.size(); ++pad) {
         for (std::size_t variation = 0u;
              variation < instance.audioAssets[pad].size(); ++variation) {
@@ -1527,14 +2047,18 @@ void pluginDeactivate(const clap_plugin_t* plugin)
     auto& instance = *self(plugin);
     instance.active = false;
     instance.engine.unprepare();
+    instance.chopPreviewEngine.unprepare();
     for (auto& pad : instance.audioAssets) pad.fill(nullptr);
     for (auto& channel : instance.scratch) channel.clear();
+    for (auto& channel : instance.chopPreviewScratch) channel.clear();
     {
         std::lock_guard<std::mutex> lock(instance.statusMutex);
         instance.retainedAssets.clear();
         for (const auto& pad : instance.controlAssets)
             for (const auto& asset : pad)
                 if (asset) instance.retainedAssets.push_back(asset);
+        if (instance.chopSourceAsset)
+            instance.retainedAssets.push_back(instance.chopSourceAsset);
     }
 }
 
@@ -1547,7 +2071,11 @@ void pluginStopProcessing(const clap_plugin_t*) {}
 
 void pluginReset(const clap_plugin_t* plugin)
 {
-    self(plugin)->engine.reset();
+    auto& instance = *self(plugin);
+    instance.engine.reset();
+    instance.chopPreviewEngine.reset();
+    instance.chopPreviewPosition.store(-1.0f, std::memory_order_relaxed);
+    instance.chopPreviewActive.store(false, std::memory_order_relaxed);
 }
 
 clap_process_status pluginProcess(const clap_plugin_t* plugin,
@@ -1570,10 +2098,18 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
             }
         }
     }
+    const auto* chopSource = instance.publishedChopSource.load(
+        std::memory_order_acquire);
+    if (chopSource != instance.audioChopSource) {
+        instance.audioChopSource = chopSource;
+        instance.chopPreviewEngine.setPreparedAsset(chopSource);
+        instance.chopPreviewEngine.killAll();
+    }
     std::size_t eventCount = collectEvents(instance, process->in_events,
         process->frames_count);
     if (instance.killRequested.exchange(false, std::memory_order_acq_rel)) {
         instance.engine.killAll();
+        instance.chopPreviewEngine.killAll();
         eventCount = 0u;
     }
     std::array<float*, s3g::sample::kSampleKitOutputChannels> pointers {};
@@ -1583,14 +2119,88 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     instance.engine.render(settings, instance.blockEvents.data(), eventCount,
         pointers.data(), s3g::sample::kSampleKitOutputChannels,
         process->frames_count);
+    if (instance.chopPreviewStop.exchange(false,
+            std::memory_order_acq_rel))
+        instance.chopPreviewEngine.killAll();
+    PlayerSettings previewSettings;
+    previewSettings.playMode = PlayMode::Forward;
+    previewSettings.triggerMode = TriggerMode::OneShot;
+    previewSettings.start = instance.chopPreviewStartPosition.load(
+        std::memory_order_acquire);
+    const double previewEnd = instance.chopPreviewEndPosition.load(
+        std::memory_order_acquire);
+    previewSettings.length = std::max(0.0,
+        previewEnd - previewSettings.start);
+    previewSettings.loopStart = previewSettings.start;
+    previewSettings.loopEnd = previewEnd;
+    previewSettings.attackProportion = 0.0f;
+    previewSettings.releaseProportion = 0.0f;
+    previewSettings.gainDecibels = -6.0f;
+    previewSettings.velocitySensitivity = 0.0f;
+    constexpr std::array<float, 4u> previewRates {{
+        1.0f, 0.75f, 0.5f, 0.25f,
+    }};
+    const std::size_t previewRateIndex = std::min<std::size_t>(
+        instance.chopPreviewRateIndex.load(std::memory_order_acquire),
+        previewRates.size() - 1u);
+    previewSettings.tuneSemitones = 12.0f * std::log2(
+        previewRates[previewRateIndex]);
+    RenderEvent previewEvent;
+    const bool startPreview = instance.chopPreviewStart.exchange(false,
+        std::memory_order_acq_rel);
+    const RenderEvent* previewEvents = nullptr;
+    std::size_t previewEventCount = 0u;
+    if (startPreview && instance.audioChopSource) {
+        instance.chopPreviewEngine.killAll();
+        previewEvent = { 0u, EventKind::NoteOn, 0x7ffffff0u,
+            60u, 1.0f, 0u };
+        previewEvents = &previewEvent;
+        previewEventCount = 1u;
+    }
+    std::array<float*, 2u> previewPointers {{
+        instance.chopPreviewScratch[0u].data(),
+        instance.chopPreviewScratch[1u].data(),
+    }};
+    instance.chopPreviewEngine.render(previewSettings, previewEvents,
+        previewEventCount, previewPointers.data(), 2u,
+        process->frames_count);
+    float combinedPeak = instance.engine.outputPeak();
+    for (uint32_t frame = 0u; frame < process->frames_count; ++frame) {
+        instance.scratch[0u][frame] +=
+            instance.chopPreviewScratch[0u][frame];
+        instance.scratch[1u][frame] +=
+            instance.chopPreviewScratch[1u][frame];
+        combinedPeak = std::max(combinedPeak, std::max(
+            std::abs(instance.scratch[0u][frame]),
+            std::abs(instance.scratch[1u][frame])));
+    }
+    const uint32_t cursorCount
+        = instance.chopPreviewEngine.voiceCursorCount();
+    instance.chopPreviewActive.store(cursorCount != 0u,
+        std::memory_order_relaxed);
+    instance.chopPreviewPosition.store(cursorCount != 0u
+            ? instance.chopPreviewEngine.voiceCursors()[0u]
+                .sourcePositionNormalized
+            : -1.0f,
+        std::memory_order_relaxed);
     for (std::size_t pad = 0u; pad < instance.padPeaks.size(); ++pad)
         instance.padPeaks[pad].store(instance.engine.padPeak(pad),
             std::memory_order_relaxed);
-    for (std::size_t pad = 0u; pad < instance.lastVariations.size(); ++pad)
+    for (std::size_t pad = 0u; pad < instance.lastVariations.size(); ++pad) {
         instance.lastVariations[pad].store(
             instance.engine.lastSelectedVariation(pad),
             std::memory_order_relaxed);
-    instance.outputPeak.store(instance.engine.outputPeak(),
+        const auto offsets = instance.engine.lastNaturalOffsets(pad);
+        instance.lastNaturalGain[pad].store(offsets.gainDecibels,
+            std::memory_order_relaxed);
+        instance.lastNaturalPitch[pad].store(offsets.pitchCents,
+            std::memory_order_relaxed);
+        instance.lastNaturalStart[pad].store(offsets.startMilliseconds,
+            std::memory_order_relaxed);
+        instance.lastNaturalTiming[pad].store(offsets.timingMilliseconds,
+            std::memory_order_relaxed);
+    }
+    instance.outputPeak.store(combinedPeak,
         std::memory_order_relaxed);
     instance.activeVoices.store(static_cast<uint32_t>(
         instance.engine.activeVoiceCount()), std::memory_order_relaxed);
@@ -1662,8 +2272,8 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.2.2",
-    "Sixteen-pad stereo sample instrument with eight variations per pad, deterministic Natural humanization, mixer, choke groups, and one to sixteen routed output pairs.",
+    "0.4.1",
+    "Sixteen-pad stereo sample instrument with shared-source chopping, eight variations per pad, deterministic Natural humanization, mixer, choke groups, and one to sixteen routed output pairs.",
     features,
 };
 
@@ -1691,6 +2301,14 @@ const clap_plugin_t* createPlugin(const clap_plugin_factory_t*,
         }
         instance->padPeaks[pad].store(0.0f, std::memory_order_relaxed);
         instance->lastVariations[pad].store(0xffu,
+            std::memory_order_relaxed);
+        instance->lastNaturalGain[pad].store(0.0f,
+            std::memory_order_relaxed);
+        instance->lastNaturalPitch[pad].store(0.0f,
+            std::memory_order_relaxed);
+        instance->lastNaturalStart[pad].store(0.0f,
+            std::memory_order_relaxed);
+        instance->lastNaturalTiming[pad].store(0.0f,
             std::memory_order_relaxed);
     }
     instance->host = host;

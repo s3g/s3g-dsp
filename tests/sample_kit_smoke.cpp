@@ -366,6 +366,120 @@ void testNaturalTimingAcrossBlocks()
         "note-off did not cancel a pending delayed Natural hit");
 }
 
+void testSingleSampleNaturalHumanization()
+{
+    using namespace s3g::sample;
+    auto source = constantAsset(0.1f, 0.1f, 512u);
+    SampleKitEngine engine;
+    check(engine.prepare(48000.0, 32u)
+            && engine.setAsset(0u, 0u, &source),
+        "single-sample Natural fixture did not prepare");
+    SampleKitSettings settings;
+    settings.masterGainDecibels = 0.0f;
+    settings.randomSeed = 777u;
+    settings.naturalEnabled = true;
+    settings.pads[0u].gainDecibels = 0.0f;
+    settings.pads[0u].velocitySensitivity = 0.0f;
+    settings.pads[0u].naturalEnabled = true;
+    settings.pads[0u].naturalGainDecibels = 3.0f;
+    const RenderEvent hit {
+        0u, EventKind::NoteOn, 40u, 36u, 1.0f, 0u,
+    };
+    OutputBlock natural;
+    engine.render(settings, &hit, 1u, natural.pointers.data(),
+        kSampleKitOutputChannels, 32u);
+    check(engine.lastSelectedVariation(0u) == 0u
+            && std::abs(natural.samples[0u][0u] - 0.1f) > 1.0e-5f,
+        "Natural did not vary gain for a pad with one loaded sample");
+    check(std::abs(engine.lastNaturalOffsets(0u).gainDecibels) > 1.0e-5f,
+        "single-sample Natural did not publish its per-hit offset");
+
+    engine.reset();
+    settings.pads[0u].naturalEnabled = false;
+    OutputBlock bypassed;
+    engine.render(settings, &hit, 1u, bypassed.pointers.data(),
+        kSampleKitOutputChannels, 32u);
+    check(std::abs(bypassed.samples[0u][0u] - 0.1f) < 1.0e-5f
+            && engine.lastNaturalOffsets(0u).gainDecibels == 0.0f,
+        "single-sample Natural bypass still applied hit jitter");
+}
+
+void testChopLayouts()
+{
+    using namespace s3g::sample;
+    const auto equal = equalChopLayout(16u);
+    check(equal.valid() && equal.sliceCount == 16u
+            && std::abs(equal.boundaries[5u] - 0.3125) < 1.0e-12,
+        "equal chop layout was not normalized across sixteen pads");
+
+    const std::array<float, 6u> transients {{
+        0.0f, 0.10f, 0.26f, 0.51f, 0.74f, 0.90f,
+    }};
+    const auto transient = transientChopLayout(
+        transients.data(), transients.size(), 4u);
+    check(transient.valid() && transient.sliceCount == 4u
+            && std::abs(transient.boundaries[1u] - 0.10) < 1.0e-6
+            && std::abs(transient.boundaries[3u] - 0.51) < 1.0e-6,
+        "transient chop layout did not honor its region limit");
+
+    const auto beat = beatGridChopLayout(4.0, 120.0, 1.0);
+    check(beat.valid() && beat.sliceCount == 8u
+            && std::abs(beat.boundaries[7u] - 0.875) < 1.0e-12,
+        "beat-grid chop layout did not use source BPM");
+
+    auto live = equalChopLayout(1u);
+    check(addChopMarker(live, 0.65)
+            && addChopMarker(live, 0.20)
+            && live.valid() && live.sliceCount == 3u
+            && std::abs(live.boundaries[1u] - 0.20) < 1.0e-12
+            && std::abs(live.boundaries[2u] - 0.65) < 1.0e-12,
+        "live markers were not inserted in timeline order");
+    check(moveChopMarker(live, 1u, 0.30)
+            && std::abs(live.boundaries[1u] - 0.30) < 1.0e-12
+            && live.valid(),
+        "a chop marker could not be moved safely");
+    check(!addChopMarker(live, 0.30)
+            && !moveChopMarker(live, 0u, 0.25),
+        "chop markers accepted duplicates or an endpoint move");
+    auto manual = equalChopLayout(1u);
+    bool filled = true;
+    for (std::size_t marker = 1u;
+         marker < kSampleKitMaximumChops; ++marker)
+        filled = addChopMarker(manual,
+            static_cast<double>(marker)
+                / static_cast<double>(kSampleKitMaximumChops)) && filled;
+    check(filled && manual.valid()
+            && manual.sliceCount == kSampleKitMaximumChops
+            && !addChopMarker(manual, 0.99),
+        "manual chop markers did not stop at sixteen regions");
+    check(std::abs(preRolledChopPosition(0.5, 2.0, 20.0) - 0.49)
+                < 1.0e-12
+            && preRolledChopPosition(0.005, 2.0, 20.0) == 0.0,
+        "chop pre-roll did not shift and clamp marker positions");
+}
+
+void testVelocityCurves()
+{
+    using namespace s3g::sample;
+    const float input = 0.25f;
+    const float verySoft = applySampleKitVelocityCurve(
+        input, SampleKitVelocityCurve::VerySoft);
+    const float soft = applySampleKitVelocityCurve(
+        input, SampleKitVelocityCurve::Soft);
+    const float linear = applySampleKitVelocityCurve(
+        input, SampleKitVelocityCurve::Linear);
+    const float hard = applySampleKitVelocityCurve(
+        input, SampleKitVelocityCurve::Hard);
+    check(verySoft > soft && soft > linear && linear > hard
+            && std::abs(linear - input) < 1.0e-7f,
+        "Sample Kit velocity curves were not ordered around linear");
+    check(applySampleKitVelocityCurve(
+                input, SampleKitVelocityCurve::Fixed) == 1.0f
+            && applySampleKitVelocityCurve(
+                0.0f, SampleKitVelocityCurve::Fixed) == 0.0f,
+        "fixed Sample Kit velocity did not preserve zero and full hits");
+}
+
 } // namespace
 
 int main()
@@ -376,6 +490,9 @@ int main()
     testVariationSelectionAndBypass();
     testDeterministicNaturalSeed();
     testNaturalTimingAcrossBlocks();
+    testSingleSampleNaturalHumanization();
+    testChopLayouts();
+    testVelocityCurves();
     if (failures != 0) return 1;
     std::cout << "s3g Sample Kit smoke: ok\n";
     return 0;
