@@ -371,12 +371,15 @@ private:
 
     static bool sendFrame(MIDIPortRef port, MIDIEndpointRef destination,
         const s3g::controller::reloop_neon::LedFrame& frame,
-        s3g::controller::reloop_neon::LedDiffEncoder& encoder, bool force, bool refreshPads = false)
+        s3g::controller::reloop_neon::LedDiffEncoder& encoder, bool force, bool refreshPads = false,
+        bool restoreSamplerMode = true)
     {
+        static_assert(3u * s3g::controller::reloop_neon::kMaximumLedMessages <= 256u,
+            "NEON feedback must fit one bounded CoreMIDI send");
         std::array<s3g::controller::reloop_neon::MidiMessage,
             s3g::controller::reloop_neon::kMaximumLedMessages> messages {};
         const std::size_t count = encoder.encode(frame, messages.data(),
-            messages.size(), force, refreshPads);
+            messages.size(), force, refreshPads, restoreSamplerMode);
         std::array<uint8_t, 3u
             * s3g::controller::reloop_neon::kMaximumLedMessages> bytes {};
         std::size_t byteCount = 0u;
@@ -423,7 +426,8 @@ private:
                 if (sentActive && destination) {
                     auto dark = frame;
                     for (auto& pad : dark.pads) pad = {};
-                    (void)sendFrame(port, destination, dark, encoder, true);
+                    // Relinquishing LED ownership must not change hardware mode.
+                    (void)sendFrame(port, destination, dark, encoder, true, false, false);
                 }
                 sentActive = false;
                 appliedVersion = version;
@@ -485,7 +489,7 @@ private:
 
         if (sentActive && destination) {
             for (auto& pad : frame.pads) pad = {};
-            (void)sendFrame(port, destination, frame, encoder, true);
+            (void)sendFrame(port, destination, frame, encoder, true, false, false);
         }
         MIDIPortDispose(port);
         MIDIClientDispose(client);
@@ -3641,7 +3645,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Neon 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.22.2",
+    "", "", "0.22.4",
     "Channel-linked Neon sampler: stereo, quad, octo and ACN/SN3D ambisonics, with 32 output channels.",
     multichannelFeatures,
 };

@@ -62,13 +62,17 @@ public:
         line({16, 293}, {604, 293}, color(0x3a3a3a));
         const auto last = p.lastHit.load();
         const auto velocity = last & 0x7fu;
-        text(last == UINT32_MAX ? "NOTE -- / VEL --- / VOL -.---"
-            : format("NOTE %u / VEL %03u / VOL %.3f", last >> 8u, velocity, velocity / 127.0),
-            rect(16, 300, 272, 20), style.value);
+        text(last == UINT32_MAX ? "NOTE -- / VEL ---"
+            : format("NOTE %u / VEL %03u", (last >> 8u) & 0x7fu, velocity),
+            rect(16, 300, 152, 20), style.value);
+        text(last == UINT32_MAX ? "AT ---" : format("AT %03u", (last >> 16u) & 0x7fu),
+            rect(176, 300, 56, 20), style.value);
+        text(last == UINT32_MAX ? "VOL -.---" : format("VOL %.3f", velocity / 127.0),
+            rect(240, 300, 80, 20), style.value);
         const auto rejected = p.rejected.load();
         text(rejected ? format("HOST REJECTED %u EVENTS", rejected) : "SAMPLE LAYER 1 ONLY",
-            rect(292, 300, 202, 20), style.dim, kCenterText);
-        text("v0.1.1", rect(500, 300, 104, 20), style.dim, kRightText);
+            rect(332, 300, 206, 20), style.dim, kCenterText);
+        text("v0.1.2", rect(552, 300, 52, 20), style.dim, kRightText);
         text("SHIFT + SAMPLER: VELOCITY ON / OFF", rect(16, 322, 480, 16), style.label);
     }
 private:

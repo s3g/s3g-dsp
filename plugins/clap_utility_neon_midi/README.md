@@ -1,6 +1,6 @@
 # s3g Utility Neon MIDI
 
-Version 0.1.1. MIDI-only CLAP companion for a Reloop NEON. No firmware change,
+Version 0.1.2. MIDI-only CLAP companion for a Reloop NEON. No firmware change,
 audio processing, hardware MIDI output or second LED owner. Uses the same
 factory-message decoder as Sample Neon 32. Utility-family Fira Code/grayscale
 editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
@@ -9,7 +9,7 @@ editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
 
 Place these **in this order in the normal track FX chain**:
 
-1. **s3g Utility Neon MIDI 0.1.1** — Control Route `TRACKER + SAMPLE NEON`,
+1. **s3g Utility Neon MIDI 0.1.2** — Control Route `TRACKER + SAMPLE NEON`,
    Base Note `36`, Output Channel `1`.
 2. **s3g Tracker 0.4.1 or newer** — participating lanes, including the recording
    destination, on `CH01`.
@@ -72,10 +72,16 @@ CC, the incoming note-on velocity is preserved. Note-on zero still releases.
 Editing/audition CCs travel through the private control route to Sample Neon's
 matching decoder; musical CCs are consumed in the Utility, not recorded as controls.
 
-The footer displays the last successfully emitted **NOTE**, **VEL** (1–127)
-and **VOL** (`VEL / 127`, 0–1): e.g. `NOTE 46 / VEL 003 / VOL 0.024`.
-It holds that strike value through aftertouch and release; the adjacent
-SHIFT + SAMPLER reminder is not a claim to know the hardware's current mode.
+The footer displays the last successfully emitted **NOTE**, **VEL** (1–127),
+live **AT** aftertouch (0–127), and **VOL** (`VEL / 127`, 0–1): for example,
+`NOTE 46 / VEL 003  AT 090  VOL 0.024`. Note, velocity and volume retain the
+original strike through pressure changes and release. AT follows incoming
+pressure for that same held pad, including across bank/base/channel changes;
+other held pads do not overwrite its readout. It starts at zero for a new hit
+and clears on release, RELEASE HELD, reset, transport stop or deactivation.
+Before any hit, the values show dashes. AT is an **input monitor**, including
+in NOTES ONLY; it is not confirmation that the host accepted a control event.
+The SHIFT + SAMPLER reminder is not a claim to know the hardware's current mode.
 
 Tracker's live monitor and recorder preserve that velocity. In Sample Neon,
 **EDIT → SOURCE/TRIM → VELOCITY → PAD VELOCITY** enables the cell's dynamic
@@ -92,7 +98,10 @@ through this control path; Tracker does not write pressure into the pattern.
 Live edits/auditions are not a recording of automation or parameter locks.
 
 Choose `NOTES ONLY` for a different instrument or a separate recording branch.
-Then control envelopes are suppressed. There is no raw MIDI-thru in the
+Then control envelopes, including aftertouch, are suppressed. The Utility does
+not currently emit ordinary MIDI polyphonic/channel aftertouch for other
+instruments; aftertouch forwarding is through the Sample Neon bridge only.
+There is no raw MIDI-thru in the
 Utility, and it deliberately does not accept a keyboard or already-translated
 notes as an additional input. Connect those separately after the adapter.
 
@@ -105,6 +114,19 @@ channels. Each Utility instance handles **one controller**; merged two-NEON
 input and Smart Link are not implemented.
 
 ## Implementation and verification
+
+Version 0.1.2 adds only the AT input readout; aftertouch routing, parameter IDs
+and the nine-byte state format are unchanged. GUI tests cover independent
+note/velocity/AT/VOL updates, both routes, other held pads, bank/base/channel
+changes, malformed/late pressure, release, panic, reset, transport stop and
+deactivation. The chain with the installed Tracker 0.4.1 and Sample Neon 0.22.2
+passes 8,960 checks, including exact aftertouch cell/value/timing forwarding.
+Standalone ASan/UBSan: 8,798 checks passed. CLAP validator: 17 passed, zero
+failed, four skipped. The installed Utility passed its GUI/chain checks,
+bundle comparison and strict signature verification; Tracker and Sample Neon
+were not replaced. Previous Utility 0.1.1 is preserved at
+`~/Library/Audio/Plug-Ins/CLAP Backups/neon-aftertouch.faPzha/`.
+The user's actual REAPER/hardware audition after reload remains separate.
 
 - CLAP ID `org.s3g.s3g-dsp.utility-neon-midi`; installed bundle
   `s3g_utility_neon_midi.clap`. No audio-channel suffix: this Utility has no audio ports.

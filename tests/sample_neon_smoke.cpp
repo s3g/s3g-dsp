@@ -162,11 +162,15 @@ void testLedDiffs()
     LedDiffEncoder encoder;
     const std::size_t first = encoder.encode(frame, messages.data(),
         messages.size());
-    check(first == kFullLedFrameMessages
-            && messages[0u] == MidiMessage { 0x93u, 0x00u, 127u }
-            && messages[1u] == MidiMessage { 0x93u, 0x05u, 127u }
-            && messages[2u] == MidiMessage { 0x97u, 0x00u, 96u }
-            && messages[3u] == MidiMessage { 0x9bu, 0x20u, 127u }
+    check(first == kFullLedFrameMessages + kBankCount
+            && messages[0u] == MidiMessage { 0x93u, 0x0du, 127u }
+            && messages[1u] == MidiMessage { 0x94u, 0x0du, 127u }
+            && messages[2u] == MidiMessage { 0x95u, 0x0du, 127u }
+            && messages[3u] == MidiMessage { 0x96u, 0x0du, 127u }
+            && messages[4u] == MidiMessage { 0x93u, 0x05u, 127u }
+            && messages[12u] == MidiMessage { 0x93u, 0x00u, 127u }
+            && messages[13u] == MidiMessage { 0x97u, 0x00u, 96u }
+            && messages[14u] == MidiMessage { 0x9bu, 0x20u, 127u }
             && messages[first - 1u]
                 == MidiMessage { 0x9bu, 0x47u, 64u },
         "initial LED frame was not fully encoded");
@@ -182,11 +186,11 @@ void testLedDiffs()
     frame.layer = Layer::Second;
     const std::size_t switched = encoder.encode(frame, messages.data(),
         messages.size());
-    check(switched == kMaximumLedMessages
+    check(switched == kFullLedFrameMessages + kPadsPerBank
             && messages[0u] == MidiMessage { 0x97u, 0x00u, 0u }
-            && messages[8u] == MidiMessage { 0x93u, 0x01u, 127u }
-            && messages[9u] == MidiMessage { 0x93u, 0x0au, 127u }
-            && messages[10u] == MidiMessage { 0x97u, 0x68u, 96u },
+            && messages[8u] == MidiMessage { 0x93u, 0x0au, 127u }
+            && messages[16u] == MidiMessage { 0x93u, 0x01u, 127u }
+            && messages[17u] == MidiMessage { 0x97u, 0x68u, 96u },
         "mode/layer LED switch did not retarget the large pads");
     check(enableFourDecksSysEx()
             == std::array<uint8_t, 4u> {{ 0xf0u, 0x0au, 0x00u, 0xf7u }},
@@ -194,15 +198,113 @@ void testLedDiffs()
     frame = {}; frame.pads[0u].surface = 48u;
     encoder.invalidate(); encoder.encode(frame, messages.data(), messages.size());
     frame.bank = 1u;
-    check(encoder.encode(frame, messages.data(), messages.size()) == kFullLedFrameMessages
-        && messages[0u] == MidiMessage {0x94u, 0u, 127u}
-        && messages[2u] == MidiMessage {0x97u, 0u, 48u},
+    const auto bankSwitch = encoder.encode(frame, messages.data(), messages.size());
+    for (std::size_t i = 0u; i < bankSwitch; ++i)
+        check(!(messages[i].status >= 0x93u && messages[i].status <= 0x96u
+            && messages[i].data1 == 0x0du),
+            "Ordinary SAMPLE bank change reinitializes all hardware decks");
+    check(bankSwitch == kFullLedFrameMessages - 1u
+        && messages[7u] == MidiMessage {0x94u, 0u, 127u}
+        && messages[8u] == MidiMessage {0x97u, 0u, 48u},
         "Sampler bank switch darkened its shared pad addresses");
     check(encoder.encode(frame, messages.data(), messages.size(), false, true) == 48u
         && messages[0u] == MidiMessage {0x97u, 0u, 48u},
         "Pad-only refresh did not restore unchanged inventory without bank commands");
     check(encoder.encode(frame, messages.data(), messages.size()) == 0u,
         "Pad refresh corrupted diff state");
+
+    // Every deck can remember a different editing page. Entering SAMPLE
+    // clears those hardware page recalls, THEN restores the intended bank.
+    // Lamp-only updates/retries must not keep issuing mode/bank commands.
+    for (uint8_t bank = 0u; bank < kBankCount; ++bank) {
+        frame.bank = bank;
+        frame.mode = Mode::HotCue; frame.layer = Layer::Second;
+        encoder.encode(frame, messages.data(), messages.size());
+        frame.mode = Mode::Sampler; frame.layer = Layer::First;
+        const auto n = encoder.encode(frame, messages.data(), messages.size());
+        unsigned restored = 0u;
+        bool bankRestored = false;
+        for (std::size_t i = 0u; i < n; ++i) {
+            const auto& message = messages[i];
+            if (message.status >= 0x93u && message.status <= 0x96u
+                && message.data1 == 0x0du && message.data2 == 127u) {
+                check(!bankRestored, "Sampler trigger came after restoring the selected bank");
+                restored |= 1u << (message.status - 0x93u);
+            }
+            if (message == bankLedMessage(bank, Mode::Sampler)) {
+                check(restored == 15u, "Not all remembered deck modes were reset before bank selection");
+                bankRestored = true;
+            }
+        }
+        check(restored == 15u && bankRestored && n <= kMaximumLedMessages,
+            "SAMPLE transition did not restore every deck and the selected bank");
+        check(encoder.encode(frame, messages.data(), messages.size()) == 0u,
+            "Steady SAMPLE mode emitted a hardware heartbeat");
+        const auto retry = encoder.encode(frame, messages.data(), messages.size(), false, true);
+        check(retry == kPadsPerBank * kLedValuesPerPad,
+            "Pad settling retry changed the hardware mode");
+        const auto dark = encoder.encode(frame, messages.data(), messages.size(), true, false, false);
+        check(dark == kFullLedFrameMessages && messages[8u] == bankLedMessage(bank, Mode::Sampler),
+            "Relinquishing LED ownership sent sampler-mode commands");
+        frame.mode = Mode::HotCue;
+        const auto editing = encoder.encode(frame, messages.data(), messages.size());
+        for (std::size_t i = 0u; i < editing; ++i)
+            check(messages[i].data1 != 0x0du,
+                "Explicit EDIT selection was forced back into SAMPLE");
+    }
+    frame.mode = Mode::Sampler; frame.layer = Layer::First; frame.bank = 1u;
+
+    // Reproduce B/EDIT -> A/SAMPLE -> B/SAMPLE with stale lights in both
+    // hardware address sets. Only the selected bank may remain illuminated.
+    // This also covers SAMPLE FX, which uses deck (01), not bank (00), lamps.
+    LedDiffEncoder bankEncoder;
+    std::array<std::array<bool, 2u>, kBankCount> bankLamps;
+    for (auto& lamp : bankLamps) lamp.fill(true);
+    const auto checkBankLamps = [&](const LedFrame& desired, unsigned modeTriggers) {
+        const auto n = bankEncoder.encode(desired, messages.data(), messages.size());
+        unsigned triggers = 0u;
+        MidiMessage lastContext {};
+        for (std::size_t i = 0u; i < n; ++i) {
+            const auto& message = messages[i];
+            if (message.status < 0x93u || message.status > 0x96u) continue;
+            lastContext = message;
+            if (message.data1 < 2u)
+                bankLamps[message.status - 0x93u][message.data1] = message.data2 != 0u;
+            if (message.data1 == 0x0du) ++triggers;
+        }
+        const uint8_t selectedAddress = desired.mode == Mode::Sampler
+            && desired.layer == Layer::First ? 0u : 1u;
+        for (uint8_t bank = 0u; bank < kBankCount; ++bank)
+            for (uint8_t address = 0u; address < 2u; ++address)
+                check(bankLamps[bank][address] == (bank == desired.bank && address == selectedAddress),
+                    "Bank feedback left a stale bank/deck lamp on or the selected bank dark");
+        check(triggers == modeTriggers && lastContext == MidiMessage {
+            static_cast<uint8_t>(0x93u + desired.bank), selectedAddress, 127u},
+            "Mode commands overwrote the final bank selection");
+        check(n <= kMaximumLedMessages && bankEncoder.encode(desired, messages.data(), messages.size()) == 0u,
+            "Bank indicator feedback exceeded capacity or emitted a heartbeat");
+    };
+    LedFrame bankFrame; bankFrame.bank = 1u; bankFrame.mode = Mode::HotCue;
+    checkBankLamps(bankFrame, 0u);
+    bankFrame.bank = 0u; bankFrame.mode = Mode::Sampler;
+    checkBankLamps(bankFrame, 4u);
+    bankFrame.bank = 1u;
+    checkBankLamps(bankFrame, 0u);
+    for (uint8_t page = 0u; page < 8u; ++page) {
+        bankFrame.mode = static_cast<Mode>(page % 4u);
+        bankFrame.layer = page < 4u ? Layer::First : Layer::Second;
+        const auto n = bankEncoder.encode(bankFrame, messages.data(), messages.size());
+        // Consume this page transition in the lamp model before testing banks.
+        for (std::size_t i = 0u; i < n; ++i) {
+            const auto& m = messages[i];
+            if (m.status >= 0x93u && m.status <= 0x96u && m.data1 < 2u)
+                bankLamps[m.status - 0x93u][m.data1] = m.data2 != 0u;
+        }
+        for (uint8_t bank : std::array<uint8_t, 4u> {{0u, 2u, 3u, 1u}}) {
+            bankFrame.bank = bank;
+            checkBankLamps(bankFrame, 0u);
+        }
+    }
 
     LedRefreshRetries retries;
     check(!retries.update(frame, 0u) && !retries.update(frame, 49u)

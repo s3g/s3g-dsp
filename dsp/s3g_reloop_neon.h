@@ -12,10 +12,12 @@ constexpr uint8_t kPadsPerBank = 8u;
 constexpr uint8_t kSlotCount = kBankCount * kPadsPerBank;
 constexpr uint8_t kLedSegmentsPerPad = 5u;
 constexpr uint8_t kLedValuesPerPad = 1u + kLedSegmentsPerPad;
-constexpr std::size_t kFullLedFrameMessages = 2u
+// Four bank lamps have separate SAMPLE-bank and editing-deck addresses.
+// Clear both address sets, then light exactly the selected address.
+constexpr std::size_t kFullLedFrameMessages = 2u * kBankCount + 1u
     + static_cast<std::size_t>(kPadsPerBank) * kLedValuesPerPad;
 constexpr std::size_t kMaximumLedMessages =
-    kFullLedFrameMessages + kPadsPerBank;
+    kFullLedFrameMessages + kPadsPerBank + kBankCount;
 
 enum class Mode : uint8_t {
     Sampler = 0u,
@@ -503,11 +505,11 @@ struct LedFrame {
 };
 
 constexpr MidiMessage bankLedMessage(uint8_t bank, Mode mode,
-    uint8_t value = 127u) noexcept
+    uint8_t value = 127u, Layer layer = Layer::First) noexcept
 {
     return {
         static_cast<uint8_t>(0x93u + std::min<uint8_t>(bank, 3u)),
-        static_cast<uint8_t>(mode == Mode::Sampler ? 0x00u : 0x01u),
+        static_cast<uint8_t>(mode == Mode::Sampler && layer == Layer::First ? 0x00u : 0x01u),
         static_cast<uint8_t>(std::min<uint8_t>(value, 127u)),
     };
 }
@@ -521,6 +523,16 @@ constexpr MidiMessage modeLedMessage(uint8_t bank, Mode mode, Layer layer,
             + (layer == Layer::Second ? 4u : 0u)),
         static_cast<uint8_t>(std::min<uint8_t>(value, 127u)),
     };
+}
+
+// The mode lamp (05) is not the sampler-mode command (0D). NEON remembers
+// each deck's last performance page. Reloop's MIDI map, p9, documents this
+// separate first-layer SAMPLER trigger for decks A-D. Send it to every deck
+// before restoring the chosen bank so a later bank press cannot recall EDIT.
+constexpr MidiMessage samplerModeTrigger(uint8_t bank) noexcept
+{
+    return {static_cast<uint8_t>(0x93u + std::min<uint8_t>(bank, 3u)),
+        0x0du, 127u};
 }
 
 // The large RGB performance pads use their playable note addresses for MIDI
@@ -588,13 +600,15 @@ constexpr bool isStatusLedMessage(MidiMessage message) noexcept {
 class LedDiffEncoder {
 public:
     std::size_t encode(const LedFrame& frame, MidiMessage* output,
-        std::size_t capacity, bool force = false, bool refreshPads = false) noexcept
+        std::size_t capacity, bool force = false, bool refreshPads = false,
+        bool restoreSamplerMode = true) noexcept
     {
         if (!output || capacity == 0u) return 0u;
         std::size_t count = 0u;
+        const bool pageChanged = !initialized_ || shadow_.mode != frame.mode
+            || shadow_.layer != frame.layer;
         const bool contextChanged = initialized_
-            && (shadow_.bank != frame.bank || shadow_.mode != frame.mode
-                || shadow_.layer != frame.layer);
+            && (shadow_.bank != frame.bank || pageChanged);
         const auto append = [&](MidiMessage message) {
             if (count >= capacity) return false;
             output[count++] = message;
@@ -610,9 +624,26 @@ public:
             }
         }
         if (force || !initialized_ || contextChanged) {
-            if (!append(bankLedMessage(frame.bank, frame.mode))) return count;
-            if (!append(modeLedMessage(frame.bank, frame.mode, frame.layer)))
-                return count;
+            if (restoreSamplerMode && frame.mode == Mode::Sampler
+                && frame.layer == Layer::First && (force || pageChanged)) {
+                for (uint8_t bank = 0u; bank < kBankCount; ++bank)
+                    if (!append(samplerModeTrigger(bank))) return count;
+            }
+            // Ordinary bank changes must not reinitialize the decks or
+            // reassert their mode lamps. That can leave the old bank lit.
+            if ((force || pageChanged)
+                && !append(modeLedMessage(frame.bank, frame.mode, frame.layer))) return count;
+            const auto selectedBank = bankLedMessage(frame.bank, frame.mode, 127u, frame.layer);
+            for (uint8_t bank = 0u; bank < kBankCount; ++bank) {
+                for (uint8_t address = 0u; address < 2u; ++address) {
+                    const auto status = static_cast<uint8_t>(0x93u + bank);
+                    if (status == selectedBank.status && address == selectedBank.data1) continue;
+                    if (!append({status, address, 0u})) return count;
+                }
+            }
+            // Bank selection follows ALL mode commands and stale lamp clears,
+            // before the pad repaint (bank selection can reset pad colors).
+            if (!append(selectedBank)) return count;
         }
         for (uint8_t pad = 0u; pad < kPadsPerBank; ++pad) {
             const auto padIndex = static_cast<std::size_t>(pad);

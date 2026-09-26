@@ -1,7 +1,7 @@
 # Sample Neon 32
 
 `s3g Sample Neon 32` is a 32-slot Sample-family instrument designed around the
-factory MIDI map of the Reloop Neon. Version 0.22.2 exposes one CLAP instrument,
+factory MIDI map of the Reloop Neon. Version 0.22.4 exposes one CLAP instrument,
 `s3g Sample Neon 32`, with a fixed 32-channel output port. The default Stereo layout
 mixes cells onto channels 1–2; unused channels remain silent.
 
@@ -44,6 +44,30 @@ fields with 18-pixel popup rows and a compact hardware map. Instructional helper
 paragraphs are removed; parameter labels, routing warnings and operation status
 remain. Standard proportional scaling remains
 available from 65% to 200%.
+
+Version 0.22.4 corrects the bank lamps after EDIT B → SAMPLE A → SAMPLE B.
+Ordinary bank changes no longer re-send the four-deck sampler-mode setup or
+mode-lamp commands. Feedback clears the inactive SAMPLE-bank and editing-deck
+lamp addresses before lighting the selected bank, after any mode commands and
+before repainting pads. SAMPLE's second layer correctly uses the deck addresses.
+The change is confined to hardware feedback; musical notes, velocity, held-pad
+releases, host parameters and saved state are unchanged.
+
+Version 0.22.3 introduced restoration of the hardware's primary SAMPLE mode
+on all four decks when entering SAMPLE/performance (also on bank changes
+until 0.22.4), followed by restoration of the selected bank. This uses the
+separate `93..96 0D 7F` sampler-mode triggers in
+the [Reloop MIDI map, page 9](https://www.reloop.com/media/custom/upload/Reloop-NEON_MIDI-Map.pdf),
+not just the SAMPLER lamp. A bank's remembered editing page should no longer
+take over a performance. Explicit mode-button changes still enter the editing
+pages. Mode commands are not repeated during pad-lamp settling retries or
+sent when relinquishing hardware ownership. Hardware/firmware acceptance of
+the documented trigger remains a separate check from the automated tests.
+
+Sample Neon remains the sole hardware-feedback owner. In the Utility/Tracker
+chain use **TRACKER + SAMPLE NEON** and **NEON OWNER: ON**; **NOTES ONLY**
+intentionally cannot synchronize hardware pages through the instrument.
+No Utility/Tracker binary, state layout or parameter ID changes are required.
 
 Version 0.22.2 corrects native NEON velocity decoding, including direct hardware
 input and editing/audition controls bridged through Utility Neon MIDI 0.1.1.

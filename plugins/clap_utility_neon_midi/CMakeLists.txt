@@ -18,8 +18,8 @@ if(APPLE)
     BUNDLE TRUE BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.utility-neon-midi"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Utility Neon MIDI"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.1.1"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.1")
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.1.2"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.2")
 elseif(WIN32)
   set_target_properties(s3g_utility_neon_midi_clap PROPERTIES SUFFIX ".clap")
 endif()

@@ -1372,6 +1372,76 @@ int main(int argc, char** argv)
                     for(NSUInteger i=0;i<text.length;++i)key([text substringWithRange:NSMakeRange(i,1)],0,0);
                     key(@"\r",36,0);
                 };
+                // Arm the actual VSTGUI menu, not the hidden Cocoa popup or
+                // a direct call to recordMidiStep. Verify the complete input
+                // queue -> editor coordinator -> saved-pattern path.
+                for (unsigned mode = 1u; mode <= 3u; ++mode) {
+                    factoryState.cursor = 0; state->load(plugin, &factoryState.input); pump();
+                    context.playState = mode == 1u ? 0 : 1;
+                    const bool recording = plugin->activate(plugin, 48000., 1u, 32768u)
+                        && plugin->start_processing(plugin);
+                    ok &= expect(recording, "VSTGUI MIDI recording activation failed");
+                    if (recording) {
+                        clap_event_transport_t transport {};
+                        transport.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE
+                            | (mode == 1u ? 0u : CLAP_TRANSPORT_IS_PLAYING);
+                        transport.tempo = 120.;
+                        // Hosts keep processing while the user arms REC.
+                        // Also let the editor commit the attack before its
+                        // release arrives in a later audio callback.
+                        click(NSMakePoint(60, 315), 1); // NOTE lane 1, row 5.
+                        click(NSMakePoint(705, 787), 1); // RECORD menu (opens upwards).
+                        click(NSMakePoint(705, 693 + mode * 21 + 10), 1);
+                        InputEvents input;
+                        input.addMidi(6600u, 0x90u, 46u, 3u);
+                        OutputEvents output;
+                        clap_process_t process {};
+                        process.frames_count = 6800u; process.transport = &transport;
+                        process.in_events = &input.interface; process.out_events = &output.interface;
+                        ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+                            "VSTGUI armed input processing failed");
+                        pump(); pump();
+                        input.count = 0u; input.addMidi(200u, 0x80u, 46u, 0u);
+                        process.frames_count = 1200u;
+                        transport.song_pos_beats = static_cast<clap_beattime>(
+                            6800. * 120. / (48000. * 60.) * CLAP_BEATTIME_FACTOR);
+                        ok &= expect(plugin->process(plugin, &process) == CLAP_PROCESS_CONTINUE,
+                            "VSTGUI armed release processing failed");
+                        pump(); pump();
+                        StateBuffer recorded;
+                        ok &= expect(state->save(plugin, &recorded.output), "save VSTGUI recording");
+                        NSData* data = [NSData dataWithBytes:recorded.bytes.data() length:recorded.bytes.size()];
+                        NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+                        NSArray* patterns = json[@"patterns"][@"patterns"];
+                        NSArray* tracks = patterns.count ? patterns[0][@"pattern"][@"tracks"] : nil;
+                        NSDictionary* lane = tracks.count ? tracks[0] : nil;
+                        NSArray* notes = lane[@"notes"], *velocities = lane[@"velocities"];
+                        ok &= expect(notes.count > 4u && velocities.count > 4u,
+                            "VSTGUI recording state did not contain the expected pattern rows");
+                        const NSUInteger row = mode == 1u ? 4u : 1u;
+                        const bool captured = notes.count > row && velocities.count > row
+                            && [notes[row][@"note"] unsignedIntValue] == 46u
+                            && std::abs([velocities[row][@"value"] doubleValue] - 3. / 127.) < 1.e-6;
+                        if (!captured) std::fprintf(stderr,
+                            "VSTGUI REC mode %u row %lu: note=%s velocity=%s\n", mode,
+                            static_cast<unsigned long>(row + 1u),
+                            notes.count > row ? [notes[row] description].UTF8String : "missing",
+                            velocities.count > row ? [velocities[row] description].UTF8String : "missing");
+                        ok &= expect(captured, "VSTGUI REC did not capture the mapped NEON note/velocity");
+                        bool monitoredOn = false, monitoredOff = false;
+                        for (uint32_t i = 0u; i < output.count; ++i) {
+                            const auto& event = output.events[i];
+                            monitoredOn |= event.data[0] == 0x90u
+                                && event.data[1] == 46u && event.data[2] == 3u;
+                            monitoredOff |= event.data[0] == 0x80u && event.data[1] == 46u;
+                        }
+                        ok &= expect(monitoredOn && monitoredOff,
+                            "VSTGUI armed recording did not monitor the note and release");
+                        plugin->stop_processing(plugin); plugin->deactivate(plugin);
+                    }
+                    context.playState = 0;
+                }
+                factoryState.cursor = 0; state->load(plugin, &factoryState.input); pump();
                 command(@"note 2 1 36");
                 command(@"fx 1 1 2 CC74 64");
                 command(@"interp 1 v1 step");

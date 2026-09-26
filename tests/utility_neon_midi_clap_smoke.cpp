@@ -195,6 +195,35 @@ void testUtility(Module& p) {
             }
         }
     }
+    // Pressure is a Sample Neon control envelope, never another note or raw
+    // MIDI aftertouch. It follows the held cell even after a bank change.
+    for (unsigned route = 0u; route < 2u; ++route) {
+        p.set(4u, route);
+        for (uint8_t bank = 0u; bank < 4u; ++bank) {
+            p.set(1u, bank);
+            in.clear(); out.clear(); in.midi(0, 0x97, 3, 32); p.run(in, out);
+            p.set(1u, (bank + 1u) % 4u);
+            for (uint8_t pressure : {0u, 1u, 64u, 127u}) {
+                in.clear(); out.clear(); in.midi(11, 0xa7, 3, pressure); p.run(in, out);
+                check(out.notes().empty(), "aftertouch emits no extra notes or raw MIDI");
+                unsigned pressures = 0u;
+                for (uint32_t i = 0u; i < out.count; ++i) {
+                    const auto& event = out.events[i]; nm::BridgeMessage message;
+                    if (event.type == CLAP_EVENT_MIDI_SYSEX
+                        && nm::decodeBridge(event.sysex.buffer, event.sysex.size, message)
+                        && message.kind == nm::BridgeKind::Pressure) {
+                        ++pressures;
+                        check(message.cell == bank * 8u + 3u && message.midi.data2 == pressure
+                            && event.sysex.header.time == 11u,
+                            "aftertouch retains its original cell, value and time across bank changes");
+                    }
+                }
+                check(pressures == route, "only Tracker + Sample Neon forwards aftertouch");
+                if (!route) check(out.count == 0u, "Notes Only suppresses pressure control envelopes");
+            }
+            in.clear(); out.clear(); in.midi(0, 0x87, 3, 0); p.run(in, out);
+        }
+    }
     p.set(1u, 0.); p.set(4u, 0.);
     in.clear(); out.clear(); in.midi(255, 0xb7, 0, 3); p.run(in, out);
     check(out.count == 0u, "Velocity CC alone must not trigger music");
@@ -300,6 +329,19 @@ void testChain(Module& utility, const char* trackerPath, const char* neonPath) {
         check(passed.size() == 2u && passed[0].data[1] == 45u && passed[0].data[2] == velocity
             && passed[0].header.time == 8u && passed[1].header.time == 16u,
             "Utility -> Tracker preserves soft/hard hit velocity independently of pressure");
+        unsigned pressures = 0u;
+        for (uint32_t i = 0u; i < through.count; ++i) {
+            const auto& event = through.events[i]; nm::BridgeMessage message;
+            if (event.type == CLAP_EVENT_MIDI_SYSEX
+                && nm::decodeBridge(event.sysex.buffer, event.sysex.size, message)
+                && message.kind == nm::BridgeKind::Pressure) {
+                ++pressures;
+                check(message.cell == 9u && message.midi.data2 == 90u
+                    && event.sysex.header.time == 12u,
+                    "actual Tracker forwards aftertouch unchanged to Sample Neon's B2");
+            }
+        }
+        check(pressures == 1u, "exactly one pressure envelope survives the actual chain");
         neon.run(through, result, false, &audio);
 #if defined(S3G_TEST_TRACKER_RECORDER)
         // Exercise the same recorder that Tracker's editor consumes, including
@@ -321,6 +363,46 @@ void testChain(Module& utility, const char* trackerPath, const char* neonPath) {
                 "Hardware sequence -> Utility -> Tracker -> recorded VOL equals measured velocity / 127");
         }
 #endif
+    }
+    // Once hardware has been returned to primary SAMPLE by its feedback
+    // owner, every bank still authors notes. Bank changes under a held pad
+    // must not retarget its pressure or note-off. Explicit EDIT remains tools.
+    for (uint8_t bank = 0u; bank < 4u; ++bank) {
+        const auto next = static_cast<uint8_t>((bank + 1u) % 4u);
+        raw.clear(); translated.clear(); through.clear(); result.clear();
+        raw.midi(0, 0x93u + bank, 0x05, 127); // Explicit primary SAMPLE.
+        raw.midi(1, 0x93u + bank, 0x00, 127);
+        raw.midi(2, 0x97, 3, 127); // Velocity OFF: no preceding CC.
+        raw.midi(6, 0x93u + next, 0x00, 127);
+        raw.midi(7, 0xa7, 3, 80);
+        raw.midi(8, 0x87, 3, 0);
+        raw.midi(9, 0xb7, 3, 3); // Velocity ON: next bank, same physical pad.
+        raw.midi(10, 0x97, 3, 127); raw.midi(11, 0x87, 3, 0);
+        raw.midi(20, 0x93u + next, 0x07, 127); // Explicit EDIT.
+        raw.midi(21, 0x97u + next, 0x10, 127);
+        raw.midi(22, 0x87u + next, 0x10, 0);
+        utility.run(raw, translated); tracker.run(translated, through);
+        neon.run(through, result, false, &audio);
+        const auto passed = through.notes();
+        check(passed.size() == 4u && passed[0].data[1] == 39u + bank * 8u
+            && passed[0].data[2] == 127u && passed[0].header.time == 2u
+            && passed[1].data[0] == 0x80u && passed[1].data[1] == passed[0].data[1]
+            && passed[1].header.time == 8u && passed[2].data[1] == 39u + next * 8u
+            && passed[2].data[2] == 3u && passed[3].data[0] == 0x80u
+            && passed[3].data[1] == passed[2].data[1],
+            "all banks retain performance notes/velocity and latched releases; explicit EDIT emits no notes");
+        unsigned pressures = 0u;
+        for (uint32_t i = 0u; i < through.count; ++i) {
+            const auto& event = through.events[i]; nm::BridgeMessage message;
+            if (event.type == CLAP_EVENT_MIDI_SYSEX
+                && nm::decodeBridge(event.sysex.buffer, event.sysex.size, message)
+                && message.kind == nm::BridgeKind::Pressure) {
+                ++pressures;
+                check(message.cell == bank * 8u + 3u && message.midi.data2 == 80u,
+                    "aftertouch after a bank switch must address the original held cell");
+            }
+        }
+        check(pressures == 1u, "bank switch lost or duplicated held pressure");
     }
 }
 } // namespace

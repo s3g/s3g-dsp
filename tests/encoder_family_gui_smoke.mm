@@ -3747,8 +3747,8 @@ int main(int argc, char** argv)
             params->flush(plugin, nullptr, &captured.events);
             ok = ok && params->get_value(plugin, 4u, &value) && value == 0.;
             redraw();
-            const auto velocityPixels = [&] {
-                NSData* pdf = [document dataWithPDFInsideRect:NSMakeRect(16 * scale, 300 * scale, 272 * scale, 20 * scale)];
+            const auto footerPixels = [&](double x, double width) {
+                NSData* pdf = [document dataWithPDFInsideRect:NSMakeRect(x * scale, 300 * scale, width * scale, 20 * scale)];
                 NSImage* render = [[NSImage alloc] initWithData:pdf];
                 NSBitmapImageRep* bitmap = [NSBitmapImageRep imageRepWithData:[render TIFFRepresentation]];
                 std::vector<uint8_t> result;
@@ -3756,23 +3756,25 @@ int main(int argc, char** argv)
                     [bitmap bitmapData] + [bitmap bytesPerRow] * [bitmap pixelsHigh]);
                 [render release]; return result;
             };
-            const auto beforeHit = velocityPixels();
+            const auto beforeHit = footerPixels(16, 152);
+            std::vector<uint8_t> inactivePressure;
             const bool velocityActive = plugin->activate(plugin, 48000., 1u, 64u);
             const bool velocityProcessing = velocityActive && plugin->start_processing(plugin);
             ok = velocityProcessing && ok;
             if (velocityProcessing) {
-                std::array<clap_event_midi_t, 4u> events {};
-                const uint8_t bytes[4][3] {{0xb7, 2, 3}, {0x97, 2, 127}, {0xa7, 2, 96}, {0x97, 2, 0}};
-                for (unsigned i = 0; i < events.size(); ++i) {
-                    events[i].header = {sizeof(clap_event_midi_t), i, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0u};
-                    std::memcpy(events[i].data, bytes[i], 3u);
-                }
+                failureStage = "Utility Neon MIDI independent strike and live aftertouch readouts";
+                struct MidiInput {
+                    std::array<clap_event_midi_t, 4u> events {};
+                    uint32_t count = 0u;
+                } midiInput;
                 clap_input_events_t input {};
-                input.ctx = &events;
-                input.size = [](const clap_input_events_t*) -> uint32_t { return 4u; };
+                input.ctx = &midiInput;
+                input.size = [](const clap_input_events_t* list) -> uint32_t {
+                    return static_cast<const MidiInput*>(list->ctx)->count;
+                };
                 input.get = [](const clap_input_events_t* list, uint32_t i) -> const clap_event_header_t* {
-                    const auto& source = *static_cast<const std::array<clap_event_midi_t, 4u>*>(list->ctx);
-                    return i < source.size() ? &source[i].header : nullptr;
+                    const auto& source = *static_cast<const MidiInput*>(list->ctx);
+                    return i < source.count ? &source.events[i].header : nullptr;
                 };
                 unsigned hits = 0u;
                 clap_output_events_t output {};
@@ -3786,15 +3788,83 @@ int main(int argc, char** argv)
                     return true;
                 };
                 clap_process_t block {}; block.frames_count = 64u; block.in_events = &input; block.out_events = &output;
-                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && hits == 1u && ok;
-                redraw(); const auto afterHit = velocityPixels();
-                for (auto& event : events) { event.data[0] = 0xa7; event.data[2] = 127; }
-                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
-                redraw();
-                ok = !beforeHit.empty() && afterHit != beforeHit && afterHit == velocityPixels() && ok;
+                const auto send = [&](std::initializer_list<std::array<uint8_t, 3u>> bytes) {
+                    midiInput.count = 0u;
+                    for (const auto& data : bytes) {
+                        auto& event = midiInput.events[midiInput.count];
+                        event = {};
+                        event.header = {sizeof(event), midiInput.count++, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0u};
+                        std::memcpy(event.data, data.data(), 3u);
+                    }
+                    const bool processed = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR;
+                    redraw(); return processed;
+                };
+                const auto setRouting = [&](clap_id id, double routingValue) {
+                    SingleParamEventInput event {};
+                    setSingleParamEvent(event, id, routingValue);
+                    params->flush(plugin, &event.events, nullptr);
+                };
+                ok = send({{0xb7, 2, 3}, {0x97, 2, 127}}) && hits == 1u && ok;
+                const auto afterHit = footerPixels(16, 152);
+                const auto zeroPressure = footerPixels(176, 56);
+                inactivePressure = zeroPressure;
+                const auto volume = footerPixels(240, 80);
+                ok = !beforeHit.empty() && afterHit != beforeHit && !zeroPressure.empty() && ok;
+                ok = send({{0xa7, 2, 90}}) && ok;
+                const auto pressure90 = footerPixels(176, 56);
+                ok = pressure90 != zeroPressure && footerPixels(16, 152) == afterHit
+                    && footerPixels(240, 80) == volume && ok;
+                if (folder && folder[0]) {
+                    NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                    NSString* path = [[NSString stringWithUTF8String:folder]
+                        stringByAppendingPathComponent:@"utility-neon-midi.aftertouch.pdf"];
+                    ok = render && [render writeToFile:path atomically:YES] && ok;
+                }
+                ok = send({{0xa7, 2, 127}}) && ok;
+                const auto pressure127 = footerPixels(176, 56);
+                ok = pressure127 != pressure90 && pressure127 != zeroPressure
+                    && footerPixels(16, 152) == afterHit && footerPixels(240, 80) == volume && ok;
+                // Another/unheld pad, velocity CC or malformed pressure cannot
+                // change the last strike's AT. A bank change cannot retarget it.
+                ok = send({{0xa7, 1, 32}, {0xb7, 2, 24}, {0xa7, 2, 255}, {0x95, 0, 127}})
+                    && footerPixels(176, 56) == pressure127 && ok;
+                ok = send({{0xa7, 2, 90}}) && footerPixels(176, 56) == pressure90 && ok;
+                setRouting(2u, 48.); setRouting(3u, 2.);
+                ok = send({{0xa7, 2, 127}}) && footerPixels(176, 56) == pressure127
+                    && footerPixels(16, 152) == afterHit && ok;
+                ok = send({{0x97, 2, 0}}) && footerPixels(176, 56) == zeroPressure
+                    && footerPixels(16, 152) == afterHit && ok;
+                ok = send({{0xa7, 2, 127}}) && footerPixels(176, 56) == zeroPressure && ok;
+                // Chords: pressure/release from an older held pad must not
+                // change the latest note's readout. Panic/reset clear AT.
+                setRouting(2u, 36.); setRouting(3u, 1.); setRouting(4u, 1.);
+                ok = send({{0x94, 0, 127}, {0x97, 1, 64}, {0xb7, 2, 3}, {0x97, 2, 127}})
+                    && footerPixels(176, 56) == zeroPressure && ok;
+                ok = send({{0xa7, 2, 90}, {0xa7, 1, 127}, {0x87, 1, 0}})
+                    && footerPixels(176, 56) == pressure90 && footerPixels(16, 152) == afterHit && ok;
+                clickAt(540, 22); params->flush(plugin, nullptr, &captured.events);
+                ok = send({}) && footerPixels(176, 56) == zeroPressure && ok;
+                ok = send({{0xb7, 2, 3}, {0x97, 2, 127}, {0xa7, 2, 90}}) && ok;
+                plugin->reset(plugin); redraw();
+                ok = footerPixels(176, 56) == zeroPressure && footerPixels(16, 152) == afterHit && ok;
+                ok = send({{0xa7, 2, 127}}) && footerPixels(176, 56) == zeroPressure && ok;
+                clap_event_transport_t transport {};
+                transport.flags = CLAP_TRANSPORT_IS_PLAYING;
+                block.transport = &transport;
+                ok = send({{0xb7, 2, 3}, {0x97, 2, 127}, {0xa7, 2, 90}})
+                    && footerPixels(176, 56) == pressure90 && ok;
+                transport.flags = 0u;
+                ok = send({}) && footerPixels(176, 56) == zeroPressure && ok;
+                ok = send({{0xb7, 2, 3}, {0x97, 2, 127}, {0xa7, 2, 90}})
+                    && footerPixels(176, 56) == pressure90 && ok;
                 plugin->stop_processing(plugin);
             }
-            if (velocityActive) plugin->deactivate(plugin);
+            if (velocityActive) {
+                plugin->deactivate(plugin); redraw();
+                // Snapshot above ended with AT 090; deactivation must clear it.
+                ok = !inactivePressure.empty() && footerPixels(176, 56) == inactivePressure
+                    && footerPixels(16, 152) != beforeHit && ok;
+            }
             if (folder && folder[0]) {
                 NSData* render = [document dataWithPDFInsideRect:[document bounds]];
                 NSString* path = [[NSString stringWithUTF8String:folder]

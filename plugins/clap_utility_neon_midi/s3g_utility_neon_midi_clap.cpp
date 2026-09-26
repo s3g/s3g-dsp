@@ -27,7 +27,7 @@ constexpr const char* kId = "org.s3g.s3g-dsp.utility-neon-midi";
 constexpr const char* kName = "s3g Utility Neon MIDI";
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_NOTE_EFFECT, CLAP_PLUGIN_FEATURE_UTILITY, nullptr};
 const clap_plugin_descriptor_t descriptor {
-    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.1",
+    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.1.2",
     "Bank-aware Reloop NEON performance notes for Tracker and MIDI instruments.", features,
 };
 
@@ -47,8 +47,11 @@ struct Plugin {
     s3g::clap_gui::ParamEventQueue<256u> guiParamEvents;
     s3g::controller::neon_midi::Mapper mapper;
     std::atomic<uint32_t> heldCells {0u}, rejected {0u};
-    // One publication keeps the note and its attack velocity consistent.
+    // Packed velocity / note / live input aftertouch, one byte each. Keep the
+    // displayed strike stable while pressure changes. The cell/channel below
+    // are process-owned and associate pressure/releases with that strike.
     std::atomic<uint32_t> lastHit {UINT32_MAX};
+    uint8_t lastHitCell = 255u, lastHitChannel = 0u;
     std::atomic<uint8_t> page {0u};
     bool wasPlaying = false;
     bool bridgeDirty = true;
@@ -82,11 +85,16 @@ bool setValue(Plugin& p, clap_id id, double value) {
 double getValue(const Plugin& p, clap_id id) {
     return id >= kBank && id <= kRoute ? p.values[id - 1u].load() : 0.;
 }
+void clearAftertouch(Plugin& p) {
+    const auto last = p.lastHit.load();
+    if (last != UINT32_MAX) p.lastHit.store(last & 0xffffu);
+    p.lastHitCell = 255u;
+}
 void syncMapping(Plugin& p) {
     p.mapper.setBank(static_cast<uint8_t>(getValue(p, kBank)));
     p.mapper.setBaseNote(static_cast<uint8_t>(getValue(p, kBase)));
     p.mapper.setChannel(static_cast<uint8_t>(getValue(p, kChannel) - 1.));
-    if (p.panicRequested.exchange(false)) p.mapper.panic();
+    if (p.panicRequested.exchange(false)) { p.mapper.panic(); clearAftertouch(p); }
     const std::array<uint8_t, 4u> settings {{p.mapper.bank(), p.mapper.baseNote(),
         p.mapper.channel(), static_cast<uint8_t>(getValue(p, kRoute))}};
     if (settings != p.bridgeSettings) { p.bridgeSettings = settings; p.bridgeDirty = true; }
@@ -144,8 +152,15 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
         event.data[0] = message.status; event.data[1] = message.data1; event.data[2] = message.data2;
         const bool accepted = out && out->try_push && out->try_push(out, &event.header);
         if (!accepted) p.rejected.fetch_add(1u);
-        else if ((message.status & 0xf0u) == 0x90u)
+        else if ((message.status & 0xf0u) == 0x90u) {
             p.lastHit.store((static_cast<uint32_t>(message.data1) << 8u) | message.data2);
+            p.lastHitChannel = message.status & 0x0fu;
+            p.lastHitCell = 255u; // Set to the latched cell by SelectCell below.
+        } else if ((message.status & 0xf0u) == 0x80u
+            && ((p.lastHit.load() >> 8u) & 0x7fu) == message.data1
+            && p.lastHitChannel == (message.status & 0x0fu)) {
+            clearAftertouch(p);
+        }
         return accepted;
     };
     serviceGui(p, out);
@@ -153,7 +168,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
     syncBridge(p, out, 0u);
     if (block->transport) {
         const bool playing = (block->transport->flags & CLAP_TRANSPORT_IS_PLAYING) != 0u;
-        if (p.wasPlaying && !playing) p.mapper.panic();
+        if (p.wasPlaying && !playing) { p.mapper.panic(); clearAftertouch(p); }
         p.wasPlaying = playing;
     }
     p.mapper.flush(0u, sink);
@@ -174,6 +189,16 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
                 const auto oldBank = p.mapper.bank();
                 const neon::MidiMessage raw {event->data[0], event->data[1], event->data[2]};
                 const auto result = p.mapper.process(raw, header->time, sink);
+                using s3g::controller::neon_midi::BridgeKind;
+                if (result.bridge && result.kind == BridgeKind::SelectCell) {
+                    p.lastHitCell = result.cell;
+                } else if (result.bridge && result.kind == BridgeKind::Pressure
+                    && result.cell == p.lastHitCell) {
+                    // Input monitor, also useful in NOTES ONLY. Routing remains
+                    // unchanged: only the private bridge forwards aftertouch.
+                    p.lastHit.store((p.lastHit.load() & 0xffffu)
+                        | (static_cast<uint32_t>(raw.data2) << 16u));
+                }
                 if (result.bridge) (void)pushBridge(p, out, header->time, result.kind, raw, result.cell);
                 if (p.mapper.bank() != oldBank) {
                     p.values[0].store(p.mapper.bank());
@@ -292,11 +317,13 @@ bool activate(const clap_plugin_t* plugin, double rate, uint32_t minimum, uint32
     auto& p = *self(plugin);
     p.wasPlaying = false; p.mapper.prepare(rate); syncMapping(p); return true;
 }
-void deactivate(const clap_plugin_t* plugin) { self(plugin)->panicRequested.store(true); }
+void deactivate(const clap_plugin_t* plugin) {
+    auto& p = *self(plugin); p.panicRequested.store(true); clearAftertouch(p);
+}
 bool start(const clap_plugin_t*) { return true; }
 void stop(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* plugin) {
-    auto& p = *self(plugin); p.mapper.panic(); p.wasPlaying = false;
+    auto& p = *self(plugin); p.mapper.panic(); clearAftertouch(p); p.wasPlaying = false;
 }
 void onMainThread(const clap_plugin_t* plugin) {
     auto& p = *self(plugin);
