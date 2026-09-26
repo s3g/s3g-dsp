@@ -2953,7 +2953,7 @@ const clap_plugin_descriptor_t descriptor {
     "https://github.com/s3g/s3g-dsp",
     "",
     "",
-    "0.4.0",
+    "0.4.1",
     "Polymetric tracker, song sequencer, and sample-accurate MIDI generator.",
     features,
 };
@@ -3009,6 +3009,21 @@ const void* entryGetFactory(const char* factoryId)
 }
 
 } // namespace
+
+// An artifact-level contract: the installer reads this compiled marker without
+// loading the plug-in or requiring Xcode/nm. The GUI smoke also calls the export
+// and verifies the actual attached VSTGUI views, independently of the build cache.
+extern "C" CLAP_EXPORT const char* s3g_tracker_gui_backend() noexcept
+{
+#if defined(S3G_TRACKER_VSTGUI_PILOT) && defined(S3G_TRACKER_PORTABLE_SHELL) \
+    && defined(S3G_TRACKER_PORTABLE_MAIN_PAGE) && defined(S3G_TRACKER_PORTABLE_WARP_PAGE) \
+    && defined(S3G_TRACKER_PORTABLE_SONG_PAGE) && defined(S3G_TRACKER_PORTABLE_REFERENCE_PAGES) \
+    && defined(S3G_TRACKER_PORTABLE_GEOMETRY_PAGES) && defined(S3G_TRACKER_PORTABLE_AUTHORING_PAGES)
+    return "s3g.tracker.gui:vstgui-shell-v1";
+#else
+    return "s3g.tracker.gui:legacy-or-partial";
+#endif
+}
 
 extern "C" const clap_plugin_entry_t clap_entry {
     CLAP_VERSION_INIT,

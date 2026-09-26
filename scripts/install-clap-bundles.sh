@@ -15,7 +15,7 @@ if [[ -f "$script_dir/Installer Data/clap-bundles.tsv" ]]; then
 else
   default_manifest="$script_dir/clap-bundles.tsv"
   default_legacy_manifest="$script_dir/clap-legacy-bundles.tsv"
-  default_source_root="$(cd "$script_dir/.." && pwd)/build-clap/plugins"
+  default_source_root="$(cd "$script_dir/.." && pwd)/build-clap-release/plugins"
   default_source_layout="build"
 fi
 
@@ -383,6 +383,21 @@ validate_source_bundle() {
       || ! -x "$source_bundle/Contents/MacOS/$executable" ]]; then
     echo "Missing declared bundle executable: $source_bundle/Contents/MacOS/$executable" >&2
     return 1
+  fi
+  if [[ "$expected_id" == "org.s3g.s3g-dsp.tracker" ]]; then
+    # Check the actual artifact, not a cache option, version, or bundle name.
+    # grep is available on stock macOS; nm would require developer tools on a
+    # customer's machine. This marker is compiled only with ALL portable pages.
+    if ! LC_ALL=C /usr/bin/grep -aFq 's3g.tracker.gui:vstgui-shell-v1' \
+        "$source_bundle/Contents/MacOS/$executable"; then
+      echo "Refusing Tracker without the verified full VSTGUI shell/pages: $source_bundle" >&2
+      echo "Rebuild with --preset clap-release and run s3g_tracker_clap_smoke." >&2
+      return 1
+    fi
+    if [[ ! -s "$source_bundle/Contents/Resources/Fonts/FiraCode-Regular.ttf" ]]; then
+      echo "Missing Tracker VSTGUI font resource: $source_bundle" >&2
+      return 1
+    fi
   fi
 }
 

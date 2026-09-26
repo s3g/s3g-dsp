@@ -912,6 +912,17 @@ int main(int argc, char** argv)
             ok &= expect(shown,
                 "full tracker workspace lifecycle failed");
             NSView* portableMain = findAccessibleView(parent, @"Tracker portable main page");
+            if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_SHELL")) {
+                using GuiBackend = const char* (*)();
+                const auto backend = reinterpret_cast<GuiBackend>(
+                    dlsym(library, "s3g_tracker_gui_backend"));
+                ok &= expect(backend && std::strcmp(backend(),
+                        "s3g.tracker.gui:vstgui-shell-v1") == 0,
+                    "Tracker artifact is not the full VSTGUI build");
+                ok &= expect(portableMain && findAccessibleView(parent,
+                        @"Tracker portable workspace shell"),
+                    "expected full Tracker VSTGUI shell/main page, but loaded a legacy editor");
+            }
             if (shown && portableMain) {
                 hostWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,resizedWidth,resizedHeight)
                     styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
@@ -1896,24 +1907,28 @@ int main(int argc, char** argv)
                     OutputEvents disarmOutput;
                     InputEvents disarmedInput;
                     disarmedInput.addMidi(64u, 0x96u, 71u, 99u);
+                    disarmedInput.addMidi(96u, 0x86u, 71u, 0u);
                     liveProcess.frames_count = 128u;
                     liveProcess.in_events = &disarmedInput.interface;
                     liveProcess.out_events = &disarmOutput.interface;
                     liveRecordProcessing &= plugin->process(plugin,
                         &liveProcess) == CLAP_PROCESS_CONTINUE;
                     bool releasedOnDisarm = false;
-                    bool disarmedNoteLeaked = false;
+                    bool disarmedNotePassed = false;
+                    bool disarmedReleasePassed = false;
                     for (uint32_t index = 0u;
                          index < disarmOutput.count; ++index) {
                         const auto& event = disarmOutput.events[index];
                         releasedOnDisarm |= event.header.time == 0u
                             && event.data[0] == 0x80u
                             && event.data[1] == 69u;
-                        disarmedNoteLeaked |= event.data[1] == 71u
-                            && (event.data[0] & 0xf0u) == 0x90u;
+                        disarmedNotePassed |= event.header.time == 64u
+                            && event.data[1] == 71u && event.data[0] == 0x96u;
+                        disarmedReleasePassed |= event.header.time == 96u
+                            && event.data[1] == 71u && event.data[0] == 0x86u;
                     }
                     liveMonitorPassed = monitoredOn && releasedOnDisarm
-                        && !disarmedNoteLeaked;
+                        && disarmedNotePassed && disarmedReleasePassed;
                     [[NSRunLoop currentRunLoop] runUntilDate:
                         [NSDate dateWithTimeIntervalSinceNow:0.08]];
                     plugin->stop_processing(plugin);
@@ -1927,7 +1942,9 @@ int main(int argc, char** argv)
                     && [static_cast<NSTextView*>(consoleMessages).string
                         containsString:@"STEP REC CH7 note 67 → lane 1, row 5"]
                     && [static_cast<NSTextView*>(consoleMessages).string
-                        containsString:@"LIVE MT REC CH7 note 69 → lane 1, row 2, MT 75%"];
+                        containsString:@"LIVE MT REC CH7 note 69 → lane 1, row 2, MT 75%"]
+                    && ![static_cast<NSTextView*>(consoleMessages).string
+                        containsString:@"REC CH7 note 71"];
                 ok &= expect(stepModeAvailable && stepCursorSelected
                         && stepRecordProcessing && liveRecordProcessing
                         && stepMonitorPassed && liveMonitorPassed

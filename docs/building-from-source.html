@@ -56,7 +56,7 @@ cmake --build --preset dev
 
         <h2 id="clap-build">Build CLAP Plugins</h2>
 
-        <p>Build the CLAP plugins:</p>
+        <p>For development, build the CLAP plugins below. For user-facing macOS installations use <code>cmake --preset clap-release</code> and <code>cmake --build --preset clap-release</code>: that preset preserves all completed VSTGUI migrations. An older development cache is not release-equivalent.</p>
 
         <pre><code>cmake --preset clap
 cmake --build --preset clap</code></pre>
@@ -81,7 +81,7 @@ cmake --build build-clap</code></pre>
 
         <p>No additional component switch is required with the <code>clap</code> or <code>clap-release</code> preset. The compatibility switches remain available for focused development configurations, but the release presets enable every packaged component.</p>
 
-        <p><a href="s3g-tracker.html">s3g Tracker</a> has a focused CLAP preset. Use the <a href="#tracker-builds">explicit VSTGUI configuration below</a> for its current portable editor; selecting the product alone does not enable all portable pages on Mac.</p>
+        <p><a href="s3g-tracker.html">s3g Tracker</a> has a <a href="#tracker-builds">focused CLAP preset</a> that enables its full VSTGUI editor on Mac.</p>
 
         <p>To build and validate only Relay after configuring the ordinary CLAP tree:</p>
 
@@ -90,7 +90,7 @@ ctest --test-dir build-clap -R relay --output-on-failure</code></pre>
 
         <h2 id="tracker-builds">Tracker VSTGUI Builds</h2>
 
-        <p>Tracker is now CLAP-only; its former standalone app is retired. On Mac, enable <code>S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS</code> to include all ten VSTGUI pages. That option enables the prerequisite portable-page options automatically. Build the core-test aggregate explicitly: the focused build preset alone does not build every test labeled <code>tracker</code>.</p>
+        <p>Tracker is now CLAP-only; its former standalone app is retired. On Mac, the full VSTGUI shell and all ten pages are required for user-facing builds. The <code>clap-tracker</code> and <code>clap-release</code> presets explicitly enable <code>S3G_ENABLE_PORTABLE_CLAP_GUI</code> and <code>S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS</code>. The shell enables its prerequisite page options automatically, even if older page-option cache entries still say OFF. Build the core-test aggregate explicitly: the focused build preset alone does not build every test labeled <code>tracker</code>.</p>
 
         <pre><code>cmake --preset clap-tracker -DBUILD_TESTING=ON \
   -DS3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS=ON
@@ -101,6 +101,12 @@ ctest --test-dir build-tracker -L core -R '^s3g_tracker_' --output-on-failure
 ctest --test-dir build-tracker -R '^s3g_tracker_clap_smoke$' --output-on-failure</code></pre>
 
         <p>The Mac bundle is <code>build-tracker/plugins/clap_tracker/s3g_tracker.clap</code>. GUI smoke checks require a logged-in graphical Mac session. These commands cover the portable core and CLAP integration, not every optional page-parity test or real-REAPER interaction. See <code>tracker/reaper/README.md</code> for the host acceptance checklist.</p>
+
+        <p>CMake refuses a Cocoa-only or partial-page Tracker unless <code>S3G_ALLOW_LEGACY_TRACKER_GUI_FOR_TESTS=ON</code> is deliberately set for an isolated reference build. Those artifacts are not installable. The installer checks a marker compiled into the actual Tracker binary only when every portable page and shell is enabled, and requires the bundled Fira Code font. A generic smoke pass, version number, or cache entry is not an editor-backend check. Verify any exact candidate or installed binary with:</p>
+
+        <pre><code>S3G_TRACKER_EXPECT_PORTABLE_SHELL=1 \
+  ./build-clap-release/s3g_tracker_clap_smoke \
+  /path/to/s3g_tracker.clap/Contents/MacOS/s3g_tracker</code></pre>
 
         <p>For a Windows x64 build on Mac, the cross preset needs MinGW-w64's <code>x86_64-w64-mingw32-g++</code> and <code>windres</code> on PATH; packaging also uses its <code>objdump</code> and <code>strip</code>. Explicitly enable Tracker and testing, which this preset otherwise disables:</p>
 
@@ -232,7 +238,7 @@ python3 scripts/run-clap-realtime-audit.py \
 
         <pre><code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code></pre>
 
-        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies every manifest-listed product from <code>build-clap/plugins/</code> under canonical family-first filenames. For example, Modal and Fault install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility.</p>
+        <p>The install script reads <code>scripts/clap-bundles.tsv</code> and copies every manifest-listed product from <code>build-clap-release/plugins/</code> under canonical family-first filenames. For example, Modal and Fault install as <code>s3g_ambi_encoder_modal_16.clap</code> and <code>s3g_processor_fault_8.clap</code>. These filesystem names mirror the host-browser families, while the CLAP IDs remain stable for saved-project compatibility. Preserve a backup of existing bundles outside host scan folders before installing. For a focused update, supply a scoped manifest, legacy manifest, and separate receipt; do not replace unrelated products or the full-suite receipt.</p>
 
         <p>Every audio plug-in's host-facing name ends in the fixed channel width of its main output bus as a bare number: for example, <code>s3g Processor Fault 8</code>, never <code>8ch</code>. The number describes the bus presented to the host, even when an Ambisonic order or another internal setting uses fewer active channels. MIDI- and note-only plug-ins have no numeric suffix rather than the misleading suffix <code>0</code>. Stable CLAP identifiers retain their existing spelling so saved projects continue to resolve the same plug-ins.</p>
 

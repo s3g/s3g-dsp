@@ -375,7 +375,12 @@ void monitorMidiInput(Engine& plugin, const MidiMessage& event,
     if (event.port_index != 0u) return;
     const uint8_t status = event.data[0];
     const uint8_t kind = status & 0xf0u;
-    if (kind != 0x80u && kind != 0x90u) return;
+    if (kind != 0x80u && kind != 0x90u) {
+        // CC, pressure, program and system messages are controls, not recorder
+        // notes. Preserve their channel and sample position in either REC mode.
+        (void)pushMidi(plugin, output, frameOffset, status, event.data[1], event.data[2]);
+        return;
+    }
     const uint8_t inputChannel = status & 0x0fu;
     const uint8_t note = event.data[1] & 0x7fu;
     const uint32_t inputIndex = activeNoteIndex(inputChannel, note);
@@ -388,12 +393,12 @@ void monitorMidiInput(Engine& plugin, const MidiMessage& event,
     }
     const auto mode = static_cast<MidiStepRecordMode>(
         plugin.midiStepRecordMode.load(std::memory_order_relaxed));
-    if (mode == MidiStepRecordMode::Off) return;
-
     if (plugin.monitoredInputNotes[inputIndex].active)
         releaseMonitoredInputNote(plugin, output, frameOffset, inputIndex);
-    const uint8_t outputChannel = std::min<uint8_t>(
-        plugin.midiMonitorChannel.load(std::memory_order_relaxed), 15u);
+    // REC OFF means audition without writing, not a break in the FX chain.
+    // Armed input is monitored exactly once, on its destination lane channel.
+    const uint8_t outputChannel = mode == MidiStepRecordMode::Off ? inputChannel
+        : std::min<uint8_t>(plugin.midiMonitorChannel.load(std::memory_order_relaxed), 15u);
     const uint32_t outputIndex = activeNoteIndex(outputChannel, note);
     // A live key owns this channel/pitch until its physical note-off. Retire
     // an existing tracker gate first so its delayed off cannot cut the key.
@@ -1144,6 +1149,14 @@ void process(Engine& instance, const ProcessData& data) noexcept
             renderTo(time);
             transport = event.transport;
             cursor = time;
+        } else if (event.kind == InputEvent::Kind::SysEx) {
+            renderTo(time);
+            const auto* output = processData->out_events;
+            if (event.sysexPort == 0u && event.sysex && event.sysexSize) {
+                if (!output || !output->try_push_sysex
+                    || !output->try_push_sysex(output->context, time, event.sysex, event.sysexSize))
+                    instance.droppedEvents.fetch_add(1u, std::memory_order_relaxed);
+            }
         } else {
             renderTo(time);
             captureMidiStep(instance, event.midi, time);

@@ -236,6 +236,7 @@ struct WavesetSettings {
     WavesetShape shape = WavesetShape::Repeat;
     s3g::routing::VoiceOutputRouting outputRouting {};
     uint32_t activeOutputChannelCount = 2u;
+    bool preserveSourceChannels = false; // Fixed, linked-width cell output (Sample Neon).
     double start = 0.0;
     double end = 1.0;
     double loopStart = 0.0;
@@ -337,6 +338,7 @@ public:
         map_ = map && map->valid() ? map : nullptr;
         reset();
     }
+    void setPreparedMap(const WavesetMap* map) noexcept { map_ = map; reset(); }
 
     float outputPeak() const noexcept { return outputPeak_; }
 
@@ -530,6 +532,11 @@ private:
     {
         const float voiceGain = voice.envelope * voice.velocityGain
             * master * routingGain;
+        if (settings.preserveSourceChannels) {
+            for (uint32_t channel = 0u; channel < std::min<uint32_t>(voice.output.channelCount, outputChannelCount); ++channel)
+                outputs[channel][frame] += renderVoiceSample(voice, settings, channel) * voiceGain;
+            return;
+        }
         const uint32_t first = voice.output.firstChannel;
         if (first < outputChannelCount)
             outputs[first][frame] += renderVoiceSample(voice, settings, 0u)
@@ -1139,6 +1146,7 @@ private:
         voice->output = outputAllocator_.next(std::min(outputChannelCount_,
             settings.activeOutputChannelCount),
             settings.outputRouting);
+        if (settings.preserveSourceChannels) voice->output = {0u, 1u, map_->asset->channelCount, 0u};
         voice->randomState ^= static_cast<uint32_t>(event.key) * 0x9e3779b9u;
         const float velocity = std::clamp(event.velocity, 0.0f, 1.0f);
         voice->velocityGain = 1.0f + (velocity - 1.0f)
@@ -1173,6 +1181,7 @@ private:
                     std::min(outputChannelCount_,
                         settings.activeOutputChannelCount),
                     settings.outputRouting);
+                if (settings.preserveSourceChannels) voice->output = {0u, 1u, map_->asset->channelCount, 0u};
                 voice->velocityGain = 1.0f
                     + (std::clamp(event.velocity, 0.0f, 1.0f) - 1.0f)
                         * settings.velocitySensitivity;

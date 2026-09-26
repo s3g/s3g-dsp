@@ -334,4 +334,60 @@ env "${installer_env[@]}" "$installer" --dry-run \
   --destination "$test_root/non-executable-destination" >/dev/null 2>&1 || status=$?
 [[ "$status" == "1" ]]
 
+# Tracker's backend gate checks the artifact in both development/build and
+# packaged/flat layouts. None of these rejected candidates may replace an
+# existing installation or write a receipt, including a non-dry-run attempt.
+tracker_manifest="$test_root/tracker.tsv"
+tracker_legacy="$test_root/tracker-legacy.tsv"
+tracker_source="$test_root/tracker-source"
+tracker_destination="$test_root/tracker-destination"
+tracker_bundle="$tracker_source/clap_tracker/s3g_tracker.clap"
+printf 'clap_tracker/s3g_tracker.clap\ts3g_tracker.clap\torg.s3g.s3g-dsp.tracker\ts3g Tracker\n' > "$tracker_manifest"
+printf '# No aliases in this focused fixture\n' > "$tracker_legacy"
+make_bundle "$tracker_bundle" org.s3g.s3g-dsp.tracker 's3g Tracker'
+make_bundle "$tracker_destination/s3g_tracker.clap" org.s3g.s3g-dsp.tracker 'preserved Tracker'
+tracker_before="$(shasum -a 256 "$tracker_destination/s3g_tracker.clap/Contents/Info.plist")"
+tracker_env=(
+  "S3G_CLAP_MANIFEST=$tracker_manifest"
+  "S3G_CLAP_LEGACY_MANIFEST=$tracker_legacy"
+  "S3G_CLAP_SOURCE_ROOT=$tracker_source"
+  "S3G_CLAP_SOURCE_LAYOUT=build"
+  "S3G_CLAP_BACKUP_ROOT=$test_root/tracker-backups"
+  "S3G_CLAP_RECEIPT=$test_root/tracker-receipt.tsv"
+)
+for marker in 'no-backend-marker' 's3g.tracker.gui:legacy-or-partial' \
+    's3g.tracker.gui:vstgui-shell-v1'; do
+  # The full-shell marker without its font must be rejected too.
+  printf '#!/bin/sh\n# %s\nexit 0\n' "$marker" > "$tracker_bundle/Contents/MacOS/fixture"
+  for mode in --dry-run --destination; do
+    args=(--destination "$tracker_destination")
+    if [[ "$mode" == --dry-run ]]; then args+=(--dry-run); fi
+    status=0
+    env "${tracker_env[@]}" "$installer" "${args[@]}" \
+      >"$test_root/tracker-rejection.log" 2>&1 || status=$?
+    [[ "$status" == 1 ]]
+    grep -Eq 'Refusing Tracker|Missing Tracker VSTGUI font' "$test_root/tracker-rejection.log"
+    [[ "$tracker_before" == "$(shasum -a 256 "$tracker_destination/s3g_tracker.clap/Contents/Info.plist")" ]]
+    [[ ! -e "$test_root/tracker-receipt.tsv" ]]
+  done
+done
+mkdir -p "$tracker_bundle/Contents/Resources/Fonts"
+printf 'fixture font\n' > "$tracker_bundle/Contents/Resources/Fonts/FiraCode-Regular.ttf"
+env "${tracker_env[@]}" "$installer" --dry-run --destination "$tracker_destination" >/dev/null
+env "${tracker_env[@]}" "$installer" --destination "$tracker_destination" >/dev/null
+cmp "$tracker_bundle/Contents/MacOS/fixture" "$tracker_destination/s3g_tracker.clap/Contents/MacOS/fixture"
+
+cp -R "$tracker_bundle" "$tracker_source/s3g_tracker.clap"
+env "${tracker_env[@]}" S3G_CLAP_SOURCE_LAYOUT=flat \
+  "$package_root/Install s3g-dsp CLAPs.command" --dry-run --destination "$tracker_destination" >/dev/null
+printf '#!/bin/sh\n# s3g.tracker.gui:legacy-or-partial\nexit 0\n' \
+  > "$tracker_source/s3g_tracker.clap/Contents/MacOS/fixture"
+status=0
+env "${tracker_env[@]}" S3G_CLAP_SOURCE_LAYOUT=flat \
+  "$package_root/Install s3g-dsp CLAPs.command" --destination "$tracker_destination" \
+  >"$test_root/tracker-flat-rejection.log" 2>&1 || status=$?
+[[ "$status" == 1 ]]
+grep -q 'Refusing Tracker' "$test_root/tracker-flat-rejection.log"
+cmp "$tracker_bundle/Contents/MacOS/fixture" "$tracker_destination/s3g_tracker.clap/Contents/MacOS/fixture"
+
 echo "CLAP bundle installer smoke passed"

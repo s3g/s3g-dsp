@@ -1,7 +1,10 @@
 #pragma once
 
 // Reuse the proven file/analysis/project-media workers on both supported GUIs.
-#if defined(__APPLE__) || (defined(_WIN32) && (defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)))
+#if defined(__APPLE__) || (defined(_WIN32) \
+    && (defined(S3G_ENABLE_VSTGUI_SAMPLE_FAMILY_GUI) \
+        || defined(S3G_ENABLE_VSTGUI_SAMPLE_NEON_GUI) \
+        || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)))
 #define S3G_SAMPLE_FILE_WORKER 1
 #endif
 

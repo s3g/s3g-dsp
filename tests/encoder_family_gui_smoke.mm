@@ -19,6 +19,7 @@
 #include "../dsp/s3g_ambi_wrangler_encoder.h"
 #include "../dsp/s3g_musical_scales.h"
 #include "../dsp/s3g_parameter_surface.h"
+#include "../plugins/clap_sample_neon/s3g_sample_neon_layout.h"
 
 #include <array>
 #include <algorithm>
@@ -83,6 +84,14 @@
 - (NSUInteger)motionAnimationCount;
 @end
 
+// A hidden host window with deterministic keyboard activation; smoke tests
+// must not steal the user's frontmost application just to exercise shortcuts.
+@interface S3GSmokeKeyWindow : NSWindow
+@end
+@implementation S3GSmokeKeyWindow
+- (BOOL)isKeyWindow { return YES; }
+@end
+
 @interface S3GSmokeScrollEvent : NSEvent {
     NSPoint _smokeLocation;
     NSEventModifierFlags _smokeModifiers;
@@ -113,6 +122,12 @@
 - (NSEventModifierFlags)modifierFlags { return _smokeModifiers; }
 - (CGFloat)scrollingDeltaX { return _smokeDeltaX; }
 - (CGFloat)scrollingDeltaY { return _smokeDeltaY; }
+- (CGFloat)deltaX { return _smokeDeltaX; }
+- (CGFloat)deltaY { return _smokeDeltaY; }
+- (BOOL)hasPreciseScrollingDeltas { return NO; }
+- (BOOL)isDirectionInvertedFromDevice { return NO; }
+- (NSEventPhase)phase { return NSEventPhaseNone; }
+- (NSEventPhase)momentumPhase { return NSEventPhaseNone; }
 @end
 
 @interface S3GSmokeFilePasteboard : NSObject {
@@ -472,23 +487,24 @@ void writeLittleEndian32(FILE* file, uint32_t value)
     writeLittleEndian16(file, static_cast<uint16_t>(value >> 16u));
 }
 
-bool writeDropSmokeWaveFile(const char* path, double frequency)
+bool writeDropSmokeWaveFile(const char* path, double frequency,
+    uint16_t channels = 1u)
 {
     if (!path || !path[0]) return false;
     FILE* file = std::fopen(path, "wb");
     if (!file) return false;
     constexpr uint32_t sampleRate = 48000u;
     constexpr uint32_t frameCount = 256u;
-    constexpr uint32_t dataBytes = frameCount * sizeof(int16_t);
+    const uint32_t dataBytes = frameCount * channels * sizeof(int16_t);
     std::fwrite("RIFF", 1u, 4u, file);
     writeLittleEndian32(file, 36u + dataBytes);
     std::fwrite("WAVEfmt ", 1u, 8u, file);
     writeLittleEndian32(file, 16u);
     writeLittleEndian16(file, 1u);
-    writeLittleEndian16(file, 1u);
+    writeLittleEndian16(file, channels);
     writeLittleEndian32(file, sampleRate);
-    writeLittleEndian32(file, sampleRate * sizeof(int16_t));
-    writeLittleEndian16(file, sizeof(int16_t));
+    writeLittleEndian32(file, sampleRate * channels * sizeof(int16_t));
+    writeLittleEndian16(file, channels * sizeof(int16_t));
     writeLittleEndian16(file, 16u);
     std::fwrite("data", 1u, 4u, file);
     writeLittleEndian32(file, dataBytes);
@@ -497,7 +513,8 @@ bool writeDropSmokeWaveFile(const char* path, double frequency)
             * static_cast<double>(frame) / static_cast<double>(sampleRate);
         const int16_t sample = static_cast<int16_t>(
             std::lround(std::sin(phase) * 12000.0));
-        writeLittleEndian16(file, static_cast<uint16_t>(sample));
+        for (uint16_t channel = 0u; channel < channels; ++channel)
+            writeLittleEndian16(file, static_cast<uint16_t>(sample / static_cast<int>(channel + 1u)));
     }
     const bool ok = std::ferror(file) == 0;
     return std::fclose(file) == 0 && ok;
@@ -949,7 +966,7 @@ int main(int argc, char** argv)
         pluginId, "org.s3g.s3g-dsp.breakbeat-slicer") == 0;
     if ((!responsive && !dynamic && !fixed)
         || nativeWidth < 320u
-        || nativeHeight < ((responsive || dynamic) ? 360u : 240u)) {
+        || nativeHeight < (((responsive && !proportional) || dynamic) ? 360u : 240u)) {
         return 2;
     }
 
@@ -3690,6 +3707,705 @@ int main(int argc, char** argv)
                 clickCount:1
                 pressure:1.0];
         };
+        if (ok && portableVstguiRoot
+            && std::strcmp(pluginId, "org.s3g.s3g-dsp.utility-neon-midi") == 0) {
+            failureStage = "Utility Neon MIDI bank, route and queued edits";
+            ok = gui->show(plugin);
+            hostContext.deferParamFlush = true;
+            CapturedOutputEvents captured;
+            captured.events = {&captured, captureOutputEvent};
+            const auto redraw = [&] {
+                [document setNeedsDisplay:YES]; [document displayIfNeeded];
+                (void)[document dataWithPDFInsideRect:[document bounds]];
+            };
+            const double scale = [document bounds].size.width / nativeWidth;
+            const auto clickAt = [&](double x, double y) {
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown, NSMakePoint(x * scale, y * scale))];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, NSMakePoint(x * scale, y * scale))];
+                redraw();
+            };
+            redraw();
+            double value = -1.;
+            clickAt(115, 92); // B bank
+            ok = ok && params->get_value(plugin, 1u, &value) && value == 0.;
+            params->flush(plugin, nullptr, &captured.events);
+            ok = ok && params->get_value(plugin, 1u, &value) && value == 1.
+                && captured.values.size() == 3u
+                && captured.values[0].type == CLAP_EVENT_PARAM_GESTURE_BEGIN
+                && captured.values[1].paramId == 1u && captured.values[1].value == 1.
+                && captured.values[2].type == CLAP_EVENT_PARAM_GESTURE_END;
+            redraw();
+            clickAt(470, 139); // Route menu
+            const char* folder = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+            if (folder && folder[0]) {
+                NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                NSString* path = [[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.menu.pdf"];
+                ok = ok && render && [render writeToFile:path atomically:YES];
+            }
+            clickAt(470, 155.5); // NOTES ONLY
+            params->flush(plugin, nullptr, &captured.events);
+            ok = ok && params->get_value(plugin, 4u, &value) && value == 0.;
+            redraw();
+            const auto velocityPixels = [&] {
+                NSData* pdf = [document dataWithPDFInsideRect:NSMakeRect(16 * scale, 300 * scale, 272 * scale, 20 * scale)];
+                NSImage* render = [[NSImage alloc] initWithData:pdf];
+                NSBitmapImageRep* bitmap = [NSBitmapImageRep imageRepWithData:[render TIFFRepresentation]];
+                std::vector<uint8_t> result;
+                if (bitmap && [bitmap bitmapData]) result.assign([bitmap bitmapData],
+                    [bitmap bitmapData] + [bitmap bytesPerRow] * [bitmap pixelsHigh]);
+                [render release]; return result;
+            };
+            const auto beforeHit = velocityPixels();
+            const bool velocityActive = plugin->activate(plugin, 48000., 1u, 64u);
+            const bool velocityProcessing = velocityActive && plugin->start_processing(plugin);
+            ok = velocityProcessing && ok;
+            if (velocityProcessing) {
+                std::array<clap_event_midi_t, 4u> events {};
+                const uint8_t bytes[4][3] {{0xb7, 2, 3}, {0x97, 2, 127}, {0xa7, 2, 96}, {0x97, 2, 0}};
+                for (unsigned i = 0; i < events.size(); ++i) {
+                    events[i].header = {sizeof(clap_event_midi_t), i, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0u};
+                    std::memcpy(events[i].data, bytes[i], 3u);
+                }
+                clap_input_events_t input {};
+                input.ctx = &events;
+                input.size = [](const clap_input_events_t*) -> uint32_t { return 4u; };
+                input.get = [](const clap_input_events_t* list, uint32_t i) -> const clap_event_header_t* {
+                    const auto& source = *static_cast<const std::array<clap_event_midi_t, 4u>*>(list->ctx);
+                    return i < source.size() ? &source[i].header : nullptr;
+                };
+                unsigned hits = 0u;
+                clap_output_events_t output {};
+                output.ctx = &hits;
+                output.try_push = [](const clap_output_events_t* list, const clap_event_header_t* header) {
+                    if (header->type == CLAP_EVENT_MIDI) {
+                        const auto& event = *reinterpret_cast<const clap_event_midi_t*>(header);
+                        if (event.data[0] == 0x90 && event.data[1] == 46 && event.data[2] == 3)
+                            ++*static_cast<unsigned*>(list->ctx);
+                    }
+                    return true;
+                };
+                clap_process_t block {}; block.frames_count = 64u; block.in_events = &input; block.out_events = &output;
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && hits == 1u && ok;
+                redraw(); const auto afterHit = velocityPixels();
+                for (auto& event : events) { event.data[0] = 0xa7; event.data[2] = 127; }
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                redraw();
+                ok = !beforeHit.empty() && afterHit != beforeHit && afterHit == velocityPixels() && ok;
+                plugin->stop_processing(plugin);
+            }
+            if (velocityActive) plugin->deactivate(plugin);
+            if (folder && folder[0]) {
+                NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                NSString* path = [[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.pdf"];
+                ok = ok && render && [render writeToFile:path atomically:YES];
+            }
+            clickAt(540, 22);
+            params->flush(plugin, nullptr, &captured.events);
+            ok = ok && params->get_value(plugin, 5u, &value) && value == 0.;
+            hostContext.deferParamFlush = false;
+            hostContext.paramFlushRequested = false;
+        }
+        if (ok && portableVstguiRoot
+            && std::strcmp(pluginId, "org.s3g.s3g-dsp.sample-neon") == 0) {
+            using I = s3g::sample_neon_gui::InspectorLayout;
+            failureStage = "Sample Neon multichannel editor and routing menus";
+            const auto* state = static_cast<const clap_plugin_state_t*>(
+                plugin->get_extension(plugin, CLAP_EXT_STATE));
+            MemoryPluginState fixture;
+            clap_ostream_t save { &fixture, stateWriteWhole };
+            NSString* fixturePath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                [NSString stringWithFormat:@"s3g-neon-3oa-%@.wav", [[NSUUID UUID] UUIDString]]];
+            ok = state && state->save(plugin, &save)
+                && writeDropSmokeWaveFile([fixturePath fileSystemRepresentation], 750.0, 16u);
+            constexpr size_t parameters = 7u + 32u * 19u;
+            constexpr size_t pathOffset = 16u + parameters * sizeof(double);
+            if (ok && fixture.bytes.size() >= pathOffset + 2048u) {
+                const double layout = 6.0, format = 1.0;
+                std::memcpy(fixture.bytes.data() + 16u, &layout, sizeof(layout));
+                std::memcpy(fixture.bytes.data() + 16u + 23u * sizeof(double), &format, sizeof(format));
+                std::snprintf(reinterpret_cast<char*>(fixture.bytes.data() + pathOffset),
+                    2048u, "%s", [fixturePath fileSystemRepresentation]);
+                clap_istream_t load { &fixture, stateReadWhole };
+                ok = state->load(plugin, &load) && gui->show(plugin);
+            } else ok = false;
+            // Run the real worker/main-thread publication and verify channel 16.
+            const bool activated = ok && plugin->activate(plugin, 48000.0, 1u, 64u);
+            const bool started = activated && plugin->start_processing(plugin);
+            std::array<std::array<float, 64u>, 32u> samples {};
+            std::array<float*, 32u> pointers {};
+            for (size_t ch = 0u; ch < 32u; ++ch) pointers[ch] = samples[ch].data();
+            clap_audio_buffer_t audio {};
+            audio.data32 = pointers.data(); audio.channel_count = 32u;
+            clap_event_note_t note {};
+            note.header = { sizeof(note), 0u, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_ON, 0u };
+            note.note_id = 1; note.port_index = 0; note.channel = 0; note.key = 36; note.velocity = 1.0;
+            clap_input_events_t input {};
+            input.ctx = &note;
+            input.size = [](const clap_input_events_t*) -> uint32_t { return 1u; };
+            input.get = [](const clap_input_events_t* events, uint32_t index) -> const clap_event_header_t* {
+                return index == 0u ? &static_cast<const clap_event_note_t*>(events->ctx)->header : nullptr;
+            };
+            clap_process_t block {};
+            block.frames_count = 64u; block.audio_outputs = &audio;
+            block.audio_outputs_count = 1u; block.in_events = &input;
+            bool audible = false;
+            for (unsigned attempt = 0u; started && !audible && attempt < 100u; ++attempt) {
+                plugin->on_main_thread(plugin);
+                plugin->process(plugin, &block);
+                audible = std::any_of(samples[15u].begin(), samples[15u].end(),
+                    [](float v) { return std::abs(v) > 0.0001f; });
+                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            }
+            ok = ok && audible;
+            if (started) plugin->stop_processing(plugin);
+            if (activated) plugin->deactivate(plugin);
+            const auto redraw = [&] {
+                [document setNeedsDisplay:YES]; [document displayIfNeeded];
+                (void)[document dataWithPDFInsideRect:[document bounds]];
+            };
+            const double scale = [document bounds].size.width / nativeWidth;
+            const auto clickAt = [&](double x, double y) {
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown, NSMakePoint(x * scale, y * scale))];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, NSMakePoint(x * scale, y * scale))];
+                params->flush(plugin, nullptr, nullptr);
+                redraw();
+            };
+            const auto inspectorChoice = [&](unsigned row, unsigned item) {
+                const double center = I::controlLeft + I::controlWidth * 0.5;
+                clickAt(center, I::row(row));
+                clickAt(center, I::row(row) + I::menuHeight * 0.5 + I::popupRowHeight * (item + 0.5));
+            };
+            redraw();
+            clickAt(456.0, 588.0); // EDIT, leaving the selected cell unchanged.
+            // Format dropdown: first row is DISCRETE; this must invalidate the 3OA route.
+            inspectorChoice(16, 0);
+            double format = -1.0;
+            ok = params->get_value(plugin, 1016u, &format) && format == 0.0 && ok;
+            inspectorChoice(16, 1);
+            ok = params->get_value(plugin, 1016u, &format) && format == 1.0 && ok;
+            // Bus menu exposes two 16-channel buses, with state-backed selection.
+            inspectorChoice(17, 1);
+            double bus = -1.0;
+            ok = params->get_value(plugin, 1012u, &bus) && bus == 2.0 && ok;
+            double zeroCross = -1.0;
+            clickAt(765.0, 97.0);
+            ok = params->get_value(plugin, 1017u, &zeroCross) && zeroCross == 0.0 && ok;
+            clickAt(765.0, 97.0);
+            ok = params->get_value(plugin, 1017u, &zeroCross) && zeroCross == 1.0 && ok;
+            if (!ok) std::cerr << "Neon failed before waveform zoom\n";
+            failureStage = "Sample Neon pointer zoom, pan and transient pre-roll";
+            const auto regionPixels = [&](double x, double y, double width, double height) {
+                NSData* pdf = [document dataWithPDFInsideRect:NSMakeRect(x * scale,
+                    y * scale, width * scale, height * scale)];
+                NSImage* image = [[NSImage alloc] initWithData:pdf];
+                NSBitmapImageRep* bitmap = [NSBitmapImageRep imageRepWithData:[image TIFFRepresentation]];
+                std::vector<uint8_t> pixels;
+                if (bitmap && [bitmap bitmapData]) {
+                    const auto* first = [bitmap bitmapData];
+                    pixels.assign(first, first + [bitmap bytesPerRow] * [bitmap pixelsHigh]);
+                }
+                [image release];
+                return pixels;
+            };
+            const auto overviewPixels = [&] { return regionPixels(177.0, 426.0, 635.0, 72.0); };
+            const auto waveformPixels = [&] { return regionPixels(32.0, 122.0, 793.0, 254.0); };
+            const auto waveChoice = [&](unsigned item) {
+                clickAt(743.0, 62.0);
+                clickAt(743.0, 62.0 + I::menuHeight * 0.5 + I::popupRowHeight * (item + 0.5));
+            };
+            const auto combinedWave = waveformPixels();
+            const auto combinedOverview = overviewPixels();
+            waveChoice(1u);
+            const auto firstChannelWave = waveformPixels();
+            waveChoice(2u);
+            const auto allChannelsWave = waveformPixels();
+            ok = !combinedWave.empty() && firstChannelWave != combinedWave && allChannelsWave != firstChannelWave
+                && overviewPixels() == combinedOverview && ok;
+            waveChoice(0u);
+            ok = waveformPixels() == combinedWave && ok;
+            const auto scrollAt = [&](double x, double y, double delta, NSEventModifierFlags modifiers = 0) {
+                S3GSmokeScrollEvent* event = [[S3GSmokeScrollEvent alloc]
+                    initWithLocation:[document convertPoint:NSMakePoint(x * scale, y * scale) toView:nil]
+                    modifiers:modifiers deltaX:0.0 deltaY:delta];
+                [document scrollWheel:event];
+                [event release];
+                redraw();
+            };
+            MemoryPluginState beforeScroll;
+            clap_ostream_t saveBeforeScroll { &beforeScroll, stateWriteWhole };
+            ok = state->save(plugin, &saveBeforeScroll) && ok;
+            const auto fitPixels = overviewPixels();
+            scrollAt(600.0, 210.0, 10.0);
+            const auto zoomPixels = overviewPixels();
+            scrollAt(600.0, 210.0, 10.0, NSEventModifierFlagShift);
+            const auto panPixels = overviewPixels();
+            scrollAt(940.0, 460.0, 10.0); // Outside waveform must not zoom.
+            ok = !fitPixels.empty() && fitPixels != zoomPixels && zoomPixels != panPixels
+                && panPixels == overviewPixels() && ok;
+            for (unsigned i = 0u; i < 5u; ++i) scrollAt(600.0, 210.0, -40.0);
+            ok = overviewPixels() == fitPixels && ok;
+            MemoryPluginState afterScroll;
+            clap_ostream_t saveAfterScroll { &afterScroll, stateWriteWhole };
+            ok = state->save(plugin, &saveAfterScroll) && afterScroll.bytes == beforeScroll.bytes && ok;
+            clickAt(367.0, 588.0); // CHOP.
+            clickAt(110.0, 98.0); clickAt(110.0, 133.0); // Transients, popup row 2.
+            clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(4)); // Pre-roll midpoint = 25 ms.
+            MemoryPluginState withPreRoll;
+            clap_ostream_t savePreRoll { &withPreRoll, stateWriteWhole };
+            ok = state->save(plugin, &savePreRoll) && ok;
+            constexpr size_t transientBytes = 32u * sizeof(float) + 32u;
+            constexpr size_t captureBytes = 5u * sizeof(double) + 33u * 16u;
+            constexpr size_t playbackBytes = 32u + 3u * 32u * sizeof(float);
+            constexpr size_t modernBytes = (32u * 36u + 64u) * sizeof(float);
+            const size_t preRollOffset = fixture.bytes.size() - transientBytes - playbackBytes - captureBytes - modernBytes;
+            float preRoll = 0.0f;
+            if (withPreRoll.bytes.size() >= preRollOffset + sizeof(float))
+                std::memcpy(&preRoll, withPreRoll.bytes.data() + preRollOffset, sizeof(preRoll));
+            ok = std::abs(preRoll - 25.0f) < 0.11f && ok;
+            if (!ok) std::cerr << "Neon failed before playback menus\n";
+            failureStage = "Sample Neon explicit playback menu and clock";
+            clickAt(456.0, 588.0); // EDIT.
+            const auto savedState = [&] {
+                MemoryPluginState result;
+                clap_ostream_t output { &result, stateWriteWhole };
+                ok = state->save(plugin, &output) && ok;
+                return result;
+            };
+            constexpr size_t textureBytes = 2u * 32u + 11u * 32u * sizeof(float);
+            const size_t textureOffset = preRollOffset - textureBytes;
+            const size_t clockOffset = preRollOffset + transientBytes;
+            inspectorChoice(2, 1); // MOTION, not a page-only change.
+            auto motionState = savedState();
+            ok = motionState.bytes[textureOffset] == 1u && motionState.bytes[clockOffset] == 0u && ok;
+            inspectorChoice(5, 1); // HOST clock.
+            auto hostState = savedState();
+            ok = hostState.bytes[clockOffset] == 1u && ok;
+            inspectorChoice(5, 0); // FREE clock.
+            inspectorChoice(3, 0); // SOURCE/TRIM does not change technique.
+            auto sourceView = savedState();
+            ok = sourceView.bytes[textureOffset] == 1u && sourceView.bytes[clockOffset] == 0u && ok;
+            inspectorChoice(2, 2); // GRAINS commits, clearing Motion.
+            auto grainsState = savedState();
+            ok = grainsState.bytes[textureOffset] == 4u && ok;
+            clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(6)); // Explicit total shot duration, midpoint.
+            auto lengthState = savedState();
+            float shotLength = 0.0f;
+            std::memcpy(&shotLength, lengthState.bytes.data() + clockOffset + 32u + 32u * sizeof(float), sizeof(float));
+            ok = std::abs(shotLength - 15.025f) < 0.02f && ok;
+            const char* techniqueCapture = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+            if (techniqueCapture && techniqueCapture[0]) {
+                NSString* directory = [NSString stringWithUTF8String:techniqueCapture];
+                [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
+                NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                ok = [render writeToFile:[directory stringByAppendingPathComponent:@"sample-neon.grains.pdf"] atomically:YES] && ok;
+            }
+            if (!ok) std::cerr << "Neon failed before Character FX\n";
+            failureStage = "Sample Neon Character FX and extended playback menus";
+            const auto captureNeonPage = [&](NSString* name) {
+                if (!techniqueCapture || !techniqueCapture[0]) return;
+                NSString* directory = [NSString stringWithUTF8String:techniqueCapture];
+                NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                ok = [render writeToFile:[directory stringByAppendingPathComponent:name] atomically:YES] && ok;
+            };
+            inspectorChoice(3, 2); // Dedicated Character FX view.
+            inspectorChoice(4, 3); // RING.
+            double fxChoice = -1.0;
+            ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 3.0 && ok;
+            const auto beforeFx = savedState();
+            clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(7)); // Effect frequency slider, not playback position.
+            const auto afterFx = savedState();
+            const size_t modernOffset = fixture.bytes.size() - captureBytes - modernBytes;
+            ok = std::memcmp(beforeFx.bytes.data() + modernOffset + 9u * sizeof(float),
+                afterFx.bytes.data() + modernOffset + 9u * sizeof(float), sizeof(float)) != 0 && ok;
+            captureNeonPage(@"sample-neon.character-fx.pdf");
+            clickAt(80.0, 675.0); // SECOND: same eight FX on miniature NEON.
+            clickAt(367.0, 690.0); // PULSE, not EDIT Hold.
+            ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 5.0
+                && savedState().bytes[textureOffset] == 4u && ok;
+            clickAt(456.0, 690.0); // Disabled DRIVE pad.
+            ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 5.0 && ok;
+            clickAt(80.0, 675.0); // Back to primary cell pads.
+            inspectorChoice(4, 3); // Restore RING for menu restriction check.
+            inspectorChoice(4, 6); // Disabled DRIVE for ACN/SN3D.
+            ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 3.0 && ok;
+            captureNeonPage(@"sample-neon.ambisonic-fx-menu.pdf");
+            clickAt(880.0, 200.0); // Dismiss if disabled row left menu open.
+            inspectorChoice(4, 0); // FILTER, amount remains dry.
+            inspectorChoice(2, 3); // SLICE SEQUENCE.
+            ok = savedState().bytes[textureOffset] == 8u && ok;
+            captureNeonPage(@"sample-neon.slice-sequence.pdf");
+            inspectorChoice(2, 4); // STRETCH.
+            ok = savedState().bytes[textureOffset] == 16u && ok;
+            captureNeonPage(@"sample-neon.stretch.pdf");
+            inspectorChoice(2, 5); // WAVESETS is disabled for ACN/SN3D.
+            ok = savedState().bytes[textureOffset] == 16u && ok;
+            clickAt(880.0, 200.0);
+            inspectorChoice(2, 0); // SAMPLE clears generated techniques.
+            auto sampleState = savedState();
+            ok = sampleState.bytes[textureOffset] == 0u && ok;
+            // Exercise all four primary surfaces and capture their actual renders.
+            const char* pageNames[] { "play", "chop", "edit", "resample" };
+            const char* captureDirectory = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
+            for (unsigned page = 0u; ok && page < 4u; ++page) {
+                clickAt(278.0 + page * 89.0, 588.0);
+                NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                ok = render && [render length] > 0u;
+                if (ok && captureDirectory && captureDirectory[0]) {
+                    NSString* directory = [NSString stringWithUTF8String:captureDirectory];
+                    [[NSFileManager defaultManager] createDirectoryAtPath:directory
+                        withIntermediateDirectories:YES attributes:nil error:nil];
+                    NSString* name = [NSString stringWithFormat:@"%s.%s.pdf", pluginId, pageNames[page]];
+                    ok = [render writeToFile:[directory stringByAppendingPathComponent:name] atomically:YES];
+                }
+            }
+            if (!ok) std::cerr << "Neon failed before Reset / capture\n";
+            // Reset is explicit, cancelable, and safe even during capture.
+            failureStage = "Sample Neon reset confirmation and recording abort";
+            MemoryPluginState beforeReset;
+            clap_ostream_t saveBeforeReset { &beforeReset, stateWriteWhole };
+            ok = state->save(plugin, &saveBeforeReset) && ok;
+            clickAt(698.0, 24.0); // RESET ALL opens confirmation only.
+            clickAt(914.0, 82.0); // Cancel.
+            MemoryPluginState afterCancel;
+            clap_ostream_t saveAfterCancel { &afterCancel, stateWriteWhole };
+            ok = state->save(plugin, &saveAfterCancel) && afterCancel.bytes == beforeReset.bytes && ok;
+            const bool resetActive = plugin->activate(plugin, 48000.0, 1u, 64u);
+            const bool resetProcessing = resetActive && plugin->start_processing(plugin);
+            ok = resetProcessing && ok;
+            if (resetProcessing) {
+                clap_output_events_t acceptEvents {};
+                acceptEvents.try_push = [](const clap_output_events_t*, const clap_event_header_t*) { return true; };
+                block.out_events = &acceptEvents;
+                failureStage = "Sample Neon records from miniature Resample pads";
+                block.in_events = nullptr;
+                plugin->process(plugin, &block); // Drain earlier menu previews.
+                plugin->reset(plugin);
+                plugin->process(plugin, &block);
+                inspectorChoice(0, 1); // Capture bus 2, matching A1's 3OA output.
+                const auto emptyTakePixels = overviewPixels();
+                clickAt(934.0, I::row(2)); // Record, without changing page.
+                clickAt(80.0, 675.0); // PLAY PADS on miniature NEON; no duplicate toolbox grid.
+                clickAt(278.0, 636.0); // A1 on the RESAMPLE secondary layer.
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                const auto capturedSamples = samples;
+                ok = std::any_of(samples[31u].begin(), samples[31u].end(),
+                    [](float sample) { return std::abs(sample) > 0.0001f; }) && ok;
+                redraw(); // Recording enables Stop on the next paint.
+                const auto recordingPixels = overviewPixels();
+                ok = !recordingPixels.empty() && recordingPixels != emptyTakePixels && ok;
+                const auto recordingCombined = waveformPixels();
+                waveChoice(1u);
+                const auto recordingFirst = waveformPixels();
+                waveChoice(2u);
+                ok = recordingCombined != recordingFirst && recordingFirst != waveformPixels()
+                    && recordingPixels == overviewPixels() && ok;
+                captureNeonPage(@"sample-neon.recording-live.pdf");
+                clickAt(1079.0, I::row(2)); // Stop, still in Resample.
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                plugin->on_main_thread(plugin);
+                auto directCapture = savedState();
+                if (directCapture.bytes.size() == fixture.bytes.size() + 16u * 64u * sizeof(float)) {
+                    for (size_t channel = 0u; channel < 16u; ++channel)
+                        ok = std::memcmp(directCapture.bytes.data() + fixture.bytes.size() + channel * 64u * sizeof(float),
+                            capturedSamples[16u + channel].data(), 64u * sizeof(float)) == 0 && ok;
+                    double destination = 0.0;
+                    std::memcpy(&destination, directCapture.bytes.data() + fixture.bytes.size() - captureBytes + 4u * sizeof(double), sizeof(double));
+                    ok = destination == 255.0 && ok;
+                } else ok = false;
+                redraw(); // Finalizing the take enables Discard.
+                clickAt(1079.0, I::row(3)); // Discard this test review, not any source cell.
+                plugin->on_main_thread(plugin);
+                redraw();
+                if (ok) failureStage = "Sample Neon reset confirmation and recording abort";
+                clickAt(77.0, 98.0); // RESAMPLE Record.
+                block.in_events = &input;
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                block.in_events = nullptr;
+                const auto beginningTakePixels = overviewPixels();
+                for (unsigned n = 0u; n < 300u; ++n)
+                    ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                redraw();
+                ok = beginningTakePixels != overviewPixels() && ok;
+                captureNeonPage(@"sample-neon.recording-live.pdf");
+                clickAt(730.0, 697.0); // Queue a master edit without an output consumer.
+                clickAt(698.0, 24.0);
+                clickAt(1062.0, 82.0); // Confirm clear.
+                plugin->on_main_thread(plugin);
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                plugin->on_main_thread(plugin); // Clear after audio acknowledges.
+                block.in_events = nullptr;
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                for (const auto& channel : samples)
+                    ok = std::all_of(channel.begin(), channel.end(), [](float sample) { return sample == 0.0f; }) && ok;
+                MemoryPluginState cleared;
+                clap_ostream_t saveCleared { &cleared, stateWriteWhole };
+                ok = state->save(plugin, &saveCleared) && cleared.bytes.size() == fixture.bytes.size() && ok;
+                if (cleared.bytes.size() == fixture.bytes.size())
+                    ok = std::all_of(cleared.bytes.begin() + preRollOffset,
+                        cleared.bytes.begin() + preRollOffset + 32u * sizeof(float),
+                        [](uint8_t value) { return value == 0u; }) && ok;
+                if (cleared.bytes.size() >= pathOffset + 32u * 2048u)
+                    ok = std::all_of(cleared.bytes.begin() + pathOffset,
+                        cleared.bytes.begin() + pathOffset + 32u * 2048u,
+                        [](uint8_t value) { return value == 0u; }) && ok;
+                else ok = false;
+                double retainedLayout = -1.0, defaultGain = 0.0, defaultBus = -1.0, defaultMaster = 0.0;
+                ok = params->get_value(plugin, 1u, &retainedLayout) && retainedLayout == 6.0 && ok;
+                ok = params->get_value(plugin, 1000u, &defaultGain) && defaultGain == -6.0 && ok;
+                ok = params->get_value(plugin, 1012u, &defaultBus) && defaultBus == 1.0 && ok;
+                ok = params->get_value(plugin, 2u, &defaultMaster) && defaultMaster == -6.0 && ok;
+                ok = [[NSFileManager defaultManager] fileExistsAtPath:fixturePath] && ok;
+                plugin->stop_processing(plugin);
+                block.out_events = nullptr;
+            }
+            if (resetActive) plugin->deactivate(plugin);
+            if (ok) {
+                failureStage = "Sample Neon CHOP renders the selected committed sample";
+                clap_istream_t restore { &sampleState, stateReadWhole };
+                ok = state->load(plugin, &restore) && ok;
+                const bool active = ok && plugin->activate(plugin, 48000.0, 1u, 64u);
+                const bool processing = active && plugin->start_processing(plugin);
+                bool loaded = false;
+                block.in_events = &input;
+                for (unsigned attempt = 0u; processing && !loaded && attempt < 100u; ++attempt) {
+                    plugin->on_main_thread(plugin);
+                    plugin->process(plugin, &block);
+                    loaded = std::any_of(samples[31u].begin(), samples[31u].end(),
+                        [](float v) { return std::abs(v) > 0.0001f; });
+                    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                }
+                ok = loaded && ok;
+                if (processing) plugin->stop_processing(plugin);
+                if (active) plugin->deactivate(plugin);
+                redraw();
+                clickAt(367.0, 588.0); // CHOP the restored A1.
+                clickAt(110.0, 98.0); clickAt(110.0, 151.0); // Equal.
+                clickAt(765.0, 97.0); // Zero cross off: retain the exact authored half.
+                clickAt(239.0, 98.0); clickAt(310.0, 115.0); // Two slices, first row column 2.
+                const auto sourceWave = overviewPixels();
+                clickAt(1008.0, I::row(7)); // Assign selected slice to empty A2.
+                plugin->on_main_thread(plugin);
+                redraw();
+                auto assignedSlice = savedState();
+                uint32_t width = 0u, frames = 0u;
+                const size_t cellHeader = fixture.bytes.size() - 33u * 16u + 16u; // A2, after empty A1 header.
+                if (assignedSlice.bytes.size() >= cellHeader + 16u) {
+                    std::memcpy(&width, assignedSlice.bytes.data() + cellHeader, sizeof(width));
+                    std::memcpy(&frames, assignedSlice.bytes.data() + cellHeader + 4u, sizeof(frames));
+                }
+                ok = width == 16u && frames == 113u && ok;
+                clickAt(278.0, 588.0); // PLAY selects cells, not source slices.
+                clickAt(367.0, 636.0); // A2.
+                clickAt(367.0, 588.0); // CHOP must now show only A2's new audio.
+                double start = -1.0, end = -1.0;
+                ok = params->get_value(plugin, 1035u, &start) && start == 0.0
+                    && params->get_value(plugin, 1036u, &end) && end == 1.0 && ok;
+                const auto sliceWave = overviewPixels();
+                ok = !sourceWave.empty() && !sliceWave.empty() && sourceWave != sliceWave && ok;
+                if (!ok) std::cerr << "Neon committed slice loaded=" << loaded << " width=" << width
+                    << " frames=" << frames << " trim=" << start << ',' << end
+                    << " waveformChanged=" << (sourceWave != sliceWave) << '\n';
+                if (captureDirectory && captureDirectory[0]) {
+                    NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                    NSString* directory = [NSString stringWithUTF8String:captureDirectory];
+                    ok = [render writeToFile:[directory stringByAppendingPathComponent:@"sample-neon.committed-slice.pdf"] atomically:YES] && ok;
+                }
+                if (ok) {
+                    failureStage = "Sample Neon cell clipboard and gesture envelopes";
+                    // Most smoke interactions need no window. Keyboard focus
+                    // does: give this embedded frame a host for these checks.
+                    NSWindow* keyboardWindow = [[S3GSmokeKeyWindow alloc] initWithContentRect:[parent bounds]
+                        styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+                    [keyboardWindow setReleasedWhenClosed:NO];
+                    [keyboardWindow setContentView:parent];
+                    [document becomeFirstResponder];
+                    const auto key = [&](NSString* text, NSEventModifierFlags modifier) {
+                        [document keyDown:[NSEvent keyEventWithType:NSEventTypeKeyDown
+                            location:NSZeroPoint modifierFlags:modifier timestamp:0.0
+                            windowNumber:0 context:nil characters:text charactersIgnoringModifiers:text
+                            isARepeat:NO keyCode:[text isEqualToString:@"c"] ? 8u : 9u]];
+                        params->flush(plugin, nullptr, nullptr); redraw();
+                    };
+                    const auto rightClick = [&](double x, double y) {
+                        // Cocoa's synthetic mouse factory reports buttonNumber
+                        // zero even for RightMouseDown. Control-click follows
+                        // the same native right-button route as a real mouse.
+                        [document mouseDown:[NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+                            location:[document convertPoint:NSMakePoint(x * scale, y * scale) toView:nil]
+                            modifierFlags:NSEventModifierFlagControl timestamp:0.0 windowNumber:[keyboardWindow windowNumber]
+                            context:nil eventNumber:0 clickCount:1 pressure:1.0]];
+                        [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, NSMakePoint(x * scale, y * scale))];
+                        redraw();
+                    };
+                    const auto sameCell = [&](const MemoryPluginState& source, unsigned from,
+                                              const MemoryPluginState& target, unsigned to) {
+                        const auto equal = [&](size_t base, size_t stride, size_t count) {
+                            const bool match = std::memcmp(source.bytes.data() + base + from * stride,
+                                target.bytes.data() + base + to * stride, count) == 0;
+                            if (!match) std::cerr << "Clipboard mismatch field=" << base << " source=" << from << " target=" << to << '\n';
+                            return match;
+                        };
+                        const size_t sliceBase = pathOffset + 32u * 2048u;
+                        return equal(16u + 7u * sizeof(double), 19u * sizeof(double), 19u * sizeof(double))
+                            && equal(pathOffset, 2048u, 2048u)
+                            && equal(sliceBase, 32u, 32u) && equal(sliceBase + 1024u, 1u, 1u)
+                            && equal(textureOffset, 1u, 1u) && equal(clockOffset, 1u, 1u)
+                            && equal(modernOffset, 36u * sizeof(float), 36u * sizeof(float))
+                            && equal(modernOffset + 32u * 36u * sizeof(float), 2u * sizeof(float), 2u * sizeof(float));
+                    };
+                    clickAt(456.0, 588.0); // EDIT A2, whose audio is embedded and cropped.
+                    inspectorChoice(2, 1); // Motion.
+                    clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(10)); clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(11)); // 5-second gesture fades.
+                    const size_t envelopes = modernOffset + 32u * 36u * sizeof(float);
+                    auto envelopeState = savedState();
+                    float attack = 0.0f, release = 0.0f;
+                    std::memcpy(&attack, envelopeState.bytes.data() + envelopes + 2u * sizeof(float), sizeof(float));
+                    std::memcpy(&release, envelopeState.bytes.data() + envelopes + 3u * sizeof(float), sizeof(float));
+                    ok = attack > 4.9f && release > 4.9f && ok;
+                    captureNeonPage(@"sample-neon.motion-envelope.pdf");
+                    inspectorChoice(2, 2); // Grains shares this cell's gesture envelope.
+                    clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(13)); clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(14));
+                    captureNeonPage(@"sample-neon.grains-envelope.pdf");
+                    const auto source = savedState();
+                    clickAt(367.0, 636.0); // Focus A2.
+                    key(@"c", NSEventModifierFlagControl); // Physical Ctrl-C, not only Cmd-C.
+                    clickAt(105.0, 631.0); // Bank B.
+                    clickAt(278.0, 636.0); // Empty B1.
+                    key(@"v", NSEventModifierFlagControl);
+                    auto bankCopy = savedState();
+                    ok = sameCell(source, 1u, bankCopy, 8u) && bankCopy.bytes.size() == source.bytes.size() && ok;
+                    if (!ok) std::cerr << "Neon Ctrl clipboard failed attack=" << attack << " release=" << release
+                        << " source/playback=" << unsigned(source.bytes[textureOffset + 1u])
+                        << " target/playback=" << unsigned(bankCopy.bytes[textureOffset + 8u]) << '\n';
+                    // Native Mac shortcuts also work. Source settings are independent.
+                    key(@"c", NSEventModifierFlagCommand);
+                    clickAt(367.0, 636.0); key(@"v", NSEventModifierFlagCommand); // B2.
+                    ok = sameCell(source, 1u, savedState(), 9u) && ok;
+                    inspectorChoice(2, 0); // B2 becomes Sample, B1 stays Grains.
+                    auto independent = savedState();
+                    ok = independent.bytes[textureOffset + 9u] == 0u && independent.bytes[textureOffset + 8u] == 4u && ok;
+                    rightClick(278.0, 636.0); clickAt(300.0, 645.0); // COPY B1 via context menu.
+                    rightClick(456.0, 636.0); clickAt(480.0, 663.0); // PASTE into empty B3.
+                    ok = sameCell(source, 1u, savedState(), 10u) && ok;
+                    // Populated cells require confirmation, with a non-mutating cancel.
+                    rightClick(367.0, 636.0); clickAt(385.0, 663.0);
+                    auto beforeReplace = savedState();
+                    clickAt(740.0, 65.0); // Cancel.
+                    ok = savedState().bytes == beforeReplace.bytes && ok;
+                    key(@"v", NSEventModifierFlagCommand); clickAt(740.0, 83.0); // Confirm replacing B2.
+                    ok = sameCell(source, 1u, savedState(), 9u) && ok;
+                    // Clipboard owns the PCM even after RESET ALL frees its source cell.
+                    clickAt(698.0, 24.0); clickAt(1062.0, 82.0); plugin->on_main_thread(plugin); redraw();
+                    clickAt(278.0, 588.0); clickAt(278.0, 636.0);
+                    key(@"v", NSEventModifierFlagControl);
+                    auto afterResetPaste = savedState();
+                    ok = sameCell(source, 1u, afterResetPaste, 0u)
+                        && afterResetPaste.bytes.size() == source.bytes.size() && ok;
+                    uint32_t pastedWidth = 0u, pastedFrames = 0u;
+                    std::memcpy(&pastedWidth, afterResetPaste.bytes.data() + fixture.bytes.size() - 33u * 16u, sizeof(uint32_t));
+                    std::memcpy(&pastedFrames, afterResetPaste.bytes.data() + fixture.bytes.size() - 33u * 16u + 4u, sizeof(uint32_t));
+                    ok = pastedWidth == 16u && pastedFrames == 113u && ok;
+                    failureStage = "Sample Neon linked source normalization and copy isolation";
+                    // Paste a shared-PCM sibling, then normalize A1 only.
+                    clickAt(456.0, 588.0); // EDIT also allows selecting empty cells.
+                    clickAt(367.0, 636.0); key(@"v", NSEventModifierFlagControl);
+                    clickAt(278.0, 636.0);
+                    inspectorChoice(3, 0); // SOURCE / TRIM.
+                    const auto beforeNormalize = savedState();
+                    const auto embeddedCell = [&](const MemoryPluginState& bytes, unsigned target) {
+                        size_t offset = fixture.bytes.size() - 33u * 16u;
+                        std::array<std::vector<float>, 33u> pcm;
+                        for (unsigned cell = 0u; cell <= target; ++cell) {
+                            if (offset + 16u > bytes.bytes.size()) { ok = false; return pcm[0]; }
+                            uint32_t channels = 0u, frames = 0u;
+                            std::memcpy(&channels, bytes.bytes.data() + offset, 4u);
+                            std::memcpy(&frames, bytes.bytes.data() + offset + 4u, 4u);
+                            offset += 16u;
+                            if (channels == UINT32_MAX) {
+                                if (frames >= cell) { ok = false; return pcm[0]; }
+                                pcm[cell] = pcm[frames];
+                            } else {
+                                const size_t count = static_cast<size_t>(channels) * frames;
+                                if (offset + count * sizeof(float) > bytes.bytes.size()) { ok = false; return pcm[0]; }
+                                pcm[cell].resize(count);
+                                if (count) std::memcpy(pcm[cell].data(), bytes.bytes.data() + offset, count * sizeof(float));
+                                offset += count * sizeof(float);
+                            }
+                        }
+                        return pcm[target];
+                    };
+                    const auto originalPcm = embeddedCell(beforeNormalize, 0u);
+                    clickAt(1000.0, I::row(20)); plugin->on_main_thread(plugin); redraw();
+                    const auto afterNormalize = savedState();
+                    const auto normalizedPcm = embeddedCell(afterNormalize, 0u);
+                    ok = sameCell(beforeNormalize, 0u, afterNormalize, 0u)
+                        && embeddedCell(afterNormalize, 1u) == originalPcm
+                        && normalizedPcm.size() == originalPcm.size() && !normalizedPcm.empty() && ok;
+                    float originalPeak = 0.0f, normalizedPeak = 0.0f;
+                    for (float value : originalPcm) originalPeak = std::max(originalPeak, std::abs(value));
+                    for (float value : normalizedPcm) normalizedPeak = std::max(normalizedPeak, std::abs(value));
+                    ok = std::abs(normalizedPeak - std::pow(10.0f, -1.0f / 20.0f)) < 1.0e-6f && ok;
+                    if (originalPeak > 0.0f && normalizedPcm.size() == originalPcm.size())
+                        for (size_t n = 0u; n < originalPcm.size(); ++n)
+                            ok = std::abs(normalizedPcm[n] - originalPcm[n] * normalizedPeak / originalPeak) < 1.0e-6f && ok;
+                    clickAt(1000.0, I::row(20)); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == afterNormalize.bytes && ok;
+                    captureNeonPage(@"sample-neon.normalized-source.pdf");
+                    MemoryPluginState recalledNormalize = afterNormalize;
+                    clap_istream_t normalizeInput { &recalledNormalize, stateReadWhole };
+                    ok = state->load(plugin, &normalizeInput) && embeddedCell(savedState(), 0u) == normalizedPcm && ok;
+                    [parent removeFromSuperview];
+                    [keyboardWindow close]; [keyboardWindow release];
+                }
+            }
+            // Exercise real decoded mono/stereo/quad/octo/ambi assets. Switching
+            // presentation must not mutate sound state or the combined overview.
+            for (uint16_t channelCount : {1u, 2u, 4u, 8u, 9u, 16u}) {
+                if (!ok) break;
+                failureStage = "Sample Neon waveform display menu for every source width";
+                auto waveFixture = fixture;
+                waveFixture.offset = 0u;
+                const double waveLayout = channelCount == 16u ? 6.0 : channelCount == 9u ? 5.0
+                    : channelCount == 8u ? 3.0 : channelCount == 4u ? 2.0 : 0.0;
+                const double waveFormat = channelCount >= 9u ? 1.0 : 0.0;
+                std::memcpy(waveFixture.bytes.data() + 16u, &waveLayout, sizeof(double));
+                std::memcpy(waveFixture.bytes.data() + 16u + 23u * sizeof(double), &waveFormat, sizeof(double));
+                clap_istream_t restoreWave { &waveFixture, stateReadWhole };
+                ok = writeDropSmokeWaveFile([fixturePath fileSystemRepresentation], 750.0, channelCount)
+                    && state->load(plugin, &restoreWave) && ok;
+                const bool waveActive = ok && plugin->activate(plugin, 48000.0, 1u, 64u);
+                const bool waveProcessing = waveActive && plugin->start_processing(plugin);
+                block.in_events = &input;
+                bool waveLoaded = false;
+                for (unsigned attempt = 0u; waveProcessing && !waveLoaded && attempt < 100u; ++attempt) {
+                    plugin->on_main_thread(plugin); plugin->process(plugin, &block);
+                    waveLoaded = std::any_of(samples[channelCount - 1u].begin(), samples[channelCount - 1u].end(),
+                        [](float v) { return std::abs(v) > 0.0001f; });
+                    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+                }
+                ok = waveLoaded && ok;
+                if (waveProcessing) plugin->stop_processing(plugin);
+                if (waveActive) plugin->deactivate(plugin);
+                redraw(); clickAt(456.0, 588.0); // EDIT.
+                waveChoice(0u);
+                const auto beforeView = savedState();
+                const auto combined = waveformPixels();
+                const auto overviewBeforeView = overviewPixels();
+                waveChoice(1u);
+                const auto first = waveformPixels();
+                waveChoice(2u);
+                ok = !combined.empty() && first != combined
+                    && (channelCount == 1u ? first == waveformPixels() : first != waveformPixels())
+                    && savedState().bytes == beforeView.bytes && overviewPixels() == overviewBeforeView && ok;
+                captureNeonPage([NSString stringWithFormat:@"sample-neon.waveform-%u-channel.pdf", channelCount]);
+                waveChoice(0u);
+                ok = waveformPixels() == combined && ok;
+            }
+            if (!ok) std::cerr << "Neon GUI audible=" << audible << " format=" << format << " bus=" << bus << '\n';
+            std::remove([fixturePath fileSystemRepresentation]);
+        }
         if (ok && portableVstguiRoot && !documentationCapture
             && (sampleDoubles || sampleWavesets || sampleMotion || sampleLanes || sampleCirculator
                 || std::strstr(pluginId, "sample-rings")

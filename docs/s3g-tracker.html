@@ -88,7 +88,7 @@
         <table class="readout-table">
           <thead><tr><th>Mode</th><th>Recorded result</th></tr></thead>
           <tbody>
-            <tr><td><code>REC OFF</code></td><td>Disarms input capture.</td></tr>
+            <tr><td><code>REC OFF</code></td><td>Disarms input capture. Since 0.4.1, live notes still pass through on their original MIDI channels for audition.</td></tr>
             <tr><td><code>REC STEP</code></td><td>Writes a paired NOTE/VOL stack on the editing row of the armed lane. A held chord is one step; releasing its final key advances by VIEW's <code>JUMP</code> amount. Physical note-off timing is not written as a duration.</td></tr>
             <tr><td><code>REC Q</code></td><td>Quantized live recording: places notes at playback rows in the armed NOTE cycle, fills held duration with <code>HLD</code>, and ends it with <code>KIL</code>.</td></tr>
             <tr><td><code>REC MT</code></td><td>Microtimed live recording: also writes onset and release offsets as MT in an existing MT cell or an available SEQ pair.</td></tr>
@@ -96,6 +96,8 @@
         </table>
 
         <p>Microtiming is bounded by the project's MicroTime range and reports when an extreme offset is clamped. If both SEQ cells on an onset or release row already contain other actions, that boundary is rejected transactionally instead of overwriting them. Live modes require running REAPER transport and target one selected pattern; MIDI-file import is not part of this version.</p>
+
+        <p>Since 0.4.1, CC, pressure, program changes, other MIDI messages and SysEx pass through without becoming recorded notes. Armed notes are monitored once on the recording lane's channel, not duplicated by thru. For NEON hardware use the same-track chain <strong>Utility Neon MIDI → Tracker → Sample Neon 32</strong>, with the Utility's <code>TRACKER + SAMPLE NEON</code> route, Base Note 36, Tracker lanes CH01, and Neon OWNER on. Primary SAMPLE pads record notes 36–67 across banks A–D; editor commands travel separately. Select performance banks on the hardware or Utility. Do not add a parallel raw-controller send or a hardware MIDI return to NEON.</p>
 
         <h2 id="grid">Tracker Grid</h2>
 

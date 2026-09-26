@@ -24,7 +24,9 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "S3G_BUILD_CLAP_PLUGIN": "ON",
-        "S3G_BUILD_TRACKER_PREVIEW": "ON"
+        "S3G_BUILD_TRACKER_PREVIEW": "ON",
+        "S3G_ENABLE_PORTABLE_CLAP_GUI": "ON",
+        "S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS": "ON"
       }
     },
     {

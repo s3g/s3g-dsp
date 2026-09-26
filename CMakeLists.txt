@@ -49,6 +49,10 @@ option(S3G_BUILD_SAMPLE_CUTUPS_PREVIEW
   "Build the s3g Sample Cutups 2/32 four-file CLAP family" ON)
 option(S3G_BUILD_SAMPLE_KIT_PREVIEW
   "Build the s3g Sample Kit 16-pad/32-channel CLAP" ON)
+option(S3G_BUILD_SAMPLE_NEON_PREVIEW
+  "Build the Reloop Neon-focused s3g Sample Neon multichannel CLAP" ON)
+option(S3G_BUILD_UTILITY_NEON_MIDI
+  "Build the bank-aware Reloop NEON MIDI CLAP adapter" ON)
 
 if(S3G_BUILD_TRACKER_PREVIEW)
   add_subdirectory(tracker)
@@ -105,6 +109,34 @@ target_link_libraries(s3g_sample_kit_smoke PRIVATE s3g_dsp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_kit_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+add_executable(s3g_sample_neon_smoke
+  tests/sample_neon_smoke.cpp)
+target_link_libraries(s3g_sample_neon_smoke PRIVATE s3g_dsp)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_neon_smoke PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+if(APPLE)
+  add_executable(s3g_reloop_neon_probe
+    tools/reloop_neon_probe.cpp)
+  target_link_libraries(s3g_reloop_neon_probe PRIVATE
+    s3g_dsp
+    "-framework CoreFoundation"
+    "-framework CoreMIDI")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(s3g_reloop_neon_probe PRIVATE
+      -Wall -Wextra -Wpedantic -Wconversion -Wshadow
+      -Wno-deprecated-declarations)
+  endif()
+endif()
+if(BUILD_TESTING)
+  add_test(NAME s3g_sample_neon_smoke
+    COMMAND $<TARGET_FILE:s3g_sample_neon_smoke>)
+  set_tests_properties(s3g_sample_neon_smoke PROPERTIES
+    LABELS "non_nim;sample;controller;smoke" TIMEOUT 120)
 endif()
 
 add_executable(s3g_sample_doubles_smoke
@@ -711,7 +743,21 @@ option(S3G_ENABLE_TRACKER_PORTABLE_GEOMETRY_PAGES_ON_MACOS
 option(S3G_ENABLE_TRACKER_PORTABLE_AUTHORING_PAGES_ON_MACOS
   "Use Tracker's portable VSTGUI Phrases, Assemble and Reshape pages" OFF)
 option(S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS
-  "Use Tracker's portable VSTGUI outer navigation/status shell" OFF)
+  "Use Tracker's portable VSTGUI outer navigation/status shell" ${APPLE})
+option(S3G_ALLOW_LEGACY_TRACKER_GUI_FOR_TESTS
+  "Allow a non-installable Cocoa/partial Tracker build for isolated reference tests" OFF)
+if(APPLE AND S3G_BUILD_CLAP_PLUGIN AND S3G_BUILD_TRACKER_PREVIEW
+    AND NOT S3G_ALLOW_LEGACY_TRACKER_GUI_FOR_TESTS
+    AND (NOT S3G_ENABLE_PORTABLE_CLAP_GUI
+      OR NOT S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS))
+  message(FATAL_ERROR
+    "User-facing Tracker builds require the full VSTGUI shell and pages. "
+    "Configure with --preset clap-release, or set both "
+    "S3G_ENABLE_PORTABLE_CLAP_GUI=ON and "
+    "S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS=ON. "
+    "Only isolated, non-installable reference builds may use "
+    "S3G_ALLOW_LEGACY_TRACKER_GUI_FOR_TESTS=ON.")
+endif()
 if(S3G_ENABLE_TRACKER_PORTABLE_SHELL_ON_MACOS)
   set(S3G_ENABLE_TRACKER_PORTABLE_AUTHORING_PAGES_ON_MACOS ON)
 endif()
@@ -1483,6 +1529,15 @@ if(S3G_BUILD_CLAP_PLUGIN)
       ${CMAKE_DL_LIBS})
   endif()
 
+  if(S3G_BUILD_SAMPLE_NEON_PREVIEW AND APPLE)
+    add_executable(s3g_sample_neon_clap_smoke
+      tests/sample_neon_clap_smoke.cpp)
+    target_include_directories(s3g_sample_neon_clap_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_sample_neon_clap_smoke PRIVATE
+      ${CMAKE_DL_LIBS})
+  endif()
+
   if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW)
     add_executable(s3g_sample_doubles_clap_smoke
       tests/sample_doubles_clap_smoke.cpp)
@@ -2076,6 +2131,12 @@ if(S3G_BUILD_CLAP_PLUGIN)
   if(S3G_BUILD_SAMPLE_KIT_PREVIEW)
     add_subdirectory(plugins/clap_sample_kit)
   endif()
+  if(S3G_BUILD_SAMPLE_NEON_PREVIEW)
+    add_subdirectory(plugins/clap_sample_neon)
+  endif()
+  if(S3G_BUILD_UTILITY_NEON_MIDI)
+    add_subdirectory(plugins/clap_utility_neon_midi)
+  endif()
   if(S3G_BUILD_TRACKER_PREVIEW AND APPLE AND BUILD_TESTING)
     add_test(NAME s3g_tracker_clap_smoke
       COMMAND $<TARGET_FILE:s3g_tracker_clap_smoke>
@@ -2164,6 +2225,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
         1120 760 "s3g Sample Kit 32" proportional)
     set_tests_properties(s3g_sample_kit_gui_smoke PROPERTIES
       LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
+  endif()
+  if(S3G_BUILD_SAMPLE_NEON_PREVIEW AND BUILD_TESTING AND APPLE)
+    add_test(NAME s3g_sample_neon_clap_smoke
+      COMMAND $<TARGET_FILE:s3g_sample_neon_clap_smoke>
+        $<TARGET_FILE:s3g_sample_neon_clap>)
+    set_tests_properties(s3g_sample_neon_clap_smoke PROPERTIES
+      LABELS "non_nim;sample;controller;clap;smoke" TIMEOUT 120)
+    add_test(NAME s3g_sample_neon_gui_smoke
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
+        $<TARGET_FILE:s3g_sample_neon_clap>
+        org.s3g.s3g-dsp.sample-neon
+        1180 760 "s3g Sample Neon 32" proportional)
+    set_tests_properties(s3g_sample_neon_gui_smoke PROPERTIES
+      LABELS "non_nim;sample;controller;clap;gui" TIMEOUT 120)
   endif()
   if(S3G_BUILD_SAMPLE_DOUBLES_PREVIEW AND BUILD_TESTING)
     add_test(NAME s3g_sample_doubles_clap_smoke

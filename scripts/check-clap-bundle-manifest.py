@@ -32,6 +32,7 @@ NO_AUDIO_OUTPUT_HOST_NAMES = {
     "s3g Relay",
     "s3g Tracker",
     "s3g Utility NIM Gesture",
+    "s3g Utility Neon MIDI",
 }
 
 # Every configured CLAP directory belongs to the 0.7 package inventory. Keep

@@ -212,6 +212,53 @@ void transportAndInputTests()
         "reject invalid sample rates");
 }
 
+void midiThruTests()
+{
+    auto h = std::make_unique<Harness>();
+    check(m::activate(h->engine, 48000), "thru fixture activate");
+    h->run(128, false, 120, {input(3, 0x92, 36, 101), input(12, 0xb5, 7, 93),
+        input(20, 0xc3, 4, 0), input(30, 0xe1, 1, 64), input(80, 0x82, 36, 0)});
+    check(h->count == 5 && h->messages[0].status == 0x92 && h->messages[0].frame == 3
+        && h->messages[1].status == 0xb5 && h->messages[1].note == 7
+        && h->messages[2].status == 0xc3 && h->messages[3].status == 0xe1
+        && h->messages[4].status == 0x82 && h->messages[4].frame == 80,
+        "REC OFF forwards notes and controls once, on original channels and frames");
+    MidiStepCapture capture;
+    check(!h->engine.midiStepCaptures.pop(capture), "REC OFF thru does not record");
+    h->engine.midiStepRecordMode = uint8_t(MidiStepRecordMode::Step);
+    h->engine.midiMonitorChannel = 0;
+    h->count = 0;
+    h->run(128, false, 120, {input(2, 0x92, 44, 101), input(9, 0xb5, 7, 81), input(80, 0x82, 44, 0)});
+    check(h->count == 3 && h->messages[0].status == 0x90
+        && h->messages[1].status == 0xb5 && h->messages[2].status == 0x80,
+        "armed monitor remaps notes once, leaves controls unchanged");
+    unsigned captures = 0;
+    while (h->engine.midiStepCaptures.pop(capture)) { check(capture.note == 44, "only musical notes captured"); ++captures; }
+    check(captures == 2, "controls are never note captures");
+
+    const uint8_t bytes[] {0xf0, 0x7d, 'S', '3', 'G', 0xf7};
+    struct Capture { unsigned count = 0; bool valid = true; } sysex;
+    m::MidiOutput output;
+    output.context = &sysex;
+    output.try_push_sysex = [](const void* context, uint32_t time, const uint8_t* data, uint32_t size) noexcept {
+        auto& result = *const_cast<Capture*>(static_cast<const Capture*>(context));
+        ++result.count; result.valid = result.valid && time == 17 && size == 6 && data[0] == 0xf0 && data[5] == 0xf7;
+        return true;
+    };
+    m::InputEvent event; event.kind = m::InputEvent::Kind::SysEx;
+    event.time = 17; event.sysex = bytes; event.sysexSize = 6;
+    m::ProcessData block; block.frames_count = 64; block.out_events = &output;
+    block.in_events = {&event, 1u, [](const void* context, uint32_t, m::InputEvent& result) noexcept {
+        result = *static_cast<const m::InputEvent*>(context); return true;
+    }};
+    inAudio = true; m::process(h->engine, block); inAudio = false;
+    check(sysex.count == 1 && sysex.valid && !h->engine.midiStepCaptures.pop(capture),
+        "SysEx is timestamped transparent control thru, never recorded");
+    event.sysexPort = 1;
+    inAudio = true; m::process(h->engine, block); inAudio = false;
+    check(sysex.count == 1, "foreign input port not forwarded");
+}
+
 void previewTests()
 {
     for (uint32_t block : {127u, 8192u}) {
@@ -374,6 +421,7 @@ int main()
 {
     timingTests();
     transportAndInputTests();
+    midiThruTests();
     previewTests();
     publicationTests();
     outputFailureTests();

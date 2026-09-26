@@ -109,11 +109,14 @@ struct MidiMessage {
 };
 
 struct InputEvent {
-    enum class Kind { Midi, Transport };
+    enum class Kind { Midi, Transport, SysEx };
     Kind kind = Kind::Midi;
     uint32_t time = 0;
     MidiMessage midi;
     HostTransport transport;
+    const uint8_t* sysex = nullptr; // borrowed until this process call returns
+    uint32_t sysexSize = 0u;
+    uint16_t sysexPort = 0u;
 };
 
 struct InputEvents {
@@ -125,6 +128,7 @@ struct InputEvents {
 struct MidiOutput {
     const void* context = nullptr;
     bool (*try_push)(const void*, uint32_t, uint8_t, uint8_t, uint8_t) noexcept = nullptr;
+    bool (*try_push_sysex)(const void*, uint32_t, const uint8_t*, uint32_t) noexcept = nullptr;
 };
 
 struct ProcessData {
@@ -249,4 +253,3 @@ bool publishPreviewDocumentRuntime(Engine&, ProjectDocument);
 bool publishStoredDocumentRuntime(Engine&);
 
 } // namespace s3g::tracker::midi
-

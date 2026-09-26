@@ -104,6 +104,7 @@ s3g_node_track_mixer.clap	org.s3g.s3g-dsp.node-track-mixer	s3g_mixer_node_bus_12
 s3g_psd_raw_field.clap	org.s3g.s3g-dsp.psd-raw-field	s3g_processor_fault_8.clap
 s3g_resonant_terrain.clap	org.s3g.s3g-dsp.resonant-terrain-8ch	retired
 s3g_sample_player.clap	org.s3g.s3g-dsp.sample-player	s3g_sample_player_2.clap
+s3g_sample_neon.clap	org.s3g.s3g-dsp.sample-neon	s3g_sample_neon_32.clap
 s3g_sample_loop_matrix.clap	org.s3g.s3g-dsp.sample-loop-matrix-8	s3g_sample_rings_8.clap
 s3g_sample_loop_matrix_8.clap	org.s3g.s3g-dsp.sample-loop-matrix-8	s3g_sample_rings_8.clap
 s3g_sample_slicer.clap	org.s3g.s3g-dsp.breakbeat-slicer	s3g_sample_slicer_16.clap

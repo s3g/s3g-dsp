@@ -56,6 +56,16 @@ inline bool readInput(const void* context, uint32_t index,
         for (unsigned i = 0; i < 3; ++i) result.midi.data[i] = message.data[i];
         return true;
     }
+    if (event->type == CLAP_EVENT_MIDI_SYSEX
+            && event->size >= sizeof(clap_event_midi_sysex_t)) {
+        const auto& message = *reinterpret_cast<const clap_event_midi_sysex_t*>(event);
+        if (!message.buffer || message.size == 0u) return false;
+        result.kind = midi::InputEvent::Kind::SysEx;
+        result.sysex = message.buffer;
+        result.sysexSize = message.size;
+        result.sysexPort = message.port_index;
+        return true;
+    }
     return false;
 }
 
@@ -98,6 +108,19 @@ inline midi::HostServices hostServices(const clap_host_t* host) noexcept
     return services;
 }
 
+inline bool pushSysEx(const void* context, uint32_t offset,
+    const uint8_t* bytes, uint32_t size) noexcept
+{
+    const auto* output = static_cast<const clap_output_events_t*>(context);
+    if (!output || !output->try_push || !bytes || !size) return false;
+    clap_event_midi_sysex_t event {};
+    event.header = {sizeof(event), offset, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI_SYSEX, 0u};
+    event.port_index = 0u;
+    event.buffer = bytes;
+    event.size = size;
+    return output->try_push(output, &event.header);
+}
+
 inline clap_process_status process(midi::Engine& engine,
     const clap_process_t* source) noexcept
 {
@@ -109,11 +132,10 @@ inline clap_process_status process(midi::Engine& engine,
     data.in_events.count = source->in_events && source->in_events->size
         ? source->in_events->size(source->in_events) : 0;
     data.in_events.get = readInput;
-    const midi::MidiOutput output {source->out_events, pushMidi};
+    const midi::MidiOutput output {source->out_events, pushMidi, pushSysEx};
     data.out_events = source->out_events ? &output : nullptr;
     midi::process(engine, data);
     return CLAP_PROCESS_CONTINUE;
 }
 
 } // namespace s3g::tracker::clap_adapter
-

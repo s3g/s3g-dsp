@@ -55,11 +55,29 @@ struct RenderEvent {
     float fineTuneOffsetCents = 0.0f;
     double startOffsetNormalized = 0.0;
     uint8_t variationIndex = 0xffu;
+    // Optional per-trigger window length, normalized against the complete
+    // source. Zero preserves the PlayerSettings Start/Length window. This is
+    // useful for sample-accurate pad slicing without mutating shared settings.
+    double windowLengthNormalized = 0.0;
+    // Values in the PlayMode range override the setting for this trigger.
+    // 0xff retains PlayerSettings::playMode.
+    uint8_t playModeOverride = 0xffu;
+    // Values in the TriggerMode range override the setting for this event.
+    // This lets a sliced instrument mix one-shot, gate, and looping pads
+    // without mutating the shared slot settings on the audio thread.
+    uint8_t triggerModeOverride = 0xffu;
+    // Values in the SyncMode range override tempo sync for the voice created
+    // by this event. The choice is retained by that voice so independently
+    // synced slices do not fall back to the slot-wide setting next block.
+    uint8_t syncModeOverride = 0xffu;
 };
 
 struct VoiceCursor {
     float sourcePositionNormalized = -1.0f;
     uint8_t key = 0u;
+    float sourceStartNormalized = 0.0f;
+    float sourceEndNormalized = 1.0f;
+    uint64_t noteId = 0u;
 };
 
 // Start, Length, Loop Start, and Loop End are normalized against the source.
@@ -244,10 +262,14 @@ public:
             return;
         if (!events) eventCount = 0u;
 
-        const double nextSyncRatio = tempoRatio(settings);
         for (auto& voice : voices_) {
             if (!voice.active) continue;
-            voice.syncRatio = nextSyncRatio;
+            PlayerSettings liveSettings = settings;
+            if (voice.syncModeOverride
+                <= static_cast<uint8_t>(SyncMode::Host))
+                liveSettings.syncMode = static_cast<SyncMode>(
+                    voice.syncModeOverride);
+            voice.syncRatio = tempoRatio(liveSettings);
             if (settings.pitchMode != voice.pitchModeSelection)
                 configurePitchMode(voice, settings.pitchMode,
                     voice.key, voice.rootNote);
@@ -319,6 +341,15 @@ public:
                         static_cast<float>(std::clamp(
                             voice.position / sourceFrameCount, 0.0, 1.0)),
                         voice.key,
+                        static_cast<float>(std::clamp(
+                            static_cast<double>(voice.playStartFrame)
+                                / sourceFrameCount,
+                            0.0, 1.0)),
+                        static_cast<float>(std::clamp(
+                            static_cast<double>(voice.playEndFrame)
+                                / sourceFrameCount,
+                            0.0, 1.0)),
+                        voice.noteId,
                     };
                 }
                 voice.position += voice.increment;
@@ -375,6 +406,7 @@ private:
         uint8_t key = 60u;
         uint8_t rootNote = 60u;
         uint8_t midiChannel = 0u;
+        uint8_t syncModeOverride = 0xffu;
         PlayMode playMode = PlayMode::Forward;
         PitchMode pitchModeSelection = PitchMode::Rate;
         PitchMode pitchMode = PitchMode::Rate;
@@ -464,9 +496,12 @@ private:
         uint32_t frameCount) noexcept
     {
         if (frameCount == 0u) return 0u;
+        // Normalized integer-frame boundaries can round just below the exact
+        // frame on multiplication. Do not turn an authored zero crossing into
+        // the preceding sample; the tolerance is far smaller than one sample.
         return static_cast<uint32_t>(std::clamp<double>(std::floor(
             std::clamp(normalized, 0.0, 1.0)
-                * static_cast<double>(frameCount)),
+                * static_cast<double>(frameCount) + 1.0e-7),
             0.0, static_cast<double>(frameCount)));
     }
 
@@ -764,14 +799,32 @@ private:
     void handleEvent(const RenderEvent& event,
         const PlayerSettings& settings) noexcept
     {
+        PlayerSettings overridden;
+        const PlayerSettings* activeSettings = &settings;
+        bool hasOverride = false;
+        if (event.triggerModeOverride
+            <= static_cast<uint8_t>(TriggerMode::Toggle)) {
+            overridden = settings;
+            overridden.triggerMode = static_cast<TriggerMode>(
+                event.triggerModeOverride);
+            hasOverride = true;
+        }
+        if (event.syncModeOverride
+            <= static_cast<uint8_t>(SyncMode::Host)) {
+            if (!hasOverride) overridden = settings;
+            overridden.syncMode = static_cast<SyncMode>(
+                event.syncModeOverride);
+            hasOverride = true;
+        }
+        if (hasOverride) activeSettings = &overridden;
         switch (event.kind) {
         case EventKind::NoteOn:
             holdNote(event);
-            handleNoteOn(event, settings);
+            handleNoteOn(event, *activeSettings);
             break;
         case EventKind::NoteOff:
             releaseHeldNote(event);
-            handleNoteOff(event, settings);
+            handleNoteOff(event, *activeSettings);
             break;
         case EventKind::Choke:
             releaseHeldNote(event);
@@ -895,9 +948,22 @@ private:
         const int64_t offsetFrames = static_cast<int64_t>(std::llround(
             std::clamp(event.startOffsetNormalized, -1.0, 1.0)
                 * static_cast<double>(frames)));
+        const PlayMode triggerPlayMode = event.playModeOverride
+                <= static_cast<uint8_t>(PlayMode::ReversePingPong)
+            ? static_cast<PlayMode>(event.playModeOverride)
+            : settings.playMode;
         uint32_t start = baseStart;
         uint32_t end = baseEnd;
-        if (isReverse(settings.playMode)) {
+        if (event.windowLengthNormalized > 0.0) {
+            start = static_cast<uint32_t>(std::clamp<int64_t>(
+                static_cast<int64_t>(baseStart) + offsetFrames, 0,
+                static_cast<int64_t>(frames) - 1));
+            const uint32_t eventLength = std::max(1u, normalizedFrame(
+                std::clamp(event.windowLengthNormalized, 0.0, 1.0),
+                frames));
+            end = static_cast<uint32_t>(std::min<uint64_t>(frames,
+                static_cast<uint64_t>(start) + eventLength));
+        } else if (isReverse(triggerPlayMode)) {
             end = static_cast<uint32_t>(std::clamp<int64_t>(
                 static_cast<int64_t>(baseEnd) + offsetFrames,
                 static_cast<int64_t>(baseStart) + 1,
@@ -917,14 +983,15 @@ private:
         voice.key = event.key;
         voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
-        voice.playMode = settings.playMode;
+        voice.syncModeOverride = event.syncModeOverride;
+        voice.playMode = triggerPlayMode;
         voice.eventGain = std::pow(10.0f, std::clamp(
             event.gainOffsetDecibels, -12.0f, 12.0f) * 0.05f);
         voice.fineTuneOffsetCents = std::clamp(
             event.fineTuneOffsetCents, -100.0f, 100.0f);
         voice.playStartFrame = start;
         voice.playEndFrame = end;
-        const bool reverse = isReverse(settings.playMode);
+        const bool reverse = isReverse(triggerPlayMode);
         voice.position = reverse ? static_cast<double>(end - 1u)
                                  : static_cast<double>(start);
         const double sourceRatio = asset_->sampleRate / sampleRate_;
@@ -976,6 +1043,7 @@ private:
         voice.key = event.key;
         voice.rootNote = settings.rootNote;
         voice.midiChannel = event.midiChannel;
+        voice.syncModeOverride = event.syncModeOverride;
         voice.eventGain = std::pow(10.0f, std::clamp(
             event.gainOffsetDecibels, -12.0f, 12.0f) * 0.05f);
         voice.fineTuneOffsetCents = std::clamp(

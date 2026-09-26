@@ -1,0 +1,50 @@
+add_library(s3g_sample_neon_clap MODULE
+  s3g_sample_neon_clap.cpp)
+
+find_package(Threads REQUIRED)
+target_link_libraries(s3g_sample_neon_clap PRIVATE
+  s3g_dsp
+  Threads::Threads)
+target_include_directories(s3g_sample_neon_clap PRIVATE
+  ${S3G_CLAP_INCLUDE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common)
+target_compile_features(s3g_sample_neon_clap PRIVATE cxx_std_17)
+
+if(S3G_VSTGUI_AVAILABLE)
+  s3g_enable_vstgui_gui(s3g_sample_neon_clap
+    "${CMAKE_CURRENT_SOURCE_DIR}/s3g_sample_neon_vstgui.inc"
+    S3G_ENABLE_VSTGUI_SAMPLE_NEON_GUI)
+  s3g_enable_windows_sample_decode(s3g_sample_neon_clap)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(s3g_sample_neon_clap PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+endif()
+
+set_target_properties(s3g_sample_neon_clap PROPERTIES
+  PREFIX ""
+  OUTPUT_NAME "s3g_sample_neon")
+
+if(APPLE)
+  set_source_files_properties(s3g_sample_neon_clap.cpp
+    PROPERTIES LANGUAGE OBJCXX)
+  target_compile_options(s3g_sample_neon_clap PRIVATE -fobjc-arc)
+  target_link_libraries(s3g_sample_neon_clap PRIVATE
+    "-framework Cocoa"
+    "-framework AVFoundation"
+    "-framework CoreMIDI")
+  set_target_properties(s3g_sample_neon_clap PROPERTIES
+    BUNDLE TRUE
+    BUNDLE_EXTENSION "clap"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.sample-neon"
+    MACOSX_BUNDLE_BUNDLE_NAME "s3g Sample Neon 32"
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.22.2"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.22.2")
+  add_custom_command(TARGET s3g_sample_neon_clap POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E touch
+      "$<TARGET_BUNDLE_DIR:s3g_sample_neon_clap>"
+    VERBATIM)
+elseif(WIN32)
+  set_target_properties(s3g_sample_neon_clap PROPERTIES SUFFIX ".clap")
+endif()
