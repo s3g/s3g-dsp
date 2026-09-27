@@ -5,6 +5,9 @@
 #include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
+#include "../plugins/common/s3g_sample_storage.h"
+#include "realtime_alloc_probe_api.h"
+#include "../dsp/s3g_sample_neon_family.h"
 
 #include <dlfcn.h>
 
@@ -25,6 +28,7 @@
 #include <vector>
 
 namespace {
+uint64_t allocationProbeBlocks = 0u;
 
 constexpr uint32_t kStateMagic = 0x4e533353u;
 constexpr uint32_t kStateVersion = 14u;
@@ -178,6 +182,35 @@ struct OutputEvents {
     }
 };
 
+struct ProjectSimulation {
+    bool enabled = false;
+    std::string directory;
+    unsigned additions = 0u, removals = 0u;
+} projectSimulation;
+void* simulatedContext(const clap_host_t*, int selector) {
+    return selector == 3 ? reinterpret_cast<void*>(uintptr_t{1}) : selector == 4 ? reinterpret_cast<void*>(uintptr_t{2}) : nullptr;
+}
+void* simulatedProjects(int index, char* path, int size) {
+    if (index != 0) return nullptr;
+    std::snprintf(path, static_cast<size_t>(size), "%s/session.rpp", projectSimulation.directory.c_str());
+    return reinterpret_cast<void*>(uintptr_t{1});
+}
+void simulatedMedia(void*, char* path, int size) {
+    std::snprintf(path, static_cast<size_t>(size), "%s", projectSimulation.directory.c_str());
+}
+int simulatedRegistration(const char* name, void*) {
+    if (std::strcmp(name, "file_in_project_ex2") == 0) ++projectSimulation.additions;
+    if (std::strcmp(name, "-file_in_project_ex2") == 0) ++projectSimulation.removals;
+    return 1;
+}
+void* simulatedFunction(const char* name) {
+    if (std::strcmp(name, "clap_get_reaper_context") == 0) return reinterpret_cast<void*>(&simulatedContext);
+    if (std::strcmp(name, "EnumProjects") == 0) return reinterpret_cast<void*>(&simulatedProjects);
+    if (std::strcmp(name, "GetProjectPathEx") == 0) return reinterpret_cast<void*>(&simulatedMedia);
+    return nullptr;
+}
+s3g::sample_storage::ReaperHostBridge simulatedBridge {0, nullptr, simulatedRegistration, simulatedFunction};
+
 struct HostContext {
     clap_host_t host {};
 
@@ -188,8 +221,8 @@ struct HostContext {
         host.vendor = "s3g";
         host.url = "https://github.com/s3g/s3g-dsp";
         host.version = "1";
-        host.get_extension = [](const clap_host_t*, const char*)
-            -> const void* { return nullptr; };
+        host.get_extension = [](const clap_host_t*, const char* name)
+            -> const void* { return projectSimulation.enabled && std::strcmp(name, "cockos.reaper_extension") == 0 ? &simulatedBridge : nullptr; };
         host.request_restart = [](const clap_host_t*) {};
         host.request_process = [](const clap_host_t*) {};
         host.request_callback = [](const clap_host_t*) {};
@@ -333,7 +366,26 @@ bool processChannels(const clap_plugin_t* plugin, Input& input,
     process.out_events = &output.list;
     process.audio_outputs = &audio;
     process.audio_outputs_count = 1u;
-    return plugin->process(plugin, &process) != CLAP_PROCESS_ERROR;
+    if (!std::getenv("S3G_NEON_ALLOCATION_PROBE"))
+        return plugin->process(plugin, &process) != CLAP_PROCESS_ERROR;
+    static const auto beginProbe = reinterpret_cast<void (*)()>(dlsym(RTLD_DEFAULT, "s3g_rt_alloc_probe_begin"));
+    static const auto endProbe = reinterpret_cast<void (*)()>(dlsym(RTLD_DEFAULT, "s3g_rt_alloc_probe_end"));
+    static const auto readProbe = reinterpret_cast<int (*)(s3g_rt_alloc_probe_counts*, size_t)>(dlsym(RTLD_DEFAULT, "s3g_rt_alloc_probe_read"));
+    if (!expect(beginProbe && endProbe && readProbe, "requested allocation probe is unavailable")) return false;
+    // The mock host's optional MIDI log must not allocate inside try_push().
+    if (output.captureMidi) output.messages.reserve(output.messages.size() + 1024u);
+    beginProbe();
+    const auto status = plugin->process(plugin, &process);
+    endProbe();
+    s3g_rt_alloc_probe_counts counts {};
+    const bool read = readProbe(&counts, sizeof(counts)) == 1
+        && counts.abi_version == S3G_RT_ALLOC_PROBE_ABI_VERSION && counts.struct_size == sizeof(counts);
+    const uint64_t operations = counts.malloc_calls + counts.calloc_calls + counts.realloc_calls
+        + counts.free_calls + counts.posix_memalign_calls + counts.aligned_alloc_calls
+        + counts.allocation_failures + counts.invalid_alignment_calls;
+    ++allocationProbeBlocks;
+    return expect(read && operations == 0u, "Sample Neon allocated/freed in a measured process callback")
+        && status != CLAP_PROCESS_ERROR;
 }
 
 template<class Input>
@@ -452,11 +504,30 @@ int main(int argc, char** argv)
     StateBuffer saved;
     ok = expect(state && state->save(instrument, &saved.output),
         "initial state save failed") && ok;
+    const auto emptyProjectState = saved.bytes;
+    // Even a pad without audio retains automated trim values in v15.
+    StateBuffer emptyEdited; emptyEdited.bytes = emptyProjectState;
+    setStateParameter(emptyEdited, 7u + 3u, 0.25);
+    setStateParameter(emptyEdited, 7u + 4u, 0.75);
+    ok = expect(state->load(instrument, &emptyEdited.input), "empty pad edit recall") && ok;
+    double emptyStart = 0.0, emptyEnd = 0.0;
+    ok = expect(params->get_value(instrument, 1003u, &emptyStart)
+        && params->get_value(instrument, 1004u, &emptyEnd) && emptyStart == 0.25 && emptyEnd == 0.75,
+        "v15 empty pad trim was replaced by an absent layer's defaults") && ok;
     const std::size_t expectedStateBytes = sizeof(StateHeader)
         + kParameterCount * sizeof(double) + 32u * kPathBytes
         + kSliceModeBytes + kSliceCountBytes + kSliceOptionBytes
         + kPerformanceStateBytes + kSlicerDomainStateBytes
         + kTextureStateBytes + kTransientStateBytes + kPlaybackStateBytes + kModernStateBytes + kCaptureStateBytes;
+    // The new-instance default is PROJECT/version 15. The established tests
+    // below deliberately use a version-14 LINK fixture to guard migration.
+    ok = expect(saved.bytes.size() > expectedStateBytes && saved.bytes[4] == 15u,
+        "new instances must use the extended PROJECT state") && ok;
+    saved.bytes.resize(expectedStateBytes);
+    saved.bytes[4] = 14u;
+    ok = expect(state->load(instrument, &saved.input), "legacy LINK fixture did not migrate") && ok;
+    saved.bytes.clear(); saved.cursor = 0u;
+    ok = expect(state->save(instrument, &saved.output), "legacy LINK fixture did not save") && ok;
     ok = expect(saved.bytes.size() == expectedStateBytes,
         "saved state size is not stable") && ok;
     if (saved.bytes.size() == expectedStateBytes) {
@@ -862,6 +933,22 @@ int main(int argc, char** argv)
     StateBuffer protectedTake;
     ok = expect(state->save(instrument, &protectedTake.output) && protectedTake.bytes == captured.bytes,
         "SHIFT REC overwrote a completed review take") && ok;
+    // An unassigned review has no pad owner. After a host reactivation, crop
+    // it while an audition voice is still reading the previous immutable take.
+    // ASan must see that old source retained until processing is quiescent.
+    instrument->stop_processing(instrument);
+    instrument->deactivate(instrument);
+    ok = expect(instrument->activate(instrument, 48000.0, 1u, 64u)
+        && instrument->start_processing(instrument), "capture lifetime reactivation failed") && ok;
+    send(0x97u, 0x1au); // Audition the 256-frame review (one 64-frame block).
+    send(0x97u, 0x3eu); // Crop the full range; old audition is still active.
+    instrument->on_main_thread(instrument);
+    for (unsigned n = 0u; n < 4u; ++n)
+        ok = expect(send(0x90u, 127u, 0u) && std::all_of(left.begin(), left.end(),
+            [](float sample) { return std::isfinite(sample); }), "capture crop after reactivation was unsafe") && ok;
+    StateBuffer retainedTake;
+    ok = expect(state->save(instrument, &retainedTake.output) && retainedTake.bytes == captured.bytes,
+        "full-range crop after reactivation altered the take") && ok;
     send(0x97u, 0x79u); // RESAMPLE secondary selects empty A2.
     send(0x97u, 0x1fu); // Assign.
     instrument->on_main_thread(instrument);
@@ -1058,6 +1145,9 @@ int main(int argc, char** argv)
             if (!kHostLedOutput) returned.events.swap(output.messages);
             output.messages.clear();
             if (n % 40u == 0u) {
+                // Keep servicing the file worker like a real host. D1 being
+                // audible does not imply D2's asynchronous load is published.
+                instrument->on_main_thread(instrument);
                 clap_event_midi_t pressure {};
                 pressure.header = { sizeof(pressure), 0u, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0u };
                 pressure.data[0] = n % 80u ? 0xa7u : 0xb7u; // Both NEON pressure dialects.
@@ -1279,10 +1369,289 @@ int main(int argc, char** argv)
     }
     if (multichannel) multichannel->destroy(multichannel);
 
+    // Version 15: 32 independent layers in one 3OA cell. Construct the public
+    // serialized format, then test the actual binary's recall and MIDI render.
+    const auto* stacked = factory->create_plugin(factory, &host.host, "org.s3g.s3g-dsp.sample-neon");
+    ok = expect(stacked && stacked->init(stacked), "stack instance init") && ok;
+    if (stacked) {
+        const auto* stackState = static_cast<const clap_plugin_state_t*>(stacked->get_extension(stacked, CLAP_EXT_STATE));
+        StateBuffer fixture; fixture.bytes.assign(emptyProjectState.begin(), emptyProjectState.begin() + expectedStateBytes);
+        const auto append = [&](const auto& value) {
+            const auto* first = reinterpret_cast<const uint8_t*>(&value);
+            fixture.bytes.insert(fixture.bytes.end(), first, first + sizeof(value));
+        };
+        setStateParameter(fixture, 0u, 6.0); // 3OA ACN/SN3D.
+        setStateParameter(fixture, 1u, 0.0); setStateParameter(fixture, 7u, 0.0);
+        setStateParameter(fixture, 4u, 1.0); // Decode native NEON performance notes.
+        setStateParameter(fixture, 23u, 1.0);
+        const uint8_t embedMode = 2u; append(embedMode);
+        for (unsigned pad = 0u; pad < 32u; ++pad) {
+            const std::array<uint8_t, 4u> choices {{static_cast<uint8_t>(pad ? 0u : 32u), 0u, static_cast<uint8_t>(pad ? 0u : 2u), 2u}};
+            append(choices); const float seconds = 4.0f, beats = 8.0f; append(seconds); append(beats);
+            if (pad) continue;
+            for (unsigned layer = 0u; layer < 32u; ++layer) {
+                const std::array<double, 4u> edit {{0.0, 1.0, 0.0, 120.0}};
+                const std::array<uint8_t, 4u> chop {{1u, 2u, 2u, 32u}};
+                const float lead = 0.0f; std::array<double, 33u> edges {}; edges[1] = 1.0;
+                const uint8_t relative = 0u; const uint32_t length = 0u;
+                append(edit); append(chop); append(lead); append(edges); append(relative); append(length);
+            }
+        }
+        for (unsigned asset = 0u; asset < 1025u; ++asset) {
+            const uint32_t channels = asset < 32u ? 16u : 0u, frames = asset < 32u ? 512u : 0u;
+            const double rate = channels ? 48000.0 : 0.0;
+            append(channels); append(frames); append(rate);
+            for (unsigned ch = 0u; ch < channels; ++ch) for (unsigned frame = 0u; frame < frames; ++frame) {
+                const float value = static_cast<float>((asset + 1u) * (ch + 1u)) * 0.001f; append(value);
+            }
+        }
+        ok = expect(stackState->load(stacked, &fixture.input), "32-layer ACN stack state load") && ok;
+        StateBuffer savedStack;
+        ok = expect(stackState->save(stacked, &savedStack.output) && savedStack.bytes[4] == 15u,
+            "stack state must save extended format") && ok;
+        ok = expect(stackState->load(stacked, &savedStack.input), "extended stack reload") && ok;
+        StateBuffer roundTrip;
+        ok = expect(stackState->save(stacked, &roundTrip.output) && roundTrip.bytes == savedStack.bytes,
+            "all layer/source/scan settings must round-trip exactly") && ok;
+        StateBuffer corrupt; corrupt.bytes = savedStack.bytes;
+        corrupt.bytes[expectedStateBytes + 1u] = 33u; // Excess count must reject atomically.
+        ok = expect(!stackState->load(stacked, &corrupt.input), "oversized stack accepted") && ok;
+        StateBuffer protectedState;
+        ok = expect(stackState->save(stacked, &protectedState.output) && protectedState.bytes == savedStack.bytes,
+            "invalid stack state modified the current sound") && ok;
+        const bool active = stacked->activate(stacked, 48000.0, 1u, 256u);
+        {
+            using namespace s3g::sample;
+            StateBuffer extended; extended.bytes = savedStack.bytes; extended.bytes[4] = 17u;
+            std::array<NeonFamilySettings, 32u> family;
+            for (unsigned pad = 0; pad < 32; ++pad) {
+                family[pad][NeonFamily::MotionSound] = float(pad % 3u);
+                family[pad][NeonFamily::GrainProcess] = float(pad % 5u);
+                family[pad][NeonFamily::StackShape] = 0;
+                family[pad].values[neonFamilyIndex(NeonFamily::PathValue) + 8] = .8f;
+                const auto* bytes = reinterpret_cast<const uint8_t*>(family[pad].values.data());
+                extended.bytes.insert(extended.bytes.end(), bytes, bytes + kNeonFamilyV17Count * sizeof(float));
+            }
+            ok = expect(stackState->load(stacked, &extended.input), "family v17 state load") && ok;
+            StateBuffer again;
+            ok = expect(stackState->save(stacked, &again.output) && again.bytes == extended.bytes, "all pads family/path state roundtrip") && ok;
+            {
+                StateBuffer old; old.bytes = savedStack.bytes; old.bytes[4] = 16u;
+                std::array<NeonFamilySettings,32> expected;
+                for (unsigned pad = 0; pad < 32; ++pad) {
+                    const size_t entry = expectedStateBytes + 1u + pad * 12u + (pad ? 32u * 309u : 0u);
+                    old.bytes[entry + 3] = static_cast<uint8_t>(pad % 4);
+                    auto f = family[pad]; f[NeonFamily::StackShape] = float(pad % 2); // old PRESET/BREAKPOINTS flag
+                    f[NeonFamily::StackCurve] = .35f;
+                    for (unsigned n = 0; n < 32; ++n) {
+                        f.values[neonFamilyIndex(NeonFamily::PathTime)+n] = float(n)/31;
+                        f.values[neonFamilyIndex(NeonFamily::PathValue)+n] = .1f + float(n)/40;
+                    }
+                    const auto* bytes = reinterpret_cast<const uint8_t*>(f.values.data());
+                    old.bytes.insert(old.bytes.end(), bytes, bytes + kNeonFamilyV17Count * sizeof(float));
+                    expected[pad] = f;
+                    if (pad % 2) expected[pad][NeonFamily::StackShape] = 0;
+                    else neonSetStackShape(expected[pad], neonLegacyStackShape(pad % 4), 32, pad);
+                }
+                ok = expect(stackState->load(stacked,&old.input), "v16 preset/manual migration") && ok;
+                StateBuffer migrated;
+                ok = expect(stackState->save(stacked,&migrated.output) && migrated.bytes[4] == 17u, "migrated path shape metadata saved") && ok;
+                const auto base = migrated.bytes.size() - 32u * kNeonFamilyV17Count * sizeof(float);
+                for (unsigned pad = 0; pad < 32; ++pad)
+                    ok = expect(std::memcmp(migrated.bytes.data()+base+pad*kNeonFamilyV17Count*sizeof(float),expected[pad].values.data(),kNeonFamilyV17Count*sizeof(float)) == 0,
+                        "manual points must survive; legacy paths must become shape points") && ok;
+                StateBuffer malformed; malformed.bytes = old.bytes;
+                const float unsupported = 2;
+                std::memcpy(malformed.bytes.data()+savedStack.bytes.size(), &unsupported, sizeof(unsupported));
+                ok = expect(!stackState->load(stacked,&malformed.input), "v16 unknown path flag rejected") && ok;
+                extended.cursor = 0;
+                ok = expect(stackState->load(stacked,&extended.input), "restore new family shape state") && ok;
+            }
+            StateBuffer invalid; invalid.bytes = extended.bytes;
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            std::memcpy(invalid.bytes.data() + savedStack.bytes.size(), &nan, sizeof(nan));
+            ok = expect(!stackState->load(stacked, &invalid.input), "nonfinite family state accepted") && ok;
+            invalid.bytes = extended.bytes; invalid.cursor = 0;
+            const float duplicate = 0;
+            std::memcpy(invalid.bytes.data() + savedStack.bytes.size() + (neonFamilyIndex(NeonFamily::PathTime) + 1) * sizeof(float), &duplicate, sizeof(duplicate));
+            ok = expect(!stackState->load(stacked, &invalid.input), "duplicate path time accepted") && ok;
+            StateBuffer protectedFamily;
+            ok = expect(stackState->save(stacked, &protectedFamily.output) && protectedFamily.bytes == extended.bytes, "invalid family state changed sound") && ok;
+            const size_t textureOffset = expectedStateBytes
+                - kTextureStateBytes - kTransientStateBytes - kPlaybackStateBytes - kCaptureStateBytes - kModernStateBytes;
+            for (unsigned method = 0; method < 2; ++method) for (unsigned process = 0; process < 5; ++process) {
+                StateBuffer sound; sound.bytes = extended.bytes;
+                sound.bytes[textureOffset] = method ? kGrainsOption : kMotionOption;
+                sound.bytes[textureOffset + kTextureStateBytes + kTransientStateBytes] = 0; // FREE
+                sound.bytes[expectedStateBytes + 3u] = 4; // STACK SCAN
+                setStateParameter(sound, 7u + 15u, 1); // HOLD
+                auto controls = family[0];
+                controls[NeonFamily::MotionSound] = 2; controls[NeonFamily::MotionModel] = float(process);
+                controls[NeonFamily::GrainProcess] = float(process); controls[NeonFamily::GrainWindow] = 5;
+                controls[NeonFamily::GrainPitch] = 12; controls[NeonFamily::GrainSizeScale] = 8;
+                controls[NeonFamily::GrainDensityScale] = 2; controls[NeonFamily::GrainScatter] = .8f;
+                controls[NeonFamily::GrainSizeVariation] = .8f;
+                std::memcpy(sound.bytes.data() + savedStack.bytes.size(), controls.values.data(), kNeonFamilyV17Count * sizeof(float));
+                ok = expect(stackState->load(stacked, &sound.input), "family process fixture load") && ok;
+                const bool running = active && stacked->start_processing(stacked);
+                MidiInput gesture; OutputEvents feedback; std::array<std::vector<float>,32> output;
+                bool audible = false, linked = true;
+                for (unsigned block = 0; running && block < 400; ++block) {
+                    ok = processChannels(stacked,gesture,feedback,output) && ok;
+                    gesture.list.size = [](const clap_input_events_t*) -> uint32_t { return 0; };
+                    for (unsigned i = 0; i < output[0].size(); ++i) {
+                        audible |= std::abs(output[0][i]) > 1e-6;
+                        for (unsigned ch = 1; ch < 16; ++ch)
+                            linked &= std::isfinite(output[ch][i]) && std::abs(output[ch][i] - output[0][i] * (ch + 1)) < 1e-4;
+                    }
+                }
+                if (!running || !audible || !linked) std::cerr << "family scenario method=" << method << " process=" << process
+                    << " running=" << running << " audible=" << audible << " linked=" << linked << '\n';
+                ok = expect(running && audible && linked, "family plugin processing must remain audible and ACN-linked") && ok;
+                gesture.list.size = [](const clap_input_events_t*) -> uint32_t { return 2; };
+                gesture.events[1].data[0] = 0x87u; gesture.events[1].data[2] = 0;
+                if (running) ok = processChannels(stacked,gesture,feedback,output) && ok;
+                if (running) stacked->stop_processing(stacked);
+            }
+            // New LANES append-only controls use v18; old family states above
+            // stay byte-identical v17 rather than silently shifting pad tails.
+            StateBuffer lanes; lanes.bytes = savedStack.bytes; lanes.bytes[4] = 18;
+            lanes.bytes[textureOffset] = 1u << 6u;
+            lanes.bytes[textureOffset + kTextureStateBytes + kTransientStateBytes] = 0;
+            setStateParameter(lanes, 7u + 15u, 1); // HOLD
+            for (unsigned pad = 0; pad < 32; ++pad) {
+                NeonFamilySettings f;
+                f[NeonFamily::LanePosition] = float(pad) / 31;
+                f[NeonFamily::LaneRate] = 1.25f;
+                f[NeonFamily::LaneAuto] = 1;
+                const auto* bytes = reinterpret_cast<const uint8_t*>(f.values.data());
+                lanes.bytes.insert(lanes.bytes.end(), bytes, bytes + sizeof(f.values));
+            }
+            ok = expect(stackState->load(stacked, &lanes.input), "Lanes v18 state load") && ok;
+            StateBuffer savedLanes;
+            ok = expect(stackState->save(stacked, &savedLanes.output) && savedLanes.bytes == lanes.bytes,
+                "Lanes state roundtrip preserves all 32 pads") && ok;
+            StateBuffer badLane; badLane.bytes = lanes.bytes;
+            const float invalidRate = 0;
+            std::memcpy(badLane.bytes.data() + savedStack.bytes.size() + neonFamilyIndex(NeonFamily::LaneRate) * sizeof(float), &invalidRate, sizeof(float));
+            ok = expect(!stackState->load(stacked, &badLane.input), "invalid Lanes rate accepted") && ok;
+            StateBuffer safeLanes;
+            ok = expect(stackState->save(stacked, &safeLanes.output) && safeLanes.bytes == lanes.bytes, "invalid Lanes restore changed state") && ok;
+            const bool lanesRunning = active && stacked->start_processing(stacked);
+            MidiInput gesture; OutputEvents laneFeedback; std::array<std::vector<float>,32> laneOutput;
+            bool lanesAudible = false, lanesLinked = true;
+            for (unsigned block = 0; lanesRunning && block < 400; ++block) {
+                ok = processChannels(stacked, gesture, laneFeedback, laneOutput) && ok;
+                gesture.list.size = [](const clap_input_events_t*) -> uint32_t { return 0; };
+                for (unsigned frame = 0; frame < laneOutput[0].size(); ++frame) {
+                    lanesAudible |= std::abs(laneOutput[0][frame]) > 1e-6;
+                    for (unsigned ch = 1; ch < 16; ++ch) lanesLinked &= std::isfinite(laneOutput[ch][frame])
+                        && std::abs(laneOutput[ch][frame] - laneOutput[0][frame] * (ch + 1)) < 1e-4;
+                }
+            }
+            if (lanesRunning) stacked->stop_processing(stacked);
+            ok = expect(lanesRunning && lanesAudible && lanesLinked, "Lanes processing remains audible and ACN-linked") && ok;
+            savedStack.cursor = 0;
+            ok = expect(stackState->load(stacked, &savedStack.input), "legacy family defaults restore") && ok;
+        }
+        const bool processing = active && stacked->start_processing(stacked);
+        std::array<std::vector<float>, 32u> rendered;
+        MidiInput hit; OutputEvents feedback;
+        ok = expect(processing && processChannels(stacked, hit, feedback, rendered)
+            && maximumMagnitude(rendered[0]) > 0.02f
+            && std::abs(maximumMagnitude(rendered[15]) - 16.0f * maximumMagnitude(rendered[0])) < 1.0e-5f,
+            "velocity layer 32 must play with all 16 ACN channels linked") && ok;
+        if (processing) stacked->stop_processing(stacked);
+        if (active) stacked->deactivate(stacked);
+        // A discrete stack's cycle maps are rebuilt asynchronously from saved
+        // PCM. No GUI needs to be opened to analyze or play Wavesets.
+        StateBuffer waveStack;
+        const size_t metadataEnd = expectedStateBytes + 1u + 32u * 12u + 32u * 309u;
+        waveStack.bytes.assign(savedStack.bytes.begin(), savedStack.bytes.begin() + metadataEnd);
+        setStateParameter(waveStack, 0u, 0.0); setStateParameter(waveStack, 23u, 0.0);
+        setStateParameter(waveStack, 7u + 15u, 1.0);
+        waveStack.bytes[methodOffset] = 1u << 5u;
+        waveStack.bytes[expectedStateBytes + 3u] = 4u;
+        const float fastScan = 0.1f;
+        std::memcpy(waveStack.bytes.data() + expectedStateBytes + 5u, &fastScan, sizeof(fastScan));
+        const auto waveAppend = [&](const auto& value) {
+            const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+            waveStack.bytes.insert(waveStack.bytes.end(), bytes, bytes + sizeof(value));
+        };
+        for (unsigned layer = 0u; layer < 1025u; ++layer) {
+            const uint32_t channels = layer < 32u ? 2u : 0u, frames = channels ? 512u : 0u;
+            const double rate = channels ? 48000.0 : 0.0;
+            waveAppend(channels); waveAppend(frames); waveAppend(rate);
+            for (unsigned ch = 0u; ch < channels; ++ch) for (unsigned f = 0u; f < frames; ++f) {
+                const float x = static_cast<float>(ch + 1u) * 0.15f * std::sin(static_cast<float>(f) * (0.07f + layer * 0.002f));
+                waveAppend(x);
+            }
+        }
+        ok = expect(stackState->load(stacked, &waveStack.input), "Wavesets scan state load") && ok;
+        const bool waveActive = stacked->activate(stacked, 48000.0, 1u, 256u);
+        const bool waveRunning = waveActive && stacked->start_processing(stacked);
+        MidiInput quiet;
+        for (auto& event : quiet.events) { event.data[0] = 0x90u; event.data[1] = 127u; event.data[2] = 0u; }
+        bool waveHeard = false;
+        for (unsigned n = 0u; waveRunning && n < 200u; ++n) {
+            stacked->on_main_thread(stacked);
+            ok = processChannels(stacked, n ? quiet : hit, feedback, rendered) && ok;
+            waveHeard |= maximumMagnitude(rendered[0]) > 0.01f;
+            if (!waveHeard) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        ok = expect(waveHeard, "worker-analyzed Wavesets stack must sound without a GUI") && ok;
+        MidiInput waveOff; waveOff.events[1].data[0] = 0x87u; waveOff.events[1].data[2] = 0u;
+        for (unsigned n = 0u; waveRunning && n < 40u; ++n)
+            ok = processChannels(stacked, n ? quiet : waveOff, feedback, rendered) && ok;
+        ok = expect(maximumMagnitude(rendered[0]) == 0.0f, "Wavesets scan release left stuck audio") && ok;
+        if (waveRunning) stacked->stop_processing(stacked);
+        if (waveActive) stacked->deactivate(stacked);
+        const auto projectRoot = std::filesystem::temp_directory_path() / ("s3g-neon-project-" + std::to_string(serial));
+        std::filesystem::create_directories(projectRoot / "媒体");
+        projectSimulation.directory = (projectRoot / "媒体").u8string(); projectSimulation.enabled = true;
+        StateBuffer projectFixture; projectFixture.bytes = savedStack.bytes;
+        projectFixture.bytes[expectedStateBytes] = 0u; // PROJECT, generated PCM must be collected safely.
+        ok = expect(stackState->load(stacked, &projectFixture.input), "PROJECT stack fixture load") && ok;
+        for (unsigned attempt = 0u; attempt < 200u && projectSimulation.additions < 32u; ++attempt) {
+            stacked->on_main_thread(stacked);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        StateBuffer collected;
+        ok = expect(projectSimulation.additions == 32u && stackState->save(stacked, &collected.output)
+            && collected.bytes.size() < savedStack.bytes.size() / 2u,
+            "PROJECT must collect every generated layer, register media and remove PCM from state") && ok;
+        stacked->destroy(stacked);
+        ok = expect(projectSimulation.removals == projectSimulation.additions, "project file registrations must balance") && ok;
+        std::filesystem::rename(projectRoot / "媒体", projectRoot / "relocated");
+        projectSimulation.directory = (projectRoot / "relocated").u8string();
+        const auto* relocated = factory->create_plugin(factory, &host.host, "org.s3g.s3g-dsp.sample-neon");
+        ok = expect(relocated && relocated->init(relocated), "relocated stack init") && ok;
+        if (relocated) {
+            const auto* stateAgain = static_cast<const clap_plugin_state_t*>(relocated->get_extension(relocated, CLAP_EXT_STATE));
+            ok = expect(stateAgain->load(relocated, &collected.input), "relative PROJECT stack recall") && ok;
+            const bool ready = relocated->activate(relocated, 48000.0, 1u, 64u);
+            const bool running = ready && relocated->start_processing(relocated);
+            bool heard = false;
+            for (unsigned attempt = 0u; running && !heard && attempt < 200u; ++attempt) {
+                relocated->on_main_thread(relocated);
+                heard = processChannels(relocated, hit, feedback, rendered) && maximumMagnitude(rendered[0]) > 0.02f;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            ok = expect(heard, "relocated PROJECT layer 32 must play without its original directory") && ok;
+            if (running) relocated->stop_processing(relocated);
+            if (ready) relocated->deactivate(relocated);
+            relocated->destroy(relocated);
+        }
+        projectSimulation.enabled = false;
+        std::error_code cleanupError; std::filesystem::remove_all(projectRoot, cleanupError);
+    }
+
     std::error_code removeError;
     std::filesystem::remove(wavePath, removeError);
     if (entry) entry->deinit();
     if (library) dlclose(library);
+    if (std::getenv("S3G_NEON_ALLOCATION_PROBE"))
+        std::cout << "Allocation-probed process callbacks: " << allocationProbeBlocks << '\n';
     if (!ok) return 1;
     std::cout << "Sample Neon CLAP checks passed\n";
     return 0;

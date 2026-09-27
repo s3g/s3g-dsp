@@ -5,6 +5,8 @@
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_sample_file_decode.h"
+#include "../common/s3g_sample_storage.h"
+#include "../common/s3g_audio_file_export.h"
 
 #if defined(S3G_ENABLE_VSTGUI_SAMPLE_NEON_GUI)
 #include "s3g_sample_neon_layout.h"
@@ -43,6 +45,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -58,6 +61,15 @@ using NeonPerformanceState =
     s3g::controller::reloop_neon::PerformanceState;
 using NeonUtility = s3g::controller::reloop_neon::UtilityButton;
 using s3g::sample::FilterType;
+using s3g::sample::NeonFamily;
+using s3g::sample::NeonFamilySettings;
+using s3g::sample::NeonStackShape;
+using s3g::sample::neonSetStackShape;
+using s3g::sample::neonLegacyStackShape;
+using s3g::sample::kNeonFamilyCount;
+using s3g::sample::kNeonFamilyV17Count;
+using s3g::sample::neonFamilyIndex;
+using s3g::sample::neonFamilyDef;
 using s3g::sample::RetriggerMode;
 using s3g::sample::SampleAsset;
 using s3g::sample::SampleNeonEngine;
@@ -76,7 +88,7 @@ using s3g::sample::SampleNeonOutputLayout;
 using s3g::sample::TriggerMode;
 
 constexpr uint32_t kStateMagic = 0x4e533353u; // "S3SN"
-constexpr uint32_t kStateVersion = 14u;
+constexpr uint32_t kStateVersion = 18u;
 constexpr std::size_t kMaximumPathBytes = 2048u;
 constexpr std::size_t kSliceModeStateBytes =
     s3g::sample::kSampleNeonSlotCount
@@ -94,14 +106,16 @@ constexpr uint8_t kGrainsOption = 1u << 2u;
 constexpr uint8_t kSequenceOption = 1u << 3u;
 constexpr uint8_t kStretchOption = 1u << 4u;
 constexpr uint8_t kWavesetsOption = 1u << 5u;
-constexpr std::array<uint8_t, 6u> kPlaybackOptions {{0u, kMotionOption, kGrainsOption, kSequenceOption, kStretchOption, kWavesetsOption}};
-constexpr std::array<const char*, 6u> kPlaybackNames {{"SAMPLE", "MOTION", "GRAINS", "SLICE SEQUENCE", "STRETCH", "WAVESETS"}};
+constexpr uint8_t kLanesOption = 1u << 6u;
+constexpr std::array<uint8_t, 7u> kPlaybackOptions {{0u, kMotionOption, kGrainsOption, kSequenceOption, kStretchOption, kWavesetsOption, kLanesOption}};
+constexpr std::array<const char*, 7u> kPlaybackNames {{"SAMPLE", "MOTION", "GRAINS", "SLICE SEQUENCE", "STRETCH", "WAVESETS", "LANES"}};
 
 constexpr uint8_t normalizedStageOptions(uint8_t options) noexcept
 {
     // Older sets may combine stages. Commit to Grains first, then Motion;
     // adjacent-cell mixing is intentionally retired.
-    return (options & kWavesetsOption) ? kWavesetsOption
+    return (options & kLanesOption) ? kLanesOption
+        : (options & kWavesetsOption) ? kWavesetsOption
         : (options & kStretchOption) ? kStretchOption
         : (options & kSequenceOption) ? kSequenceOption
         : (options & kGrainsOption) ? kGrainsOption
@@ -187,6 +201,15 @@ struct ParamDef {
     double defaultValue;
     bool stepped;
 };
+
+// State-backed controls share their initialization and GUI reset defaults.
+namespace ControlDefaults {
+constexpr float cycleSeconds = 4.0f, cycleBeats = 8.0f, shotSeconds = 1.0f;
+constexpr float techniqueEnvelope = 0.005f, grainInterval = 0.25f;
+constexpr float grainDensity = 12.0f, grainSize = 80.0f, grainSpray = 0.15f;
+constexpr std::array<float, 4u> technique {{ 0.35f, 0.0f, 0.0f, 1.0f }};
+constexpr double sourceBpm = 120.0;
+}
 
 constexpr std::array<ParamDef, kGlobalParamCount> kGlobalParamDefs {{
     { "Output Layout", "Output", 0.0, 6.0, 0.0, true },
@@ -519,18 +542,42 @@ struct StateHeader {
     uint32_t pathBytes = static_cast<uint32_t>(kMaximumPathBytes);
 };
 
+using StorageMode = s3g::sample_storage::StorageMode;
+struct LayerSource {
+    std::shared_ptr<const SampleAsset> asset;
+    std::shared_ptr<const s3g::sample::WavesetMap> wavesets;
+    const SampleAsset* waveAnalysisAttempted = nullptr;
+    bool waveAnalysisPending = false;
+    std::string path;
+    bool relative = false;
+    double start = 0.0, end = 1.0, cursor = 0.0, bpm = 120.0;
+    SampleNeonSliceLayout slices = s3g::sample::equalSampleNeonSliceLayout(1u);
+    s3g::sample::CutupsLaneMetadata analysis;
+    uint8_t chopMode = 2u, beatDivision = 2u, transientLimit = 32u;
+    float preRoll = 0.0f;
+};
 #if defined(S3G_SAMPLE_FILE_WORKER)
 struct LoadRequest {
     uint64_t generation = 0u;
     uint8_t slot = 0u;
+    uint8_t layer = 0u;
     bool dirty = true;
     std::string path;
+    bool collectOnly = false;
+    bool wavesetsOnly = false;
+    std::shared_ptr<const SampleAsset> asset;
+    s3g::sample_storage::ProjectLocation project;
 };
 
 struct LoadResult {
     uint64_t generation = 0u;
     uint8_t slot = 0u;
+    uint8_t layer = 0u;
     bool dirty = true;
+    bool collectOnly = false;
+    bool wavesetsOnly = false;
+    std::shared_ptr<const s3g::sample::WavesetMap> wavesets;
+    s3g::sample_storage::ProjectCopyResult copy;
     std::string path;
     std::shared_ptr<const SampleAsset> asset;
     s3g::sample::CutupsLaneMetadata analysis {};
@@ -540,6 +587,21 @@ struct LoadResult {
 
 struct CellClipboard;
 struct Plugin {
+    StorageMode storageMode = StorageMode::Project;
+    std::array<std::array<LayerSource, 32u>, 32u> sources {};
+    std::array<std::atomic<uint8_t>, 32u> selectedLayers {}, sourceModes {}, stackPaths {};
+    std::array<std::atomic<float>, 32u> stackSeconds {}, stackBeats {}, stackPositions {};
+    std::array<std::atomic<int>, 32u> stackWaveformLayers {}; // -1 edit, -2 scan, otherwise playing layer.
+    std::atomic<bool> followStackWave {true};
+    std::array<std::array<std::atomic<const SampleAsset*>, s3g::sample::kMaximumVoices>, 32u> voiceCursorAssets {};
+    std::array<std::atomic<const s3g::sample::NeonStack*>, 32u> publishedStacks {};
+    std::vector<std::shared_ptr<const s3g::sample::NeonStack>> retainedStacks;
+    std::array<std::array<s3g::sample_storage::ProjectFileRegistration, 32u>, 32u> registrations;
+    std::array<std::array<bool, 32u>, 32u> collectionPending {};
+    std::chrono::steady_clock::time_point nextCollection {};
+    std::atomic<bool> slicesToStack {false};
+    std::atomic<uint8_t> chopDestination {s3g::sample::kNeonChopAutoDestination};
+    std::atomic<uint32_t> pendingLayerSelection {UINT32_MAX};
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -549,6 +611,7 @@ struct Plugin {
     double sampleRate = 48000.0;
     uint32_t maximumFrames = 0u;
     SampleNeonEngine engine;
+    std::array<std::array<std::atomic<float>, kNeonFamilyCount>, 32u> familyControls {};
     std::array<std::atomic<double>, kStoredParamCount> parameters {};
     s3g::clap_gui::ParamEventQueue<2048u> guiParamEvents {};
     std::atomic_flag guiParamConsumer = ATOMIC_FLAG_INIT;
@@ -572,6 +635,7 @@ struct Plugin {
     mutable std::mutex statusMutex;
     std::atomic<uint32_t> pendingAuditions { 0u };
     std::atomic<uint32_t> pendingEditAuditions { 0u };
+    std::atomic<uint32_t> pendingLayerAuditions {0u};
     std::atomic<uint32_t> pendingCellStops { 0u };
     std::atomic<uint32_t> pendingGuiReleases { 0u };
     std::atomic<uint32_t> pendingSliceAudition { 0xffffffffu };
@@ -600,7 +664,6 @@ struct Plugin {
     std::array<bool, s3g::sample::kSampleNeonSlotCount> embeddedAssets {};
     // Audio thread asks the main-thread service to perform allocating edits.
     std::atomic<uint32_t> pendingEditCommand { 0u };
-    std::atomic<bool> replaceChopSource { false };
     // 1: stop requested, 3: stopping, 2: main thread may clear assets/settings.
     std::atomic<uint8_t> resetAllPhase { 0u };
     std::atomic<bool> processing { false };
@@ -758,6 +821,7 @@ struct Plugin {
     std::deque<LoadResult> loadResults;
     std::array<uint64_t, s3g::sample::kSampleNeonSlotCount>
         loadGenerations {};
+    std::array<std::array<uint64_t, 32u>, 32u> layerGenerations {};
     std::thread loaderThread;
     bool loaderStopping = false;
 #endif
@@ -938,8 +1002,10 @@ void serviceGuiParamEvents(Plugin& instance,
     if (instance.guiParamConsumer.test_and_set(std::memory_order_acquire))
         return;
     s3g::clap_gui::serviceParamEvents(instance.guiParamEvents, output,
-        [&instance](clap_id id, double value) {
-            setParam(instance, id, value);
+        [](clap_id, double) {
+            // GUI setters already applied the value. These are notifications,
+            // not deferred edits: replaying an old trim after a layer switch
+            // would apply the previous layer's gesture to the new source.
         });
     instance.guiParamConsumer.clear(std::memory_order_release);
 }
@@ -964,6 +1030,11 @@ SampleNeonSettings settingsSnapshot(const Plugin& instance) noexcept
     settings.tempoSync = paramValue(instance, kTempoSyncParamId) >= 0.5;
     for (std::size_t slot = 0u; slot < settings.slots.size(); ++slot) {
         auto& value = settings.slots[slot];
+        value.stack = instance.publishedStacks[slot].load(std::memory_order_acquire);
+        value.selectedLayer = instance.selectedLayers[slot].load();
+        value.sourceMode = static_cast<s3g::sample::NeonSourceMode>(instance.sourceModes[slot].load());
+        value.stackCycleSeconds = instance.stackSeconds[slot].load();
+        value.stackCycleBeats = instance.stackBeats[slot].load();
         value.gainDecibels = static_cast<float>(paramValue(instance,
             slotParamId(slot, kSlotGain)));
         value.pan = static_cast<float>(paramValue(instance,
@@ -1015,7 +1086,7 @@ SampleNeonSettings settingsSnapshot(const Plugin& instance) noexcept
         value.playback = static_cast<SampleNeonPlayback>(method);
         for (unsigned n = 0u; n < 3u; ++n)
             value.fx[n] = instance.fxParameters[slot][static_cast<unsigned>(value.character)][n].load();
-        if (method >= 3u) for (unsigned n = 0u; n < 4u; ++n)
+        if (method >= 3u && method < 6u) for (unsigned n = 0u; n < 4u; ++n)
             value.technique[n] = instance.techniqueParameters[slot][method - 3u][n].load();
         value.clock = instance.playbackClocks[slot].load() ? SampleNeonClock::Host : SampleNeonClock::Free;
         value.motionCycleSeconds = instance.motionSeconds[slot].load();
@@ -1023,6 +1094,8 @@ SampleNeonSettings settingsSnapshot(const Plugin& instance) noexcept
         value.techniqueAttackSeconds = instance.techniqueAttackSeconds[slot].load();
         value.techniqueReleaseSeconds = instance.techniqueReleaseSeconds[slot].load();
         value.grainIntervalBeats = instance.grainIntervals[slot].load();
+        for (unsigned i = 0; i < kNeonFamilyCount; ++i)
+            value.family.values[i] = instance.familyControls[slot][i].load(std::memory_order_relaxed);
         value.motionPath = static_cast<SampleNeonMotionPath>(
             std::min<uint8_t>(3u, instance.motionPaths[slot].load(
                 std::memory_order_relaxed)));
@@ -1120,6 +1193,8 @@ std::string sampleDisplayName(const std::string& path)
     return name.empty() ? path : name;
 }
 
+void saveLayerEdit(Plugin& p, std::size_t slot);
+void publishStack(Plugin& p, std::size_t slot);
 bool publishAsset(Plugin& instance, std::size_t slot,
     std::shared_ptr<const SampleAsset> asset, std::string path, bool dirty)
 {
@@ -1128,6 +1203,7 @@ bool publishAsset(Plugin& instance, std::size_t slot,
             || !s3g::sample::sampleNeonChannelCountSupported(asset->channelCount))))
         return false;
     if (instance.publishedAssets[slot].load() != asset.get()) {
+        instance.registrations[slot][instance.selectedLayers[slot].load()].clear();
         uint8_t previous = static_cast<uint8_t>(slot);
         instance.lastPlayedCells[slot / 8u].compare_exchange_strong(previous, 0xffu);
     }
@@ -1144,12 +1220,19 @@ bool publishAsset(Plugin& instance, std::size_t slot,
             : "DROP OR LOAD A SAMPLE (1 / 2 / 4 / 8 / 9 / 16 CH)";
         instance.publishedAssets[slot].store(
             instance.controlAssets[slot].get(), std::memory_order_release);
+        auto& source = instance.sources[slot][instance.selectedLayers[slot].load()];
+        source.asset = instance.controlAssets[slot]; source.path = instance.samplePaths[slot];
+        source.relative = false;
     }
+    saveLayerEdit(instance, slot);
+    publishStack(instance, slot);
     instance.ledFeedbackDirty.store(true, std::memory_order_release);
     requestProcess(instance);
     if (dirty) markStateDirty(instance);
     return true;
 }
+
+#include "s3g_sample_neon_sources.inc"
 
 #if defined(S3G_SAMPLE_FILE_WORKER)
 bool decodeSampleFile(const std::string& path,
@@ -1228,10 +1311,42 @@ void loaderMain(Plugin* instance)
         LoadResult result;
         result.generation = request.generation;
         result.slot = request.slot;
+        result.layer = request.layer;
+        result.collectOnly = request.collectOnly;
+        result.wavesetsOnly = request.wavesetsOnly;
         result.dirty = request.dirty;
         result.path = std::move(request.path);
         try {
-            if (!decodeSampleFile(result.path, result.asset, result.error))
+            if (request.wavesetsOnly) {
+                result.asset = request.asset;
+                result.wavesets = s3g::sample::analyzeWavesets(request.asset);
+            } else if (request.collectOnly) {
+                result.asset = request.asset;
+                struct TemporaryExport {
+                    std::filesystem::path directory, file;
+                    ~TemporaryExport() {
+                        std::error_code ec;
+                        if (!file.empty()) std::filesystem::remove(file, ec);
+                        if (!directory.empty()) std::filesystem::remove(directory, ec);
+                    }
+                } temporary;
+                if (result.path.empty() && request.asset && request.project.available()) {
+                    std::error_code ec;
+                    const auto directory = s3g::sample_storage::detail::uniqueTemporaryPath(
+                        std::filesystem::temp_directory_path() / "s3g-neon-export");
+                    if (!std::filesystem::create_directory(directory, ec)) throw std::runtime_error("temporary export directory");
+                    temporary.directory = directory;
+                    temporary.file = directory / "neon-capture.wav";
+                    std::array<const float*, 16u> channels {};
+                    for (unsigned ch = 0u; ch < request.asset->channelCount; ++ch) channels[ch] = request.asset->channels[ch].data();
+                    if (s3g::audio_file::writePlanarFloatWaveAtomically(temporary.file.u8string(), request.asset->sampleRate,
+                            request.asset->channelCount, request.asset->frameCount(), channels.data(), result.error))
+                        result.path = temporary.file.u8string();
+                }
+                if (!result.path.empty()) result.copy = s3g::sample_storage::copyFileIntoProject(request.project, result.path);
+                if (result.copy.success) result.path = result.copy.absolutePath;
+                else if (result.error.empty()) result.error = result.copy.error;
+            } else if (!decodeSampleFile(result.path, result.asset, result.error))
                 result.asset.reset();
             else if (result.asset)
                 result.analysis = s3g::sample::analyzeCutupsAsset(
@@ -1239,7 +1354,8 @@ void loaderMain(Plugin* instance)
                     static_cast<uint32_t>(s3g::sample::kSampleNeonSliceCount),
                     5.0, 1000u, 20.0);
         } catch (...) {
-            result.asset.reset();
+            if (request.wavesetsOnly) result.asset = request.asset;
+            else result.asset.reset();
             result.error = "SAMPLE DECODE EXCEEDED AVAILABLE MEMORY";
         }
         {
@@ -1270,25 +1386,32 @@ void stopLoader(Plugin& instance)
 }
 
 void queueSampleLoad(Plugin& instance, std::size_t slot, std::string path,
-    bool dirty = true)
+    bool dirty = true, unsigned layer = 32u)
 {
     if (slot >= s3g::sample::kSampleNeonSlotCount || path.empty()) return;
+    if (layer >= 32u) layer = instance.selectedLayers[slot].load();
     LoadRequest request;
-    request.generation = ++instance.loadGenerations[slot];
+    request.generation = ++instance.layerGenerations[slot][layer];
+    instance.sources[slot][layer].waveAnalysisPending = false;
+    if (!instance.sources[slot][layer].wavesets) instance.sources[slot][layer].waveAnalysisAttempted = nullptr;
+    request.layer = static_cast<uint8_t>(layer);
+    instance.collectionPending[slot][layer] = false;
     request.slot = static_cast<uint8_t>(slot);
     request.dirty = dirty;
     request.path = std::move(path);
     {
         std::lock_guard<std::mutex> lock(instance.statusMutex);
-        instance.samplePaths[slot] = request.path;
+        if (!instance.sources[slot][layer].asset) instance.sources[slot][layer].path = request.path;
+        if (!instance.sources[slot][layer].asset && layer == instance.selectedLayers[slot].load())
+            instance.samplePaths[slot] = request.path;
         instance.statuses[slot] = "DECODING...";
     }
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
         instance.loadRequests.erase(std::remove_if(
             instance.loadRequests.begin(), instance.loadRequests.end(),
-            [slot](const LoadRequest& pending) {
-                return pending.slot == slot;
+            [slot, layer](const LoadRequest& pending) {
+                return pending.slot == slot && pending.layer == layer;
             }), instance.loadRequests.end());
         instance.loadRequests.push_back(std::move(request));
     }
@@ -1305,12 +1428,56 @@ void serviceLoads(Plugin& instance)
     for (auto& result : results) {
         const std::size_t slot = result.slot;
         if (slot >= s3g::sample::kSampleNeonSlotCount
-            || result.generation != instance.loadGenerations[slot])
+            || result.layer >= 32u || result.generation != instance.layerGenerations[slot][result.layer])
             continue;
+        auto& source = instance.sources[slot][result.layer];
+        if (result.wavesetsOnly) {
+            if (source.asset != result.asset) continue;
+            source.waveAnalysisPending = false;
+            source.wavesets = std::move(result.wavesets);
+            if (source.wavesets) instance.retainedWavesets.push_back(source.wavesets);
+            if (result.layer == 0u) {
+                instance.controlWavesets[slot] = source.wavesets;
+                instance.publishedWavesets[slot].store(source.wavesets.get(), std::memory_order_release);
+            }
+            publishStack(instance, slot); requestProcess(instance);
+            continue;
+        }
+        if (result.collectOnly) {
+            instance.collectionPending[slot][result.layer] = false;
+            if (instance.storageMode != StorageMode::Project || source.asset != result.asset) continue;
+            if (result.copy.success) {
+                source.path = result.path; source.relative = false;
+                (void)instance.registrations[slot][result.layer].reset(s3g::sample_storage::reaperContext(instance.host), result.path);
+                if (instance.selectedLayers[slot].load() == result.layer) {
+                    instance.samplePaths[slot] = result.path; instance.embeddedAssets[slot] = false;
+                }
+                markStateDirty(instance);
+            } else instance.workflowMessage = "PROJECT COLLECTION PENDING: " + result.error;
+            continue;
+        }
         if (!result.asset) {
             std::lock_guard<std::mutex> lock(instance.statusMutex);
             instance.statuses[slot] = result.error.empty()
                 ? "SAMPLE DECODE FAILED" : result.error;
+            continue;
+        }
+        if (!layerWidthCompatible(instance, slot, result.layer, *result.asset)) {
+            instance.workflowMessage = "STACK LAYERS MUST HAVE THE SAME CHANNEL COUNT; SOURCE KEPT";
+            if (!source.asset) source.path.clear();
+            continue;
+        }
+        if (instance.storageMode == StorageMode::Embed
+            && !fitsEmbeddedBudget(instance, static_cast<unsigned>(slot), result.layer, result.asset.get())) {
+            instance.workflowMessage = "EMBED EXCEEDS 256 MiB; SOURCE KEPT";
+            continue;
+        }
+        if (result.layer != instance.selectedLayers[slot].load()) {
+            instance.retainedAssets.push_back(result.asset);
+            source.asset = result.asset; source.path = result.path; source.relative = false;
+            source.analysis = result.analysis;
+            if (result.dirty) { source.start = 0.0; source.end = 1.0; source.slices = s3g::sample::equalSampleNeonSliceLayout(1u); }
+            publishStack(instance, slot); markStateDirty(instance); requestProcess(instance);
             continue;
         }
         {
@@ -1346,6 +1513,11 @@ void serviceLoads(Plugin& instance)
 void clearSample(Plugin& instance, std::size_t slot)
 {
     if (slot >= s3g::sample::kSampleNeonSlotCount) return;
+    invalidateLayerLoads(instance, slot);
+    for (auto& registration : instance.registrations[slot]) registration.clear();
+    instance.sources[slot] = {};
+    instance.selectedLayers[slot].store(0u);
+    instance.sourceModes[slot].store(0u);
 #if defined(S3G_SAMPLE_FILE_WORKER)
     ++instance.loadGenerations[slot];
     {
@@ -1373,6 +1545,11 @@ void auditionEditedSlot(Plugin& instance, std::size_t slot)
 {
     if (slot >= s3g::sample::kSampleNeonSlotCount) return;
     instance.pendingEditAuditions.fetch_or(static_cast<uint32_t>(1u << slot));
+    requestProcess(instance);
+}
+
+void auditionLayer(Plugin& instance, std::size_t slot) {
+    instance.pendingLayerAuditions.fetch_or(static_cast<uint32_t>(1u << slot));
     requestProcess(instance);
 }
 
@@ -1736,6 +1913,7 @@ void setSliceOption(Plugin& instance, std::size_t slot,
 }
 
 #include "s3g_sample_neon_workflow.inc"
+#include "s3g_sample_neon_storage.inc"
 
 uint32_t paramsCount(const clap_plugin_t*)
 {
@@ -1913,7 +2091,28 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     auto& instance = *self(plugin);
     if (instance.resetAllPhase.load()) return false;
-    const StateHeader header;
+    serviceStorage(instance);
+    // Keep unextended LINK sessions readable by 0.22.x. New storage or stack
+    // settings require version 15; do not discard hidden scan settings.
+    bool legacy = instance.storageMode == StorageMode::Link;
+    for (unsigned pad = 0u; pad < 32u; ++pad)
+        legacy = legacy && stackCount(instance, pad) <= 1u && instance.selectedLayers[pad].load() == 0u
+            && instance.sourceModes[pad].load() == 0u && instance.stackPaths[pad].load() == 2u
+            && instance.stackSeconds[pad].load() == 4.0f && instance.stackBeats[pad].load() == 8.0f;
+    bool extended = false, lanes = false;
+    for (unsigned pad = 0; pad < 32; ++pad) {
+        NeonFamilySettings legacyFamily;
+        neonSetStackShape(legacyFamily, neonLegacyStackShape(instance.stackPaths[pad].load()), 32, pad);
+        for (unsigned i = 0; i < kNeonFamilyCount; ++i)
+            extended |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
+        lanes |= normalizedStageOptions(instance.textureOptions[pad].load()) == kLanesOption;
+        for (unsigned i = kNeonFamilyV17Count; i < kNeonFamilyCount; ++i)
+            lanes |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
+    }
+    extended |= lanes;
+    legacy &= !extended;
+    StateHeader header;
+    header.version = lanes ? 18u : extended ? 17u : legacy ? 14u : 15u;
     if (!s3g::clap_state::writeAll(stream, &header, sizeof(header)))
         return false;
     std::array<double, kStoredParamCount> values {};
@@ -2136,10 +2335,22 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         instance.captureZeroCross.load() ? 1.0 : 0.0, static_cast<double>(instance.captureTarget.load()) }};
     if (!writeArray(captureSettings)) return false;
     std::array<const SampleAsset*, 33u> embedded {};
-    for (std::size_t slot = 0u; slot < 32u; ++slot)
-        if (instance.embeddedAssets[slot]) embedded[slot] = instance.controlAssets[slot].get();
-    embedded[32u] = instance.captureAsset.get();
-    return writeEmbeddedAudio(stream, embedded);
+    if (legacy) {
+        for (unsigned pad = 0u; pad < 32u; ++pad)
+            if (instance.embeddedAssets[pad]) embedded[pad] = instance.controlAssets[pad].get();
+        embedded[32u] = instance.captureAsset.get();
+        return writeEmbeddedAudio(stream, embedded);
+    }
+    // Version 15 stores all source PCM once in the stack table, including the
+    // review capture. Retain the empty legacy table for a stable prefix.
+    if (!writeEmbeddedAudio(stream, embedded) || !writeStackState(instance, stream)) return false;
+    if (extended) for (const auto& pad : instance.familyControls) {
+        std::array<float, kNeonFamilyCount> controls {};
+        for (unsigned i = 0; i < controls.size(); ++i) controls[i] = pad[i].load();
+        if (!s3g::clap_state::writeAll(stream, controls.data(), sizeof(float)
+            * (lanes ? kNeonFamilyCount : kNeonFamilyV17Count))) return false;
+    }
+    return true;
 }
 
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
@@ -2149,7 +2360,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     StateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic
-        || (header.version != kStateVersion && header.version != 13u && header.version != 12u && header.version != 11u && header.version != 10u)
+        || (header.version != kStateVersion && header.version != 17u && header.version != 16u && header.version != 15u && header.version != 14u && header.version != 13u && header.version != 12u && header.version != 11u && header.version != 10u)
         || header.parameterCount != kStoredParamCount
         || header.pathBytes != kMaximumPathBytes) return false;
     std::array<double, kStoredParamCount> values {};
@@ -2311,6 +2522,26 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         || std::floor(captureSettings[4u]) != captureSettings[4u]
         || (captureSettings[4u] != 255.0 && (captureSettings[4u] < 0.0 || captureSettings[4u] > 31.0))
         || !readEmbeddedAudio(stream, embedded)) return false;
+    std::unique_ptr<StackState> stackState;
+    if (header.version >= 15u) {
+        try {
+            stackState = std::make_unique<StackState>();
+            if (!readStackState(stream, *stackState)) return false;
+            embedded[32u] = stackState->capture;
+        } catch (...) { return false; }
+    }
+    std::array<NeonFamilySettings, 32u> family;
+    if (header.version >= 16u) for (auto& pad : family)
+        if (!s3g::clap_state::readAll(stream, pad.values.data(), sizeof(float)
+            * (header.version >= 18u ? kNeonFamilyCount : kNeonFamilyV17Count)) || !pad.valid()) return false;
+    if (header.version <= 16u) for (unsigned pad = 0; pad < 32; ++pad) {
+        // v16 index zero was PRESET/BREAKPOINTS, not a shape enum. Preserve
+        // authored points verbatim; materialize old analytic paths otherwise.
+        const float oldMode = family[pad][NeonFamily::StackShape];
+        if (header.version == 16u && oldMode != 0 && oldMode != 1) return false;
+        if (header.version == 16u && oldMode == 1) family[pad][NeonFamily::StackShape] = 0;
+        else neonSetStackShape(family[pad], neonLegacyStackShape(stackState ? stackState->paths[pad] : 2u), 32, pad);
+    }
     // An active take owns its buffers until Stop; reject restore atomically.
     if (instance.captureState.load() == Plugin::CaptureState::Recording
         || instance.captureState.load() == Plugin::CaptureState::Ready) return false;
@@ -2380,7 +2611,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance.grainIntervals[slot].store(std::clamp(grainIntervals[slot], 0.03125f, 4.0f));
         instance.parameters[kGlobalParamCount + slot * kSlotParameterCount + kSlotMute].store(0.0);
         instance.parameters[kGlobalParamCount + slot * kSlotParameterCount + kSlotSolo].store(0.0);
-        uint8_t stageOptions = normalizedStageOptions(textures[slot]);
+        uint8_t stageOptions = normalizedStageOptions(header.version >= 18u ? textures[slot] : textures[slot] & ~kLanesOption);
         if (paramValue(instance, slotParamId(slot, kSlotSourceFormat)) >= 0.5) {
             if (stageOptions == kWavesetsOption) stageOptions = 0u;
             if (paramValue(instance, slotParamId(slot, kSlotCharacter)) >= 6.0) {
@@ -2488,6 +2719,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     instance.flipLooping.store(flipState[3u] != 0u,
         std::memory_order_release);
     for (std::size_t slot = 0u; slot < paths.size(); ++slot) {
+        invalidateLayerLoads(instance, slot);
+        for (auto& r : instance.registrations[slot]) r.clear();
+        instance.sources[slot] = {};
+        instance.selectedLayers[slot].store(0u); instance.sourceModes[slot].store(0u);
+        instance.stackSeconds[slot].store(4.0f); instance.stackBeats[slot].store(8.0f);
+        instance.stackPaths[slot].store(2u);
         paths[slot].back() = '\0';
 #if defined(S3G_SAMPLE_FILE_WORKER)
         ++instance.loadGenerations[slot]; // Also invalidate loads into now-empty cells.
@@ -2503,10 +2740,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             continue;
         }
 #if defined(S3G_SAMPLE_FILE_WORKER)
-        if (paths[slot][0] != '\0')
+        if (!stackState && paths[slot][0] != '\0')
             queueSampleLoad(instance, slot, paths[slot].data(), false);
 #endif
     }
+    for (unsigned pad = 0; pad < 32; ++pad)
+        for (unsigned i = 0; i < kNeonFamilyCount; ++i) instance.familyControls[pad][i].store(family[pad].values[i]);
+    if (stackState) applyStackState(instance, *stackState);
+    else instance.storageMode = StorageMode::Link;
+    // Destination is an instance-local edit action, not part of a saved sound.
+    instance.chopDestination.store(s3g::sample::kNeonChopAutoDestination);
+    instance.slicesToStack.store(false);
+    instance.pendingEditCommand.store(0u);
     instance.sendNeonInitialization.store(true, std::memory_order_release);
     instance.ledFeedbackDirty.store(true, std::memory_order_release);
     instance.captureAsset = embedded[32u];
@@ -2675,13 +2920,25 @@ void handleEncoder(Plugin& instance, const NeonAction& action,
     if (editing && effectiveEditPage(instance) >= 4u) {
         const bool loop = action.encoder == NeonEncoder::Loop;
         if (action.type == NeonActionType::EncoderPush) {
-            if (action.pressed && loop) auditionEditedSlot(instance, selectedSlot);
+            if (action.pressed && loop) {
+                if (effectiveEditPage(instance) == 8u) auditionLayer(instance, selectedSlot);
+                else auditionEditedSlot(instance, selectedSlot);
+            }
             else if (action.pressed && effectiveEditPage(instance) == 7u) instance.fxPair.fetch_xor(1u);
         } else {
             const auto page = effectiveEditPage(instance);
             double step = action.shifted ? 0.001 : 0.01;
             if ((page == 4u && !loop) || (loop && instance.playbackClocks[selectedSlot].load() && (page == 4u || page == 5u))) step = 1.0 / 7.0;
             if (page == 6u) step = loop ? 1.0 / 31.0 : 1.0 / 15.0;
+            if (page == 8u && loop) step = 1.0 / 31.0;
+            if (page == 8u && !loop && instance.playbackClocks[selectedSlot].load()) step = 1.0 / 7.0;
+            if (page == 9u) {
+                const auto* stack = instance.publishedStacks[selectedSlot].load(std::memory_order_acquire);
+                const double span = stack && stack->count > 1 ? stack->count - 1 : 1;
+                const bool jump = instance.familyControls[selectedSlot][neonFamilyIndex(NeonFamily::StackJump)].load() != 0;
+                step = loop ? (jump && !action.shifted ? 1 : action.shifted ? .01 : .125) / span
+                    : (action.shifted ? .005 : .05) / 3.75;
+            }
             if (page == 7u && !instance.fxPair.load()) {
                 const auto effect = static_cast<unsigned>(paramValue(instance, slotParamId(selectedSlot, kSlotCharacter)));
                 if ((effect == 0u && loop) || (effect == 3u && !loop)) step = 0.5;
@@ -2837,15 +3094,18 @@ std::size_t collectEvents(Plugin& instance,
 
     uint32_t auditions = instance.pendingAuditions.exchange(
         0u, std::memory_order_acq_rel);
-    const uint32_t editAuditions = instance.pendingEditAuditions.exchange(0u);
+    const uint32_t layerAuditions = instance.pendingLayerAuditions.exchange(0u);
+    const uint32_t editAuditions = instance.pendingEditAuditions.exchange(0u) | layerAuditions;
     const uint32_t stops = instance.pendingCellStops.exchange(0u);
     for (uint8_t slot = 0u; slot < s3g::sample::kSampleNeonSlotCount;
         ++slot) {
         if ((editAuditions | stops) & (1u << slot))
             append(0u, SampleNeonEventKind::Choke, 0u, slot, NeonMode::Sampler, 0u, 0.0f);
-        if (((auditions | editAuditions) & ~stops & (1u << slot)) != 0u)
+        if (((auditions | editAuditions) & ~stops & (1u << slot)) != 0u) {
             append(0u, SampleNeonEventKind::Trigger,
                 0x70000000u + slot, slot, NeonMode::Sampler, 0u, 1.0f);
+            if (count && (layerAuditions & (1u << slot))) instance.blockEvents[count - 1u].selectedSource = true;
+        }
     }
     const auto releases = instance.pendingGuiReleases.exchange(0u);
     for (uint8_t slot = 0u; slot < s3g::sample::kSampleNeonSlotCount; ++slot)
@@ -3087,7 +3347,7 @@ std::size_t collectEvents(Plugin& instance,
                         } else if (!chop) {
                             if (normalizedStageOptions(instance.textureOptions[slot].load()) != 0u) {
                                 if (instance.neonState.syncHeld) {
-                                    if (playbackIndex(instance, slot) != 5u) instance.playbackClocks[slot].fetch_xor(1u);
+                                    if (playbackIndex(instance, slot) != 5u || instance.sourceModes[slot].load() == 4u) instance.playbackClocks[slot].fetch_xor(1u);
                                 }
                                 else {
                                     const auto id = slotParamId(slot, kSlotTriggerMode);
@@ -3234,7 +3494,7 @@ void pushNeonFeedback(Plugin& instance, const clap_output_events_t* output,
         lamps.segments[3u] = loaded && (generated ? trigger == 3 || trigger == 1
             : slotOptionEnabled(instance, slot, kSlotRepeatOption)
                 || paramValue(instance, slotParamId(slot, kSlotDirection)) >= 2.0) ? 127u : 0u;
-        lamps.segments[4u] = loaded && (generated ? playbackIndex(instance, slot) != 5u && instance.playbackClocks[slot].load() != 0u
+        lamps.segments[4u] = loaded && (generated ? (playbackIndex(instance, slot) != 5u || instance.sourceModes[slot].load() == 4u) && instance.playbackClocks[slot].load() != 0u
             : slotOptionEnabled(instance, slot, kSlotSyncOption)) ? 127u : 0u;
     }
 #if defined(__APPLE__)
@@ -3328,6 +3588,7 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
 {
     auto& instance = *self(plugin);
     if (!instance.engine.prepare(sampleRate, maximumFrames)) return false;
+    for (auto& layer : instance.stackWaveformLayers) layer.store(-1);
     instance.sampleRate = sampleRate;
     instance.neonPadInput.prepare(sampleRate);
     instance.maximumFrames = maximumFrames;
@@ -3346,8 +3607,8 @@ bool pluginActivate(const clap_plugin_t* plugin, double sampleRate,
         return false;
     }
     for (std::size_t slot = 0u; slot < instance.audioAssets.size(); ++slot) {
-        instance.audioAssets[slot] = instance.publishedAssets[slot].load(
-            std::memory_order_acquire);
+        const auto* stack = instance.publishedStacks[slot].load(std::memory_order_acquire);
+        instance.audioAssets[slot] = renderBase(stack);
         instance.engine.setPreparedAsset(slot, instance.audioAssets[slot]);
     }
     instance.sendNeonInitialization.store(true, std::memory_order_release);
@@ -3371,21 +3632,28 @@ void pluginDeactivate(const clap_plugin_t* plugin)
 #endif
     instance.neonWasActive = false;
     instance.engine.unprepare();
+    for (auto& layer : instance.stackWaveformLayers) layer.store(-1);
     instance.audioAssets.fill(nullptr);
     instance.retainedWavesets.clear();
     for (std::size_t slot = 0u; slot < 32u; ++slot) {
         if (instance.controlWavesets[slot]
-            && instance.controlWavesets[slot]->asset.get() != instance.controlAssets[slot].get()) {
+            && instance.controlWavesets[slot]->asset.get() != instance.sources[slot][0].asset.get()) {
             instance.publishedWavesets[slot].store(nullptr);
             instance.controlWavesets[slot].reset(); instance.waveAnalysisAttempted[slot] = nullptr;
         }
-        if (instance.controlWavesets[slot]) instance.retainedWavesets.push_back(instance.controlWavesets[slot]);
+        for (const auto& source : instance.sources[slot])
+            if (source.wavesets) instance.retainedWavesets.push_back(source.wavesets);
     }
     for (auto& channel : instance.scratch) channel.clear();
     std::lock_guard<std::mutex> lock(instance.statusMutex);
     instance.retainedAssets.clear();
-    for (const auto& asset : instance.controlAssets)
-        if (asset) instance.retainedAssets.push_back(asset);
+    // Seed the next activation's retirement pool with every live source,
+    // including the review take. Replacing/cropping one must not free audio
+    // still referenced by a voice after the host reactivates processing.
+    for (const auto& stack : instance.sources)
+        for (const auto& source : stack)
+            if (source.asset) instance.retainedAssets.push_back(source.asset);
+    if (instance.captureAsset) instance.retainedAssets.push_back(instance.captureAsset);
 }
 
 bool pluginStartProcessing(const clap_plugin_t* plugin)
@@ -3409,6 +3677,7 @@ void pluginReset(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
     instance.engine.reset();
+    for (auto& layer : instance.stackWaveformLayers) layer.store(-1);
     instance.neonState = {};
     instance.neonPadInput.clear();
     instance.heldSlots.fill(0xffu);
@@ -3461,8 +3730,8 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
             std::memory_order_relaxed);
     serviceGuiParamEvents(instance, process->out_events);
     for (std::size_t slot = 0u; slot < instance.audioAssets.size(); ++slot) {
-        const auto* asset = instance.publishedAssets[slot].load(
-            std::memory_order_acquire);
+        const auto* stack = instance.publishedStacks[slot].load(std::memory_order_acquire);
+        const auto* asset = renderBase(stack);
         if (asset != instance.audioAssets[slot]) {
             instance.audioAssets[slot] = asset;
             instance.engine.setPreparedAsset(slot, asset);
@@ -3538,6 +3807,8 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
             for (uint32_t frame = 0u; frame < process->frames_count; ++frame)
                 pointers[channel][frame] += previewPointers[channel][frame];
     for (std::size_t slot = 0u; slot < instance.slotPeaks.size(); ++slot) {
+        instance.stackPositions[slot].store(instance.engine.stackPosition(slot));
+        instance.stackWaveformLayers[slot].store(instance.engine.stackWaveformLayer(slot, settings));
         instance.slotPeaks[slot].store(instance.engine.slotPeak(slot),
             std::memory_order_relaxed);
         instance.slotPlaying[slot].store(instance.engine.slotPlaybackActive(slot), std::memory_order_relaxed);
@@ -3550,18 +3821,21 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
             instance.engine.voiceCursorCount(slot),
             static_cast<uint32_t>(s3g::sample::kMaximumVoices)));
         const auto& cursors = instance.engine.voiceCursors(slot);
+        uint8_t visibleCursors = 0u;
         for (uint8_t cursor = 0u; cursor < cursorCount; ++cursor) {
-            instance.voiceCursorPositions[slot][cursor].store(
+            instance.voiceCursorAssets[slot][visibleCursors].store(cursors[cursor].sourceAsset);
+            instance.voiceCursorPositions[slot][visibleCursors].store(
                 cursors[cursor].sourcePositionNormalized,
                 std::memory_order_relaxed);
-            instance.voiceCursorStarts[slot][cursor].store(
+            instance.voiceCursorStarts[slot][visibleCursors].store(
                 cursors[cursor].sourceStartNormalized,
                 std::memory_order_relaxed);
-            instance.voiceCursorEnds[slot][cursor].store(
+            instance.voiceCursorEnds[slot][visibleCursors].store(
                 cursors[cursor].sourceEndNormalized,
                 std::memory_order_relaxed);
+            ++visibleCursors;
         }
-        instance.voiceCursorCounts[slot].store(cursorCount,
+        instance.voiceCursorCounts[slot].store(visibleCursors,
             std::memory_order_release);
     }
     instance.outputPeak.store(instance.engine.outputPeak(),
@@ -3605,6 +3879,7 @@ void pluginOnMainThread(const clap_plugin_t* plugin)
     (void)plugin;
 #endif
     serviceWavesets(*self(plugin));
+    serviceStorage(instance);
 }
 
 #if defined(S3G_ENABLE_VSTGUI_SAMPLE_NEON_GUI)
@@ -3645,15 +3920,18 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Neon 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.22.4",
+    "", "", "0.26.0",
     "Channel-linked Neon sampler: stereo, quad, octo and ACN/SN3D ambisonics, with 32 output channels.",
     multichannelFeatures,
 };
 
 void initializeSoundDefaults(Plugin* instance)
 {
+    for (auto& pad : instance->familyControls)
+        for (unsigned i = 0; i < kNeonFamilyCount; ++i) pad[i].store(neonFamilyDef(i).initial);
     for (auto& cell : instance->lastPlayedCells) cell.store(0xffu);
     for (auto& playing : instance->slotPlaying) playing.store(false);
+    for (auto& layer : instance->stackWaveformLayers) layer.store(-1);
     for (std::size_t index = 0u; index < kStoredParamCount; ++index) {
         const clap_id id = parameterIdAt(index);
         std::size_t stored = 0u;
@@ -3667,6 +3945,9 @@ void initializeSoundDefaults(Plugin* instance)
         instance->parameters[index].store(value, std::memory_order_relaxed);
     }
     for (std::size_t slot = 0u; slot < instance->statuses.size(); ++slot) {
+        instance->selectedLayers[slot].store(0u); instance->sourceModes[slot].store(0u);
+        instance->stackSeconds[slot].store(ControlDefaults::cycleSeconds); instance->stackBeats[slot].store(ControlDefaults::cycleBeats);
+        instance->stackPaths[slot].store(2u); instance->stackPositions[slot].store(0.0f);
         instance->statuses[slot] = "DROP OR LOAD A SAMPLE";
         instance->publishedAssets[slot].store(nullptr,
             std::memory_order_relaxed);
@@ -3692,7 +3973,7 @@ void initializeSoundDefaults(Plugin* instance)
             SampleNeonChopMode::Equal), std::memory_order_relaxed);
         instance->chopBeatDivisions[slot].store(2u,
             std::memory_order_relaxed);
-        instance->sourceBpms[slot].store(120.0,
+        instance->sourceBpms[slot].store(ControlDefaults::sourceBpm,
             std::memory_order_relaxed);
         instance->transientPreRollMs[slot].store(0.0f, std::memory_order_relaxed);
         instance->transientSliceLimits[slot].store(32u, std::memory_order_relaxed);
@@ -3712,17 +3993,17 @@ void initializeSoundDefaults(Plugin* instance)
         for (unsigned effect = 0u; effect < 8u; ++effect)
             for (unsigned n = 0u; n < 3u; ++n) instance->fxParameters[slot][effect][n].store(s3g::sample::kSampleNeonFxDefaults[effect][n]);
         for (auto& method : instance->techniqueParameters[slot])
-            for (unsigned n = 0u; n < 4u; ++n) method[n].store(n == 0u ? 0.35f : n == 3u ? 1.0f : 0.0f);
-        instance->motionSeconds[slot].store(4.0f);
-        instance->shotSeconds[slot].store(1.0f);
-        instance->techniqueAttackSeconds[slot].store(0.005f);
-        instance->techniqueReleaseSeconds[slot].store(0.005f);
-        instance->grainIntervals[slot].store(0.25f);
+            for (unsigned n = 0u; n < 4u; ++n) method[n].store(ControlDefaults::technique[n]);
+        instance->motionSeconds[slot].store(ControlDefaults::cycleSeconds);
+        instance->shotSeconds[slot].store(ControlDefaults::shotSeconds);
+        instance->techniqueAttackSeconds[slot].store(ControlDefaults::techniqueEnvelope);
+        instance->techniqueReleaseSeconds[slot].store(ControlDefaults::techniqueEnvelope);
+        instance->grainIntervals[slot].store(ControlDefaults::grainInterval);
         instance->textureOptions[slot].store(0u,
             std::memory_order_relaxed);
         instance->motionPaths[slot].store(static_cast<uint8_t>(
             SampleNeonMotionPath::Forward), std::memory_order_relaxed);
-        instance->motionRates[slot].store(8.0f,
+        instance->motionRates[slot].store(ControlDefaults::cycleBeats,
             std::memory_order_relaxed);
         instance->motionLoci[slot].store(0.5f,
             std::memory_order_relaxed);
@@ -3732,13 +4013,13 @@ void initializeSoundDefaults(Plugin* instance)
             std::memory_order_relaxed);
         instance->laneMotionDepths[slot].store(0.0f,
             std::memory_order_relaxed);
-        instance->grainDensities[slot].store(12.0f,
+        instance->grainDensities[slot].store(ControlDefaults::grainDensity,
             std::memory_order_relaxed);
-        instance->grainSizes[slot].store(80.0f,
+        instance->grainSizes[slot].store(ControlDefaults::grainSize,
             std::memory_order_relaxed);
         instance->grainPositions[slot].store(0.5f,
             std::memory_order_relaxed);
-        instance->grainSprays[slot].store(0.15f,
+        instance->grainSprays[slot].store(ControlDefaults::grainSpray,
             std::memory_order_relaxed);
         instance->grainPitchSprays[slot].store(0.0f,
             std::memory_order_relaxed);

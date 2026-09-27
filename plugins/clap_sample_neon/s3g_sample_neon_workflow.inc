@@ -7,6 +7,23 @@ enum class WorkflowCommand : uint8_t {
 constexpr uint64_t kMaximumEmbeddedSamples = 64u * 1024u * 1024u;
 void initializeSoundDefaults(Plugin* instance);
 
+struct NeonAudioBudget {
+    std::array<const SampleAsset*, 1057u> seen {};
+    std::size_t count = 0u;
+    uint64_t samples = 0u;
+    void add(const SampleAsset* asset) {
+        if (!asset || std::find(seen.begin(), seen.begin() + count, asset) != seen.begin() + count) return;
+        seen[count++] = asset;
+        samples += static_cast<uint64_t>(asset->channelCount) * asset->frameCount();
+    }
+    void pad(const Plugin& p, unsigned slot, int skipLayer = -1) {
+        for (unsigned layer = 0u; layer < 32u; ++layer) {
+            const auto& s = p.sources[slot][layer];
+            if (static_cast<int>(layer) != skipLayer && (p.storageMode == StorageMode::Embed || s.path.empty())) add(s.asset.get());
+        }
+    }
+};
+
 // Main-thread clipboard: immutable PCM is shared, all editable state is copied.
 // This inventory includes hidden legacy fields so a cell is a complete snapshot.
 #define S3G_NEON_CELL_FIELDS(X) \
@@ -17,7 +34,8 @@ void initializeSoundDefaults(Plugin* instance);
     X(editPositions) X(textureOptions) X(motionPaths) X(playbackClocks) X(motionSeconds) X(shotSeconds) \
     X(techniqueAttackSeconds) X(techniqueReleaseSeconds) X(grainIntervals) X(fxParameters) X(techniqueParameters) \
     X(motionRates) X(motionLoci) X(motionFields) X(lanePositions) X(laneMotionDepths) \
-    X(grainDensities) X(grainSizes) X(grainPositions) X(grainSprays) X(grainPitchSprays) X(grainReverseChances)
+    X(grainDensities) X(grainSizes) X(grainPositions) X(grainSprays) X(grainPitchSprays) X(grainReverseChances) \
+    X(selectedLayers) X(sourceModes) X(stackPaths) X(stackSeconds) X(stackBeats) X(familyControls)
 template<class T> T readCellValue(const std::atomic<T>& value) { return value.load(); }
 template<class T, std::size_t N> auto readCellValue(const std::array<T, N>& value) {
     std::array<decltype(readCellValue(value[0])), N> result;
@@ -29,6 +47,7 @@ template<class T, class V, std::size_t N> void writeCellValue(std::array<T, N>& 
     for (std::size_t n = 0u; n < N; ++n) writeCellValue(target[n], value[n]);
 }
 struct CellClipboard {
+    std::array<LayerSource, 32u> sources;
     std::shared_ptr<const SampleAsset> asset;
     std::string path;
     bool embedded = false;
@@ -42,6 +61,8 @@ bool copyCell(Plugin& p, std::size_t slot) {
     if (slot >= 32u || p.resetAllPhase.load()) return false;
     try {
         auto copy = std::make_shared<CellClipboard>();
+        saveLayerEdit(p, slot);
+        copy->sources = p.sources[slot];
         {
             std::lock_guard<std::mutex> lock(p.statusMutex);
             if (!p.controlAssets[slot]) { p.workflowMessage = "COPY NEEDS A LOADED CELL"; return false; }
@@ -61,17 +82,12 @@ bool copyCell(Plugin& p, std::size_t slot) {
 bool pasteCell(Plugin& p, std::size_t slot) {
     const auto copy = p.cellClipboard;
     if (slot >= 32u || !copy || p.resetAllPhase.load()) return false;
-    // The clipboard may outlive a cleared source. Account for its PCM before
-    // adding embedded audio back into the set, deduplicating shared assets.
-    std::array<const SampleAsset*, 34u> seen {}; std::size_t count = 0u;
-    uint64_t samples = 0u;
-    const auto account = [&](const SampleAsset* asset) {
-        if (!asset || std::find(seen.begin(), seen.begin() + count, asset) != seen.begin() + count) return;
-        seen[count++] = asset; samples += static_cast<uint64_t>(asset->frameCount()) * asset->channelCount;
-    };
-    for (std::size_t n = 0u; n < 32u; ++n) if (n != slot && p.embeddedAssets[n]) account(p.controlAssets[n].get());
-    account(p.captureAsset.get()); if (copy->embedded) account(copy->asset.get());
-    if (samples > kMaximumEmbeddedSamples) { p.workflowMessage = "SET AUDIO LIMIT REACHED; NOTHING REPLACED"; return false; }
+    NeonAudioBudget stackBudget;
+    for (unsigned pad = 0u; pad < 32u; ++pad) if (pad != slot) stackBudget.pad(p, pad);
+    stackBudget.add(p.captureAsset.get());
+    for (const auto& layer : copy->sources)
+        if (p.storageMode == StorageMode::Embed || layer.path.empty()) stackBudget.add(layer.asset.get());
+    if (stackBudget.samples > kMaximumEmbeddedSamples) { p.workflowMessage = "SET AUDIO LIMIT REACHED; NOTHING REPLACED"; return false; }
     try {
         auto analysis = copy->analysis;
         std::string path = copy->path;
@@ -85,6 +101,12 @@ bool pasteCell(Plugin& p, std::size_t slot) {
         { std::lock_guard<std::mutex> lock(p.statusMutex); p.slotAnalyses[slot] = std::move(analysis); }
         publishAsset(p, slot, copy->asset, std::move(path), true);
         p.embeddedAssets[slot] = copy->embedded; p.waveformZooms[slot].store(1.0f);
+        p.sources[slot] = copy->sources;
+        for (auto& layer : p.sources[slot]) if (!layer.wavesets) {
+            layer.waveAnalysisAttempted = nullptr; layer.waveAnalysisPending = false;
+        }
+        for (const auto& layer : p.sources[slot]) if (layer.asset) p.retainedAssets.push_back(layer.asset);
+        publishStack(p, slot);
         p.pendingCellStops.fetch_or(1u << slot);
         p.selectedSlot.store(static_cast<uint8_t>(slot)); p.cellBank.store(static_cast<uint8_t>(slot / 8u));
         // Put the copied values after any earlier queued GUI gestures.
@@ -106,23 +128,37 @@ bool fxAllowed(const Plugin& p, std::size_t slot, unsigned effect) noexcept {
     return effect < 8u && (paramValue(p, slotParamId(slot, kSlotSourceFormat)) < 0.5
         || s3g::sample::sampleNeonFxAmbisonicSafe(static_cast<SampleNeonMangleCharacter>(effect)));
 }
+uint8_t playbackEditPage(unsigned method) noexcept { return static_cast<uint8_t>(method == 6u ? 9u : method + 1u); }
 uint8_t effectiveEditPage(const Plugin& p) noexcept {
     const auto page = p.editPage.load();
-    if (page == 0u || page == 7u) return page;
+    if (page == 0u || page == 7u || page == 8u) return page;
     // Playback Settings is a view of the selected cell, not a stale engine
     // page left over from the previously selected pad.
-    return static_cast<uint8_t>(playbackIndex(p, p.selectedSlot.load()) + 1u);
+    return playbackEditPage(playbackIndex(p, p.selectedSlot.load()));
 }
 void choosePlayback(Plugin& p, unsigned method) noexcept {
     const auto slot = p.selectedSlot.load();
     if (method >= kPlaybackOptions.size() || (method == 5u && paramValue(p, slotParamId(slot, kSlotSourceFormat)) >= 0.5)) return;
     p.textureOptions[slot].store(kPlaybackOptions[method]);
-    p.editPage.store(static_cast<uint8_t>(method ? method + 1u : 0u));
+    if (method == 0u && p.sourceModes[slot].load() == 4u) p.sourceModes[slot].store(1u);
+    if (method == 3u || (method == 5u && p.sourceModes[slot].load() != 4u)) p.sourceModes[slot].store(0u);
+    if (method == 3u && p.selectedLayers[slot].load() != 0u)
+        p.pendingLayerSelection.store(static_cast<uint32_t>(slot << 8u));
+    p.editPage.store(method ? playbackEditPage(method) : 0u);
     markStateDirty(p); requestProcess(p);
     if (p.host && p.host->request_callback) p.host->request_callback(p.host);
 }
 double advancedKnobValue(Plugin& p, bool loop) noexcept {
     const auto slot = p.selectedSlot.load(), page = effectiveEditPage(p);
+    if (page == 9u) return loop ? p.familyControls[slot][neonFamilyIndex(NeonFamily::LaneAuto)].load() != 0
+        ? p.stackPositions[slot].load() : p.familyControls[slot][neonFamilyIndex(NeonFamily::LanePosition)].load()
+        : (p.familyControls[slot][neonFamilyIndex(NeonFamily::LaneRate)].load() - .25) / 3.75;
+    if (page == 8u) {
+        const auto pending = p.pendingLayerSelection.load();
+        const auto selected = pending != UINT32_MAX && (pending >> 8u) == slot ? pending & 31u : p.selectedLayers[slot].load();
+        return loop ? selected / 31.0 : p.playbackClocks[slot].load()
+            ? nearestMotionCycleIndex(p.stackBeats[slot].load()) / 7.0 : (p.stackSeconds[slot].load() - 0.05) / 29.95;
+    }
     if (page == 7u) {
         if (p.fxPair.load() && !loop) return paramValue(p, slotParamId(slot, kSlotMangle));
         const auto effect = static_cast<unsigned>(paramValue(p, slotParamId(slot, kSlotCharacter)));
@@ -137,7 +173,19 @@ double advancedKnobValue(Plugin& p, bool loop) noexcept {
 void setAdvancedKnob(Plugin& p, bool loop, double value) noexcept {
     value = std::clamp(value, 0.0, 1.0);
     const auto slot = p.selectedSlot.load(), page = effectiveEditPage(p);
-    if (page == 7u) {
+    if (page == 9u) {
+        p.familyControls[slot][neonFamilyIndex(loop ? NeonFamily::LanePosition : NeonFamily::LaneRate)].store(
+            static_cast<float>(loop ? value : .25 + value * 3.75));
+        if (loop) p.familyControls[slot][neonFamilyIndex(NeonFamily::LaneAuto)].store(0);
+    } else if (page == 8u) {
+        // Layer changes allocate source snapshots and are main-thread work.
+        if (loop) {
+            const auto* stack = p.publishedStacks[slot].load(std::memory_order_acquire);
+            if (stack && stack->count) p.pendingLayerSelection.store((static_cast<uint32_t>(slot) << 8u)
+                | std::min<unsigned>(stack->count - 1u, static_cast<unsigned>(std::lround(value * 31.0))));
+        } else if (p.playbackClocks[slot].load()) p.stackBeats[slot].store(kMotionCycleBeats[static_cast<unsigned>(std::lround(value * 7.0))]);
+        else p.stackSeconds[slot].store(static_cast<float>(0.05 + value * 29.95));
+    } else if (page == 7u) {
         if (p.fxPair.load() && !loop) setParam(p, slotParamId(slot, kSlotMangle), value);
         else {
             const auto effect = static_cast<unsigned>(paramValue(p, slotParamId(slot, kSlotCharacter)));
@@ -155,29 +203,36 @@ void setAdvancedKnob(Plugin& p, bool loop, double value) noexcept {
 void serviceWavesets(Plugin& p) {
     if (p.resetAllPhase.load()) return;
     for (unsigned slot = 0u; slot < 32u; ++slot) {
-        const auto asset = p.controlAssets[slot];
-        if (playbackIndex(p, slot) != 5u || !asset || p.waveAnalysisAttempted[slot] == asset.get()
-            || paramValue(p, slotParamId(slot, kSlotSourceFormat)) >= 0.5) continue;
-        p.waveAnalysisAttempted[slot] = asset.get();
-        try {
-            auto map = s3g::sample::analyzeWavesets(asset);
-            if (map) p.retainedWavesets.push_back(map);
-            p.controlWavesets[slot] = std::move(map);
-            p.publishedWavesets[slot].store(p.controlWavesets[slot].get(), std::memory_order_release);
-            if (!p.controlWavesets[slot]) p.workflowMessage = "WAVESETS: SOURCE NEEDS USABLE WAVEFORM CYCLES";
-        } catch (...) { p.workflowMessage = "WAVESET ANALYSIS FAILED; SOURCE KEPT"; }
-        requestProcess(p);
+        if (playbackIndex(p, slot) != 5u || paramValue(p, slotParamId(slot, kSlotSourceFormat)) >= 0.5) continue;
+        const unsigned count = p.sourceModes[slot].load() == 4u ? stackCount(p, slot) : 1u;
+        for (unsigned layer = 0u; layer < count; ++layer) {
+            auto& source = p.sources[slot][layer];
+            if (!source.asset || source.waveAnalysisAttempted == source.asset.get()) continue;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+            LoadRequest request;
+            request.slot = static_cast<uint8_t>(slot); request.layer = static_cast<uint8_t>(layer);
+            request.generation = p.layerGenerations[slot][layer]; request.dirty = false;
+            request.wavesetsOnly = true; request.asset = source.asset;
+            { std::lock_guard<std::mutex> lock(p.loaderMutex); p.loadRequests.push_back(std::move(request)); }
+            source.waveAnalysisAttempted = source.asset.get();
+            source.waveAnalysisPending = true;
+            p.loaderCondition.notify_one();
+#endif
+        }
     }
 }
 
 void requestWorkflow(Plugin& p, WorkflowCommand command) noexcept
 {
     if (p.resetAllPhase.load()) return;
-    if (command == WorkflowCommand::MapAll && p.replaceChopSource.load())
-        command = WorkflowCommand::MapAllReplace;
+    // Snapshot destination and distribution with the source/slice. Hardware
+    // requests may wait for the main thread while the user changes menus.
+    const unsigned destination = p.chopDestination.load();
     const uint32_t message = static_cast<uint32_t>(command)
         | (static_cast<uint32_t>(p.selectedSlot.load()) << 8u)
-        | (static_cast<uint32_t>(p.visibleSlice.load()) << 16u);
+        | (static_cast<uint32_t>(p.visibleSlice.load()) << 16u)
+        | (static_cast<uint32_t>(destination < 32u ? destination + 1u : 0u) << 24u)
+        | (static_cast<uint32_t>(p.slicesToStack.load()) << 30u);
     uint32_t empty = 0u;
     if (p.pendingEditCommand.compare_exchange_strong(empty, message)
         && p.host && p.host->request_callback) p.host->request_callback(p.host);
@@ -216,25 +271,51 @@ void selectSurfaceBank(Plugin& p, uint8_t bank) noexcept
 
 bool emptyCell(const Plugin& p, std::size_t slot)
 {
-    return slot < 32u && !p.controlAssets[slot] && p.samplePaths[slot].empty();
+    return slot < 32u && stackCount(p, slot) == 0u;
+}
+
+std::string chopPadName(std::size_t pad) {
+    return std::string(1u, static_cast<char>('A' + pad / 8u)) + std::to_string(pad % 8u + 1u);
+}
+s3g::sample::NeonChopDestinationPlan chopDestinationPlan(const Plugin& p, unsigned source,
+    unsigned slices, bool stack, unsigned target, bool replaceSourceAuto = false) {
+    uint32_t occupied = 0u;
+    for (unsigned pad = 0u; pad < 32u; ++pad) if (!emptyCell(p, pad)) occupied |= 1u << pad;
+    return s3g::sample::neonChopDestinationPlan(occupied, source, slices, stack, target, replaceSourceAuto);
+}
+std::string chopDestinationSummary(const s3g::sample::NeonChopDestinationPlan& plan) {
+    using Error = s3g::sample::NeonChopDestinationError;
+    if (plan.error == Error::Occupied) return chopPadName(plan.blockedPad) + " OCCUPIED";
+    if (plan.error == Error::PastLastPad) return "RANGE PAST D8";
+    if (plan.error == Error::NotEnoughEmpty) return "NOT ENOUGH EMPTY PADS";
+    if (!plan.valid()) return "INVALID DESTINATION";
+    std::string result;
+    for (unsigned n = 0u; n < plan.count; ++n) {
+        if (!result.empty()) result += ", ";
+        result += chopPadName(plan.pads[n]);
+        const unsigned first = n;
+        while (n + 1u < plan.count && plan.pads[n + 1u] == plan.pads[n] + 1u) ++n;
+        if (n != first) result += "-" + chopPadName(plan.pads[n]);
+    }
+    return result;
 }
 
 void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t selected = 0u,
-    bool replaceSource = false)
+    bool replaceSourceAuto = false, unsigned target = s3g::sample::kNeonChopAutoDestination,
+    bool stackDestination = false)
 {
     const auto asset = p.controlAssets[source];
     if (!asset) return;
     const auto layout = sliceLayout(p, source);
     const std::size_t required = all ? layout.sliceCount : 1u;
-    std::vector<std::size_t> destinations;
-    if (replaceSource && all) destinations.push_back(source);
-    for (std::size_t slot = 0u; slot < 32u && destinations.size() < required; ++slot)
-        if (emptyCell(p, slot)) destinations.push_back(slot);
-    if (destinations.size() != required) {
-        p.workflowMessage = "NEED " + std::to_string(required - (replaceSource ? 1u : 0u))
-            + " EMPTY CELLS; NOTHING REPLACED";
+    const auto plan = chopDestinationPlan(p, static_cast<unsigned>(source), static_cast<unsigned>(required),
+        stackDestination, target, replaceSourceAuto);
+    if (!plan.valid()) {
+        p.workflowMessage = chopDestinationSummary(plan) + "; NOTHING CHANGED";
         return;
     }
+    const auto& destinations = plan.pads;
+    const bool replaceSource = plan.replacesSource;
     const auto settings = settingsSnapshot(p).slots[source];
     // Prepare every standalone sample before replacing any cell, including
     // the source. Adjacent slices share one rounded, integer-frame boundary.
@@ -245,19 +326,11 @@ void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t sele
             std::clamp(start + range * layout.boundaries[marker], 0.0, 1.0) * asset->frameCount()));
     std::array<std::shared_ptr<const SampleAsset>, 32u> samples {};
     std::array<s3g::sample::CutupsLaneMetadata, 32u> analyses {};
-    uint64_t storedSamples = 0u;
-    std::array<const SampleAsset*, 33u> retained {};
-    std::size_t retainedCount = 0u;
-    const auto accountFor = [&](const SampleAsset* existing) {
-        if (!existing || std::find(retained.begin(), retained.begin() + retainedCount, existing)
-                != retained.begin() + retainedCount) return;
-        retained[retainedCount++] = existing;
-        storedSamples += static_cast<uint64_t>(existing->channelCount) * existing->frameCount();
-    };
-    for (std::size_t slot = 0u; slot < 32u; ++slot)
-        if (p.embeddedAssets[slot] && std::find(destinations.begin(), destinations.end(), slot) == destinations.end())
-            accountFor(p.controlAssets[slot].get());
-    accountFor(p.captureAsset.get());
+    NeonAudioBudget stackBudget;
+    for (unsigned pad = 0u; pad < 32u; ++pad)
+        if (std::find(destinations.begin(), destinations.begin() + plan.count, pad) == destinations.begin() + plan.count) stackBudget.pad(p, pad);
+    stackBudget.add(p.captureAsset.get());
+    uint64_t storedSamples = stackBudget.samples;
     for (std::size_t index = 0u; index < required; ++index) {
         const auto slice = all ? index : std::min<std::size_t>(selected, layout.sliceCount - 1u);
         if (edges[slice] >= edges[slice + 1u]) {
@@ -292,10 +365,11 @@ void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t sele
     for (clap_id offset = 0u; offset < kSlotParameterCount; ++offset)
         sourceParameters[offset] = paramValue(p, slotParamId(source, static_cast<SlotParamOffset>(offset)));
     for (std::size_t index = 0u; index < required; ++index) {
-        const auto destination = destinations[index];
+        const auto destination = destinations[stackDestination ? 0u : index];
         // The committed cell owns only this slice, not the original file plus
         // trim offsets. Reopening CHOP can now slice this new sample again.
-        clearSample(p, destination); // Cancels any stale loader generation.
+        if (!stackDestination || index == 0u) clearSample(p, destination);
+        if (stackDestination) p.selectedLayers[destination].store(static_cast<uint8_t>(index));
         for (clap_id offset = 0u; offset < kSlotParameterCount; ++offset)
             setParam(p, slotParamId(destination, static_cast<SlotParamOffset>(offset)),
                 kSlotParamDefs[offset].defaultValue);
@@ -333,9 +407,18 @@ void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t sele
         // Already snapped in the source map: preserve exactly shared edges.
         p.parameters[kGlobalParamCount + destination * kSlotParameterCount + kSlotZeroCross].store(
             zeroCross);
+        saveLayerEdit(p, destination);
+        publishStack(p, destination);
+    }
+    if (stackDestination) {
+        saveLayerEdit(p, destinations[0]);
+        showLayer(p, destinations[0], 0u, false);
+        p.selectedSlot.store(static_cast<uint8_t>(destinations[0]));
+        p.cellBank.store(static_cast<uint8_t>(destinations[0] / 8u));
     }
     p.workflowMessage = "CREATED " + std::to_string(required)
-        + (replaceSource ? " SAMPLES; SOURCE IS SLICE 1" : " SAMPLES; SOURCE KEPT");
+        + (stackDestination ? " LAYERS > " : " SLICES > ") + chopDestinationSummary(plan)
+        + (replaceSource ? "; SOURCE REPLACED" : "; SOURCE KEPT");
     if (replaceSource) {
         p.visibleSlice.store(0u); p.chopBank.store(0u);
         p.visibleBank.store(0u);
@@ -362,12 +445,14 @@ void stopSoundForReset(Plugin& p) noexcept
     uint8_t requested = 1u;
     if (!p.resetAllPhase.compare_exchange_strong(requested, 3u, std::memory_order_acq_rel)) return;
     p.engine.reset(); p.capturePreview.reset();
+    for (auto& layer : p.stackWaveformLayers) layer.store(-1);
     p.heldGestures = {}; p.neonState = {};
     p.neonPadInput.clear();
     p.pendingAuditions.store(0u); p.pendingEditAuditions.store(0u);
     p.pendingCellStops.store(0u);
     p.pendingGuiReleases.store(0u); p.pendingGuiFx.store(UINT32_MAX);
     p.pendingSliceAudition.store(UINT32_MAX); p.pendingPerformanceAudition.store(UINT32_MAX);
+    p.pendingLayerAuditions.store(0u); p.pendingLayerSelection.store(UINT32_MAX);
     p.captureCommand.store(0); p.captureAudition.store(false);
     p.captureState.store(Plugin::CaptureState::Empty);
     p.killRequested.store(false);
@@ -405,6 +490,8 @@ void clearAllSound(Plugin& p)
         p.controlWavesets[slot].reset(); p.waveAnalysisAttempted[slot] = nullptr;
     }
     p.retainedWavesets.clear();
+    p.retainedStacks.clear();
+    for (auto& stack : p.publishedStacks) stack.store(nullptr);
     p.audioAssets.fill(nullptr);
     p.capturePreview.setPreparedAsset(nullptr); p.audioCapture = nullptr;
     { std::lock_guard<std::mutex> lock(p.statusMutex); p.retainedAssets.clear(); }
@@ -414,7 +501,8 @@ void clearAllSound(Plugin& p)
     p.captureTarget.store(255u); p.captureBus.store(0u); p.captureLayout.store(0u);
     p.flipRecording.store(false); p.flipPlaying.store(false); p.flipLooping.store(true);
     p.selectedFlipPattern.store(0u);
-    p.replaceChopSource.store(false); p.pendingEditCommand.store(0u);
+    p.chopDestination.store(s3g::sample::kNeonChopAutoDestination);
+    p.slicesToStack.store(false); p.pendingEditCommand.store(0u);
     p.selectedSlot.store(0u); p.visibleSlice.store(0u); p.visibleBank.store(0u);
     p.cellBank.store(0u); p.chopBank.store(0u); p.editPage.store(0u);
     p.visibleMode.store(0u); p.visibleLayer.store(0u);
@@ -453,24 +541,18 @@ void normalizeCell(Plugin& p, uint8_t slot)
     const double gain = s3g::sample::sampleNeonNormalizeGain(*source);
     if (gain == 0.0) { p.workflowMessage = "SILENT OR INVALID SOURCE; UNCHANGED"; return; }
     if (std::abs(gain - 1.0) < 1.0e-6) { p.workflowMessage = "SOURCE ALREADY AT -1 dBFS"; return; }
-    // Embedded PCM is counted once per distinct asset, just like state saving.
-    std::array<const SampleAsset*, 33u> seen {};
-    std::size_t count = 0u;
-    uint64_t samples = static_cast<uint64_t>(source->frameCount()) * source->channelCount;
-    const auto account = [&](const SampleAsset* asset) {
-        if (!asset || std::find(seen.begin(), seen.begin() + count, asset) != seen.begin() + count) return;
-        seen[count++] = asset;
-        samples += static_cast<uint64_t>(asset->frameCount()) * asset->channelCount;
-    };
-    for (std::size_t n = 0u; n < 32u; ++n)
-        if (n != slot && p.embeddedAssets[n]) account(p.controlAssets[n].get());
-    account(p.captureAsset.get());
-    if (samples > kMaximumEmbeddedSamples) { p.workflowMessage = "SET AUDIO LIMIT REACHED; SOURCE KEPT"; return; }
+    NeonAudioBudget stackBudget;
+    for (unsigned pad = 0u; pad < 32u; ++pad) stackBudget.pad(p, pad,
+        pad == slot ? static_cast<int>(p.selectedLayers[slot].load()) : -1);
+    stackBudget.add(p.captureAsset.get());
+    if (stackBudget.samples + static_cast<uint64_t>(source->frameCount()) * source->channelCount > kMaximumEmbeddedSamples) {
+        p.workflowMessage = "SET AUDIO LIMIT REACHED; SOURCE KEPT"; return;
+    }
     try {
         auto normalized = std::make_shared<SampleAsset>(s3g::sample::sampleNeonNormalize(*source));
         auto analysis = s3g::sample::analyzeCutupsAsset(*normalized, 32u, 5.0, 1000u, 20.0);
         { std::lock_guard<std::mutex> lock(p.statusMutex); p.retainedAssets.reserve(p.retainedAssets.size() + 1u); }
-        clearSample(p, slot); // Cancel stale file loads; never write the source file.
+        invalidateLayerLoads(p, slot); // Keep other stack layers and their edits.
         publishAsset(p, slot, std::move(normalized), "", true);
         p.embeddedAssets[slot] = true;
         { std::lock_guard<std::mutex> lock(p.statusMutex); p.slotAnalyses[slot] = std::move(analysis); }
@@ -486,6 +568,8 @@ void serviceWorkflow(Plugin& p)
     if (p.resetAllPhase.load() == 1u && !p.processing.load()) stopSoundForReset(p);
     if (p.resetAllPhase.load() == 2u) { clearAllSound(p); return; }
     if (p.resetAllPhase.load()) return;
+    const auto selection = p.pendingLayerSelection.exchange(UINT32_MAX);
+    if (selection != UINT32_MAX) showLayer(p, (selection >> 8u) & 31u, selection & 31u);
     if (p.captureState.load(std::memory_order_acquire) == Plugin::CaptureState::Ready) {
         if (p.recorder.count() > 0u) {
             try {
@@ -512,10 +596,14 @@ void serviceWorkflow(Plugin& p)
     const auto command = static_cast<WorkflowCommand>(encoded & 0xffu);
     const auto slot = static_cast<uint8_t>((encoded >> 8u) & 0x1fu);
     const auto slice = static_cast<uint8_t>((encoded >> 16u) & 0x1fu);
+    const unsigned destination = (encoded >> 24u) & 0x3fu;
+    const unsigned chopTarget = destination ? destination - 1u : s3g::sample::kNeonChopAutoDestination;
+    const bool stackDestination = (encoded & (1u << 30u)) != 0u;
     switch (command) {
-    case WorkflowCommand::MapSlice: mapChopToBanks(p, slot, false, slice); break;
-    case WorkflowCommand::MapAll: mapChopToBanks(p, slot); break;
-    case WorkflowCommand::MapAllReplace: mapChopToBanks(p, slot, true, 0u, true); break;
+    case WorkflowCommand::MapSlice: mapChopToBanks(p, slot, false, slice, false, chopTarget, stackDestination); break;
+    case WorkflowCommand::MapAll: mapChopToBanks(p, slot, true, 0u, false, chopTarget, stackDestination); break;
+    case WorkflowCommand::MapAllReplace: mapChopToBanks(p, slot, true, 0u, true,
+        s3g::sample::kNeonChopAutoDestination, stackDestination); break;
     case WorkflowCommand::CropCapture: cropCapture(p); break;
     case WorkflowCommand::Normalize: normalizeCell(p, slot); break;
     case WorkflowCommand::ResetAll:
@@ -649,8 +737,8 @@ void chopToolAction(Plugin& p, uint8_t pad, bool shifted = false) noexcept
     }
 }
 
-bool writeEmbeddedAudio(const clap_ostream_t* stream,
-    const std::array<const SampleAsset*, 33u>& assets)
+template<std::size_t N> bool writeEmbeddedAudio(const clap_ostream_t* stream,
+    const std::array<const SampleAsset*, N>& assets)
 {
     uint64_t samples = 0u;
     for (std::size_t index = 0u; index < assets.size(); ++index) {
@@ -678,8 +766,8 @@ bool writeEmbeddedAudio(const clap_ostream_t* stream,
     return true;
 }
 
-bool readEmbeddedAudio(const clap_istream_t* stream,
-    std::array<std::shared_ptr<const SampleAsset>, 33u>& assets)
+template<std::size_t N> bool readEmbeddedAudio(const clap_istream_t* stream,
+    std::array<std::shared_ptr<const SampleAsset>, N>& assets)
 {
     uint64_t samples = 0u;
     try {

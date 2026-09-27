@@ -11,6 +11,44 @@
 
 namespace s3g::sample {
 
+// One planner is shared by the CHOP destination display and the committing
+// edit. Explicit starts are consecutive and never wrap D8 back to A1.
+constexpr unsigned kNeonChopAutoDestination = 32u;
+enum class NeonChopDestinationError { None, Invalid, Occupied, PastLastPad, NotEnoughEmpty };
+struct NeonChopDestinationPlan {
+    std::array<std::size_t, 32u> pads {};
+    unsigned count = 0u, blockedPad = 0u;
+    bool replacesSource = false;
+    NeonChopDestinationError error = NeonChopDestinationError::None;
+    bool valid() const noexcept { return error == NeonChopDestinationError::None; }
+};
+inline NeonChopDestinationPlan neonChopDestinationPlan(uint32_t occupied, unsigned source,
+    unsigned slices, bool stack, unsigned target = kNeonChopAutoDestination,
+    bool replaceSourceAuto = false) noexcept
+{
+    NeonChopDestinationPlan plan;
+    if (source >= 32u || slices == 0u || slices > 32u || target > kNeonChopAutoDestination) {
+        plan.error = NeonChopDestinationError::Invalid; return plan;
+    }
+    const unsigned needed = stack ? 1u : slices;
+    if (target < 32u) {
+        if (target + needed > 32u) { plan.error = NeonChopDestinationError::PastLastPad; return plan; }
+        for (unsigned pad = target; pad < target + needed; ++pad) {
+            if (((occupied >> pad) & 1u || pad == source) && !(target == source && pad == source)) {
+                plan.error = NeonChopDestinationError::Occupied; plan.blockedPad = pad; plan.count = 0u; return plan;
+            }
+            plan.pads[plan.count++] = pad;
+        }
+        plan.replacesSource = target == source;
+    } else {
+        if (replaceSourceAuto) { plan.pads[plan.count++] = source; plan.replacesSource = true; }
+        for (unsigned pad = 0u; pad < 32u && plan.count < needed; ++pad)
+            if (pad != source && !((occupied >> pad) & 1u)) plan.pads[plan.count++] = pad;
+        if (plan.count != needed) { plan.error = NeonChopDestinationError::NotEnoughEmpty; plan.count = 0u; }
+    }
+    return plan;
+}
+
 // Display only: CombinedPeaks envelopes every channel without summing signed
 // samples (opposite-polarity/spatial channels must not cancel on screen).
 enum class SampleNeonWaveformDisplay : uint8_t { CombinedPeaks, FirstChannel, AllChannels };

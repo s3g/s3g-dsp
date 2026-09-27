@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_sample_asset.h"
+#include "s3g_sample_windows.h"
 #include "s3g_sample_playback.h"
 #include "s3g_voice_output_allocator.h"
 
@@ -40,12 +41,7 @@ enum class MotionRateBasis : uint8_t {
     Hertz,
 };
 
-enum class MotorEnvelopeShape : uint8_t {
-    Linear = 0u,
-    Rounded,
-    Exponential,
-    Plateau,
-};
+
 
 enum class SegmentModel : uint8_t {
     Off = 0u,
@@ -74,26 +70,7 @@ enum class OutputAssignmentEvent : uint8_t {
     Segment,
 };
 
-inline float motorEnvelopeLevel(float phase, float symmetry,
-    MotorEnvelopeShape shape) noexcept
-{
-    phase = std::clamp(phase, 0.0f, 1.0f);
-    symmetry = std::clamp(symmetry, 0.05f, 0.95f);
-    const float linear = std::clamp(phase <= symmetry
-            ? phase / symmetry : (1.0f - phase) / (1.0f - symmetry),
-        0.0f, 1.0f);
-    switch (shape) {
-    case MotorEnvelopeShape::Rounded:
-        return linear * linear * (3.0f - 2.0f * linear);
-    case MotorEnvelopeShape::Exponential:
-        return linear * linear;
-    case MotorEnvelopeShape::Plateau:
-        return std::min(1.0f, linear * 3.0f);
-    case MotorEnvelopeShape::Linear:
-    default:
-        return linear;
-    }
-}
+
 
 enum class MotionEventKind : uint8_t {
     NoteOn = 0u,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_sample_lanes.h"
+#include "s3g_sample_windows.h"
 
 #include <algorithm>
 #include <array>
@@ -33,13 +34,7 @@ enum class GrainSourceMode : uint8_t {
     Slice,
 };
 
-enum class GrainEnvelope : uint8_t {
-    Parzen = 0u,
-    Sine,
-    Hann,
-    Triangle,
-    Gaussian,
-};
+
 
 enum class GrainTiming : uint8_t {
     Regular = 0u,
@@ -443,32 +438,9 @@ private:
         }
     }
 
-    static float window(GrainEnvelope envelope, float phase,
-        float skew) noexcept
+    static float window(GrainEnvelope envelope, float phase, float skew) noexcept
     {
-        constexpr float pi = 3.14159265358979323846f;
-        phase = std::clamp(phase, 0.0f, 1.0f);
-        const float peak = 0.5f + 0.4f * std::clamp(skew, -1.0f, 1.0f);
-        phase = phase <= peak
-            ? 0.5f * phase / peak
-            : 0.5f + 0.5f * (phase - peak) / (1.0f - peak);
-        switch (envelope) {
-        case GrainEnvelope::Sine:
-            return std::sin(pi * phase);
-        case GrainEnvelope::Hann:
-            return 0.5f - 0.5f * std::cos(2.0f * pi * phase);
-        case GrainEnvelope::Triangle:
-            return 1.0f - std::abs(2.0f * phase - 1.0f);
-        case GrainEnvelope::Gaussian: {
-            const float value = (phase - 0.5f) / 0.18f;
-            return std::exp(-0.5f * value * value);
-        }
-        case GrainEnvelope::Parzen:
-        default: {
-            const float triangle = 1.0f - std::abs(2.0f * phase - 1.0f);
-            return triangle * triangle * (3.0f - 2.0f * triangle);
-        }
-        }
+        return grainWindow(envelope, phase, skew);
     }
 
     double positionOffset(const SampleGrainsSettings& settings) noexcept

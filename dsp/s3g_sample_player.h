@@ -2,6 +2,7 @@
 
 #include "s3g_sample_asset.h"
 #include "s3g_sample_playback.h"
+#include "s3g_sample_windows.h"
 
 #include <algorithm>
 #include <array>
@@ -70,6 +71,13 @@ struct RenderEvent {
     // by this event. The choice is retained by that voice so independently
     // synced slices do not fall back to the slot-wide setting next block.
     uint8_t syncModeOverride = 0xffu;
+    // Optional immutable prevalidated source; caller retains it for every
+    // voice's lifetime. Null preserves ordinary Sample Player behavior.
+    const SampleAsset* sourceAsset = nullptr;
+    double sourceStart = -1.0, sourceLength = 1.0;
+    float sourceGain = 1.0f;
+    uint8_t grainWindow = 0xffu;
+    float grainSkew = 0.0f;
 };
 
 struct VoiceCursor {
@@ -78,6 +86,7 @@ struct VoiceCursor {
     float sourceStartNormalized = 0.0f;
     float sourceEndNormalized = 1.0f;
     uint64_t noteId = 0u;
+    const SampleAsset* sourceAsset = nullptr;
 };
 
 // Start, Length, Loop Start, and Loop End are normalized against the source.
@@ -288,8 +297,12 @@ public:
             voiceCursorCount_ = 0u;
             for (auto& voice : voices_) {
                 if (!voice.active || !voice.asset) continue;
-                const float envelope = voice.envelopeLevel
-                    * boundaryFade(voice);
+                const double windowPhase = (voice.position - voice.playStartFrame)
+                    / std::max(1.0, static_cast<double>(voice.playEndFrame - voice.playStartFrame));
+                const float envelope = (voice.grainWindow <= 4u
+                    ? s3g::sample::grainWindow(static_cast<GrainEnvelope>(voice.grainWindow),
+                        static_cast<float>(voice.increment < 0 ? 1.0 - windowPhase : windowPhase), voice.grainSkew)
+                    : voice.envelopeLevel) * boundaryFade(voice);
                 const float level = voice.velocityLevel * envelope
                     * voice.eventGain;
                 const uint32_t sourceChannels = voice.asset->channelCount;
@@ -350,6 +363,7 @@ public:
                                 / sourceFrameCount,
                             0.0, 1.0)),
                         voice.noteId,
+                        voice.asset,
                     };
                 }
                 voice.position += voice.increment;
@@ -413,6 +427,8 @@ private:
         EnvelopeStage envelopeStage = EnvelopeStage::Sustain;
         float velocityLevel = 0.0f;
         float eventGain = 1.0f;
+        uint8_t grainWindow = 0xffu;
+        float grainSkew = 0.0f;
         float fineTuneOffsetCents = 0.0f;
         float envelopeLevel = 1.0f;
         float releaseStartLevel = 0.0f;
@@ -827,6 +843,14 @@ private:
             handleNoteOff(event, *activeSettings);
             break;
         case EventKind::Choke:
+            // Internal instruments may choke a whole source/voice group at a
+            // sample-accurate offset. 0xff is not a MIDI key; ordinary events
+            // retain their note-id/key matching behavior.
+            if (event.noteId == 0u && event.key == 0xffu) {
+                for (auto& voice : voices_) voice.active = false;
+                heldNotes_ = {};
+                break;
+            }
             releaseHeldNote(event);
             releaseMatching(event, true);
             break;
@@ -936,13 +960,14 @@ private:
     {
         // The asset was validated at set/publish time. Revalidating here
         // would rescan the complete file for every note-on.
-        if (!asset_) return;
-        const uint32_t frames = asset_->frameCount();
+        const auto* source = event.sourceAsset ? event.sourceAsset : asset_;
+        if (!source || source->channelCount > outputChannelCount_) return;
+        const uint32_t frames = source->frameCount();
         if (frames == 0u) return;
-        const uint32_t baseStart = std::min(normalizedFrame(settings.start,
+        const uint32_t baseStart = std::min(normalizedFrame(event.sourceStart >= 0.0 ? event.sourceStart : settings.start,
             frames), frames - 1u);
         const uint32_t requestedLength = std::max(1u,
-            normalizedFrame(settings.length, frames));
+            normalizedFrame(event.sourceStart >= 0.0 ? event.sourceLength : settings.length, frames));
         const uint32_t baseEnd = std::min(frames, baseStart + std::min(
             requestedLength, frames - baseStart));
         const int64_t offsetFrames = static_cast<int64_t>(std::llround(
@@ -977,7 +1002,7 @@ private:
 
         Voice& voice = *voiceToStart();
         voice = {};
-        voice.asset = asset_;
+        voice.asset = source;
         voice.noteId = event.noteId;
         voice.age = ++ageCounter_;
         voice.key = event.key;
@@ -985,7 +1010,9 @@ private:
         voice.midiChannel = event.midiChannel;
         voice.syncModeOverride = event.syncModeOverride;
         voice.playMode = triggerPlayMode;
-        voice.eventGain = std::pow(10.0f, std::clamp(
+        voice.grainWindow = event.grainWindow;
+        voice.grainSkew = event.grainSkew;
+        voice.eventGain = std::clamp(event.sourceGain, 0.0f, 1.0f) * std::pow(10.0f, std::clamp(
             event.gainOffsetDecibels, -12.0f, 12.0f) * 0.05f);
         voice.fineTuneOffsetCents = std::clamp(
             event.fineTuneOffsetCents, -100.0f, 100.0f);
@@ -994,7 +1021,7 @@ private:
         const bool reverse = isReverse(triggerPlayMode);
         voice.position = reverse ? static_cast<double>(end - 1u)
                                  : static_cast<double>(start);
-        const double sourceRatio = asset_->sampleRate / sampleRate_;
+        const double sourceRatio = source->sampleRate / sampleRate_;
         voice.sourceRatio = sourceRatio;
         voice.syncRatio = tempoRatio(settings);
         voice.pitchRatio = pitchRatioFor(
