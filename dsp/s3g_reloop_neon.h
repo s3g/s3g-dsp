@@ -468,12 +468,15 @@ struct PerformanceState {
             }
             break;
         case ActionType::Utility:
-            if (action.utility == UtilityButton::Censor)
-                censorHeld = action.pressed;
+            if (action.utility == UtilityButton::Censor
+                || action.utility == UtilityButton::Mode) {
+                // One physical button, two page-dependent addresses. A page
+                // change under a held finger can change its release address.
+                censorHeld = action.pressed && action.utility == UtilityButton::Censor;
+                modeHeld = action.pressed && action.utility == UtilityButton::Mode;
+            }
             else if (action.utility == UtilityButton::Slip)
                 slipHeld = action.pressed;
-            else if (action.utility == UtilityButton::Mode)
-                modeHeld = action.pressed;
             else if (action.utility == UtilityButton::Repeat)
                 repeatHeld = action.pressed;
             else if (action.utility == UtilityButton::Sync

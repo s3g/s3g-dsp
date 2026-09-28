@@ -14,12 +14,13 @@ endif()
 set_target_properties(s3g_utility_neon_midi_clap PROPERTIES
   PREFIX "" OUTPUT_NAME "s3g_utility_neon_midi")
 if(APPLE)
+  target_link_libraries(s3g_utility_neon_midi_clap PRIVATE "-framework CoreMIDI" "-framework CoreFoundation")
   set_target_properties(s3g_utility_neon_midi_clap PROPERTIES
     BUNDLE TRUE BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.utility-neon-midi"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Utility Neon MIDI"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.1.2"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.2")
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.2.1"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.1")
 elseif(WIN32)
   set_target_properties(s3g_utility_neon_midi_clap PROPERTIES SUFFIX ".clap")
 endif()
@@ -48,7 +49,7 @@ if(BUILD_TESTING AND UNIX)
   if(APPLE AND S3G_VSTGUI_AVAILABLE)
     add_test(NAME s3g_utility_neon_midi_gui_smoke
       COMMAND s3g_encoder_family_gui_smoke $<TARGET_FILE:s3g_utility_neon_midi_clap>
-        org.s3g.s3g-dsp.utility-neon-midi 620 344 "s3g Utility Neon MIDI" proportional)
+        org.s3g.s3g-dsp.utility-neon-midi 620 444 "s3g Utility Neon MIDI" proportional)
     set_tests_properties(s3g_utility_neon_midi_gui_smoke PROPERTIES
       LABELS "non_nim;utility;controller;midi;clap;gui" TIMEOUT 120)
   endif()

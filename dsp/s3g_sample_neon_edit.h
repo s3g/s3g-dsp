@@ -177,15 +177,33 @@ inline double sampleNeonNormalizeGain(const SampleAsset& asset) noexcept
     return peak > 1.0e-12 ? kSampleNeonNormalizePeak / peak : 0.0;
 }
 
-inline SampleAsset sampleNeonNormalize(const SampleAsset& asset)
+// Stack normalization never normalizes channels independently. Balanced mode
+// uses the loudest valid layer to derive one gain for the entire stack.
+inline std::array<double, 32u> sampleNeonStackNormalizeGains(
+    const std::array<const SampleAsset*, 32u>& layers, bool keepBalance) noexcept
 {
-    const double gain = sampleNeonNormalizeGain(asset);
-    if (gain == 0.0) return {};
+    std::array<double, 32u> gains {};
+    double linked = 0.0;
+    for (unsigned n = 0; n < layers.size(); ++n) {
+        gains[n] = layers[n] ? sampleNeonNormalizeGain(*layers[n]) : 0.0;
+        if (gains[n] > 0.0 && (linked == 0.0 || gains[n] < linked)) linked = gains[n];
+    }
+    if (keepBalance) for (auto& gain : gains) if (gain > 0.0) gain = linked;
+    return gains;
+}
+
+inline SampleAsset sampleNeonNormalize(const SampleAsset& asset, double gain)
+{
+    if (!asset.valid() || !std::isfinite(gain) || gain <= 0.0) return {};
     SampleAsset result = asset;
     for (uint8_t channel = 0u; channel < result.channelCount; ++channel)
         for (float& value : result.channels[channel])
             value = static_cast<float>(static_cast<double>(value) * gain);
     return result;
+}
+inline SampleAsset sampleNeonNormalize(const SampleAsset& asset)
+{
+    return sampleNeonNormalize(asset, sampleNeonNormalizeGain(asset));
 }
 
 // Prepared off the audio thread. Recording only copies into fixed storage.

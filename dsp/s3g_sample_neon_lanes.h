@@ -81,9 +81,15 @@ public:
                     }
                     output[ch][frame] += value * weights_[n] * level;
                 }
-                if (frame + 1 == frames && cursorCount_ < cursors_.size() && weights_[n] > .01f)
+                if (frame + 1 == frames && cursorCount_ < cursors_.size() && weights_[n] > .01f) {
                     cursors_[cursorCount_++] = {static_cast<float>(at), 60, static_cast<float>(layer.start),
                         static_cast<float>(layer.end), n + 1u, layer.asset};
+                    auto& cursor = cursors_[cursorCount_ - 1u];
+                    cursor.layer = static_cast<uint8_t>(n);
+                    cursor.level = weights_[n] / static_cast<float>(std::sqrt(std::max(1.e-12, energy)));
+                    cursor.windowPhase = static_cast<float>(traversal);
+                    cursor.reverse = reverse != (pingpong && phase_ > 1);
+                }
             }
             phase_ += increment;
             if (pingpong) { if (phase_ >= 2) phase_ = std::fmod(phase_, 2); }

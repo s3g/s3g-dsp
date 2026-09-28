@@ -163,6 +163,10 @@ void helperContract() {
 } // namespace
 
 int main() {
+  check(F::peakDbText(0.f) == "PK -120.0", "PK silence floor");
+  check(F::peakDbText(.5f) == "PK -6.0", "PK amplitude to dB");
+  check(F::peakDbText(1.f) == "PK +0.0", "PK unity");
+  check(F::peakDbText(2.f) == "PK +6.0", "PK overload is not clamped");
 #if defined(_WIN32)
   // WIC bitmap creation requires an initialized COM apartment. REAPER supplies
   // one for its UI thread; this independent test must supply its own.

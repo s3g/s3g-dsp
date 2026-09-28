@@ -1,17 +1,293 @@
 # Sample Neon 32
 
 `s3g Sample Neon 32` is a 32-slot Sample-family instrument designed around the
-factory MIDI map of the Reloop Neon. Version 0.26.0 exposes one CLAP instrument,
+factory MIDI map of the Reloop Neon. Version 0.34.2 exposes one CLAP instrument,
 `s3g Sample Neon 32`, with a fixed 32-channel output port. The default Stereo layout
 mixes cells onto channels 1–2; unused channels remain silent.
+
+## Optional second USB NEON (0.30)
+
+Use **Utility Neon MIDI 0.2.0 → Tracker → Sample Neon 32**, with Utility INPUT
+set to `USB TWO NEONS` and its route set to `TRACKER + SAMPLE NEON`. Connect
+both units by USB without Smart Link, and enable Sample Neon's `NEON OWNER`.
+Do not add a MIDI hardware send. Unit 1 starts on A and unit 2 on B; both can
+change banks independently. Unit identity is retained before MIDI reaches
+Tracker; merging raw NEON inputs cannot provide this distinction.
+
+Each controller has its own page, cell/slice/stack banks, selected cell, modifier
+and held-gesture context. Their LED frames go only to their paired USB outputs.
+The GUI follows the last press/encoder, identifies U1/U2 beside NEON status,
+and does not follow another unit's pressure/releases. Both control the same
+samples, parameters, recorder and global fill buffer. Disconnecting a unit
+releases its held gestures without resetting the other surface.
+
+Single-controller raw MIDI and the older Utility control bridge remain valid;
+no Sample Neon parameter IDs or saved-state layout changed. USB assignment,
+swap/relearn controls and both performance-bank settings live in Utility. See
+[the Utility setup](../clap_utility_neon_midi/README.md#optional-two-usb-setup-020--sample-neon-0300)
+for input modes and ownership. Actual dual-device LEDs, reconnection while
+holding a pad, and Tracker recording need testing in REAPER after reload.
 
 Double-click any slider track to restore that control's default. This includes
 the inspector's playback, stack, character FX and resample controls, plus the
 mini-NEON's contextual TRAX/LOOP sliders and master gain. Only that control is
 reset; sources, playback mode and other settings are kept. Trim resets retain
 the zero-crossing setting and recalculate transient/beat-grid slices as needed.
+Layer Position is a navigation gesture: resetting it also selects Manual and
+releases any latched STACK override, just like moving the slider.
 This update also keeps active audition/stack sources alive across host audio
 reactivation when a take is cropped or a layer is replaced.
+
+## STACK performance and compact controller (0.29)
+
+**HOT CUE → STACK** addresses layers of the selected sample cell. The GUI stays
+inside PLAY; the miniature controller switches to clearly labelled layer pads.
+Its four buttons are PLAY, CHOP, STACK and RESAMPLE. Banks A–D address layers
+1–8, 9–16, 17–24 and 25–32 without selecting a different cell. Sample, slice and
+layer banks are remembered independently. Upgrade **Utility Neon MIDI to 0.1.3**
+alongside this version so layer-bank messages cannot change Tracker's sample bank.
+
+- Press a layer pad to audition it with the cell's playback method and trigger
+  policy. Empty/missing layers are disabled. This does not change Edit Layer,
+  Layer Src, playback method or the saved stack path.
+- With Motion, Grains, Stretch, scanning Wavesets or Lanes already running,
+  holding a layer pad temporarily steers the existing voice to that layer;
+  releasing resumes its saved navigation without resetting its clock/envelope.
+  The most recently held layer wins; releasing it restores an earlier held layer.
+  GUI and hardware holds coexist. Releases retain their original cell and layer
+  across bank/page changes. HOST clock still follows transport; FREE remains free.
+- **LOOP:** manually navigate the stack. Generated methods glide through layers;
+  Sample auditions the nearest loaded layer when that choice changes. **LOOP
+  push**, GUI **RESUME**, or double-clicking LOOP releases the manual override.
+  Held pads temporarily take priority over manual navigation.
+- **TRAX:** 1–100 ms layer transition slew, using the pad's saved Lanes slew
+  setting. Grain/window tails retain their normal duration. Shift gives fine
+  encoder steps; double-click restores the declared default.
+- **Shift + layer pad** selects its edit layer without playing. In the GUI,
+  Shift-click or right-click the layer pad does the same.
+- Loaded hardware layers use a distinct stack palette; the edit layer is yellow,
+  sounding layers white, and empty layers dark. GUI outlines show the edit target
+  while the small playback strip follows the sounding layer/blend.
+- Slice Sequence and primary-only Wavesets retain their primary-source design;
+  STACK performance is disabled there, but Shift/right-click edit selection works.
+  Enable STACK SCAN for Wavesets layer performance. Ambisonic restrictions remain.
+- Secondary HOT CUE editing/FX shortcuts remain available. STACK gestures travel
+  through Utility's private control route; Tracker does not record them as notes
+  or automation. Primary SAMPLER pads remain the note-recording surface.
+
+The miniature NEON is now anchored directly beneath the persistent PAD toolbox.
+TRAX, LOOP and MASTER share its label/track/value columns. All Motion/Grains
+controls occupy the Playback inspector; compact family typography
+is unchanged. Neither transient cue holds nor manual
+override positions are saved in projects/presets or copied with a pad.
+
+## PLAY workspace
+
+The main workspaces are **PLAY**, **CHOP**, and **RESAMPLE**. PLAY includes
+all source, playback, stack-path, FX and routing editing; there is no separate
+EDIT workspace. Its waveform permits cursor/trim editing whenever it is showing
+the edit layer, and its primary pads always perform the cell's trigger mode.
+
+The miniature NEON's **ENCODERS** menu selects **PERFORM** (TRAX = Mangle,
+LOOP = cell gain) or **EDIT** (the current Edit View's contextual controls;
+Source / Stack = waveform zoom and cursor). This menu changes only knob
+assignments, not hardware mode, bank, playback engine or MIDI note addresses.
+Leave the physical NEON on Sampler when recording notes into Tracker; selecting
+EDIT encoders in the GUI keeps those Sampler notes intact. Hardware Sampler
+selects PERFORM; Hot Cue enters STACK performance inside PLAY. Bank changes and primary pad presses
+preserve the chosen encoder assignment; workspace buttons select primary pads.
+Use SECOND/PRIMARY explicitly for secondary tools. Fill Hold still temporarily
+overrides both encoders.
+
+## Persistent pad toolbox (0.28)
+
+**EDIT VIEW → ROUTING → MIDI IN** chooses OMNI (default) or CH 1–16 for
+sequencer/keyboard notes across all 32 cells, not just the selected pad. Match
+it to Tracker's output channel. The existing Standard MIDI Receive host
+parameter is saved/automatable; Reset All retains it. Base Note still determines
+the first cell's note (36 by default).
+
+Utility's private NEON controls remain independent of the musical channel.
+When an explicit channel is selected, notes on that channel in the cell note
+range take musical priority over overlapping raw NEON addresses. For raw
+hardware input without Utility, avoid its factory channels 4–12 if simultaneous
+sequencing and hardware control would share addresses; use the Utility bridge
+to distinguish them. OMNI retains the existing raw-hardware priority and LED
+feedback rejection. MIDI and CLAP notes honor the channel selection; pressure
+from a different explicit channel is ignored.
+
+The 1504 × 846 (16:9) VSTGUI editor aligns PLAY/CHOP/RESAMPLE and both right-hand
+toolboxes at the same top edge. Toolbox labels have 16 px side insets; title-bar
+buttons and menus share the standard 15 px height. A right-aligned **PK** readout
+shows the actual all-output-channel peak in dBFS, including overloads. Waveform
+actions and view menus occupy separate padded rows below the panel header.
+The main waveform is always 791 × 510 px; switching engines, inspector pages,
+STACK, CHOP, RESAMPLE or FILL never changes its size. The overview/stack path
+also stays in the same place. The waveform panel ends level with the full
+Grains Playback toolbox (y768), giving Stack Lanes 74 px more vertical room.
+The miniature NEON retains its existing near-square pads. All Motion articulation /
+event variation and Grains window / process controls live in **EDIT / PLAYBACK**,
+in one column with the existing 24 px row pitch and full-width sliders. There
+is no separate toolbox beneath the waveform. **CHARACTER FX** is the single
+home for Character, FX Amount and Pressure; these are no longer duplicated in
+Playback. Contextual panels fit their visible controls. Operation messages
+sit 8 px below the content, with a 12 px bottom margin. A separate **PAD** toolbox stays visible on PLAY, CHOP,
+RESAMPLE and BUFFER FILL: Playback, Layer Src/Navigation, Edit Layer, Trigger,
+Gain, Tune, Audition Pad and Stop Pad. It always targets the selected pad, not
+the captured take or global fill. Its Playing readout follows the sounding
+layer without changing Edit Layer. Audition Pad plays the processed pad;
+**Audition Edit Layer** specifically auditions the edit target.
+
+The PAD toolbox is the single menu/control location for Playback, Layer Src /
+Navigation, Edit Layer, Trigger, Gain and Tune. Stack Path no longer repeats
+Layer Src, CHOP no longer repeats Edit Layer, and Stretch/Wavesets no longer
+repeat Tune. Miniature TRAX/LOOP controls are shortcuts to the hardware's current
+assignments, not independent parameters; layer values use layer numbers.
+
+### Navigation ownership (0.29.3)
+
+Selecting Layer Src or Navigation explicitly clears a latched STACK manual
+override. For generated playback it also exits an isolated Edit Layer audition,
+without retriggering the running voice. Selecting STACK SCAN / PATH therefore
+resumes the saved path immediately; stopped pads still need a trigger.
+Moving the LANES Layer Position slider (including numeric entry/default reset),
+Previous/Next Layer, or its Loop encoder selects Manual and takes control in the
+same way. The slider remains usable while PATH is running.
+
+A physically or onscreen-held layer pad keeps momentary priority until released;
+the newly chosen navigation then takes over. PLAY LAYER reports HELD, OVERRIDE,
+EDIT AUDITION, the sounding layer/blend, or STOPPED, independently of EDIT LAYER.
+The Stack Path status distinguishes inactive navigation, missing stack layers,
+stopped/ready pads and a stopped HOST clock. Scan requires at least two layers,
+a running pad, and either FREE clock or running host transport.
+
+The contextual **EDIT VIEW** menu lives inside PLAY, in this order:
+**SOURCE / STACK**, **PLAYBACK**, **STACK PATH**, **CHARACTER FX**, **ROUTING**.
+Source / Stack combines trim and layer management. Routing holds source format,
+output bus, applicable pan and pad-velocity response. Playback includes the
+method's clock/envelope, Motion articulation and Grains window/process controls
+in one column alongside the waveform; there is no nested Detail menu.
+Character selection, FX Amount and Pressure live only on Character FX. Physical NEON
+secondary tools and contextual EDIT encoder shortcuts retain their meanings.
+
+Playback menu display order is **Sample, Lanes, Motion, Grains, Stretch,
+Wavesets, Slice Sequence**. Stored engine identities are unchanged. Choosing
+an engine updates the sound but preserves the current editing task. Stack Path
+returns to Source / Stack if the new method cannot traverse layers. Choosing
+an Edit View never selects a different playback engine.
+
+## Playback views, slice envelope and routing (0.32)
+
+- **STACK LANES** is available in every playback method when the cell has
+  multiple layers, including Sample, Motion, Grains, Stretch, Wavesets and
+  Slice Sequence (which still plays only its primary layer). Up to eight rows
+  follow the active region of the 32-layer stack. Combined source peaks,
+  voice/layer levels and read heads show what is actually sounding.
+- **Motion** keeps its locus/field overlay directly on the waveform. The
+  separate trajectory scope has been removed, restoring waveform height.
+  The full-width editable stack path remains separate and unchanged.
+- **Grains** draws each sounding grain's actual source window and envelope.
+  Played portions are dimmer, remaining portions brighter, with a moving
+  read cursor. Reverse, variable sizes and latched window/skew
+  are taken from the voice, including across stack blends. Overlays repeat
+  on the existing channel rows without changing multichannel/ACN audio.
+- **FOLLOW STACK** and **EDIT LAYER** use the original full-height vertical
+  playback lines. FOLLOW STACK retains multichannel channel selection and
+  blending; EDIT LAYER retains source trimming. STACK LANES is read-only and
+  explicitly shows combined peaks, not individual source channels.
+
+View choices do not change sound or edit-layer selection. Playback data is
+published through a bounded, lock-free display snapshot.
+
+**CHOP → SLICE AMP / PROPORTIONAL** sets a shared slice ADSR shape for the
+pad. Attack, Decay and Release scale to each slice's pitch-adjusted length;
+in Slice Sequence they fit the shorter of that length or the current step.
+Sustain is its level. ADR totals above 100% scale together to fit.
+Each hit latches its envelope, so edits apply on the next slice. CHOP audition
+and Slice Sequence use the same shape; the latter links directly to these
+controls. Sequence handoffs use a smooth, complementary overlap of up to 5 ms,
+bounded to a quarter step (and shorter for tiny slices). Incoming and outgoing
+audio keep their own read heads and routing: no hard cut or frozen-sample tail.
+Safety fades remain active at zero Attack/Release, including skipped steps;
+a minimum decay ramp prevents a zero-Decay jump from Attack peak to Sustain.
+All source channels share the same fade, preserving ACN/SN3D field coherence.
+Short slices still finish naturally; the safeguard does not stretch them or
+fill deliberate gaps. CHOP audition and the other playback engines are unchanged.
+
+**EDIT VIEW → ROUTING** offers **PRESERVE FIELD** (the default, retaining
+source channel order) and **DISTRIBUTE** (fold each event to a MONO or STEREO
+object and place it within the selected output bus). Traversal choices are
+Sequential, Reverse, Palindrome, Random and Random Cycle. Notes, Motion
+windows, grains, slices and Stretch windows allocate per event; continuous
+Lanes/Wavesets allocate once per pad gesture. Choose Quad/Octo to distribute
+stereo pairs beyond the single pair in a Stereo bus. Changing routing stops
+existing voices so old channel assignments cannot bleed into the new mode.
+
+Grains' **STEREO LINK** keeps both channels on one read trajectory or gives
+them independent position-spray, pitch-spray and reverse decisions. It is
+available for discrete stereo sources; wider fields remain channel-linked.
+ACN/SN3D forces Preserve Field and linked reads, with destructive routing
+choices disabled. Distribute never implicitly encodes ambisonics.
+
+Stable CLAP/parameter IDs and versions 10–19 remain readable. New routing
+or envelope settings use an append-only v20 state tail; untouched older sets
+retain their previous state format. CHOP assignments and RESAMPLE are unchanged.
+
+## Buffer Fill Hold (0.27)
+
+**Hold SHIFT + the top-right MODE/CENSOR button** on NEON, or hold the
+on-screen **FILL HOLD** button. On primary SAMPLE this is **SHIFT + MODE**;
+on other pages it is **SHIFT + CENSOR**. Version 0.30.1 handles both factory
+addresses. Utility 0.2.1 also clears the modifier when the release address
+changes after switching pages.
+This is a global output override, not another pad technique: it grabs recent
+heard output, then replaces every output bus with a deconstructed repeat of
+that buffer. Pads, Motion/Grains/Lanes and Tracker continue underneath. Release
+crossfades back to their current position, not the position where Hold started.
+Unshifted CENSOR retains its existing reverse-on-trigger behavior.
+
+- **FILL SET** opens a compact global toolbox. **GRAB** selects the lookback
+  on the next press: 1/4, 1/2, 1, 2 or 4 quarter-note beats. The rolling history
+  is capped at four seconds; a fresh instance uses whatever history exists.
+  With no history yet the press leaves the output dry. The readout shows actual
+  available history, or the frozen length while the fill sounds.
+- **REPEAT** ranges from quarter notes to 1/128 notes, measured against host
+  tempo (120 BPM before a tempo is received). This is immediate performance
+  triggering, not next-beat quantization. It also works with transport stopped
+  while the host continues processing audio.
+- At **BREAKUP = 0**, the latest fragment repeats regularly. Increasing it
+  introduces reordered fragments, reverse fragments, smaller ratchets and gaps.
+  All choices happen at fragment boundaries; short edge fades avoid hard cuts.
+- While held, **LOOP** changes Repeat and **TRAX** changes Breakup (Shift gives
+  finer Breakup movement). The encoders temporarily stop editing the pad.
+  Their on-screen labels change too. GRAB is next-hold; Repeat and Breakup are
+  live controls. Double-click Breakup restores 50%.
+- The dry signal is fully replaced after a 5 ms entry crossfade; release uses
+  5 ms too. Master gain still controls frozen sound. The second rolling tape
+  records the result, so the next grab can include a previous fill.
+- All 32 channels share read positions, reversals, gates and envelopes. Bus
+  positions and ACN/SN3D channel relationships are retained; there is no remix
+  or channel permutation. RESAMPLE records the overridden output, including
+  the fill, rather than the hidden live mix.
+- Releasing MODE/CENSOR still works if Shift was released first, or the page
+  or bank changed.
+  **RELEASE FILL** is a GUI escape. KILL, Reset All, host reset/deactivation,
+  layout changes and successful state recall clear the tapes; MIDI All Notes
+  Off/All Sound Off release the fill. Hiding/destroying the editor releases a
+  mouse-held fill, without cancelling a separately held physical button.
+
+Use Utility's control-forwarding mode with Tracker; **Notes Only** intentionally
+does not carry this control shortcut. No hardware MIDI return route is needed.
+The actual controller mapping and feel still need confirmation on hardware.
+
+History and held state are transient, never embedded or written to sample files.
+Only non-default Grab/Repeat/Breakup settings require the appended v19 state
+extension; default settings preserve the prior v14/v15/v17/v18 save formats.
+Old states load with 1 beat, 1/16 repeat and 50% Breakup. Older binaries cannot
+load v19 sets. These are global state-backed performance controls, not per-pad
+clipboard values or new host-automation parameters. Two four-second 32-channel
+tapes use about 49 MB at 48 kHz, allocated on activation; Hold never copies a
+large audio buffer or allocates on the processing thread.
 
 ## LANES playback (0.26)
 
@@ -42,7 +318,7 @@ you change the layer being heard. Nothing from adjacent pads is mixed in.
   **ONE SHOT** uses Shot Len. Attack/Release shape the whole gesture. FREE works
   with transport stopped; HOST pauses/resumes with transport. STOP/chokes stop
   immediately. CHOP still auditions the selected source directly.
-- On **EDIT → PLAYBACK SETTINGS**, **LOOP** controls Layer Pos and **TRAX**
+- On **EDIT VIEW → PLAYBACK**, **LOOP** controls Layer Pos and **TRAX**
   controls Speed. LOOP uses eight steps per layer for Crossfade, one per layer
   for Jump; Shift gives fine movement. LOOP press auditions the pad.
 
@@ -65,20 +341,32 @@ output**. Layer movement and movement within a sample are separate. Selecting
 Motion or Grains commits to that technique; opening a detail view does not
 change the playback engine. No adjacent pad is mixed into this pad.
 
-In EDIT, use **EDIT VIEW** for the compact **MOTION DETAIL**, **GRAINS DETAIL**,
-and **STACK PATH** views. Technique detail entries are available only for the
-active technique. Ordinary PLAYBACK SETTINGS and the hardware encoder mappings
-remain available for the familiar position, cycle, size and density controls.
+Use **EDIT VIEW → PLAYBACK** for integrated Motion or Grains settings, and
+**STACK PATH** for layer movement. The hardware encoder mappings remain
+available for the familiar position, cycle, size and density controls.
 
 - **Stack Path:** select STACK SCAN for Motion/Grains/Stretch/Wavesets, or PATH
-  navigation for LANES. The SHAPE menu on either Stack
-  page offers MANUAL, RAMP UP, RAMP DOWN, TRIANGLE, SINE, SQUARE and WANDER.
+  navigation for LANES. The Stack Path SHAPE menu offers
+  MANUAL, RAMP UP, RAMP DOWN, TRIANGLE, SINE, SQUARE and WANDER.
+  The graph matches Stack Lanes: layer 1 is at the top, and higher-numbered
+  layers run downward. Point editing and the live cursor use that same direction;
+  saved values and playback order are unchanged.
   Every choice uses the visible breakpoints for playback; there is no separate
   PRESET path engine. Selecting a named shape regenerates its points and clears
-  Curve. Selecting MANUAL keeps the current shape and unlocks direct editing.
-  Drag nodes below the waveform horizontally for time and vertically for layer
-  position, or use the selected point's TIME and LAYER POS sliders. Named shapes
-  keep these coordinates read-only. End times stay at 0/100%; points cannot cross.
+  Curve. Both the path graph and the small waveform overview span the same
+  width as the main waveform. Cursor/blend and zoom readouts sit below the
+  overview instead of taking a left-hand gutter. The path's moving dot and
+  vertical guide show the DSP's path phase, including PHASE offset, Free/Host
+  clock and Grains' event-based advance. A hollow dot indicates a STACK pad
+  override; the saved path keeps advancing behind that override.
+  Click a node or empty space to switch the current shape to MANUAL without
+  resetting its points. Empty-space clicks add a point; drag nodes horizontally
+  for time and vertically for layer position. Right-click (or Control-click on
+  macOS) removes an interior point. The two endpoints cannot be removed; their
+  times stay at 0/100%, but their heights remain editable. Points cannot cross.
+  The selected point's TIME and POINT LAYER sliders also edit its coordinates
+  once Manual is active. POINT LAYER edits that breakpoint, not the live
+  playing-layer position.
   Use 2–32 points; Triangle/Wander need at least 3, Square 4 and Sine 9.
   Changing point count regenerates named shapes or resamples the Manual curve.
   RESET PATH rebuilds the selected shape (a ramp when Manual), keeping the
@@ -179,15 +467,15 @@ available from 65% to 200%.
 
 ## Pad stacks and storage (0.23)
 
-Each of the 32 pads can hold up to 32 source layers. Open **EDIT VIEW → SAMPLE
-STACK** or **PLAY → EDIT SAMPLE STACK**. ADD LAYER appends; LOAD replaces the
+Each of the 32 pads can hold up to 32 source layers. Open **EDIT VIEW → SOURCE /
+STACK** from PLAY. ADD LAYER appends; LOAD replaces the
 selected layer. Dropping multiple files while the stack editor is open appends
 them to the selected pad. REMOVE LAYER removes only that layer, never its file
 on disk. Layer 1 is the primary. All layers in a stack must have the same channel
 count; source format and output routing remain pad-wide. ACN/SN3D channels are
 never independently selected, reordered, or randomized.
 
-**SOURCE MODE** and **PLAYBACK** are separate:
+**LAYER SRC** and **PLAYBACK** are separate:
 
 | Source mode | Selection |
 | --- | --- |
@@ -222,8 +510,8 @@ always keep their own fixed source views. Stopping or isolated audition restores
 the selected-layer view. This display choice is instance-local, like channel view.
 Start/End, slice map, and source-editing settings are
 kept per layer. Gain, technique, envelopes, FX, and output route are pad-wide.
-For Sample, Motion, Grains, Stretch and scanning Wavesets, EDIT's AUDITION
-(or LOOP push on the stack page) isolates the displayed layer;
+For Sample, Motion, Grains, Stretch and scanning Wavesets, **AUDITION EDIT LAYER**
+(or LOOP push with EDIT encoders on Stack Path) isolates the displayed layer;
 performance pads use the saved source mode and play the complete stack.
 Stretch keeps its within-source duration separate from the stack cycle; both
 neighboring grains receive the same pitch-compensated window duration.
@@ -309,17 +597,17 @@ The NEON sends measured velocity as a CC before a fixed-127 pad note; this
 was incorrectly treated as aftertouch. Both plugins now pair these messages
 using the same bounded decoder, including across host blocks. Actual aftertouch
 remains separate. Enable the hardware's velocity mode with **SHIFT + SAMPLER**;
-use **EDIT → SOURCE/TRIM → VELOCITY → PAD VELOCITY** for dynamic cell loudness.
+use **EDIT VIEW → ROUTING → VELOCITY → PAD VELOCITY** for dynamic cell loudness.
 No state/parameter changes; Tracker's normalization is unchanged. See the
 [Utility velocity notes](../clap_utility_neon_midi/README.md#hardware-velocity).
 
 Version 0.22.1 adds the **WAVE** menu in the waveform panel header, on every page:
 
-- **COMBINED PEAKS** (default): one min/max envelope spanning all channels.
+- **COMBINED PEAKS**: one min/max envelope spanning all channels.
   This is the previous mono/stereo view, not an audio sum, average or dynamically
   chosen loudest channel. Opposite-polarity channels do not cancel visually.
 - **CHANNEL 1** / **ACN 0**: only the first file channel, with no automatic switching.
-- **ALL CHANNELS**: one row per source channel inside the same waveform window:
+- **ALL CHANNELS** (default since 0.29.1): one row per source channel inside the same waveform window:
   stereo 2, quad 4, octo 8, ambisonics 4/9/16. Discrete labels start at CH 1;
   ambisonic labels start at ACN 0. Rows share the same amplitude scale and timeline.
 
@@ -376,10 +664,10 @@ refreshes unchanged pads every 250 ms. Read-only endpoint discovery still handle
 unplug/reconnect. Incoming raw small-status-lamp notes are ignored while NEON
 OWNER is on; legitimate pad velocities and simultaneous holds remain supported.
 
-## Four jobs, one set of cells
+## Three workspaces, one set of cells
 
-PLAY is the performance surface. The other modes operate on those same cells,
-not three additional instruments or competing slice engines. Selecting an
+PLAY is the combined performance/editing workspace. CHOP and RESAMPLE operate
+on those same cells, not additional instruments or competing slice engines. Selecting an
 editing mode preserves the selected cell. Cell and CHOP bank positions are
 remembered separately. Ordinary MIDI notes always play the cells, regardless
 of the displayed editing page.
@@ -388,19 +676,19 @@ of the displayed editing page.
 | --- | --- | --- |
 | Sampler / **PLAY** | Perform 32 cells across banks A–D | Momentary velocity/pressure Pad FX on the selected cell |
 | Slicer / **CHOP** | Audition up to 32 slices of the selected source | Marker tools and assignment to empty cells |
-| Hot Cue / **EDIT** | Select and play the cell with its current processing | Source editing, Sample/Motion/Grains selection, One Shot/Hold/Toggle and momentary Stop |
+| Hot Cue / **STACK within PLAY** | Audition/hold layers of the selected cell; banks address layers | Source editing, Sample/Motion/Grains selection, One Shot/Hold/Toggle and momentary Stop |
 | Hot Loop / **RESAMPLE** | Record an internal output bus | Play loaded cells; empty pads choose a capture destination |
 
 Shift is fine/alternate editing, not a secondary-layer switch. Use the Neon's
 secondary mode messages, or the miniature GUI's SECOND/PRIMARY button. Clicking
-the already selected GUI mode also switches its layer.
+a GUI workspace selects its primary layer, even if already selected.
 
 ### Copying cells
 
 Click a cell pad to focus the editor, then **Ctrl-C / Ctrl-V** to copy/paste
 (**Cmd-C / Cmd-V** also work on macOS). Right-click a cell for **Copy Cell** /
 **Paste Cell**; Control-click works on macOS too. This is available on the
-PLAY/EDIT primary cell pads and the RESAMPLE secondary pads, not CHOP slice/tool pads.
+PLAY primary cell pads and the RESAMPLE secondary pads, not CHOP slice/tool pads.
 Change bank before pasting to duplicate across A–D. A populated destination
 requires **Paste / Replace** confirmation; Cancel changes nothing.
 
@@ -414,12 +702,13 @@ Imported audio remains file-linked. Text/numeric fields retain normal text
 copy/paste when focused; click a cell to return to pad shortcuts.
 
 The waveform, overview, trim handles, edit cursor and live voice playheads
-remain the main visual workspace. PLAY does not allow accidental trim edits.
+remain the main visual workspace. PLAY includes direct waveform editing;
+PERFORM encoders never change trim.
 Controls occupy bars outside the waveform. CHOP offers **Live Markers**,
 **Transients**, **Equal** and **Beat Grid**. Its banks address slices 1–8,
 9–16, 17–24 and 25–32. Assign One/All commits each slice as a **new cropped
 sample**, with Start/End reset to 0–100%, a one-slice map and fitted waveform.
-Select its pad in PLAY or EDIT, then open CHOP to edit or re-slice only that
+Select its pad in PLAY, then open CHOP to edit or re-slice only that
 cell's audio. All channels use the same integer-frame cut; audio outside the
 slice is not retained in that cell. **START PAD / TARGET PAD** determines the
 destination as described above. Other occupied cells are never overwritten.
@@ -447,12 +736,11 @@ limit when early detections merge.
 
 Scroll vertically over the main waveform to zoom **1x–32x**, anchored at the
 mouse pointer. **Shift-scroll** or a horizontal trackpad gesture pans the view.
-This works in PLAY, CHOP, EDIT and capture review and does not move the edit
+This works in PLAY, CHOP and capture review and does not move the edit
 cursor, trim or slices. Hardware TRAX zoom still focuses the edit cursor.
 Zoom and pan are view-only, not saved sound settings.
 
-EDIT pads now audition without an on-screen button. Primary pads select and
-play; secondary pads apply their change/page selection and retrigger the
+Physical Hot Cue primary pads perform stack layers; secondary pads apply their change/page selection and retrigger the
 selected cell through its selected playback technique and
 output route. Releases follow the original gesture across page/bank changes.
 There are no per-cell mute/solo masks or adjacent-cell mixing. Source editing
@@ -502,9 +790,9 @@ The four Neon banks address 32 independent sample slots:
 
 Secondary pad order is left-to-right across the top row, then the bottom row:
 
-- **PLAY:** Filter, Echo, Comb, Ring, Flutter, Pulse, Drive, Crush.
+- **PLAY:** Filter, Echo, Space, Shift, Vowel, Punch, Drive, Crush.
 - **CHOP:** Add, Delete, Audition, Zero Cross, Equal, Transients, Assign One, Assign All.
-- **EDIT:** Source, Sample, Motion, Grains, One Shot, Hold, Toggle, Stop.
+- **Physical Hot Cue / edit tools:** Source, Sample, Motion, Grains, One Shot, Hold, Toggle, Stop.
   In **EDIT VIEW → Character FX**, secondary pads instead select the eight FX.
 - **RESAMPLE primary:** Record, Stop, Audition, Discard, Bus −, Bus +, Review, Assign.
   Secondary pads play loaded cells or select empty targets in the current cell bank.
@@ -516,9 +804,10 @@ Censor reverses new direct-sample gestures while held. Generated techniques
 use their own path/order/shape controls. Releases remain attached to the
 original voice even if the page or bank changes during a hold.
 
-| Page | LOOP turn / push | TRAX turn / push |
+| Workspace / encoder assignment | LOOP turn / push | TRAX turn / push |
 | --- | --- | --- |
-| PLAY | Selected-cell gain / no trim edit | Global Mangle / no trim edit |
+| PLAY / PERFORM | Selected-cell gain / no trim edit | Global Mangle / no trim edit |
+| STACK | Layer position / resume saved navigation | Layer transition slew |
 | CHOP | Cursor / add marker; Shift+push deletes | Zoom / reset; Shift+push focuses slice |
 | EDIT Source/Trim | Cursor / set Start; Shift+push sets End | Zoom / reset; Shift+push focuses trim |
 | EDIT Motion settings | Scan offset / audition | Cycle (seconds or beats) / no trim edit |
@@ -526,25 +815,33 @@ original voice even if the page or bank changes during a hold.
 | EDIT Slice Sequence | Step rate / audition | Repeats / no trim edit |
 | EDIT Stretch | Duration / audition | Tune / no trim edit |
 | EDIT Wavesets | Group cycles / audition | Repeats / no trim edit |
-| EDIT Character FX | Parameter 1 or 3 / audition | Parameter 2 or Amount / switch pair |
+| EDIT Character FX | Named pair's first control / audition | Named pair's second control / next pair |
 | RESAMPLE | Review cursor / Start; Shift+push End | Zoom / reset |
 
-EDIT encoders follow the right toolbox's Source/Trim or playback view, on either pad layer.
+All EDIT rows above are encoder assignments inside PLAY, not separate workspaces.
+EDIT encoders follow the right toolbox's Source / Stack or playback view, on either pad layer.
 Shift gives fine cursor/continuous-parameter steps. Both 1/127 and 65/63
 relative encoder streams are accepted; waveform zoom spans 1x–32x.
 
 ## Source normalization
 
-**EDIT → Source / Trim → NORMALIZE SOURCE / -1 dBFS** peak-normalizes the entire
-selected source, before cell gain, envelopes and effects. Every channel uses the
-same positive scalar, preserving stereo/quad/octo relationships and ACN/SN3D
-channel balance; it does not change ambisonic normalization conventions.
-Trim, slice markers, playback technique, routing and gain settings remain as-is.
-The normalized audio is embedded in the set/project; the original file and other
-copied cells remain unchanged. Current playback of that cell stops on commit.
-Silence is left unchanged, repeated normalization does not allocate another copy,
-and the embedded-audio budget is checked before changing the cell. This is sample
-peak normalization, not loudness matching or an output limiter.
+**EDIT VIEW → SOURCE / STACK → NORMALIZE** offers three scopes:
+
+- **EDIT LAYER:** normalize the layer selected when Apply is pressed.
+- **STACK / EACH LAYER:** independently normalize every loaded layer to −1 dBFS.
+- **STACK / KEEP BALANCE:** apply one gain to the stack, placing its highest
+  peak at −1 dBFS while retaining relative levels (useful for velocity layers).
+
+**APPLY NORMALIZE / -1 dBFS** processes entire source samples, before pad gain,
+envelopes and effects, not just their trim windows. Channels within each sample
+share one positive gain, preserving stereo/quad/octo and ACN/SN3D relationships;
+this does not convert ambisonic normalization or match perceived loudness.
+Trim, slices, playback, routing and edit selection are retained. Original disk
+files and shared copies in other pads are untouched; changed samples become
+embedded generated audio (PROJECT storage can collect them). Silent/missing
+layers are skipped. All replacements and analyses are prepared before a single
+stack snapshot is published; allocation or budget failure leaves the stack
+unchanged. Playback of the pad stops on commit.
 
 ## Resampling
 
@@ -605,10 +902,10 @@ assets, and invalidates pending file loads so cleared cells cannot refill later.
 ## One playback technique per cell
 
 The **PLAYBACK** menu in the right toolbox is the authority. Its choices are
-**Sample**, **Motion**, **Grains**, **Slice Sequence**, **Stretch**, and **Wavesets**;
+**Sample**, **Lanes**, **Motion**, **Grains**, **Stretch**, **Wavesets**, and **Slice Sequence**;
 choosing one commits to it and replaces the previous technique. EDIT pads 2–4
-remain fast Sample/Motion/Grains shortcuts; the menu exposes all six.
-**EDIT VIEW → Source / Trim** (or secondary pad 1) changes only what is being
+remain fast Sample/Motion/Grains shortcuts; the menu exposes all seven.
+**EDIT VIEW → Source / Stack** (or secondary pad 1) changes only what is being
 edited, never the active technique.
 
 - **Sample:** ordinary playback of this cell, using its trim, direction and
@@ -661,7 +958,7 @@ Their **TRIGGER** menu has three clear behaviors:
 
 Motion/Grains **ATTACK** and **RELEASE** are 0.001–10 seconds per cell (default
 0.005). They shape the whole scan/cloud, independently of individual grain
-windows. Find them in Playback Settings or Source / Trim. Releasing during
+windows. Find them in the Playback view. Releasing during
 attack fades from the current level, without jumping to full volume. Grains
 continue being generated throughout the release, including when the host stops.
 For One Shot, the fades fit inside Shot Length; if their sum is longer, both
@@ -689,34 +986,54 @@ Character is now a real post-playback processor, shared by every playback
 technique, rather than an alternative set of trigger parameters. Reverse is
 kept in playback and Hold/Toggle in Trigger; neither is duplicated as a Character.
 
-Open **EDIT VIEW → Character FX**, or **EDIT CHARACTER FX** from PLAY. Each cell
-retains three settings for each of the eight effects; switching effects recalls
-those settings. FX Amount blends dry/wet; pressure and global Mangle add to it.
-Amount changes are smoothed. One Character runs per cell, not an eight-effect chain.
+Open **EDIT VIEW → Character FX** inside PLAY. Each cell retains a complete
+settings bank for each of the eight effects; switching effects recalls those
+settings. MIX, OUT and PRESSURE stay in the same positions above the effect's
+own controls. MIX blends dry/wet; pressure and global Mangle add to it. OUT trims
+the resulting wet/dry signal (−36 to +12 dB). Continuous controls and Mix are
+smoothed. One Character runs per cell, not an eight-effect chain.
 
 | Effect / pad | Parameters | ACN/SN3D |
 | --- | --- | --- |
-| Filter / 1 | Low/High/Band Pass, Cutoff, Resonance | Enabled |
-| Echo / 2 | Time, Feedback, Damping | Enabled |
-| Comb / 3 | Tuning, Feedback, Damping | Enabled |
-| Ring / 4 | Frequency, Wave, Depth | Enabled |
-| Flutter / 5 | Rate, Depth, Irregularity | Enabled |
-| Pulse / 6 | Rate, Duty, Edge | Enabled |
-| Drive / 7 | Drive, Bias, Tone | Disabled |
-| Crush / 8 | Bits, Rate, Jitter | Disabled |
+| Filter / 1 | Low/High/Band Pass or centre-neutral DJ; Sweep, Resonance, envelope Depth/Release | Enabled |
+| Echo / 2 | Digital/Tape/Multi Tap/Reverse; Time, Feedback, Damping, Diffusion, Duck, Glide, Free/Beats clock, Division | Tape disabled |
+| Space / 3 | Room/Plate/Diffuse; Size, Decay, Pre Delay, Damping | Enabled |
+| Shift / 4 | Detune/Octave/Dual; Pitch, Detune, Window, Balance | Enabled |
+| Vowel / 5 | Continuous AH/EH/EE/OH/OO morph; Throat, Resonance, envelope Depth | Enabled |
+| Punch / 6 | Linked Break Bus parallel compression and transient shaping: Press, Snap, Recovery, Body | Enabled |
+| Drive / 7 | Eight Macro Shred circuits; Drive, Shred, Feedback, Color, React, Tune, Body | Disabled |
+| Crush / 8 | Kit-style quantize → rate hold → drive; Bits, Rate, Jitter, Drive, optional Tone low-pass | Disabled |
 
-The first six use identical linear processing, timing and modulation across
-channels. Drive/Crush are nonlinear per component and can alter ambisonic spatial
-relationships, so their menu rows and pad shortcuts are disabled for ACN/SN3D.
+The first six use shared coefficients, timing, modulation and linked envelope
+detection across channels. Punch uses a linked gain envelope with its saturation
+and clipping disabled; it does not compress components independently. Drive,
+Crush and Echo's Tape feedback are nonlinear per component and can alter
+ambisonic spatial relationships, so those choices are disabled for ACN/SN3D.
 Selecting that format clears an unsafe Character or Wavesets choice. State recall,
 parameter input and DSP also enforce the restriction. There is no implicit decode,
 encode or normalization conversion. Discrete quad/octo permit all eight effects.
 
-On the FX page, LOOP/TRAX edit parameters 1/2. Push TRAX to switch to parameter
-3/Amount, or use the Encoder Pair menu. Push LOOP to audition. Secondary pads
+Echo offers free times from 5 ms to 2 seconds, or host-tempo divisions from 1/32
+to one bar. Beat times are capped at the same 2-second buffer limit; the readout
+shows MAX when capped. Glide smooths time changes. Shift is a post-playback
+dual-head delay pitch effect, not source tuning or a time-stretch engine.
+Space uses linked reverberation tanks without implicit stereo widening.
+
+On the FX page, LOOP/TRAX edit the named controls in Encoder Pair. Push TRAX
+to advance through pairs, including OUT/MIX, or choose the pair from its menu.
+In Echo's Beats clock, the time encoder edits Division instead of inactive free time.
+Push LOOP to audition. Secondary pads
 choose effects and apply momentary pressure amount; primary pads still play cells.
-Click numeric values to enter Hz, milliseconds, bits or percentages. RESET THIS
-EFFECT resets its three settings without changing playback or other effects.
+Click numeric values to enter real units; double-click sliders to restore defaults.
+The DJ sweep resets to its neutral centre. RESET THIS EFFECT resets that effect's
+settings and OUT without changing Mix, Pressure, playback or other effect banks.
+The page fits the existing 16:9 canvas without resizing the waveform.
+
+Version 0.34 intentionally replaces the old Character processors. Loading older
+sets/projects preserves sources, stacks, playback and routing, but resets all
+Character banks to new defaults and cell/global Mangle to zero. Old Character
+sounds are not preserved. State with new effect settings uses schema 21 and
+requires 0.34 or later; save a separate project copy before migrating.
 
 ## Loading and saving
 
@@ -727,12 +1044,12 @@ blocked. Each slot stores gain, pan, tune, Start/End, envelope, filter,
 Mangle, pressure depth, character, trigger mode, repeat/sync/velocity, choke
 group, shared chop layout, source format and output-bus settings. Playback
 technique, clock, Shot Length and all technique settings are saved as well.
-Version 0.20 uses schema 14, retaining the plug-in ID and existing host parameter
-IDs. New per-effect and playback settings are saved in sets/project state.
-Newly saved sets require 0.20 or later. Version 0.19 loads unchanged with the
-previous 5 ms gesture fades. Versions 0.13–0.18 still load, but their
-old Character meanings are **not sound-compatible**: Character resets to Filter,
-cell/global Mangle reset to zero, and the new effect settings use defaults.
+The plug-in ID and existing host parameter IDs are retained. Per-effect and
+playback settings are saved in sets/project state. Current extended Character
+settings use schema 21 (0.34); other extensions select their applicable schema.
+Versions 0.13–0.33 still load their sample/playback data, but their old Character
+settings are **not sound-compatible**: cell/global Mangle reset to zero and the
+new effect banks use defaults.
 Save a separate copy before migrating. Older combined stages resolve to Grains,
 then Motion, then Sample. Adjacent-cell mixing and mute/solo remain retired.
 Pre-0.16 techniques default to Free clock and a one-second shot.

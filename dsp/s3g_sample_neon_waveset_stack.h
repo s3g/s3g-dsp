@@ -86,6 +86,9 @@ public:
                 cursors_[cursorCount_++] = {cursor.sourcePositionNormalized, cursor.key,
                     static_cast<float>(layer == selected ? start : source.start),
                     static_cast<float>(layer == selected ? end : source.end), cursor.identity, source.asset};
+                auto& head = cursors_[cursorCount_-1u];
+                head.layer = static_cast<uint8_t>(layer);
+                head.level = blend.first == blend.second ? 1.f : side ? blend.mix : 1.f-blend.mix;
             }
         }
     }

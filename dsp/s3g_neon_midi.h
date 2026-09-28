@@ -31,6 +31,10 @@ public:
     uint8_t bank() const noexcept { return bank_; }
     uint8_t baseNote() const noexcept { return base_; }
     uint8_t channel() const noexcept { return channel_; } // zero based
+    bool holds(uint8_t note, uint8_t channel) const noexcept {
+        for (const auto& held : held_) if (held.active && held.note == note && held.channel == channel) return true;
+        return false;
+    }
     neon::Mode mode() const noexcept { return surface_.mode; }
     neon::Layer layer() const noexcept { return surface_.layer; }
     uint32_t heldCells() const noexcept {
@@ -87,7 +91,7 @@ public:
         if (action.type == neon::ActionType::SelectBank) {
             // CHOP bank buttons address slices, not the performance cell bank.
             if (action.pressed && !action.shifted
-                && surface_.mode != neon::Mode::Slicer) setBank(action.bank);
+                && surface_.mode != neon::Mode::Slicer && surface_.mode != neon::Mode::HotCue) setBank(action.bank);
             return {true, BridgeKind::Control, 0u};
         }
         if (action.type == neon::ActionType::SelectMode) {

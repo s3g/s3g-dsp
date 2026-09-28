@@ -2236,7 +2236,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke>
         $<TARGET_FILE:s3g_sample_neon_clap>
         org.s3g.s3g-dsp.sample-neon
-        1180 760 "s3g Sample Neon 32" proportional)
+        1504 846 "s3g Sample Neon 32" proportional)
     set_tests_properties(s3g_sample_neon_gui_smoke PROPERTIES
       LABELS "non_nim;sample;controller;clap;gui" TIMEOUT 120)
   endif()

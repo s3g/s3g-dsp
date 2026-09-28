@@ -43,6 +43,16 @@ enum class EventKind : uint8_t {
     Choke,
 };
 
+// Optional per-voice object routing. The default leaves the source field
+// untouched. Object routes are latched at launch, never moved mid-voice.
+struct SampleVoiceRoute {
+    uint8_t width = 0u; // 0: preserve channels, 1: mono object, 2: stereo object
+    uint8_t first = 0u, second = 1u;
+    uint8_t sourceChannel = 0xffu; // explicit single-channel read, otherwise fold
+};
+struct SampleVoiceEnvelope {
+    float attack = -1.f, decay = 0.f, sustain = 1.f, release = 0.f;
+};
 struct RenderEvent {
     uint32_t frameOffset = 0u;
     EventKind kind = EventKind::NoteOn;
@@ -78,6 +88,17 @@ struct RenderEvent {
     float sourceGain = 1.0f;
     uint8_t grainWindow = 0xffu;
     float grainSkew = 0.0f;
+    uint8_t sourceLayer = 0xffu;
+    SampleVoiceRoute route {};
+    SampleVoiceEnvelope envelope {};
+    // Optional sequencer gate in output frames. ADSR fits the shorter of this
+    // gate and the source window; a short tail can overlap the following hit.
+    // Zero retains ordinary Sample Player timing and edge behavior.
+    uint32_t stepDurationFrames = 0u;
+    uint32_t edgeFadeFrames = 0u;
+    // A soft choke fades matching voices while they keep reading their source.
+    // Ordinary MIDI chokes/stops remain immediate.
+    uint32_t chokeFadeFrames = 0u;
 };
 
 struct VoiceCursor {
@@ -87,6 +108,12 @@ struct VoiceCursor {
     float sourceEndNormalized = 1.0f;
     uint64_t noteId = 0u;
     const SampleAsset* sourceAsset = nullptr;
+    // Read-only presentation of the voice that actually rendered, not a
+    // reconstruction from the current (possibly edited) grain parameters.
+    float windowPhase = 0.0f, level = 1.0f, windowSkew = 0.0f;
+    float attack = 0.0f, decay = 0.0f, sustain = 1.0f, release = 0.0f;
+    uint8_t window = 0xffu, layer = 0xffu;
+    bool reverse = false;
 };
 
 // Start, Length, Loop Start, and Loop End are normalized against the source.
@@ -313,17 +340,31 @@ public:
                      ++channel) {
                     uint32_t sourceChannel = channel;
                     float channelLevel = level;
-                    if (outputChannelCount_ == 2u
+                    if (voice.route.width) {
+                        if (channel != voice.route.first && (voice.route.width != 2u || channel != voice.route.second)) continue;
+                    } else if (voice.route.sourceChannel != 0xffu && channel != voice.route.sourceChannel) {
+                        continue;
+                    } else if (outputChannelCount_ == 2u
                         && sourceChannels == 1u && channel < 2u) {
                         sourceChannel = 0u;
                     } else if (channel >= sourceChannels) {
                         continue;
                     }
-                    const float source = voice.pitchMode == PitchMode::Stretch
-                        ? stretchSample(voice,
-                            voice.asset->channels[sourceChannel], stretch)
-                        : loopCrossfadedSample(voice,
-                            voice.asset->channels[sourceChannel]);
+                    const auto read = [&](uint32_t ch) {
+                        return voice.pitchMode == PitchMode::Stretch
+                            ? stretchSample(voice, voice.asset->channels[ch], stretch)
+                            : loopCrossfadedSample(voice, voice.asset->channels[ch]);
+                    };
+                    float source = 0.f;
+                    if (!voice.route.width) source = read(sourceChannel);
+                    else if (voice.route.sourceChannel < sourceChannels) source = read(voice.route.sourceChannel);
+                    else {
+                        const uint32_t step = voice.route.width == 2u && sourceChannels > 1u ? 2u : 1u;
+                        const uint32_t first = step == 2u && channel == voice.route.second ? 1u : 0u;
+                        uint32_t total = 0u;
+                        for (uint32_t ch = first; ch < sourceChannels; ch += step) { source += read(ch); ++total; }
+                        source /= static_cast<float>(std::max(1u, total));
+                    }
                     float value = processFilter(
                         voice.filterStates[channel], source, filter)
                         * channelLevel;
@@ -365,6 +406,18 @@ public:
                         voice.noteId,
                         voice.asset,
                     };
+                    if (frame + 1u == frameCount) {
+                        auto& cursor = voiceCursors_[voiceCursorCount_ - 1u];
+                        cursor.reverse = voice.increment < 0;
+                        cursor.layer = voice.sourceLayer;
+                        cursor.windowPhase = static_cast<float>(std::clamp(
+                            cursor.reverse ? 1.0 - windowPhase : windowPhase, 0.0, 1.0));
+                        cursor.level = std::max(0.f, level);
+                        cursor.window = voice.grainWindow; cursor.windowSkew = voice.grainSkew;
+                        const float duration = static_cast<float>(std::max(1u, voice.envelopeReferenceFrames));
+                        cursor.attack = voice.attackFrames / duration; cursor.decay = voice.decayFrames / duration;
+                        cursor.sustain = voice.sustainLevel; cursor.release = voice.releaseFrames / duration;
+                    }
                 }
                 voice.position += voice.increment;
                 advanceStretchPhase(voice);
@@ -372,6 +425,12 @@ public:
                 advanceLiveSustain(voice);
                 advanceEnvelope(voice);
                 advancePosition(voice);
+                ++voice.elapsedFrames;
+                if (voice.chokeFramesRemaining && --voice.chokeFramesRemaining == 0u)
+                    voice.active = false;
+                if (voice.stepDurationFrames && voice.elapsedFrames
+                    >= static_cast<uint64_t>(voice.stepDurationFrames) + voice.edgeFadeFrames)
+                    voice.active = false;
             }
         }
         applyFinalOutput(settings, outputs, outputChannelCount, frameCount);
@@ -417,6 +476,9 @@ private:
         uint32_t releaseFrames = 0u;
         uint32_t envelopeReferenceFrames = 1u;
         uint32_t envelopeFrame = 0u;
+        uint64_t elapsedFrames = 0u;
+        uint32_t stepDurationFrames = 0u, edgeFadeFrames = 0u;
+        uint32_t chokeFramesRemaining = 0u, chokeTotalFrames = 0u;
         uint8_t key = 60u;
         uint8_t rootNote = 60u;
         uint8_t midiChannel = 0u;
@@ -429,6 +491,9 @@ private:
         float eventGain = 1.0f;
         uint8_t grainWindow = 0xffu;
         float grainSkew = 0.0f;
+        uint8_t sourceLayer = 0xffu;
+        SampleVoiceRoute route {};
+        SampleVoiceEnvelope envelope {};
         float fineTuneOffsetCents = 0.0f;
         float envelopeLevel = 1.0f;
         float releaseStartLevel = 0.0f;
@@ -690,8 +755,13 @@ private:
     }
 
     void updateLiveEnvelopeTargets(Voice& voice,
-        const PlayerSettings& settings) const noexcept
+        const PlayerSettings& baseSettings) const noexcept
     {
+        PlayerSettings settings = baseSettings;
+        if (voice.envelope.attack >= 0.f) {
+            settings.sustain = voice.envelope.sustain;
+            settings.releaseProportion = voice.envelope.release;
+        }
         if (std::abs(settings.sustain - voice.targetSustainLevel)
             > 1.0e-7f) {
             voice.targetSustainLevel = settings.sustain;
@@ -705,6 +775,9 @@ private:
         if (voice.envelopeStage != Voice::EnvelopeStage::Release) {
             voice.envelopeReferenceFrames
                 = currentOutputLengthFrames(voice);
+            if (voice.stepDurationFrames)
+                voice.envelopeReferenceFrames = std::min(
+                    voice.envelopeReferenceFrames, voice.stepDurationFrames);
             voice.releaseFrames = proportionalFrames(
                 settings.releaseProportion,
                 voice.envelopeReferenceFrames);
@@ -847,7 +920,8 @@ private:
             // sample-accurate offset. 0xff is not a MIDI key; ordinary events
             // retain their note-id/key matching behavior.
             if (event.noteId == 0u && event.key == 0xffu) {
-                for (auto& voice : voices_) voice.active = false;
+                for (auto& voice : voices_)
+                    if (voice.active) chokeVoice(voice, event.chokeFadeFrames);
                 heldNotes_ = {};
                 break;
             }
@@ -956,8 +1030,15 @@ private:
     }
 
     void startVoice(const RenderEvent& event,
-        const PlayerSettings& settings) noexcept
+        const PlayerSettings& baseSettings) noexcept
     {
+        PlayerSettings settings = baseSettings;
+        if (event.envelope.attack >= 0.f) {
+            settings.attackProportion = std::clamp(event.envelope.attack, 0.f, 1.f);
+            settings.decayProportion = std::clamp(event.envelope.decay, 0.f, 1.f - settings.attackProportion);
+            settings.releaseProportion = std::clamp(event.envelope.release, 0.f, 1.f - settings.attackProportion - settings.decayProportion);
+            settings.sustain = std::clamp(event.envelope.sustain, 0.f, 1.f);
+        }
         // The asset was validated at set/publish time. Revalidating here
         // would rescan the complete file for every note-on.
         const auto* source = event.sourceAsset ? event.sourceAsset : asset_;
@@ -1012,6 +1093,10 @@ private:
         voice.playMode = triggerPlayMode;
         voice.grainWindow = event.grainWindow;
         voice.grainSkew = event.grainSkew;
+        voice.sourceLayer = event.sourceLayer;
+        voice.route = event.route;
+        if (event.envelope.attack >= 0.f) voice.envelope = {settings.attackProportion,
+            settings.decayProportion, settings.sustain, settings.releaseProportion};
         voice.eventGain = std::clamp(event.sourceGain, 0.0f, 1.0f) * std::pow(10.0f, std::clamp(
             event.gainOffsetDecibels, -12.0f, 12.0f) * 0.05f);
         voice.fineTuneOffsetCents = std::clamp(
@@ -1039,12 +1124,22 @@ private:
             + (std::clamp(event.velocity, 0.0f, 1.0f) - 1.0f)
                 * settings.velocitySensitivity, 0.0f, 1.0f);
         voice.velocityLevel = velocity;
-        const uint32_t boundedLength = currentOutputLengthFrames(voice);
+        voice.stepDurationFrames = event.stepDurationFrames;
+        const uint32_t boundedLength = event.stepDurationFrames
+            ? std::min(currentOutputLengthFrames(voice), event.stepDurationFrames)
+            : currentOutputLengthFrames(voice);
+        voice.edgeFadeFrames = event.edgeFadeFrames ? std::clamp(
+            event.edgeFadeFrames, 2u, std::max(2u, boundedLength / 4u)) : 0u;
         voice.envelopeReferenceFrames = boundedLength;
         voice.attackFrames = proportionalFrames(
             settings.attackProportion, boundedLength);
         voice.decayFrames = proportionalFrames(
             settings.decayProportion, boundedLength);
+        // An attack followed by D=0 and S<1 would otherwise jump from its
+        // peak straight to sustain. Keep this safety floor opt-in per event.
+        if (voice.edgeFadeFrames && settings.sustain < 1.f
+            && (voice.attackFrames || voice.decayFrames))
+            voice.decayFrames = std::max(voice.decayFrames, voice.edgeFadeFrames);
         voice.releaseFrames = proportionalFrames(
             settings.releaseProportion, boundedLength);
         voice.sustainLevel = settings.sustain;
@@ -1095,8 +1190,17 @@ private:
             if (!eventMatchesVoice(event, voice)) continue;
             if (!choke && triggerMode == TriggerMode::Auto
                 && !isLooping(voice.playMode)) continue;
-            beginRelease(voice, choke ? 0u : voice.releaseFrames);
+            if (choke) chokeVoice(voice, event.chokeFadeFrames);
+            else beginRelease(voice, voice.releaseFrames);
         }
+    }
+
+    static void chokeVoice(Voice& voice, uint32_t frames) noexcept
+    {
+        if (frames < 2u) { voice.active = false; return; }
+        // Do not restart/prolong a tail that is already fading.
+        if (voice.chokeFramesRemaining) return;
+        voice.chokeFramesRemaining = voice.chokeTotalFrames = frames;
     }
 
     static void beginRelease(Voice& voice, uint32_t frames) noexcept
@@ -1462,25 +1566,43 @@ private:
 
     static float boundaryFade(const Voice& voice) noexcept
     {
-        if (isLooping(voice.playMode)) return 1.0f;
-        const double rate = std::abs(voice.increment);
-        if (!(rate > 0.0)) return 0.0f;
-        const double distance = isReverse(voice.playMode)
-            ? std::max(0.0, voice.position
-                - static_cast<double>(voice.playStartFrame))
-            : std::max(0.0, static_cast<double>(voice.playEndFrame)
-                - voice.position);
-        const uint64_t remaining = static_cast<uint64_t>(std::max(1.0,
-            isReverse(voice.playMode) ? std::floor(distance / rate) + 1.0
-                                      : std::ceil(distance / rate)));
-        const uint32_t naturalFadeFrames = static_cast<uint32_t>(
-            std::clamp<double>(std::ceil(16.0 / rate), 2.0,
-                std::numeric_limits<uint32_t>::max()));
-        const uint32_t fadeFrames = std::max(naturalFadeFrames,
-            voice.releaseFrames);
-        if (remaining >= fadeFrames) return 1.0f;
-        return static_cast<float>(remaining - 1u)
-            / static_cast<float>(fadeFrames - 1u);
+        const auto ramp = [](double phase) noexcept {
+            const float t = static_cast<float>(std::clamp(phase, 0.0, 1.0));
+            return t * t * (3.f - 2.f * t);
+        };
+        float fade = 1.f;
+        if (!isLooping(voice.playMode)) {
+            const double rate = std::abs(voice.increment);
+            if (!(rate > 0.0)) return 0.0f;
+            const double distance = isReverse(voice.playMode)
+                ? std::max(0.0, voice.position
+                    - static_cast<double>(voice.playStartFrame))
+                : std::max(0.0, static_cast<double>(voice.playEndFrame)
+                    - voice.position);
+            const uint64_t remaining = static_cast<uint64_t>(std::max(1.0,
+                isReverse(voice.playMode) ? std::floor(distance / rate) + 1.0
+                                          : std::ceil(distance / rate)));
+            const uint32_t naturalFadeFrames = static_cast<uint32_t>(
+                std::clamp<double>(std::ceil(16.0 / rate), 2.0,
+                    std::numeric_limits<uint32_t>::max()));
+            const uint32_t fadeFrames = std::max({naturalFadeFrames,
+                voice.releaseFrames, voice.edgeFadeFrames});
+            const float natural = remaining >= fadeFrames ? 1.f
+                : static_cast<float>(remaining - 1u) / static_cast<float>(fadeFrames - 1u);
+            fade = voice.edgeFadeFrames ? ramp(natural) : natural;
+        }
+        if (voice.stepDurationFrames) {
+            const uint64_t end = static_cast<uint64_t>(voice.stepDurationFrames) + voice.edgeFadeFrames;
+            const uint64_t left = end > voice.elapsedFrames ? end - voice.elapsedFrames : 1u;
+            const uint32_t release = std::max({2u, voice.edgeFadeFrames, voice.releaseFrames});
+            fade = std::min(fade, ramp(static_cast<double>(left - 1u) / (release - 1u)));
+        }
+        if (voice.chokeFramesRemaining)
+            fade = std::min(fade, ramp(static_cast<double>(voice.chokeFramesRemaining - 1u)
+                / (voice.chokeTotalFrames - 1u)));
+        if (voice.edgeFadeFrames)
+            fade *= ramp(static_cast<double>(voice.elapsedFrames) / (voice.edgeFadeFrames - 1u));
+        return fade;
     }
 
     static float interpolate(const std::vector<float>& samples,

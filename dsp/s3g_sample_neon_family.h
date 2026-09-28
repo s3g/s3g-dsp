@@ -54,11 +54,14 @@ enum class NeonFamily : unsigned {
     PathTime, // 32 time coordinates, then 32 layer coordinates
     PathValue = PathTime + 32u,
     LanePosition = PathValue + 32u, LaneAuto, LaneRate, LaneSlew, LaneJoin,
+    SliceAttack, SliceDecay, SliceSustain, SliceRelease,
+    RoutingMode, RoutingWidth, RoutingTraversal, GrainStereoLink,
     Count
 };
 constexpr unsigned neonFamilyIndex(NeonFamily key) noexcept { return static_cast<unsigned>(key); }
 constexpr unsigned kNeonFamilyCount = neonFamilyIndex(NeonFamily::Count);
 constexpr unsigned kNeonFamilyV17Count = neonFamilyIndex(NeonFamily::LanePosition);
+constexpr unsigned kNeonFamilyV19Count = neonFamilyIndex(NeonFamily::SliceAttack);
 struct NeonFamilyDef { float minimum, maximum, initial; bool stepped = false; };
 inline NeonFamilyDef neonFamilyDef(unsigned i) noexcept
 {
@@ -67,6 +70,12 @@ inline NeonFamilyDef neonFamilyDef(unsigned i) noexcept
         neonStackShapeTime(NeonStackShape::Triangle, 32, i - neonFamilyIndex(F::PathValue)))};
     if (i >= neonFamilyIndex(F::PathTime) && i < neonFamilyIndex(F::PathValue)) return {0, 1, neonStackShapeTime(NeonStackShape::Triangle, 32, i - neonFamilyIndex(F::PathTime))};
     switch (static_cast<F>(i)) {
+    case F::SliceAttack: return {0, 1, .005f};
+    case F::SliceSustain: return {0, 1, 1};
+    case F::SliceRelease: return {0, 1, .02f};
+    case F::RoutingMode: case F::GrainStereoLink: return {0, 1, 0, true};
+    case F::RoutingWidth: return {0, 1, 1, true};
+    case F::RoutingTraversal: return {0, 4, 0, true};
     case F::LaneAuto: return {0, 1, 0, true};
     case F::LaneRate: return {.25f, 4, 1};
     case F::LaneSlew: return {.001f, .1f, .01f};
@@ -139,6 +148,59 @@ inline void neonSetStackShape(NeonFamilySettings& f, NeonStackShape shape, unsig
     }
 }
 inline double neonUnitPhase(double phase) noexcept { return phase - std::floor(phase); }
+// Control-thread breakpoint editing. Keep the existing curve/phase and fixed
+// endpoints when unlocking a named shape; never change layer navigation mode.
+inline bool neonMoveStackPoint(NeonFamilySettings& f, unsigned index, float time, float value) noexcept {
+    const unsigned count = static_cast<unsigned>(f[NeonFamily::PathCount]);
+    if (count < 2 || count > 32 || index >= count || !std::isfinite(time) || !std::isfinite(value)) return false;
+    const auto t = neonFamilyIndex(NeonFamily::PathTime), v = neonFamilyIndex(NeonFamily::PathValue);
+    f[NeonFamily::StackShape] = static_cast<float>(NeonStackShape::Manual);
+    if (index && index + 1 < count) {
+        const float left = f.values[t + index - 1], right = f.values[t + index + 1];
+        const float previous = f.values[t + index];
+        f.values[t + index] = std::clamp(time, std::min(left + .002f, previous), std::max(right - .002f, previous));
+    }
+    f.values[v + index] = std::clamp(value, 0.f, 1.f);
+    return true;
+}
+inline int neonAddStackPoint(NeonFamilySettings& f, float time, float value, float endpointRadius) noexcept {
+    const unsigned count = static_cast<unsigned>(f[NeonFamily::PathCount]);
+    if (count < 2 || count > 32 || !std::isfinite(time) || !std::isfinite(value)) return -1;
+    time = std::clamp(time, 0.f, 1.f);
+    const auto t = neonFamilyIndex(NeonFamily::PathTime), v = neonFamilyIndex(NeonFamily::PathValue);
+    // Clicking near an endpoint changes its height, even at the 32-point cap.
+    if (time <= endpointRadius || time >= 1 - endpointRadius) {
+        const unsigned index = time <= endpointRadius ? 0 : count - 1;
+        neonMoveStackPoint(f, index, time, value); return static_cast<int>(index);
+    }
+    // Avoid duplicate times when clicking vertically above/below another node.
+    for (unsigned i = 1; i + 1 < count; ++i) if (std::abs(time - f.values[t + i]) < .0001f) {
+        neonMoveStackPoint(f, i, time, value); return static_cast<int>(i);
+    }
+    if (count == 32) return -1;
+    unsigned at = 1;
+    while (at < count && f.values[t + at] < time) ++at;
+    for (unsigned i = count; i > at; --i) {
+        f.values[t + i] = f.values[t + i - 1]; f.values[v + i] = f.values[v + i - 1];
+    }
+    f.values[t + at] = time; f.values[v + at] = std::clamp(value, 0.f, 1.f);
+    f[NeonFamily::PathCount] = static_cast<float>(count + 1);
+    f[NeonFamily::StackShape] = static_cast<float>(NeonStackShape::Manual);
+    return static_cast<int>(at);
+}
+inline bool neonRemoveStackPoint(NeonFamilySettings& f, unsigned index) noexcept {
+    const unsigned count = static_cast<unsigned>(f[NeonFamily::PathCount]);
+    if (count <= 2 || count > 32 || index == 0 || index + 1 >= count) return false;
+    const auto t = neonFamilyIndex(NeonFamily::PathTime), v = neonFamilyIndex(NeonFamily::PathValue);
+    for (unsigned i = index; i + 1 < count; ++i) {
+        f.values[t + i] = f.values[t + i + 1]; f.values[v + i] = f.values[v + i + 1];
+    }
+    f.values[t + count - 1] = neonFamilyDef(t + count - 1).initial;
+    f.values[v + count - 1] = neonFamilyDef(v + count - 1).initial;
+    f[NeonFamily::PathCount] = static_cast<float>(count - 1);
+    f[NeonFamily::StackShape] = static_cast<float>(NeonStackShape::Manual);
+    return true;
+}
 inline double neonStackPath(const NeonFamilySettings& f, double phase) noexcept
 {
     const unsigned n = std::clamp<unsigned>(static_cast<unsigned>(f[NeonFamily::PathCount]), 2, 32);

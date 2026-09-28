@@ -3,6 +3,11 @@ namespace sample_neon_canvas {
 using namespace s3g::portable_gui::canvas;
 namespace foundation = s3g::portable_gui::foundation;
 using I = s3g::sample_neon_gui::InspectorLayout;
+using E = s3g::sample_neon_gui::PlaybackLayout;
+using P = s3g::sample_neon_gui::PadLayout;
+using M = s3g::sample_neon_gui::MiniLayout;
+using W = s3g::sample_neon_gui::WaveLayout;
+using C = s3g::sample_neon_gui::CanvasLayout;
 using WaveDisplay = s3g::sample::SampleNeonWaveformDisplay;
 
 class Editor final : public View {
@@ -12,8 +17,11 @@ public:
     {
         setWantsFocus(true);
     }
+    ~Editor() override { p.fillGuiHeld.store(false); p.pendingStackGuiReleases.store(255); requestProcess(p); }
 
     void onMouseDownEvent(MouseDownEvent& event) override {
+        pathDragPoint = -1;
+        pathPointLimit = false;
         // Numeric text fields retain their own copy/paste. Only a pad click
         // claims keyboard focus for cell operations.
         if (cellAt(event.mousePosition) >= 0 && getFrame()) getFrame()->setFocusView(this);
@@ -29,6 +37,21 @@ public:
         if (event.consumed) invalid();
     }
     bool pointerDown(MouseDownEvent& event) override {
+        if (!resetConfirm && stackPathVisible() && foundation::contains(stackPathRect(), event.mousePosition)) {
+            const bool remove = event.buttonState.isRight()
+                || (event.buttonState.isLeft() && event.modifiers.has(ModifierKey::Control));
+            if (remove || event.buttonState.isLeft()) {
+                editStackPathAt(event.mousePosition, remove); return true;
+            }
+        }
+        if (!resetConfirm && p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotCue) && !p.visibleLayer.load()
+            && (event.modifiers.has(ModifierKey::Shift) || event.buttonState.isRight())) {
+            for (unsigned pad = 0; pad < 8; ++pad) if (foundation::contains(padRect(pad), event.mousePosition)) {
+                const auto layer = p.stackBank.load() * 8u + pad;
+                if (layer < stackCount(p, selectedSlot)) showLayer(p, selectedSlot, layer);
+                return true;
+            }
+        }
         if (resetConfirm || !event.buttonState.isRight()) return false;
         const int cell = cellAt(event.mousePosition);
         if (cell < 0) return false;
@@ -39,6 +62,16 @@ public:
             }, 1, {}, 18.0, {bool(asset(static_cast<std::size_t>(cell))), bool(p.cellClipboard)});
         return true;
     }
+    void pointerMove(MouseMoveEvent& event) override {
+        if (pathDragPoint < 0) return;
+        if (pathDragSlot != selectedSlot || !stackPathVisible()) { pathDragPoint = -1; return; }
+        auto f = familySnapshot(); const auto area = stackPathRect();
+        if (s3g::sample::neonMoveStackPoint(f, static_cast<unsigned>(pathDragPoint),
+            static_cast<float>((event.mousePosition.x - area.left) / area.getWidth()),
+            static_cast<float>((event.mousePosition.y - area.top) / area.getHeight()))) storeStackPath(f);
+        invalid(); event.consumed = true;
+    }
+    void pointerUp(MouseUpEvent&) override { pathDragPoint = -1; }
 
     void service() override
     {
@@ -48,7 +81,7 @@ public:
 #endif
         serviceWavesets(p);
         serviceStorage(p);
-        workspaceTab = std::min<uint8_t>(9u, effectiveEditPage(p));
+        workspaceTab = std::min<uint8_t>(10u, effectiveEditPage(p));
     }
 
     void paint() override
@@ -57,10 +90,15 @@ public:
         // Draw and bind controls to the selected cell on this very paint.
         selectedSlot = std::min<std::size_t>(p.selectedSlot.load(
             std::memory_order_relaxed), s3g::sample::kSampleNeonSlotCount - 1u);
-        workspaceTab = std::min<uint8_t>(9u, effectiveEditPage(p));
+        if (visualSlot != selectedSlot) { visual = {}; visualSlot = selectedSlot; }
+        (void)p.playbackVisuals[selectedSlot].read(visual);
+        workspaceTab = std::min<uint8_t>(10u, effectiveEditPage(p));
+        footerMessage.clear(); footerColor = style.dim;
         paintHeader();
         paintController();
         paintSelectedSlot();
+        if (!footerMessage.empty()) text(footerMessage,
+            rect(C::statusLeft, C::statusTop, C::statusWidth, 18), footerColor);
         if (resetConfirm) {
             // A deliberate two-step action; the waveform itself stays clear.
             hit(rect(0.0, 0.0, kGuiWidth, kGuiHeight), [] {});
@@ -82,7 +120,10 @@ public:
         if (paths.empty() || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotLoop)) return false;
         int target = slotAt(point);
         if (target < 0) target = static_cast<int>(selectedSlot);
-        if (effectiveEditPage(p) == 8u && p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotCue)) {
+        if ((effectiveEditPage(p) == 8u || effectiveEditPage(p) == 0u)
+            && familyPage != 3 && !p.fillPage.load()
+            && (p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotCue)
+                || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::Sampler))) {
 #if defined(S3G_SAMPLE_FILE_WORKER)
             unsigned layer = stackCount(p, static_cast<std::size_t>(target));
             if (paths.size() > 32u - layer) { p.workflowMessage = "STACK FULL; DROP NEEDS MORE FREE LAYERS"; return false; }
@@ -127,18 +168,18 @@ public:
     }
 
 private:
-    static CRect inspectorButton(unsigned row, unsigned column = 0u, unsigned count = 1u) {
-        return rect(I::columnLeft(column, count), I::button(row), I::columnWidth(count), I::buttonHeight);
+    template<class L = I> static CRect inspectorButton(unsigned row, unsigned column = 0u, unsigned count = 1u) {
+        return rect(L::columnLeft(column, count), L::button(row), L::columnWidth(count), L::buttonHeight);
     }
-    static CRect inspectorMenu(unsigned row) {
-        return rect(I::controlLeft, I::menu(row), I::controlWidth, 25.0);
+    template<class L = I> static CRect inspectorMenu(unsigned row) {
+        return rect(L::controlLeft, L::menu(row), L::controlWidth, 25.0);
     }
-    void inspectorLabel(const char* label, unsigned row) {
-        text(label, rect(I::left, I::label(row), I::labelWidth, 18.0), style.label);
+    template<class L = I> void inspectorLabel(const char* label, unsigned row) {
+        text(label, rect(L::left, L::label(row), L::labelWidth, 18.0), style.label);
     }
-    void inspectorReadout(const char* label, const char* value, unsigned row) {
-        inspectorLabel(label, row);
-        text(value, rect(I::controlLeft, I::label(row), I::controlWidth, 18.0), style.dim, kCenterText);
+    template<class L = I> void inspectorReadout(const char* label, const char* value, unsigned row) {
+        inspectorLabel<L>(label, row);
+        text(value, rect(L::controlLeft, L::label(row), L::controlWidth, 18.0), style.dim, kCenterText);
     }
     bool resetConfirm = false;
     int cellAt(CPoint point) const {
@@ -146,7 +187,7 @@ private:
         const auto bank = p.visibleBank.load();
         if (mode == NeonMode::HotLoop) {
             if (!p.visibleLayer.load()) return -1;
-        } else if (mode == NeonMode::Slicer || p.visibleLayer.load()) return -1;
+        } else if (mode == NeonMode::Slicer || mode == NeonMode::HotCue || p.visibleLayer.load()) return -1;
         for (unsigned pad = 0u; pad < 8u; ++pad)
             if (foundation::contains(padRect(pad), point)) return static_cast<int>(bank * 8u + pad);
         return -1;
@@ -166,17 +207,26 @@ private:
     }
     std::array<s3g::sample::SampleNeonWaveformViewport, 33u> waveViews {};
     std::array<const SampleAsset*, 33u> waveAssets {};
-    static CRect waveformRect() { return rect(32.0, 122.0, 793.0, 254.0); }
+    s3g::sample::NeonVisualSnapshot visual {};
+    std::size_t visualSlot = 32;
+    CRect waveformRect() const { return rect(W::left, W::top, W::width,
+        W::height()); }
+    CRect overviewRect() const { return rect(W::overviewLeft, W::overviewTop(), W::overviewWidth, W::overviewHeight); }
+    CRect stackPathRect() const { return rect(W::pathLeft, W::pathTop, W::pathWidth, W::pathHeight); }
+    bool stackPathVisible() const {
+        const auto mode = static_cast<NeonMode>(p.visibleMode.load());
+        return familyPage == 3 && workspaceTab == 8 && !p.fillPage.load()
+            && (mode == NeonMode::HotCue || mode == NeonMode::Sampler);
+    }
     // Use the shared s3g popup, with centered control labels everywhere.
     void menu(CRect bounds, const std::string& value,
         std::vector<std::string> items, int selected,
         std::function<void(int)> choose, bool enabled = true,
         int columns = 1, CHoriTxtAlign alignment = kCenterText, std::vector<bool> selectable = {})
     {
-        // Preserve compact family metrics; right-panel fields share one column.
+        // Preserve caller width/inset; every menu uses the compact family height.
         const double top = bounds.getCenter().y - I::menuHeight * 0.5;
-        const double width = bounds.left >= kPanelLeft ? I::controlWidth : std::min(164.0, bounds.getWidth());
-        bounds = rect(bounds.right - width, top, width, I::menuHeight);
+        bounds = rect(bounds.left, top, bounds.getWidth(), I::menuHeight);
         auto palette = style;
         if (!enabled) palette.value = color(0x686868);
         foundation::drawMenuBox(*context, bounds, value, font, palette, alignment);
@@ -186,22 +236,12 @@ private:
         }, enabled);
     }
 
-    void helpText(const std::string& message, double y)
+    std::string footerMessage;
+    CColor footerColor {};
+    void helpText(const std::string& message, double)
     {
-        // Operation status only; instructional prose lives in the guide.
-        std::size_t start = 0u;
-        while (start < message.size()) {
-            std::size_t end = std::min(start + 43u, message.size());
-            if (end < message.size()) {
-                const auto space = message.rfind(' ', end);
-                if (space != std::string::npos && space > start) end = space;
-            }
-            text(message.substr(start, end - start),
-                rect(I::left, y, I::width, 18.0), style.dim);
-            start = end;
-            while (start < message.size() && message[start] == ' ') ++start;
-            y += 20.0;
-        }
+        // One bounded operation-status line; never wrap below the canvas.
+        footerMessage = message;
     }
 
     bool routeValid(const SampleAsset* current) const
@@ -210,7 +250,8 @@ private:
             current->channelCount, static_cast<SampleNeonSourceFormat>(
                 static_cast<uint8_t>(paramValue(p, slotParamId(selectedSlot, kSlotSourceFormat)))),
             static_cast<SampleNeonOutputLayout>(static_cast<uint8_t>(paramValue(p, kOutputLayoutParamId))),
-            static_cast<uint32_t>(paramValue(p, slotParamId(selectedSlot, kSlotOutputBus))) - 1u);
+            static_cast<uint32_t>(paramValue(p, slotParamId(selectedSlot, kSlotOutputBus))) - 1u,
+            familySnapshot()[NeonFamily::RoutingMode] != 0);
     }
 
     std::string routeStatus(const SampleAsset* current) const
@@ -223,9 +264,13 @@ private:
             static_cast<uint8_t>(paramValue(p, kOutputLayoutParamId)));
         const auto bus = static_cast<unsigned>(paramValue(p, slotParamId(selectedSlot, kSlotOutputBus)));
         const auto width = s3g::sample::sampleNeonBusWidth(layout);
-        return format("%u CH %s / BUS %u: CH %u-%u / CHANNEL-LINKED",
+        const bool distribute = !ambi && familySnapshot()[NeonFamily::RoutingMode] != 0;
+        const bool independent = !ambi && playbackChoice() == 2 && current->channelCount == 2u
+            && familySnapshot()[NeonFamily::GrainStereoLink] != 0;
+        return format("%u CH %s / BUS %u: CH %u-%u / %s / %s",
             current->channelCount, ambi ? "ACN/SN3D" : "DISCRETE", bus,
-            (bus - 1u) * width + 1u, bus * width);
+            (bus - 1u) * width + 1u, bus * width, distribute ? "DISTRIBUTE" : "PRESERVE FIELD",
+            independent ? "STEREO INDEPENDENT" : "LINKED");
     }
 
     static constexpr double kControllerLeft = 20.0;
@@ -241,16 +286,12 @@ private:
     static constexpr double kSlicePadTop = 412.0;
     static constexpr double kSlicePadHeight = 60.0;
     static constexpr double kSlicePadGapY = 10.0;
-    static constexpr double kPanelLeft = 858.0;
-    static constexpr double kPanelWidth = 302.0;
+    static constexpr double kPanelLeft = I::left - 16;
+    static constexpr double kPanelWidth = I::width + 32;
 
     CRect padRect(std::size_t pad) const
     {
-        const std::size_t row = pad / 4u;
-        const std::size_t column = pad % 4u;
-        return rect(kPadLeft + column * (kPadWidth + kPadGapX),
-            kPadTop + row * (kPadHeight + kPadGapY),
-            kPadWidth, kPadHeight);
+        return rect(M::padX(pad), M::padY(pad), M::padWidth, M::padHeight);
     }
 
     CRect slicePadRect(std::size_t pad) const
@@ -264,10 +305,11 @@ private:
 
     int slotAt(CPoint point) const
     {
-        if (foundation::contains(rect(32.0, 82.0, 793.0, 430.0), point))
+        if (foundation::contains(rect(W::left, 82, W::width, W::bottom() - 82), point))
             return static_cast<int>(selectedSlot);
         if (p.visibleMode.load(std::memory_order_relaxed) == static_cast<uint8_t>(NeonMode::Slicer)
-            || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotLoop)) return -1;
+            || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotLoop)
+            || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotCue)) return -1;
         const std::size_t bank = p.visibleBank.load(
             std::memory_order_relaxed);
         for (std::size_t pad = 0u;
@@ -309,27 +351,24 @@ private:
     {
         foundation::drawPluginTitle(*context,
             "s3g SAMPLE NEON 32",
-            rect(20.0, 14.0, 330.0, 23.0), titleFont);
-        const float peak = std::clamp(p.outputPeak.load(
-            std::memory_order_relaxed), 0.0f, 1.0f);
-        fill(rect(220.0, 20.0, 100.0, 6.0), style.cell);
-        fill(rect(220.0, 20.0, 100.0 * peak, 6.0),
-            peak > 0.92f ? color(0xc8aaa0) : style.fill);
+            rect(20.0, C::titleTop, 300.0, C::titleHeight), titleFont);
+        text(foundation::peakDbText(p.outputPeak.load(std::memory_order_relaxed)),
+            rect(C::width - C::statusRightInset - 116, C::titleTop, 116, C::titleHeight), style.value, kRightText);
         const auto layout = static_cast<int>(paramValue(p, kOutputLayoutParamId));
-        menu(rect(340.0, 10.0, 180.0, 28.0), kOutputLayoutNames[static_cast<std::size_t>(layout)],
+        menu(rect(340.0, C::titleTop, 180.0, C::titleHeight), kOutputLayoutNames[static_cast<std::size_t>(layout)],
             std::vector<std::string>(kOutputLayoutNames.begin(), kOutputLayoutNames.end()),
             layout, [this](int choice) {
                 queueGuiParamGesture(p, kOutputLayoutParamId, choice);
             });
-        menu(rect(535.0, 10.0, 106.0, 28.0), s3g::sample_storage::storageModeName(p.storageMode),
+        menu(rect(535.0, C::titleTop, 106.0, C::titleHeight), s3g::sample_storage::storageModeName(p.storageMode),
             {"PROJECT", "LINK", "EMBED"}, static_cast<int>(p.storageMode),
             [this](int choice) { chooseStorage(p, static_cast<StorageMode>(choice)); serviceStorage(p); });
-        button(rect(651.0, 12.0, 95.0, 23.0), "RESET ALL", [this] { resetConfirm = true; });
+        button(rect(651.0, C::titleTop, 95.0, C::titleHeight), "RESET ALL", [this] { resetConfirm = true; });
         const bool owns = paramValue(p, kNeonActiveParamId) >= 0.5;
         std::string ownerLabel = owns ? "NEON OWNER: ON" : "NEON OWNER: OFF";
 #if defined(__APPLE__)
         if (owns) {
-            switch (p.directNeonOutput.status()) {
+            switch ((p.visibleUnit.load() ? p.secondNeonOutput : p.directNeonOutput).status()) {
             case DirectNeonOutput::Status::Connected:
                 ownerLabel = "NEON: CONNECTED";
                 break;
@@ -344,8 +383,9 @@ private:
                 break;
             }
         }
+        if (owns && p.addressedSurfaces.load()) ownerLabel.insert(4u, p.visibleUnit.load() ? " U2" : " U1");
 #endif
-        button(rect(760.0, 10.0, 155.0, 28.0),
+        button(rect(760.0, C::titleTop, 155.0, C::titleHeight),
             ownerLabel,
             [this, owns] {
                 queueGuiParamGesture(p, kNeonActiveParamId,
@@ -354,9 +394,9 @@ private:
                     std::memory_order_release);
                 p.ledFeedbackDirty.store(true, std::memory_order_release);
             }, owns);
-        button(rect(924.0, 10.0, 108.0, 28.0), "LOAD SET",
+        button(rect(924.0, C::titleTop, 108.0, C::titleHeight), "LOAD SET",
             [this] { chooseSet(false); });
-        button(rect(1040.0, 10.0, 108.0, 28.0), "SAVE SET",
+        button(rect(1040.0, C::titleTop, 108.0, C::titleHeight), "SAVE SET",
             [this] { chooseSet(true); });
     }
 
@@ -364,8 +404,8 @@ private:
     void selectMode(uint8_t mode)
     {
         if (mode > 3u) return;
-        selectSurface(p, static_cast<NeonMode>(mode),
-            p.visibleMode.load() == mode ? static_cast<uint8_t>(1u - p.visibleLayer.load()) : 0u);
+        // Workspace navigation always selects primary pads. SECOND is explicit.
+        selectSurface(p, static_cast<NeonMode>(mode), 0u);
     }
 
     CColor padAccent(std::size_t pad, bool bright) const
@@ -500,6 +540,8 @@ private:
         line({x, bounds.top}, {x, bounds.bottom}, color(0xb27d69), 2.0);
     }
 
+#include "s3g_sample_neon_playback_visual.inc"
+
     void paintWorkspace()
     {
         const auto mode = static_cast<NeonMode>(p.visibleMode.load());
@@ -510,22 +552,25 @@ private:
         const int playingLayer = p.stackWaveformLayers[selectedSlot].load();
         const bool scanning = playingLayer == -2;
         const bool canFollow = !capture && !chop && layers > 1u;
+        const bool laneView = canFollow && p.laneWaveView.load() && p.followStackWave.load();
         const bool follow = canFollow && p.followStackWave.load() && (scanning || (playingLayer >= 0 && playingLayer < static_cast<int>(layers)));
-        const bool editable = mode != NeonMode::Sampler && !follow;
+        const bool editable = !follow && !laneView;
         const auto current = capture ? p.captureAsset : asset(selectedSlot);
         const unsigned layer = static_cast<unsigned>(std::clamp(playingLayer, 0, 31));
         const auto blend = scanning ? s3g::sample::neonStackBlend(p.stackPositions[selectedSlot].load(), layers)
             : s3g::sample::NeonStackBlend {layer, layer, 0.0f};
         const auto& a = p.sources[selectedSlot][blend.first];
         const auto& b = p.sources[selectedSlot][blend.second];
-        const char* names[] { "PLAY", "CHOP", "EDIT", "RESAMPLE" };
-        panel(rect(20.0, 52.0, 817.0, 480.0),
+        const char* names[] { "PLAY", "CHOP", "PLAY", "RESAMPLE" };
+        panel(rect(W::panelLeft, C::panelTop, W::panelWidth, W::bottom() - C::panelTop),
             format("%s / CELL %c%zu / %s", names[static_cast<unsigned>(mode)],
                 static_cast<char>('A' + selectedSlot / 8u), selectedSlot % 8u + 1u,
-                capture ? "OUTPUT BUS CAPTURE" : follow ? (scanning
+                capture ? "OUTPUT BUS CAPTURE" : laneView ? format("STACK LANES %02u-%02u / %02u",
+                    s3g::sample::neonLaneViewFirst(layers,p.stackPositions[selectedSlot].load())+1u,
+                    s3g::sample::neonLaneViewFirst(layers,p.stackPositions[selectedSlot].load())+std::min(8u,layers),layers).c_str() : follow ? (scanning
                     ? format("STACK %02u > %02u / %.0f%%", blend.first + 1u, blend.second + 1u, blend.mix * 100.0f)
                     : format("PLAY LAYER %02u / %02u", blend.first + 1u, layers)).c_str()
-                    : format("LAYER %02u / %02u", p.selectedLayers[selectedSlot].load() + 1u,
+                    : format("EDIT LAYER %02u / %02u", p.selectedLayers[selectedSlot].load() + 1u,
                     std::max(1u, stackCount(p, selectedSlot))).c_str()));
         const bool ambi = capture
             ? p.captureLayout.load() >= static_cast<uint8_t>(SampleNeonOutputLayout::Ambisonic1)
@@ -533,16 +578,16 @@ private:
         const auto display = p.waveformDisplay.load();
         const std::vector<std::string> waveChoices {
             "COMBINED PEAKS", ambi ? "ACN 0" : "CHANNEL 1", "ALL CHANNELS" };
-        text("WAVE", rect(618.0, 53.0, 38.0, 18.0), style.label);
-        menu(rect(661.0, 50.0, 164.0, 24.0), waveChoices[static_cast<unsigned>(display)],
+        text("WAVE", rect(W::left + W::width - 207, W::viewCenter - 9, 38.0, 18.0), style.label);
+        menu(rect(W::left + W::width - 164, W::viewTop, 164.0, W::controlHeight), laneView ? "STACK PEAKS" : waveChoices[static_cast<unsigned>(display)],
             waveChoices, static_cast<int>(display), [this](int choice) {
                 // Like zoom, a view choice must not alter any sound/settings.
                 // Stored on the instance so closing/reopening the GUI keeps it.
                 p.waveformDisplay.store(static_cast<WaveDisplay>(choice));
-            });
-        const double start = follow ? 0.0 : capture ? p.captureStart.load()
+            }, !laneView);
+        const double start = follow || laneView ? 0.0 : capture ? p.captureStart.load()
             : paramValue(p, slotParamId(selectedSlot, kSlotStart));
-        const double end = follow ? 1.0 : capture ? p.captureEnd.load()
+        const double end = follow || laneView ? 1.0 : capture ? p.captureEnd.load()
             : paramValue(p, slotParamId(selectedSlot, kSlotEnd));
         const double range = std::max(0.0, end - start);
         const double edit = capture ? p.captureCursor.load()
@@ -553,9 +598,10 @@ private:
         const double viewStart = viewport.start;
         const double viewEnd = viewStart + viewRange;
         const CRect wave = waveformRect();
-        if (canFollow) menu(rect(326.0, 86.0, 180.0, 24.0), p.followStackWave.load() ? "FOLLOW STACK" : "EDIT LAYER",
-            {"FOLLOW STACK", "EDIT LAYER"}, p.followStackWave.load() ? 0 : 1,
-            [this](int choice) { p.followStackWave.store(choice == 0); });
+        if (canFollow) menu(rect(340.0, W::viewTop, 164.0, W::controlHeight),
+            laneView ? "STACK LANES" : p.followStackWave.load() ? "FOLLOW STACK" : "EDIT LAYER",
+            {"STACK LANES", "FOLLOW STACK", "EDIT LAYER"}, laneView ? 0 : p.followStackWave.load() ? 1 : 2,
+            [this](int choice) { p.laneWaveView.store(choice == 0); p.followStackWave.store(choice != 2); });
         const auto drawSource = [&](CRect bounds, double left, double right, int channel = -1) {
             if (!follow) { drawWaveTrace(bounds, current.get(), style.fill, true, left, right, channel); return; }
             const auto drawLayer = [&](const LayerSource& source, unsigned layer, float weight, bool clear) {
@@ -572,42 +618,39 @@ private:
         if (chop) {
             const unsigned chopMode = p.chopModes[selectedSlot].load();
             const std::vector<std::string> choices { "LIVE MARKERS", "TRANSIENTS", "EQUAL", "BEAT GRID" };
-            menu(rect(32.0, 86.0, 142.0, 24.0), choices[chopMode], choices,
+            menu(rect(W::left, W::actionTop, 142.0, W::controlHeight), choices[chopMode], choices,
                 static_cast<int>(chopMode), [this](int choice) { setChopMode(p, selectedSlot, static_cast<uint8_t>(choice)); });
             std::vector<std::string> counts;
             for (unsigned n = 1u; n <= 32u; ++n) counts.push_back(format("%u SLICES", n));
             const auto count = sliceCount(p, selectedSlot);
-            menu(rect(184.0, 86.0, 114.0, 24.0), format("%u SLICES", count), counts, count - 1u,
+            menu(rect(188.0, W::actionTop, 110.0, W::controlHeight), format("%u SLICES", count), counts, count - 1u,
                 [this](int choice) { setSliceCount(p, selectedSlot, choice + 1); }, true, 4);
-            button(rect(308.0, 89.0, 92.0, 18.0), "ADD MARK", [this] { chopToolAction(p, 0u); }, false, bool(current));
-            button(rect(410.0, 89.0, 92.0, 18.0), "DELETE", [this] { chopToolAction(p, 1u); }, false, bool(current));
+            button(rect(308.0, W::actionTop, 92.0, W::controlHeight), "ADD MARK", [this] { chopToolAction(p, 0u); }, false, bool(current));
+            button(rect(410.0, W::actionTop, 92.0, W::controlHeight), "DELETE", [this] { chopToolAction(p, 1u); }, false, bool(current));
             text(format("SLICE %02u / %02u", p.visibleSlice.load() + 1u, count),
-                rect(517.0, 89.0, 168.0, 18.0), style.value);
+                rect(W::left, W::viewCenter - 9, 168.0, 18.0), style.value);
         } else if (capture) {
             const auto state = p.captureState.load();
-            button(rect(32.0, 89.0, 90.0, 18.0), "RECORD", [this] { capturePadAction(p, 0u, false); },
+            button(rect(W::left, W::actionTop, 86.0, W::controlHeight), "RECORD", [this] { capturePadAction(p, 0u, false); },
                 state == Plugin::CaptureState::Recording, state == Plugin::CaptureState::Empty);
-            button(rect(132.0, 89.0, 90.0, 18.0), "STOP", [this] { capturePadAction(p, 1u, false); },
+            button(rect(130.0, W::actionTop, 86.0, W::controlHeight), "STOP", [this] { capturePadAction(p, 1u, false); },
                 false, state == Plugin::CaptureState::Recording);
-            button(rect(232.0, 89.0, 90.0, 18.0), "AUDITION", [this] { capturePadAction(p, 2u, false); },
+            button(rect(224.0, W::actionTop, 86.0, W::controlHeight), "AUDITION", [this] { capturePadAction(p, 2u, false); },
                 false, bool(current));
-            button(rect(332.0, 89.0, 120.0, 18.0), "ASSIGN TO CELL",
+            button(rect(320.0, W::actionTop, 132.0, W::controlHeight), "ASSIGN TO CELL",
                 [this] { requestWorkflow(p, WorkflowCommand::AssignCapture); }, false, bool(current));
             text(format("%.2f SEC / %s", p.captureFrames.load() / (current ? current->sampleRate : p.sampleRate),
                 state == Plugin::CaptureState::Recording ? "RECORDING" : current ? "REVIEW" : "READY"),
-                rect(468.0, 89.0, 216.0, 18.0), style.value);
-        } else if (mode == NeonMode::HotCue) {
-            button(rect(32.0, 89.0, 126.0, 18.0), "CURSOR > START",
-                [this, edit] { queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotStart), edit); }, false, bool(current) && editable);
-            button(rect(168.0, 89.0, 126.0, 18.0), "CURSOR > END",
-                [this, edit] { queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotEnd), edit); }, false, bool(current) && editable);
+                rect(W::left, W::viewCenter - 9, 340.0, 18.0), style.value);
         } else {
-            button(rect(543.0, 89.0, 142.0, 18.0), "EDIT SELECTED CELL",
-                [this] { selectSurface(p, NeonMode::HotCue, 0u); });
+            button(rect(W::left, W::actionTop, 122.0, W::controlHeight), "CURSOR > START",
+                [this, edit] { queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotStart), edit); }, false, bool(current) && editable);
+            button(rect(166.0, W::actionTop, 122.0, W::controlHeight), "CURSOR > END",
+                [this, edit] { queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotEnd), edit); }, false, bool(current) && editable);
         }
         const bool zero = capture ? p.captureZeroCross.load()
             : paramValue(p, slotParamId(selectedSlot, kSlotZeroCross)) >= 0.5;
-        if (editable) button(rect(707.0, 89.0, 118.0, 18.0),
+        if (editable) button(rect(W::left + W::width - 118, W::actionTop, 118.0, W::controlHeight),
             zero ? "ZERO CROSS ON" : "ZERO CROSS OFF", [this, capture, zero] {
                 if (capture) {
                     p.captureZeroCross.store(!zero);
@@ -615,7 +658,8 @@ private:
                 } else queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotZeroCross), zero ? 0.0 : 1.0);
                 markStateDirty(p);
             }, zero);
-        if (recording) drawRecordingWave(wave, display);
+        if (laneView) drawLaneStack(wave, layers, viewStart, viewEnd);
+        else if (recording) drawRecordingWave(wave, display);
         else {
             const unsigned rows = s3g::sample::sampleNeonWaveformRows(display,
                 follow && a.asset ? a.asset->channelCount : follow && b.asset ? b.asset->channelCount : current ? current->channelCount : 1u);
@@ -638,7 +682,7 @@ private:
             else p.editPositions[selectedSlot].store(std::clamp((absolute - start) / std::max(1.0e-9, range), 0.0, 1.0));
             markStateDirty(p);
         });
-        for (unsigned handle = 0u; handle < 2u; ++handle) {
+        for (unsigned handle = 0u; !laneView && handle < 2u; ++handle) {
             const double position = handle ? end : start;
             if (position < viewStart || position > viewEnd) continue;
             const double x = xFor(position);
@@ -665,13 +709,14 @@ private:
                     });
             }
         }
-        if (!capture) {
+        if (!capture && !laneView) {
+            if (!chop && playbackChoice() == 1u) drawMotionField(wave, start, range, viewStart, viewRange);
             if (!chop) {
                 const bool moving = playbackChoice() == 1u || playbackChoice() == 4u
                     || (playbackChoice() == 2u && familyValue(NeonFamily::GrainSource).load() != 0);
                 const double next = start + range * (moving
                     ? p.motionPositions[selectedSlot].load() : p.editPositions[selectedSlot].load());
-                if ((!follow || moving) && next >= viewStart && next <= viewEnd) {
+                if ((!follow || moving) && (!moving || p.slotPlaying[selectedSlot].load()) && next >= viewStart && next <= viewEnd) {
                     const double x = xFor(next);
                     line(CPoint(x, wave.top), CPoint(x, wave.bottom), color(0x91aaa3), 2.0);
                     const bool eventPosition = (playbackChoice() == 1u && familyValue(NeonFamily::MotionModel).load() != 0)
@@ -680,10 +725,11 @@ private:
                         wave.bottom + 1.0, 34.0, 10.0), style.value, kCenterText, smallFont);
                 }
             }
-            const auto count = std::min<uint8_t>(p.voiceCursorCounts[selectedSlot].load(), static_cast<uint8_t>(s3g::sample::kMaximumVoices));
-            for (uint8_t cursor = 0u; cursor < count; ++cursor) {
-                const auto* source = p.voiceCursorAssets[selectedSlot][cursor].load();
-                double position = p.voiceCursorPositions[selectedSlot][cursor].load();
+            for (unsigned cursor = 0u; cursor < visual.count; ++cursor) {
+                const auto& head = visual.cursors[cursor];
+                const auto* source = head.sourceAsset;
+                double position = head.sourcePositionNormalized;
+                double sourceStart = 0, sourceRange = 1;
                 auto shade = style.text;
                 if (follow) {
                     const bool first = source == a.asset.get(), second = source == b.asset.get();
@@ -694,31 +740,45 @@ private:
                     const double lo = selected ? paramValue(p, slotParamId(selectedSlot, kSlotStart)) : layer.start;
                     const double hi = selected ? paramValue(p, slotParamId(selectedSlot, kSlotEnd)) : layer.end;
                     position = (position - lo) / std::max(1.0e-9, hi - lo);
+                    sourceStart = lo; sourceRange = std::max(1.0e-9, hi - lo);
                     shade.alpha = static_cast<uint8_t>(std::lround(255.0f * (first && second ? 1.0f : first ? 1.0f - blend.mix : blend.mix)));
                 } else if (source && source != current.get()) continue;
+                const auto technique = playbackChoice();
+                if (!chop && technique == 2u) {
+                    const unsigned rows = s3g::sample::sampleNeonWaveformRows(display, source ? source->channelCount : 1u);
+                    for (unsigned rowIndex=0;rowIndex<rows;++rowIndex) {
+                        const auto row = rect(wave.left,wave.top+rowIndex*wave.getHeight()/rows,wave.getWidth(),wave.getHeight()/rows);
+                        drawGrainHead(row,head,sourceStart,sourceRange,viewStart,viewRange, false);
+                    }
+                }
                 if (position >= viewStart && position <= viewEnd)
                     line(CPoint(xFor(position), wave.top), CPoint(xFor(position), wave.bottom), shade, 1.0);
             }
-        } else {
+        } else if (capture) {
             const double position = p.capturePlayhead.load();
             if (position >= viewStart && position <= viewEnd)
                 line(CPoint(xFor(position), wave.top), CPoint(xFor(position), wave.bottom), style.text, 1.0);
         }
         if (editable && edit >= viewStart && edit <= viewEnd)
             line(CPoint(xFor(edit), wave.top), CPoint(xFor(edit), wave.bottom), color(0xb27d69), 2.0);
-        text(follow ? scanning ? format("BLEND %.0f%%", blend.mix * 100.0f) : format("PLAYING %02u", blend.first + 1u)
-            : format("CURSOR %.2f%%", edit * 100.0), rect(32.0, 430.0, 142.0, 18.0), style.value);
-        text(format("ZOOM %.1fx", zoom), rect(32.0, 455.0, 142.0, 18.0), style.value);
-        if (familyPage == 3 && workspaceTab == 8 && p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotCue)) paintStackPathGraph();
+        if (stackPathVisible()) paintStackPathGraph();
         else {
-            const auto overview = rect(177.0, 426.0, 635.0, 72.0);
+            const auto overview = overviewRect();
             if (recording) drawRecordingWave(overview, WaveDisplay::CombinedPeaks);
             else drawSource(overview, 0.0, 1.0);
             stroke(rect(overview.left + overview.getWidth() * viewStart, overview.top,
                 overview.getWidth() * viewRange, overview.getHeight()), style.value);
         }
-        text(capture ? recording ? "RECORDING / LIVE WAVEFORM / CHANNEL-LINKED" : "CAPTURE REVIEW / CHANNEL-LINKED" : routeStatus(current.get()),
-            rect(32.0, 510.0, 793.0, 18.0), !capture && current && !routeValid(current.get())
+        const auto pathPhase = p.stackPathPhases[selectedSlot].load();
+        const std::string cursorStatus = stackPathVisible()
+            ? pathPhase >= 0 ? format("STACK PATH %.1f%%", pathPhase * 100) : "STACK PATH / IDLE"
+            : follow ? scanning ? format("BLEND %.0f%%", blend.mix * 100.f) : format("PLAYING %02u", blend.first + 1u)
+            : format("CURSOR %.2f%%", edit * 100.);
+        const auto viewStatus = cursorStatus + format(" / ZOOM %.1fx / ", zoom);
+        text(stackPathVisible() && pathPointLimit ? "32 POINT LIMIT / RIGHT-CLICK AN INTERIOR POINT TO REMOVE"
+            : viewStatus + (capture ? recording ? "RECORDING / LIVE WAVEFORM / CHANNEL-LINKED"
+                : "CAPTURE REVIEW / CHANNEL-LINKED" : routeStatus(current.get())),
+            rect(W::left, W::routeTop(), W::width, 18.0), !capture && current && !routeValid(current.get())
                 ? color(0xc28f7a) : style.value);
     }
 
@@ -731,26 +791,35 @@ private:
     void playbackMenu(double y)
     {
         const unsigned choice = playbackChoice();
-        text("PLAYBACK", rect(I::left, y + 3.5, I::labelWidth, 18.0), style.label);
-        std::vector<std::string> names(kPlaybackNames.begin(), kPlaybackNames.end());
+        text("PLAYBACK", rect(P::left, y + 3.5, P::labelWidth, 18.0), style.label);
+        // Display order is independent of stable engine/state identities.
+        constexpr std::array<unsigned, 7> order {0, 6, 1, 2, 4, 5, 3};
+        std::vector<std::string> names;
+        for (auto method : order) names.emplace_back(kPlaybackNames[method]);
         std::vector<bool> available(names.size(), true);
         if (paramValue(p, slotParamId(selectedSlot, kSlotSourceFormat)) >= 0.5) { names[5] += " / NOT AMBI"; available[5] = false; }
-        menu(rect(I::controlLeft, y, I::controlWidth, 25.0), names[choice], names, static_cast<int>(choice),
-            [this](int index) {
-                familyPage = 0;
-                choosePlayback(p, static_cast<unsigned>(index));
+        const auto item = static_cast<int>(std::find(order.begin(), order.end(), choice) - order.begin());
+        menu(rect(P::controlLeft, y, P::controlWidth, 25.0), names[item], names, item,
+            [this, order](int index) {
+                const auto page = p.editPage.load();
+                choosePlayback(p, order[index]);
+                // A method change is not a request to leave source/FX/routing.
+                p.editPage.store(page);
+                if (familyPage == 3 && (order[index] == 0 || order[index] == 3)) {
+                    familyPage = 0; p.editPage.store(0);
+                }
                 workspaceTab = effectiveEditPage(p);
                 auditionEditedSlot(p, selectedSlot);
             }, true, 1, kCenterText, available);
     }
 
-    void triggerMenu(double y)
+    template<class L = I> void triggerMenu(double y)
     {
         const auto trigger = static_cast<int>(paramValue(p, slotParamId(selectedSlot, kSlotTriggerMode)));
         const int choice = trigger == 1 ? 1 : trigger == 3 ? 2 : 0;
-        text("TRIGGER", rect(I::left, y + 3.5, I::labelWidth, 18.0), style.label);
+        text("TRIGGER", rect(L::left, y + 3.5, L::labelWidth, 18.0), style.label);
         const std::vector<std::string> names { "ONE SHOT", "HOLD", "TOGGLE" };
-        menu(rect(I::controlLeft, y, I::controlWidth, 25.0), names[static_cast<std::size_t>(choice)], names, choice,
+        menu(rect(L::controlLeft, y, L::controlWidth, 25.0), names[static_cast<std::size_t>(choice)], names, choice,
             [this](int index) { queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotTriggerMode),
                 index == 0 ? 2.0 : index == 1 ? 1.0 : 3.0); });
     }
@@ -770,63 +839,90 @@ private:
             true, 1, kCenterText, available);
     }
 
-    void paintFxSettings()
-    {
-        const auto effect = static_cast<unsigned>(paramValue(p, slotParamId(selectedSlot, kSlotCharacter)));
-        characterMenu(I::menu(4));
-        sliderRow(slotParamId(selectedSlot, kSlotMangle), "FX AMOUNT", I::slider(5));
-        sliderRow(slotParamId(selectedSlot, kSlotPressureDepth), "PRESSURE", I::slider(6));
-        for (unsigned n = 0u; n < 3u; ++n) {
-            auto& value = p.fxParameters[selectedSlot][effect][n];
-            const double y = I::slider(7u + n);
-            if ((effect == 0u && n == 0u) || (effect == 3u && n == 1u)) {
-                const std::vector<std::string> names = effect == 0u ? std::vector<std::string>{"LOW PASS", "HIGH PASS", "BAND PASS"}
-                    : std::vector<std::string>{"SINE", "TRIANGLE", "SQUARE"};
-                text(s3g::sample::kSampleNeonFxLabels[effect][n], rect(I::left, y - 2.0, I::labelWidth, 18.0), style.label);
-                menu(inspectorMenu(7u + n), names[static_cast<unsigned>(std::lround(value.load() * 2.0f))], names,
-                    static_cast<int>(std::lround(value.load() * 2.0f)), [this, effect, n](int choice) {
-                        p.fxParameters[selectedSlot][effect][n].store(choice * 0.5f); markStateDirty(p); requestProcess(p);
-                    });
-            } else textureSliderRow(value, s3g::sample::kSampleNeonFxLabels[effect][n], y, 0.0f, 1.0f, s3g::sample::kSampleNeonFxDefaults[effect][n], fxValue(effect, n, value.load()),
-                [this, effect, n](double x) { return fxDisplay(effect, n, x); },
-                [this, effect, n](double x) {
-                    double lo = 0.0, hi = 1.0;
-                    for (unsigned i = 0u; i < 30u; ++i) { const double mid = (lo + hi) * 0.5; if (fxDisplay(effect, n, mid) < x) lo = mid; else hi = mid; }
-                    return (lo + hi) * 0.5;
-                });
+    std::vector<std::string> fxChoices(const char* names) const {
+        std::vector<std::string> result;
+        std::string source(names);
+        for (size_t at = 0; !source.empty();) {
+            const auto end = source.find('|',at);
+            result.push_back(source.substr(at,end-at));
+            if (end == std::string::npos) break;
+            at = end+1;
         }
-        inspectorLabel("ENCODERS", 10);
-        menu(inspectorMenu(10), p.fxPair.load() ? "PARAM 3 / AMOUNT" : "PARAM 1 / PARAM 2",
-            {"PARAM 1 / PARAM 2", "PARAM 3 / AMOUNT"}, p.fxPair.load(), [this](int choice) { p.fxPair.store(static_cast<uint8_t>(choice)); });
-        button(inspectorButton(11), "RESET THIS EFFECT", [this, effect] {
-            for (unsigned n = 0u; n < 3u; ++n) p.fxParameters[selectedSlot][effect][n].store(s3g::sample::kSampleNeonFxDefaults[effect][n]);
-            markStateDirty(p); requestProcess(p);
+        return result;
+    }
+    unsigned fxEffect() const { return static_cast<unsigned>(paramValue(p,slotParamId(selectedSlot,kSlotCharacter))); }
+    unsigned fxLastRow() const { return 7+s3g::sample::kNeonCharacterCounts[fxEffect()]; }
+    std::string fxValue(unsigned effect, unsigned n, float unit) const {
+        using namespace s3g::sample;
+        const auto& d = kNeonCharacterDefs[effect][n];
+        const auto choices = fxChoices(d.choices);
+        const double value = neonCharacterDisplay(effect,n,unit);
+        if (!choices.empty()) return choices[static_cast<unsigned>(value)];
+        if (effect == 4 && n == 0) {
+            constexpr const char* vowels[] {"AH","EH","EE","OH","OO"};
+            const unsigned first = std::min(3u,static_cast<unsigned>(value));
+            return value >= 4 ? "OO" : format("%s/%s %.0f%%",vowels[first],vowels[first+1],(value-first)*100);
+        }
+        if (effect == 0 && n == 1 && p.fxParameters[selectedSlot][0][0].load() < .83f)
+            return format("%.0f Hz",20*std::pow(1000.0,unit));
+        return format(std::abs(value) < 10 ? "%.2f%s" : "%.0f%s",value,d.unit);
+    }
+    void paintFxSettings() {
+        using namespace s3g::sample;
+        const unsigned effect = fxEffect(), count = kNeonCharacterCounts[effect];
+        const bool ambi = paramValue(p,slotParamId(selectedSlot,kSlotSourceFormat)) >= .5;
+        characterMenu(I::menu(2));
+        sliderRow(slotParamId(selectedSlot,kSlotMangle),"MIX",I::slider(3));
+        textureSliderRow(p.fxParameters[selectedSlot][effect][11],"OUT",I::slider(4),0,1,.75f,
+            fxValue(effect,11,p.fxParameters[selectedSlot][effect][11].load()),
+            [effect](double x){return neonCharacterDisplay(effect,11,x);},
+            [effect](double x){return neonCharacterNormalized(effect,11,x);});
+        sliderRow(slotParamId(selectedSlot,kSlotPressureDepth),"PRESSURE",I::slider(5));
+        for (unsigned n = 0; n < count; ++n) {
+            auto& value = p.fxParameters[selectedSlot][effect][n];
+            const auto& d = kNeonCharacterDefs[effect][n];
+            const unsigned row = 6+n;
+            if (effect==1 && n==1 && p.fxParameters[selectedSlot][effect][7].load()>=.5) {
+                NeonCharacterValues shown;
+                for(unsigned i=0;i<shown.size();++i) shown[i]=p.fxParameters[selectedSlot][effect][i].load();
+                const double seconds=neonCharacterEchoSeconds(shown,p.hostTempo.load());
+                inspectorReadout("TIME",format(seconds>=2?"%.0f ms / MAX":"%.0f ms / BEATS",seconds*1000).c_str(),row);
+                continue;
+            }
+            const auto choices = fxChoices(d.choices);
+            if (!choices.empty()) {
+                inspectorLabel(d.label,row);
+                std::vector<bool> allowed;
+                for (unsigned item = 0; item < choices.size(); ++item)
+                    allowed.push_back(neonCharacterControlAllowed(effect,n,item,ambi));
+                const unsigned item = static_cast<unsigned>(neonCharacterDisplay(effect,n,value.load()));
+                menu(inspectorMenu(row),choices[item],choices,item,[this,effect,n](int item) {
+                    p.fxParameters[selectedSlot][effect][n].store(static_cast<float>(neonCharacterNormalized(effect,n,item)));
+                    if(effect==0 && n==0 && item==3) p.fxParameters[selectedSlot][0][1].store(.5f);
+                    markStateDirty(p); requestProcess(p);
+                },true,1,kCenterText,allowed);
+            } else {
+                const bool frequency = effect == 0 && n == 1 && p.fxParameters[selectedSlot][0][0].load() < .83f;
+                textureSliderRow(value,frequency ? "CUTOFF" : d.label,I::slider(row),0,1,effect==0 && n==1 && !frequency ? .5f : d.initial,
+                    fxValue(effect,n,value.load()),
+                    [effect,n,frequency](double x){return frequency ? 20*std::pow(1000.0,x) : neonCharacterDisplay(effect,n,x);},
+                    [effect,n,frequency](double x){return frequency ? std::clamp(std::log(std::max(20.0,x)/20)/std::log(1000.0),0.0,1.0) : neonCharacterNormalized(effect,n,x);});
+            }
+        }
+        std::vector<std::string> pairs;
+        for (unsigned pair = 0; pair < kNeonCharacterPairCounts[effect]; ++pair) {
+            const bool beats=p.fxParameters[selectedSlot][1][7].load()>=.5f;
+            const auto a = neonCharacterKnob(effect,pair,true,beats), b = neonCharacterKnob(effect,pair,false,beats);
+            pairs.push_back(std::string(kNeonCharacterDefs[effect][a].label)+" / "+(b==12?"MIX":kNeonCharacterDefs[effect][b].label));
+        }
+        const unsigned pair = p.fxPair.load()%pairs.size();
+        inspectorLabel("ENCODERS",6+count);
+        menu(inspectorMenu(6+count),pairs[pair],pairs,pair,[this](int choice){p.fxPair.store(static_cast<uint8_t>(choice));});
+        button(inspectorButton(7+count),"RESET THIS EFFECT",[this,effect] {
+            for (unsigned n=0;n<kNeonCharacterControls;++n) p.fxParameters[selectedSlot][effect][n].store(kSampleNeonFxDefaults[effect][n]);
+            markStateDirty(p);requestProcess(p);
         });
-        if (paramValue(p, slotParamId(selectedSlot, kSlotSourceFormat)) >= 0.5)
-            text("ACN/SN3D: DRIVE / CRUSH DISABLED", rect(I::left, I::statusTop, I::width, 18.0), style.dim);
-    }
-
-    double fxDisplay(unsigned effect, unsigned index, double value) const {
-        if (effect == 0u && index == 1u) return 20.0 * std::pow(1000.0, value);
-        if (effect == 1u && index == 0u) return 1.0 + value * 999.0;
-        if (effect == 2u && index == 0u) return 20.0 * std::pow(100.0, value);
-        if (effect == 3u && index == 0u) return std::pow(2000.0, value);
-        if ((effect == 4u || effect == 5u) && index == 0u) return 0.1 * std::pow(effect == 4u ? 120.0 : 320.0, value);
-        if (effect == 5u && index == 2u) return 1.0 + value * 39.0;
-        if (effect == 7u && index == 0u) return 3.0 + value * 13.0;
-        if (effect == 7u && index == 1u) return p.sampleRate / std::pow(128.0, 1.0 - value);
-        return value * 100.0;
-    }
-    std::string fxValue(unsigned effect, unsigned index, float value) const {
-        if (effect == 0u && index == 1u) return format("%.0f Hz", 20.0 * std::pow(1000.0, value));
-        if (effect == 1u && index == 0u) return format("%.0f ms", 1.0 + value * 999.0);
-        if (effect == 2u && index == 0u) return format("%.0f Hz", 20.0 * std::pow(100.0, value));
-        if (effect == 3u && index == 0u) return format("%.1f Hz", std::pow(2000.0, value));
-        if ((effect == 4u || effect == 5u) && index == 0u) return format("%.2f Hz", 0.1 * std::pow(effect == 4u ? 120.0 : 320.0, value));
-        if (effect == 5u && index == 2u) return format("%.1f ms", 1.0 + value * 39.0);
-        if (effect == 7u && index == 0u) return format("%.0f bit", 3.0 + std::round(value * 13.0));
-        if (effect == 7u && index == 1u) return format("%.0f Hz", p.sampleRate / std::pow(128.0, 1.0 - value));
-        return format("%.0f%%", value * 100.0);
+        if (ambi) helpText("ACN/SN3D: LINKED FIELD / DRIVE, CRUSH AND TAPE DISABLED",I::statusTop);
     }
 
     void clockMenu(double y)
@@ -876,14 +972,17 @@ private:
         const auto page = effectiveEditPage(p);
         const bool host = p.playbackClocks[selectedSlot].load() != 0u;
         const clap_id id = !loop && page == 5u ? slotParamId(selectedSlot, kSlotTune)
-            : !loop && page == 7u && p.fxPair.load() ? slotParamId(selectedSlot, kSlotMangle) : CLAP_INVALID_ID;
+            : page == 7u && s3g::sample::neonCharacterKnob(fxEffect(),p.fxPair.load(),loop,p.fxParameters[selectedSlot][1][7].load()>=.5f)==12 ? slotParamId(selectedSlot, kSlotMangle) : CLAP_INVALID_ID;
         double defaultValue = 0.0;
         if (page == 9u) defaultValue = loop ? 0 : .2;
         else if (page == 8u) defaultValue = loop ? 0.0 : host
             ? nearestMotionCycleIndex(ControlDefaults::cycleBeats) / 7.0 : (ControlDefaults::cycleSeconds - 0.05) / 29.95;
         else if (page == 7u) {
             const auto effect = static_cast<unsigned>(paramValue(p, slotParamId(selectedSlot, kSlotCharacter)));
-            defaultValue = s3g::sample::kSampleNeonFxDefaults[effect][p.fxPair.load() ? 2u : loop ? 0u : 1u];
+            const unsigned n = s3g::sample::neonCharacterKnob(effect,p.fxPair.load(),loop,p.fxParameters[selectedSlot][1][7].load()>=.5f);
+            defaultValue = n == 12 ? 0 : s3g::sample::kSampleNeonFxDefaults[effect][n];
+            if (effect == 0 && n == 1 && p.fxParameters[selectedSlot][0][0].load() > .833f)
+                defaultValue = .5; // DJ centre is neutral, including the mini surface.
         } else if (page == 5u) defaultValue = host
             ? nearestMotionCycleIndex(ControlDefaults::cycleBeats) / 7.0 : (ControlDefaults::cycleSeconds - 0.05) / 29.95;
         else if (page == 4u && loop && host) defaultValue = nearestMotionCycleIndex(ControlDefaults::grainInterval * 8.0f) / 7.0;
@@ -900,241 +999,40 @@ private:
            });
     }
 
-    void paintMiniNeon()
-    {
-        const auto mode = static_cast<NeonMode>(p.visibleMode.load());
-        const uint8_t bank = p.visibleBank.load();
-        const bool secondary = p.visibleLayer.load() != 0u;
-        const bool fxPads = secondary && (mode == NeonMode::Sampler || (mode == NeonMode::HotCue && effectiveEditPage(p) == 7u));
-        const char* layerNames[4][2] {
-            { "PERFORM", "PAD FX" }, { "SLICES", "TOOLS" },
-            { "SELECT + PLAY", "EDIT + AUDITION" }, { "RECORD TOOLS", "PLAY / EMPTY = TARGET" }
-        };
-        panel(rect(kControllerLeft, kControllerTop, kControllerWidth, kControllerHeight),
-            format("NEON / BANK %c / %s", 'A' + bank, layerNames[static_cast<unsigned>(mode)][secondary ? 1 : 0]));
-        static constexpr const char* modes[] { "PLAY", "CHOP", "EDIT", "RESAMPLE" };
-        for (uint8_t index = 0u; index < 4u; ++index)
-            button(rect(kPadLeft + index * (kPadWidth + kPadGapX), 578.0, kPadWidth, 21.0),
-                modes[index], [this, index] { selectMode(index); }, static_cast<uint8_t>(mode) == index);
-        const auto editPage = mode == NeonMode::HotCue ? effectiveEditPage(p) : 0u;
-        text(editPage == 9u ? "TRAX / SPEED" : editPage == 8u ? "TRAX / STACK CYCLE" : editPage == 7u ? (p.fxPair.load() ? "TRAX / FX AMOUNT" : "TRAX / PARAM 2")
-            : editPage == 5u ? "TRAX / TUNE" : editPage == 4u || editPage == 6u ? "TRAX / REPEATS"
-            : editPage == 2u ? "TRAX / CYCLE" : editPage == 3u ? "TRAX / RATE" : "TRAX",
-            rect(39.0, 578.0, 160.0, 16.0), style.label, kCenterText);
-        const bool performance = mode == NeonMode::Sampler;
-        const bool capture = mode == NeonMode::HotLoop;
-        auto& zoom = capture ? p.captureZoom : p.waveformZooms[selectedSlot];
-        const double trax = editPage >= 4u ? advancedKnobValue(p, false) : performance ? paramValue(p, kGlobalMangleParamId)
-            : editPage == 2u ? (p.playbackClocks[selectedSlot].load()
-                ? nearestMotionCycleIndex(p.motionRates[selectedSlot].load()) / 7.0
-                : (p.motionSeconds[selectedSlot].load() - 0.05) / 29.95)
-            : editPage == 3u ? (p.playbackClocks[selectedSlot].load()
-                ? nearestMotionCycleIndex(p.grainIntervals[selectedSlot].load() * 8.0f) / 7.0
-                : (p.grainDensities[selectedSlot].load() - 1.0) / 79.0)
-            : std::log2(std::max(1.0f, zoom.load())) / 5.0;
-        foundation::drawHorizontalSlider(*context, rect(40.0, 601.0, 160.0, 8.0), trax, 598.0, 12.0, style);
-        const auto applyTrax = [this, capture, performance, editPage](double value) {
-            if (performance) queueGuiParamValue(p, kGlobalMangleParamId, value);
-            else if (editPage == 2u) {
-                if (p.playbackClocks[selectedSlot].load()) p.motionRates[selectedSlot].store(kMotionCycleBeats[static_cast<std::size_t>(std::lround(value * 7.0))]);
-                else p.motionSeconds[selectedSlot].store(static_cast<float>(0.05 + value * 29.95));
-            } else if (editPage == 3u) {
-                if (p.playbackClocks[selectedSlot].load()) p.grainIntervals[selectedSlot].store(kMotionCycleBeats[static_cast<std::size_t>(std::lround(value * 7.0))] / 8.0f);
-                else p.grainDensities[selectedSlot].store(static_cast<float>(1.0 + value * 79.0));
-            }
-            else (capture ? p.captureZoom : p.waveformZooms[selectedSlot]).store(static_cast<float>(std::pow(2.0, value * 5.0)));
-            markStateDirty(p); requestProcess(p);
-        };
-        if (editPage >= 4u) advancedKnobDrag(rect(36.0, 594.0, 168.0, 24.0), 40.0, 160.0, false);
-        else drag(rect(36.0, 594.0, 168.0, 24.0), [applyTrax](CPoint point) {
-            applyTrax(std::clamp((point.x - 40.0) / 160.0, 0.0, 1.0));
-        }, [this, performance] { if (performance) queueGuiParamBegin(p, kGlobalMangleParamId); },
-           [this, performance] { if (performance) queueGuiParamEnd(p, kGlobalMangleParamId); },
-           [this, applyTrax, performance, editPage] {
-               if (performance) { resetParameter(kGlobalMangleParamId); return; }
-               const bool host = p.playbackClocks[selectedSlot].load() != 0u;
-               applyTrax(editPage == 2u ? (host ? nearestMotionCycleIndex(ControlDefaults::cycleBeats) / 7.0
-                       : (ControlDefaults::cycleSeconds - 0.05) / 29.95)
-                   : editPage == 3u ? (host ? nearestMotionCycleIndex(ControlDefaults::grainInterval * 8.0f) / 7.0
-                       : (ControlDefaults::grainDensity - 1.0) / 79.0) : 0.0);
-           });
-        for (uint8_t index = 0u; index < 4u; ++index)
-            button(rect(39.0 + index * 44.0, 626.0, 38.0, 25.0), format("%c", 'A' + index),
-                [this, index] { selectBank(index); }, bank == index);
-        for (uint8_t index = 0u; index < 4u; ++index) {
-            unsigned loaded = 0u;
-            for (uint8_t pad = 0u; pad < 8u; ++pad)
-                loaded += p.publishedAssets[index * 8u + pad].load() != nullptr ? 1u : 0u;
-            text(format("%u/8", loaded), rect(39.0 + index * 44.0, 650.0, 38.0, 13.0),
-                loaded ? style.value : style.dim, kCenterText);
-        }
-        // Secondary-page selection is explicit, never disguised as Shift.
-        button(rect(39.0, 665.0, 82.0, 21.0), capture ? (secondary ? "REC TOOLS" : "PLAY PADS") : secondary ? "PRIMARY" : "SECOND",
-            [this, mode, secondary] { selectSurface(p, mode, secondary ? 0u : 1u); }, secondary);
-        button(rect(128.0, 665.0, 82.0, 21.0), "KILL", [this] {
-            p.killRequested.store(true); p.captureAudition.store(false); requestProcess(p);
-        });
-        for (uint8_t pad = 0u; pad < 8u; ++pad) {
-            const auto bounds = padRect(pad);
-            const auto cell = static_cast<uint8_t>(bank * 8u + pad);
-            bool enabled = true, active = false;
-            std::string label;
-            if (fxPads) {
-                label = upper(characterName(pad));
-                enabled = fxAllowed(p, selectedSlot, pad);
-                active = paramValue(p, slotParamId(selectedSlot, kSlotCharacter)) == pad;
-            } else if (mode == NeonMode::Slicer && secondary) {
-                const char* tools[] { "ADD", "DELETE", "AUDITION", "ZERO", "EQUAL", "TRANSIENT", "ASSIGN 1", "ASSIGN ALL" };
-                label = tools[pad];
-                enabled = bool(asset(selectedSlot));
-                active = pad == 3u && paramValue(p, slotParamId(selectedSlot, kSlotZeroCross)) >= 0.5;
-            } else if (mode == NeonMode::Slicer) {
-                label = format("SL %02u", cell + 1u);
-                enabled = bool(asset(selectedSlot)) && cell < sliceCount(p, selectedSlot);
-                active = cell == p.visibleSlice.load();
-            } else if (mode == NeonMode::HotCue && secondary) {
-                const char* pages[] { "SOURCE", "SAMPLE", "MOTION", "GRAINS", "ONE SHOT", "HOLD", "TOGGLE", "STOP" };
-                label = pages[pad];
-                active = pad == 0u ? effectiveEditPage(p) == 0u
-                    : pad < 4u ? playbackChoice() == pad - 1u
-                    : pad < 7u ? paramValue(p, slotParamId(selectedSlot, kSlotTriggerMode))
-                        == (pad == 4u ? 2.0 : pad == 5u ? 1.0 : 3.0) : false;
-            } else if (capture && !secondary) {
-                const char* actions[] { "RECORD", "STOP", "AUDITION", "DISCARD", "BUS -", "BUS +", "REVIEW", "ASSIGN" };
-                label = actions[pad];
-                active = pad == 0u && p.captureState.load() == Plugin::CaptureState::Recording;
-            } else {
-                label = format("%c%u", 'A' + bank, pad + 1u);
-                active = capture && !asset(cell) ? p.captureTarget.load() == cell : selectedSlot == cell;
-            }
-            const bool cellPad = (mode == NeonMode::Sampler && !secondary)
-                || (mode == NeonMode::HotCue && !secondary) || (capture && secondary);
-            const bool loaded = cellPad && p.publishedAssets[cell].load() != nullptr;
-            const bool hasLink = cellPad && !loaded && !path(cell).empty();
-            fill(bounds, active ? style.buttonActive : cellPad && loaded ? color(0x353535) : style.strip);
-            stroke(bounds, active ? style.text : style.grid, active ? 2.0 : 1.0);
-            text(label, rect(bounds.left + 2.0, bounds.top + (cellPad ? 1.0 : 7.0), bounds.getWidth() - 4.0, 17.0),
-                enabled && (!cellPad || loaded) ? style.text : style.dim, kCenterText);
-            if (cellPad) {
-                const auto indicator = rect(bounds.left + 5.0, bounds.top + 5.0, 5.0, 5.0);
-                if (loaded) fill(indicator, style.value); else stroke(indicator, style.dim);
-                text(loaded ? (capture ? "PLAY" : "AUDIO") : hasLink ? (status(cell) == "DECODING..." ? "LOADING" : "OFFLINE")
-                        : capture ? "TARGET" : "EMPTY",
-                    rect(bounds.left + 2.0, bounds.top + 19.0, bounds.getWidth() - 4.0, 12.0),
-                    loaded ? style.value : style.dim, kCenterText, smallFont);
-                const double level = std::clamp<double>(p.slotPeaks[cell].load(), 0.0, 1.0);
-                if (loaded && level > 0.001)
-                    fill(rect(bounds.left + 3.0, bounds.top + 32.0, (bounds.getWidth() - 6.0) * level, 2.0), style.value);
-            }
-            if ((mode == NeonMode::Sampler && !secondary) || (mode == NeonMode::HotCue && !secondary)
-                || (capture && secondary && loaded)) {
-                const int trigger = static_cast<int>(paramValue(p, slotParamId(cell, kSlotTriggerMode)));
-                const bool generated = normalizedStageOptions(p.textureOptions[cell].load()) != 0u;
-                for (uint8_t lamp = 0u; lamp < 5u; ++lamp) {
-                    const bool on = lamp < 3u ? lamp == (trigger == 3 ? 1 : trigger == 1 ? 2 : 0)
-                        : lamp == 3u ? (generated ? trigger == 3 || trigger == 1
-                            : slotOptionEnabled(p, cell, kSlotRepeatOption)
-                                || paramValue(p, slotParamId(cell, kSlotDirection)) >= 2.0)
-                        : generated ? (playbackIndex(p, cell) != 5u || p.sourceModes[cell].load() == 4u) && p.playbackClocks[cell].load() != 0u : slotOptionEnabled(p, cell, kSlotSyncOption);
-                    fill(rect(bounds.left + 5.0 + lamp * 15.0, bounds.bottom - 8.0, 10.0, 3.0),
-                        loaded && on ? style.fill : style.cell);
-                }
-            }
-            if (!enabled) continue;
-            if (!fxPads) hit(bounds, [this, mode, secondary, pad, cell] {
-                if (mode == NeonMode::HotCue) {
-                    if (secondary) editToolAction(p, pad);
-                    else p.selectedSlot.store(cell);
-                    if (!secondary || pad != 7u) auditionEditedSlot(p, secondary ? selectedSlot : cell);
-                } else if (mode == NeonMode::HotLoop) capturePadAction(p, pad, secondary);
-                else if (mode == NeonMode::Slicer) {
-                    if (secondary) chopToolAction(p, pad);
-                    else auditionSlice(p, selectedSlot, cell);
-                } else if (secondary) {
-                    queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotCharacter), pad);
-                    // The visual FX pad uses a momentary gesture, below.
-                } else { p.selectedSlot.store(cell); auditionSlot(p, cell); }
-            });
-            if (fxPads)
-                drag(bounds, [](CPoint) {}, [this, pad, slot = selectedSlot] {
-                    queueGuiParamGesture(p, slotParamId(slot, kSlotCharacter), pad);
-                    p.pendingGuiFx.store(static_cast<uint32_t>((slot << 1u) | 1u));
-                    requestProcess(p);
-                }, [this, slot = selectedSlot] {
-                    p.pendingGuiFx.store(static_cast<uint32_t>(slot << 1u)); requestProcess(p);
-                });
-            else if (mode == NeonMode::Sampler || mode == NeonMode::HotCue || (capture && secondary && loaded))
-                drag(bounds, [](CPoint) {}, [this, mode, secondary, pad, cell, slot = selectedSlot] {
-                    if (mode == NeonMode::HotCue) {
-                        if (secondary) editToolAction(p, pad); else p.selectedSlot.store(cell);
-                        if (!secondary || pad != 7u) auditionEditedSlot(p, secondary ? slot : cell);
-                    } else { p.selectedSlot.store(cell); auditionSlot(p, cell); }
-                }, [this, mode, secondary, cell, slot = selectedSlot] {
-                    p.pendingGuiReleases.fetch_or(1u << (mode == NeonMode::HotCue && secondary ? slot : cell));
-                    requestProcess(p);
-                });
-        }
-        text(editPage == 9u ? "LOOP / LAYER POSITION" : editPage == 8u ? "LOOP / EDIT LAYER" : editPage == 7u ? (p.fxPair.load() ? "LOOP / PARAM 3" : "LOOP / PARAM 1")
-            : editPage == 4u ? "LOOP / STEP RATE" : editPage == 5u ? "LOOP / DURATION" : editPage == 6u ? "LOOP / CYCLE GROUP"
-            : performance ? "LOOP / CELL GAIN" : editPage == 2u ? "LOOP / SCAN OFFSET"
-            : editPage == 3u ? "LOOP / GRAIN SIZE" : "LOOP / EDIT CURSOR",
-            rect(604.0, 578.0, 210.0, 20.0), style.label, kCenterText);
-        if (editPage >= 4u) {
-            foundation::drawHorizontalSlider(*context, rect(620.0, 630.0, 190.0, 8.0), advancedKnobValue(p, true), 625.0, 14.0, style);
-            advancedKnobDrag(rect(616.0, 620.0, 198.0, 27.0), 620.0, 190.0, true);
-        } else if (performance) sliderRow(slotParamId(selectedSlot, kSlotGain), "GAIN", 622.0, 604.0, 210.0);
-        else {
-            const double cursor = capture ? p.captureCursor.load()
-                : editPage == 3u ? (p.grainSizes[selectedSlot].load() - 5.0) / 495.0
-                : p.editPositions[selectedSlot].load();
-            foundation::drawHorizontalSlider(*context, rect(616.0, 630.0, 186.0, 8.0), cursor, 627.0, 14.0, style);
-            const auto apply = [this, capture, editPage](double value) {
-                if (capture) p.captureCursor.store(value);
-                else if (editPage == 3u) p.grainSizes[selectedSlot].store(static_cast<float>(5.0 + value * 495.0));
-                else p.editPositions[selectedSlot].store(value);
-                markStateDirty(p); requestProcess(p);
-            };
-            drag(rect(610.0, 620.0, 198.0, 27.0), [apply](CPoint point) {
-                apply(std::clamp((point.x - 616.0) / 186.0, 0.0, 1.0));
-            }, {}, {}, [apply, capture, editPage] {
-                apply(!capture && editPage == 3u ? (ControlDefaults::grainSize - 5.0) / 495.0 : 0.0);
-            });
-        }
-        sliderRow(kMasterGainParamId, "MASTER", 695.0, 604.0, 210.0);
-        if (p.captureState.load() == Plugin::CaptureState::Recording)
-            button(rect(604.0, 658.0, 210.0, 20.0), "STOP CAPTURE",
-                [this] { capturePadAction(p, 1u, false); }, true);
-    }
+#include "s3g_sample_neon_mini_gui.inc"
 
     void textureSliderRow(std::atomic<float>& target, const char* label,
         double y, float minimum, float maximum, float defaultValue, const std::string& valueLabel,
-        std::function<double(double)> displayValue = {}, std::function<double(double)> storageValue = {})
+        std::function<double(double)> displayValue = {}, std::function<double(double)> storageValue = {}, double left = I::left, double totalWidth = I::width,
+        double shownValue = std::numeric_limits<double>::quiet_NaN())
     {
-        const double left = I::left;
-        const double trackX = I::controlLeft;
-        const double trackWidth = I::trackWidth;
-        const double unit = (std::clamp(target.load(
-            std::memory_order_relaxed), minimum, maximum) - minimum)
+        const double trackX = left + 82.0;
+        const double trackWidth = totalWidth - 82 - I::valueGap - I::valueWidth;
+        const double visible = std::isfinite(shownValue) ? shownValue : target.load(std::memory_order_relaxed);
+        const double unit = (std::clamp(visible, double(minimum), double(maximum)) - minimum)
             / (maximum - minimum);
         text(label, rect(left, y - 2.0, I::labelWidth, 18.0), style.label);
         foundation::drawHorizontalSlider(*context,
             rect(trackX, y + 3.0, trackWidth, 8.0), unit, y, 14.0, style);
         text(valueLabel, rect(trackX + trackWidth + I::valueGap, y - 2.0,
                 63.0, 18.0), style.value, kRightText, font);
-        const auto apply = [this, &target, minimum, maximum](double value) {
+        const auto apply = [this, &target, minimum, maximum, slot = selectedSlot](double value) {
             if (!std::isfinite(value)) return;
+            if (&target == &p.familyControls[slot][neonFamilyIndex(NeonFamily::LanePosition)]) {
+                setLanePosition(p, static_cast<unsigned>(slot), value); return;
+            }
             target.store(static_cast<float>(std::clamp(value, double(minimum), double(maximum))), std::memory_order_release);
             markStateDirty(p); requestProcess(p);
         };
         const bool percent = valueLabel.find('%') != std::string::npos;
         number(rect(trackX + trackWidth + I::valueGap, y - 2.0, 63.0, 18.0),
-            displayValue ? displayValue(target.load()) : target.load() * (percent ? 100.0 : 1.0),
+            displayValue ? displayValue(visible) : visible * (percent ? 100.0 : 1.0),
             [apply, percent, storageValue](double value) {
                 if (!std::isfinite(value)) return;
                 value = storageValue ? storageValue(value) : value / (percent ? 100.0 : 1.0);
                 apply(value);
             });
-        drag(rect(trackX - 4.0, y - 6.5, trackWidth + 8.0, 27.0),
+        drag(rect(trackX - 4.0, y - 4.5, trackWidth + 8.0, I::rowPitch - 1.0),
             [apply, trackX, trackWidth, minimum, maximum](CPoint point) {
                 const float unitValue = static_cast<float>(std::clamp(
                     (point.x - trackX) / trackWidth, 0.0, 1.0));
@@ -1167,101 +1065,148 @@ private:
             markStateDirty(p);
             requestProcess(p);
         };
-        drag(rect(trackX - 4.0, y - 6.5, trackWidth + 8.0, 27.0),
+        drag(rect(trackX - 4.0, y - 4.5, trackWidth + 8.0, I::rowPitch - 1.0),
             [apply, trackX, trackWidth, minimum, maximum](CPoint point) {
                 apply(minimum + std::clamp((point.x - trackX) / trackWidth, 0.0, 1.0) * (maximum - minimum));
             }, {}, {}, [apply, defaultValue] { apply(defaultValue); });
     }
 
-    void sourceModeMenu(unsigned row) {
-        if (playbackChoice() == 6u) { familyMenu(NeonFamily::LaneAuto, "NAVIGATION", row, {"MANUAL", "PATH"}); return; }
+    template<class L = I> void sourceModeMenu(unsigned row) {
+        if (playbackChoice() == 6u) { familyMenu<L>(NeonFamily::LaneAuto, "NAVIGATION", row, {"MANUAL", "PATH"}); return; }
         const unsigned mode = playbackChoice() == 3u ? 0u : std::min<unsigned>(4u, p.sourceModes[selectedSlot].load());
         const std::vector<std::string> names {"PRIMARY", "SELECTED LAYER", "VELOCITY", "RANDOM / TRIGGER", "STACK SCAN"};
         std::vector<bool> enabled(5u, playbackChoice() != 5u && playbackChoice() != 3u);
         enabled[0] = true; enabled[4] = playbackChoice() == 1u || playbackChoice() == 2u || playbackChoice() == 4u || playbackChoice() == 5u;
-        inspectorLabel("SOURCE MODE", row);
-        menu(inspectorMenu(row), names[mode], names, static_cast<int>(mode), [this](int choice) {
-            p.sourceModes[selectedSlot].store(static_cast<uint8_t>(choice)); markStateDirty(p); requestProcess(p);
+        inspectorLabel<L>("LAYER SRC", row);
+        menu(inspectorMenu<L>(row), names[mode], names, static_cast<int>(mode), [this](int choice) {
+            p.sourceModes[selectedSlot].store(static_cast<uint8_t>(choice));
+            takeStackNavigation(p, static_cast<unsigned>(selectedSlot)); markStateDirty(p);
         }, true, 1, kCenterText, enabled);
     }
-    void layerMenu(unsigned row) {
+    template<class L = I> void layerMenu(unsigned row) {
         const unsigned count = stackCount(p, selectedSlot), selected = p.selectedLayers[selectedSlot].load();
         std::vector<std::string> choices;
         for (unsigned n = 0u; n < count; ++n) choices.push_back(format("%02u / %s", n + 1u,
             p.sources[selectedSlot][n].asset ? n ? "LAYER" : "PRIMARY" : "MISSING"));
-        inspectorLabel("EDIT LAYER", row);
-        menu(inspectorMenu(row), count ? choices[std::min(selected, count - 1u)] : "EMPTY STACK", choices,
+        inspectorLabel<L>("EDIT LAYER", row);
+        menu(inspectorMenu<L>(row), count ? choices[std::min(selected, count - 1u)] : "EMPTY STACK", choices,
             count ? static_cast<int>(selected) : -1, [this](int choice) { showLayer(p, selectedSlot, static_cast<unsigned>(choice)); }, count != 0u, 4);
     }
 #include "s3g_sample_neon_family_gui.inc"
 
+    unsigned normalizeScope = 0;
     void paintStackSettings() {
-        sourceModeMenu(4u); layerMenu(5u);
         const auto count = stackCount(p, selectedSlot);
-        button(inspectorButton(6, 0, 2), "ADD LAYER", [this] { chooseSample(true); }, false, count < 32u);
-        button(inspectorButton(6, 1, 2), "REMOVE LAYER", [this] { removeLayer(p, selectedSlot); }, false, count != 0u);
-        sliderRow(slotParamId(selectedSlot, kSlotStart), "START", I::slider(7));
-        sliderRow(slotParamId(selectedSlot, kSlotEnd), "END", I::slider(8));
-        const bool scan = playbackChoice() == 6u ? familyValue(NeonFamily::LaneAuto).load() != 0 : p.sourceModes[selectedSlot].load() == 4u;
-        if (scan) {
-            clockMenu(I::menu(9));
-            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.stackBeats[selectedSlot], "STACK CYCLE", I::menu(10));
-            else textureSliderRow(p.stackSeconds[selectedSlot], "STACK CYCLE", I::slider(10), 0.05f, 30.0f, ControlDefaults::cycleSeconds,
-                format("%.2f s", p.stackSeconds[selectedSlot].load()));
-            stackShapeMenu(11);
-        } else inspectorReadout("LAYERS", format("%u / 32", count).c_str(), 10);
+        button(inspectorButton(2, 0, 3), "LOAD", [this] { chooseSample(); });
+        button(inspectorButton(2, 1, 3), "ADD LAYER", [this] { chooseSample(true); }, false, count < 32u);
+        button(inspectorButton(2, 2, 3), "REMOVE", [this] { removeLayer(p, selectedSlot); }, false, count != 0u);
+        button(inspectorButton(3), "AUDITION EDIT LAYER", [this] { auditionLayer(p, selectedSlot); }, false, bool(asset(selectedSlot)));
+        sliderRow(slotParamId(selectedSlot, kSlotStart), "START", I::slider(4));
+        sliderRow(slotParamId(selectedSlot, kSlotEnd), "END", I::slider(5));
+        const std::vector<std::string> scopes {"EDIT LAYER", "STACK / EACH LAYER", "STACK / KEEP BALANCE"};
+        inspectorLabel("NORMALIZE", 6);
+        menu(inspectorMenu(6), scopes[normalizeScope], scopes, normalizeScope, [this](int n) { normalizeScope = n; });
+        button(inspectorButton(7), "APPLY NORMALIZE / -1 dBFS", [this] {
+            requestWorkflow(p, normalizeScope == 0 ? WorkflowCommand::Normalize : normalizeScope == 1
+                ? WorkflowCommand::NormalizeStack : WorkflowCommand::NormalizeStackBalanced);
+        }, false, normalizeScope ? count != 0u : bool(asset(selectedSlot)));
+        inspectorReadout("LAYERS", format("%u / 32", count).c_str(), 8);
         const int playingLayer = p.stackWaveformLayers[selectedSlot].load();
         const double position = playingLayer == -2 ? p.stackPositions[selectedSlot].load() * (count ? count - 1u : 0u)
             : static_cast<double>(playingLayer);
         for (unsigned n = 0u; n < 32u; ++n) {
-            const auto bounds = rect(I::columnLeft(n % 4u, 4u), I::button(12u + n / 4u), I::columnWidth(4u), I::buttonHeight);
+            const auto bounds = inspectorButton(9u + n / 4u, n % 4u, 4u);
             button(bounds, format("%02u%s", n + 1u, n == 0u ? " P" : ""),
                 [this, n] { showLayer(p, selectedSlot, n); }, p.selectedLayers[selectedSlot].load() == n, n < count);
             if (n < count && playingLayer != -1 && std::abs(position - n) < 1.0)
                 fill(rect(bounds.left + 2.0, bounds.bottom - 3.0, (bounds.getWidth() - 4.0) * (1.0 - std::abs(position - n)), 2.0), style.fill);
         }
-        if (!p.workflowMessage.empty()) helpText(p.workflowMessage, I::statusTop);
     }
 
-    void paintPlayToolbox()
-    {
-        panel(rect(kPanelLeft, 52.0, kPanelWidth, 688.0), "PLAY / SELECTED CELL");
-        text(statusLabel(), rect(I::left, I::label(0), I::width, 18.0), style.value, kCenterText);
-        button(inspectorButton(1, 0, 2), "LOAD CELL", [this] { chooseSample(); });
-        button(inspectorButton(1, 1, 2), "EDIT CELL",
-            [this] { selectSurface(p, NeonMode::HotCue, 0u); });
-        playbackMenu(I::menu(2));
-        sliderRow(slotParamId(selectedSlot, kSlotGain), "GAIN", I::slider(3));
-        sliderRow(slotParamId(selectedSlot, kSlotTune), "TUNE", I::slider(4));
-        sliderRow(slotParamId(selectedSlot, kSlotMangle), "MANGLE", I::slider(5));
-        sliderRow(slotParamId(selectedSlot, kSlotPressureDepth), "PRESSURE", I::slider(6));
-        characterMenu(I::menu(7));
-        triggerMenu(I::menu(8));
-        if (playbackChoice() == 0u) menuRow(slotParamId(selectedSlot, kSlotDirection), "DIRECTION", I::menu(9));
-        else if (playbackChoice() == 5u) inspectorReadout("CLOCK", "FREE / PAD", 9);
-        else clockMenu(I::menu(9));
-        menuRow(slotParamId(selectedSlot, kSlotOutputBus), "OUTPUT", I::menu(10));
-        const bool repeat = slotOptionEnabled(p, selectedSlot, kSlotRepeatOption);
-        const bool sync = slotOptionEnabled(p, selectedSlot, kSlotSyncOption);
-        if (playbackChoice() == 0u) {
-            button(inspectorButton(11, 0, 2), "REPEAT",
-                [this, repeat] { setSlotOption(p, selectedSlot, kSlotRepeatOption, !repeat); }, repeat);
-            button(inspectorButton(11, 1, 2), "SYNC",
-                [this, sync] { setSlotOption(p, selectedSlot, kSlotSyncOption, !sync); }, sync);
-        } else button(inspectorButton(11), "EDIT PLAYBACK SETTINGS",
-            [this] { p.editPage.store(playbackEditPage(playbackChoice())); selectSurface(p, NeonMode::HotCue, 0u); });
-        button(inspectorButton(12), "EDIT CHARACTER FX",
-            [this] { p.editPage.store(7u); selectSurface(p, NeonMode::HotCue, 0u); });
-        sourceModeMenu(13u);
-        if (playbackChoice() == 6u) lanesPositionRow(14u); else layerMenu(14u);
-        button(inspectorButton(15), "EDIT SAMPLE STACK",
-            [this] { p.editPage.store(8u); selectSurface(p, NeonMode::HotCue, 0u); });
-        if (!p.workflowMessage.empty()) helpText(p.workflowMessage, I::statusTop);
+    void paintPadToolbox() {
+        panel(rect(P::left - 16, 42, kPanelWidth, P::row(7) + 18 - 42),
+            format("PAD / %c%zu / %u LAYERS", 'A' + selectedSlot / 8, selectedSlot % 8 + 1, stackCount(p, selectedSlot)));
+        const int playing = p.stackWaveformLayers[selectedSlot].load();
+        const auto count = stackCount(p, selectedSlot);
+        const double position = 1 + p.stackPositions[selectedSlot].load() * (count ? count - 1 : 0);
+        const auto sounding = p.stackHeld[selectedSlot].load() ? format("HELD / %.2f", position)
+            : p.stackManual[selectedSlot].load() >= 0 ? format("OVERRIDE / %.2f", position)
+            : playing == -2 ? format("%.2f / %u", position, count)
+            : playing >= 0 ? format("%02d / %u", playing + 1, count)
+            : p.slotPlaying[selectedSlot].load() ? std::string("EDIT AUDITION") : std::string("STOPPED");
+        inspectorReadout<P>("PLAY LAYER", sounding.c_str(), 0);
+        playbackMenu(P::menu(1)); sourceModeMenu<P>(2); layerMenu<P>(3); triggerMenu<P>(P::menu(4));
+        sliderRow(slotParamId(selectedSlot, kSlotGain), "GAIN", P::slider(5), P::left);
+        sliderRow(slotParamId(selectedSlot, kSlotTune), "TUNE", P::slider(6), P::left);
+        button(inspectorButton<P>(7, 0, 2), "AUDITION PAD", [this] { auditionEditedSlot(p, selectedSlot); }, false, count != 0u);
+        button(inspectorButton<P>(7, 1, 2), "STOP PAD", [this] { p.pendingCellStops.fetch_or(1u << selectedSlot); requestProcess(p); });
+    }
+
+    void paintRouting() {
+        menuRow(kMidiReceiveParamId, "MIDI IN", I::menu(2));
+        menuRow(slotParamId(selectedSlot, kSlotSourceFormat), "FORMAT", I::menu(3));
+        menuRow(slotParamId(selectedSlot, kSlotOutputBus), "OUTPUT", I::menu(4));
+        const bool ambi = paramValue(p, slotParamId(selectedSlot, kSlotSourceFormat)) != 0;
+        const bool distribute = !ambi && familyValue(NeonFamily::RoutingMode).load() != 0;
+        const auto choice = [&](NeonFamily key, const char* label, unsigned row,
+            const std::vector<std::string>& names, bool enabled, int forced = -1) {
+            const int value = forced >= 0 ? forced : static_cast<int>(familyValue(key).load());
+            inspectorLabel(label,row);
+            menu(inspectorMenu(row),names[static_cast<std::size_t>(value)],names,value,[this,key](int n) {
+                familyValue(key).store(static_cast<float>(n)); markStateDirty(p); requestProcess(p);
+            },enabled);
+        };
+        choice(NeonFamily::RoutingMode,"ROUTE MODE",5,{"PRESERVE FIELD","DISTRIBUTE"},!ambi,ambi ? 0 : -1);
+        choice(NeonFamily::RoutingWidth,"OBJECT",6,{"MONO","STEREO"},distribute);
+        choice(NeonFamily::RoutingTraversal,"TRAVERSAL",7,{"SEQUENTIAL","REVERSE","PALINDROME","RANDOM","RANDOM CYCLE"},distribute);
+        const auto source = asset(selectedSlot);
+        const bool stereoGrains = !ambi && playbackChoice() == 2 && source && source->channelCount == 2;
+        choice(NeonFamily::GrainStereoLink,"STEREO LINK",8,{"LINKED","INDEPENDENT"},stereoGrains,stereoGrains ? -1 : 0);
+        sliderRow(slotParamId(selectedSlot, kSlotPan), "PAN", I::slider(9));
+        const bool velocity = slotOptionEnabled(p, selectedSlot, kSlotVelocityOption);
+        inspectorLabel("VELOCITY", 10);
+        menu(inspectorMenu(10), velocity ? "PAD VELOCITY" : "CONSTANT LEVEL", {"PAD VELOCITY", "CONSTANT LEVEL"}, velocity ? 0 : 1,
+            [this](int n) { setSlotOption(p, selectedSlot, kSlotVelocityOption, n == 0); });
+    }
+
+    void sliceEnvelopeRows(unsigned first) {
+        const NeonFamily keys[] {NeonFamily::SliceAttack,NeonFamily::SliceDecay,NeonFamily::SliceSustain,NeonFamily::SliceRelease};
+        const char* labels[] {"ATTACK %","DECAY %","SUSTAIN","RELEASE %"};
+        for (unsigned n=0;n<4;++n) {
+            const auto key=keys[n]; const auto d=neonFamilyDef(neonFamilyIndex(key));
+            textureSliderRow(familyValue(key),labels[n],I::slider(first+n),0,1,d.initial,
+                format("%.1f%%",familyValue(key).load()*100),[](double x) { return x*100; },[](double x) { return x*.01; });
+        }
+    }
+
+    void paintSamplePlayback() {
+        sliderRow(slotParamId(selectedSlot, kSlotAttack), "ATTACK", I::slider(4));
+        sliderRow(slotParamId(selectedSlot, kSlotRelease), "RELEASE", I::slider(5));
+        sliderRow(slotParamId(selectedSlot, kSlotFilterCutoff), "CUTOFF", I::slider(6));
+        menuRow(slotParamId(selectedSlot, kSlotDirection), "DIRECTION", I::menu(7));
+        const bool repeat = slotOptionEnabled(p, selectedSlot, kSlotRepeatOption), sync = slotOptionEnabled(p, selectedSlot, kSlotSyncOption);
+        inspectorLabel("REPEAT", 8); menu(inspectorMenu(8), repeat ? "ON" : "OFF", {"OFF", "ON"}, repeat,
+            [this](int n) { setSlotOption(p, selectedSlot, kSlotRepeatOption, n != 0); });
+        inspectorLabel("SYNC", 9); menu(inspectorMenu(9), sync ? "ON" : "OFF", {"OFF", "ON"}, sync,
+            [this](int n) { setSlotOption(p, selectedSlot, kSlotSyncOption, n != 0); });
     }
 
     void paintSliceToolbox(uint8_t)
     {
-        panel(rect(kPanelLeft, 52.0, kPanelWidth, 688.0), "CHOP / AUDITION AND ASSIGN");
+        const bool transient = p.chopModes[selectedSlot].load() == static_cast<uint8_t>(SampleNeonChopMode::Transient);
+        const bool stack = p.slicesToStack.load();
+        const unsigned target = p.chopDestination.load();
+        const auto one = chopDestinationPlan(p, static_cast<unsigned>(selectedSlot), 1u, stack, target);
+        const auto all = chopDestinationPlan(p, static_cast<unsigned>(selectedSlot), sliceCount(p, selectedSlot), stack, target);
+        std::vector<std::string> routeLines;
+        std::string route = "ALL > " + chopDestinationSummary(all);
+        while (!route.empty()) {
+            auto length = route.size();
+            if (length > 43u) { length = route.rfind(' ', 43u); if (length == std::string::npos) length = 43u; }
+            routeLines.push_back(route.substr(0, length)); route.erase(0, length);
+            if (!route.empty() && route.front() == ' ') route.erase(0, 1);
+        }
+        panel(rect(kPanelLeft, 42.0, kPanelWidth, I::row((transient ? 15u : 16u) + static_cast<unsigned>(routeLines.size())) + 18 - 42), "CHOP / AUDITION AND ASSIGN");
         text(statusLabel(), rect(I::left, I::label(0), I::width, 18.0), style.value, kCenterText);
         button(inspectorButton(1, 0, 2), "LOAD SOURCE", [this] { chooseSample(); });
         button(inspectorButton(1, 1, 2), "AUDITION SLICE",
@@ -1269,7 +1214,7 @@ private:
         sliderRow(slotParamId(selectedSlot, kSlotStart), "START", I::slider(2));
         sliderRow(slotParamId(selectedSlot, kSlotEnd), "END", I::slider(3));
         unsigned nextRow = 5u;
-        if (p.chopModes[selectedSlot].load() == static_cast<uint8_t>(SampleNeonChopMode::Transient)) {
+        if (transient) {
             const std::size_t slot = selectedSlot;
             const double value = p.transientPreRollMs[slot].load();
             const auto apply = [this, slot](double next) {
@@ -1279,7 +1224,7 @@ private:
             };
             text("PRE-ROLL", rect(I::left, I::label(4), I::labelWidth, 18.0), style.label);
             foundation::drawHorizontalSlider(*context, rect(I::controlLeft, I::row(4) - 4.0, I::trackWidth, 8.0), value / 50.0, I::slider(4), 14.0, style);
-            drag(rect(I::controlLeft - 4.0, I::row(4) - 13.5, I::trackWidth + 8.0, 27.0),
+            drag(rect(I::controlLeft - 4.0, I::row(4) - 11.5, I::trackWidth + 8.0, I::rowPitch - 1.0),
                 [apply](CPoint point) { apply((point.x - I::controlLeft) / I::trackWidth * 50.0); },
                 {}, {}, [apply] { apply(0.0); });
             const auto valueBounds = rect(I::controlLeft + I::trackWidth + I::valueGap, I::label(4), I::valueWidth, 18.0);
@@ -1296,15 +1241,12 @@ private:
                 40.0, 240.0, ControlDefaults::sourceBpm, format("%.1f", p.sourceBpms[selectedSlot].load()));
             ++nextRow;
         }
-        layerMenu(nextRow++);
         inspectorLabel("DESTINATION", nextRow);
-        const bool stack = p.slicesToStack.load();
         menu(inspectorMenu(nextRow), stack ? "ONE PAD / LAYER STACK" : "PAD CELLS",
             {"PAD CELLS", "ONE PAD / LAYER STACK"}, stack ? 1 : 0,
             [this](int choice) { p.slicesToStack.store(choice == 1); p.workflowMessage.clear(); });
         ++nextRow;
         inspectorLabel(stack ? "TARGET PAD" : "START PAD", nextRow);
-        const unsigned target = p.chopDestination.load();
         const bool replace = target == selectedSlot;
         std::vector<std::string> pads {"AUTO / EMPTY"};
         std::vector<bool> selectable {true};
@@ -1319,8 +1261,6 @@ private:
                 p.chopDestination.store(static_cast<uint8_t>(item ? static_cast<unsigned>(item - 1) : s3g::sample::kNeonChopAutoDestination));
                 p.workflowMessage.clear();
             }, true, 4, kCenterText, selectable);
-        const auto one = chopDestinationPlan(p, static_cast<unsigned>(selectedSlot), 1u, stack, target);
-        const auto all = chopDestinationPlan(p, static_cast<unsigned>(selectedSlot), sliceCount(p, selectedSlot), stack, target);
         const auto oneTo = one.valid() ? chopPadName(one.pads[0]) : "BLOCKED";
         const auto allSummary = chopDestinationSummary(all);
         const auto allTo = all.valid() ? stack ? chopPadName(all.pads[0]) + " LAYERS"
@@ -1333,23 +1273,22 @@ private:
             [this] { requestWorkflow(p, WorkflowCommand::MapAll); }, false, bool(asset(selectedSlot)) && all.valid());
         // The exact plan is also shown for AUTO, which can skip occupied pads.
         // Wrap the route at separators instead of silently clipping destinations.
-        std::string route = "ALL > " + chopDestinationSummary(all);
         unsigned routeRow = nextRow + 3u;
-        while (!route.empty()) {
-            auto length = route.size();
-            if (length > 43u) { length = route.rfind(' ', 43u); if (length == std::string::npos) length = 43u; }
-            text(route.substr(0u, length), rect(I::left, I::label(routeRow++), I::width, 18.0), all.valid() ? style.value : color(0xc28f7a));
-            route.erase(0u, length);
-            if (!route.empty() && route.front() == ' ') route.erase(0u, 1u);
-        }
+        for (const auto& line : routeLines)
+            text(line, rect(I::left, I::label(routeRow++), I::width, 18.0), all.valid() ? style.value : color(0xc28f7a));
         text(replace ? "SOURCE " + chopPadName(selectedSlot) + " WILL BE REPLACED" : "SOURCE " + chopPadName(selectedSlot) + " KEPT",
             rect(I::left, I::label(routeRow), I::width, 18.0), replace ? color(0xc28f7a) : style.dim);
+        text("SLICE AMP / PROPORTIONAL",rect(I::left,I::label(routeRow+2),I::width,18),style.label);
+        sliceEnvelopeRows(routeRow+3);
         if (!p.workflowMessage.empty()) helpText(p.workflowMessage, I::statusTop);
     }
 
     void paintCaptureToolbox()
     {
-        panel(rect(kPanelLeft, 52.0, kPanelWidth, 688.0), "RESAMPLE / OUTPUT BUS");
+        const auto source = p.selectedSlot.load();
+        const auto sourceBus = static_cast<unsigned>(paramValue(p, slotParamId(source, kSlotOutputBus)));
+        const bool busMismatch = p.publishedAssets[source].load() && sourceBus != p.captureBus.load() + 1u;
+        panel(rect(kPanelLeft, 42.0, kPanelWidth, I::row(busMismatch ? 9 : 8) + 18 - 42), "RESAMPLE / OUTPUT BUS");
         const auto state = p.captureState.load();
         const bool recording = state == Plugin::CaptureState::Recording;
         const auto layout = static_cast<SampleNeonOutputLayout>(static_cast<uint8_t>(paramValue(p, kOutputLayoutParamId)));
@@ -1387,29 +1326,25 @@ private:
             }, true, 4);
         button(inspectorButton(8), "ASSIGN CAPTURE TO CELL",
             [this] { requestWorkflow(p, WorkflowCommand::AssignCapture); }, false, bool(p.captureAsset) && target < 32u);
-        const auto source = p.selectedSlot.load();
-        const auto sourceBus = static_cast<unsigned>(paramValue(p, slotParamId(source, kSlotOutputBus)));
-        if (p.publishedAssets[source].load() && sourceBus != p.captureBus.load() + 1u)
+        if (busMismatch)
             text(format("CELL BUS %u / CAPTURE BUS %u", sourceBus, p.captureBus.load() + 1u),
-                rect(I::left, I::label(10), I::width, 18.0), color(0xc28f7a), kCenterText);
+                rect(I::left, I::label(9), I::width, 18.0), color(0xc28f7a), kCenterText);
         if (!recording && !p.workflowMessage.empty()) helpText(p.workflowMessage, I::statusTop);
     }
 
     void lanesPositionRow(unsigned row) {
         const unsigned count = stackCount(p, selectedSlot);
-        if (count < 2) { inspectorReadout("LAYER POS", count ? "1 / 1" : "EMPTY STACK", row); return; }
+        if (count < 2) { inspectorReadout<E>("LAYER POS", count ? "1 / 1" : "EMPTY STACK", row); return; }
         const double span = std::max(1u, count - 1u);
-        if (familyValue(NeonFamily::LaneAuto).load() != 0) {
-            inspectorReadout("LAYER POS", format("%.2f / %u", 1 + p.stackPositions[selectedSlot].load() * (count - 1u), count).c_str(), row);
-            return;
-        }
         auto& value = familyValue(NeonFamily::LanePosition);
-        textureSliderRow(value, "LAYER POS", I::slider(row), 0, 1, 0,
-            format("%.2f / %u", 1 + value.load() * (count - 1u), count),
-            [span](double x) { return 1 + x * span; }, [span](double x) { return (x - 1) / span; });
+        const double shown = familyValue(NeonFamily::LaneAuto).load() != 0
+            ? p.stackPositions[selectedSlot].load() : value.load();
+        textureSliderRow(value, "LAYER POS", E::slider(row), 0, 1, 0,
+            format("%.2f / %u", 1 + shown * (count - 1u), count),
+            [span](double x) { return 1 + x * span; }, [span](double x) { return (x - 1) / span; }, E::left, E::width, shown);
     }
     void paintLanesPlayback() {
-        triggerMenu(I::menu(4)); clockMenu(I::menu(5)); sourceModeMenu(6);
+        clockMenu(E::menu(5));
         lanesPositionRow(7);
         const auto step = [this](int delta) {
             const unsigned count = stackCount(p, selectedSlot);
@@ -1417,31 +1352,30 @@ private:
             const double at = (familyValue(NeonFamily::LaneAuto).load() != 0 ? p.stackPositions[selectedSlot].load()
                 : familyValue(NeonFamily::LanePosition).load()) * (count - 1);
             const double next = delta > 0 ? std::floor(at + .00001) + 1 : std::ceil(at - .00001) - 1;
-            familyValue(NeonFamily::LanePosition).store(static_cast<float>(std::clamp(next / (count - 1), 0., 1.)));
-            familyValue(NeonFamily::LaneAuto).store(0); markStateDirty(p); requestProcess(p);
+            setLanePosition(p, static_cast<unsigned>(selectedSlot), next / (count - 1));
         };
-        button(inspectorButton(8, 0, 2), "PREVIOUS LAYER", [step] { step(-1); }, false, stackCount(p, selectedSlot) > 1);
-        button(inspectorButton(8, 1, 2), "NEXT LAYER", [step] { step(1); }, false, stackCount(p, selectedSlot) > 1);
-        familyMenu(NeonFamily::StackJump, "TRANSITION", 9, {"CROSSFADE", "JUMP"});
-        familySlider(NeonFamily::LaneRate, "SPEED", 10, " x");
+        button(inspectorButton<E>(8, 0, 2), "PREVIOUS LAYER", [step] { step(-1); }, false, stackCount(p, selectedSlot) > 1);
+        button(inspectorButton<E>(8, 1, 2), "NEXT LAYER", [step] { step(1); }, false, stackCount(p, selectedSlot) > 1);
+        familyMenu<E>(NeonFamily::StackJump, "TRANSITION", 9, {"CROSSFADE", "JUMP"});
+        familySlider<E>(NeonFamily::LaneRate, "SPEED", 10, " x");
         auto& slew = familyValue(NeonFamily::LaneSlew);
-        textureSliderRow(slew, "LAYER SLEW", I::slider(11), .001f, .1f, .01f, format("%.1f ms", slew.load() * 1000),
+        textureSliderRow(slew, "LAYER SLEW", E::slider(11), .001f, .1f, .01f, format("%.1f ms", slew.load() * 1000),
             [](double x) { return x * 1000; }, [](double x) { return x / 1000; });
         auto& join = familyValue(NeonFamily::LaneJoin);
-        textureSliderRow(join, "LOOP JOIN", I::slider(12), 0, .25f, .02f, format("%.1f%%", join.load() * 100),
+        textureSliderRow(join, "LOOP JOIN", E::slider(12), 0, .25f, .02f, format("%.1f%%", join.load() * 100),
             [](double x) { return x * 100; }, [](double x) { return x / 100; });
-        menuRow(slotParamId(selectedSlot, kSlotDirection), "DIRECTION", I::menu(13));
+        menuRow(slotParamId(selectedSlot, kSlotDirection), "DIRECTION", E::menu(13));
         const auto trigger = paramValue(p, slotParamId(selectedSlot, kSlotTriggerMode));
-        if (trigger == 1 || trigger == 3) inspectorReadout("DURATION", trigger == 1 ? "PAD HOLD + RELEASE" : "UNTIL NEXT PRESS", 14);
-        else textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", I::slider(14), .05f, 30, ControlDefaults::shotSeconds,
+        if (trigger == 1 || trigger == 3) inspectorReadout<E>("DURATION", trigger == 1 ? "PAD HOLD + RELEASE" : "UNTIL NEXT PRESS", 14);
+        else textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(14), .05f, 30, ControlDefaults::shotSeconds,
             format("%.2f s", p.shotSeconds[selectedSlot].load()));
-        techniqueEnvelopeRows(I::slider(15));
-        if (familyValue(NeonFamily::LaneAuto).load() == 0) inspectorReadout("LAYERS", format("%u / 32", stackCount(p, selectedSlot)).c_str(), 17);
-        else if (p.playbackClocks[selectedSlot].load()) beatMenu(p.stackBeats[selectedSlot], "PATH CYCLE", I::menu(17));
-        else textureSliderRow(p.stackSeconds[selectedSlot], "PATH CYCLE", I::slider(17), .05f, 30, ControlDefaults::cycleSeconds,
+        techniqueEnvelopeRows(E::slider(15));
+        if (familyValue(NeonFamily::LaneAuto).load() == 0) inspectorReadout<E>("LAYERS", format("%u / 32", stackCount(p, selectedSlot)).c_str(), 17);
+        else if (p.playbackClocks[selectedSlot].load()) beatMenu(p.stackBeats[selectedSlot], "PATH CYCLE", E::menu(17));
+        else textureSliderRow(p.stackSeconds[selectedSlot], "PATH CYCLE", E::slider(17), .05f, 30, ControlDefaults::cycleSeconds,
             format("%.2f s", p.stackSeconds[selectedSlot].load()));
-        button(inspectorButton(18), "EDIT STACK PATH", [this] { familyPage = 3; workspaceTab = 8; p.editPage.store(8); });
-        button(inspectorButton(19), "EDIT SAMPLE STACK", [this] { familyPage = 0; workspaceTab = 8; p.editPage.store(8); });
+        button(inspectorButton<E>(18), "EDIT STACK PATH", [this] { familyPage = 3; workspaceTab = 8; p.editPage.store(8); });
+        button(inspectorButton<E>(19), "EDIT SAMPLE STACK", [this] { familyPage = 0; workspaceTab = 8; p.editPage.store(8); });
     }
 
     void paintExtendedPlayback()
@@ -1449,54 +1383,52 @@ private:
         const auto method = playbackChoice();
         if (method == 6u) { paintLanesPlayback(); return; }
         auto& values = p.techniqueParameters[selectedSlot][method - 3u];
-        triggerMenu(I::menu(4));
         const unsigned waveScan = method == 5u && p.sourceModes[selectedSlot].load() == 4u ? 1u : 0u;
-        if (method != 5u || waveScan) clockMenu(I::menu(5));
+        if (method != 5u || waveScan) clockMenu(E::menu(5));
         const bool host = p.playbackClocks[selectedSlot].load() != 0u;
         if (method == 3u) {
             const int trigger = static_cast<int>(paramValue(p, slotParamId(selectedSlot, kSlotTriggerMode)));
             if (trigger == 0 || trigger == 2)
-                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", I::slider(6), 0.05f, 30.0f, ControlDefaults::shotSeconds, format("%.2f s", p.shotSeconds[selectedSlot].load()));
+                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(6), 0.05f, 30.0f, ControlDefaults::shotSeconds, format("%.2f s", p.shotSeconds[selectedSlot].load()));
             else text(trigger == 1 ? "DURATION: WHILE PAD IS HELD" : "DURATION: UNTIL PAD IS TAPPED AGAIN",
-                rect(I::left, I::label(6), I::width, 18.0), style.value);
-            if (host) beatMenu(p.grainIntervals[selectedSlot], "STEP", I::menu(7), 8.0);
-            else textureSliderRow(values[0], "STEP RATE", I::slider(7), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.1f Hz", 1.0f + values[0].load() * 19.0f),
+                rect(E::left, E::label(6), E::width, 18.0), style.value);
+            if (host) beatMenu(p.grainIntervals[selectedSlot], "STEP", E::menu(7), 8.0);
+            else textureSliderRow(values[0], "STEP RATE", E::slider(7), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.1f Hz", 1.0f + values[0].load() * 19.0f),
                 [](double x) { return 1.0 + x * 19.0; }, [](double x) { return (x - 1.0) / 19.0; });
             const std::vector<std::string> orders {"FORWARD", "REVERSE", "RANDOM"};
             const int order = static_cast<int>(std::lround(values[1].load() * 2.0f));
-            inspectorLabel("ORDER", 8);
-            menu(inspectorMenu(8), orders[static_cast<unsigned>(order)], orders, order,
+            inspectorLabel<E>("ORDER", 8);
+            menu(inspectorMenu<E>(8), orders[static_cast<unsigned>(order)], orders, order,
                 [this](int choice) { p.techniqueParameters[selectedSlot][0][1].store(choice * 0.5f); markStateDirty(p); requestProcess(p); });
-            textureSliderRow(values[2], "REPEATS", I::slider(9), 0.0f, 1.0f, ControlDefaults::technique[2u], format("%.0f", 1.0 + std::round(values[2].load() * 7.0)),
+            textureSliderRow(values[2], "REPEATS", E::slider(9), 0.0f, 1.0f, ControlDefaults::technique[2u], format("%.0f", 1.0 + std::round(values[2].load() * 7.0)),
                 [](double x) { return 1.0 + std::round(x * 7.0); }, [](double x) { return (std::round(x) - 1.0) / 7.0; });
-            textureSliderRow(values[3], "CHANCE", I::slider(10), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
+            textureSliderRow(values[3], "CHANCE", E::slider(10), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
+            button(inspectorButton<E>(11), "SLICE ADSR / CHOP", [this] { selectMode(static_cast<uint8_t>(NeonMode::Slicer)); });
         } else if (method == 4u) {
-            if (host) beatMenu(p.motionRates[selectedSlot], "DURATION", I::menu(6));
-            else textureSliderRow(p.motionSeconds[selectedSlot], "DURATION", I::slider(6), 0.05f, 30.0f, ControlDefaults::cycleSeconds, format("%.2f s", p.motionSeconds[selectedSlot].load()));
-            sliderRow(slotParamId(selectedSlot, kSlotTune), "TUNE", I::slider(7));
+            if (host) beatMenu(p.motionRates[selectedSlot], "DURATION", E::menu(6));
+            else textureSliderRow(p.motionSeconds[selectedSlot], "DURATION", E::slider(6), 0.05f, 30.0f, ControlDefaults::cycleSeconds, format("%.2f s", p.motionSeconds[selectedSlot].load()));
             const std::vector<std::string> dirs {"FORWARD", "REVERSE"};
             const bool reverse = paramValue(p, slotParamId(selectedSlot, kSlotDirection)) == 1.0;
-            inspectorLabel("DIRECTION", 8);
-            menu(inspectorMenu(8), dirs[reverse ? 1u : 0u], dirs, reverse ? 1 : 0,
+            inspectorLabel<E>("DIRECTION", 7);
+            menu(inspectorMenu<E>(7), dirs[reverse ? 1u : 0u], dirs, reverse ? 1 : 0,
                 [this](int choice) { queueGuiParamGesture(p, slotParamId(selectedSlot, kSlotDirection), choice); });
-            textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", I::slider(9), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
-            textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", I::slider(10), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
+            textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", E::slider(8), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
+            textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", E::slider(9), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
         } else {
-            textureSliderRow(values[0], "GROUP", I::slider(5u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.0f cycles", 1.0 + std::round(values[0].load() * 31.0)),
+            textureSliderRow(values[0], "GROUP", E::slider(5u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.0f cycles", 1.0 + std::round(values[0].load() * 31.0)),
                 [](double x) { return 1.0 + std::round(x * 31.0); }, [](double x) { return (std::round(x) - 1.0) / 31.0; });
-            textureSliderRow(values[1], "REPEATS", I::slider(6u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[1u], format("%.0f", 1.0 + std::round(values[1].load() * 15.0)),
+            textureSliderRow(values[1], "REPEATS", E::slider(6u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[1u], format("%.0f", 1.0 + std::round(values[1].load() * 15.0)),
                 [](double x) { return 1.0 + std::round(x * 15.0); }, [](double x) { return (std::round(x) - 1.0) / 15.0; });
             const std::vector<std::string> shapes {"REPEAT", "OMIT", "REPLACE", "ENVELOPE", "MULTIPLY", "AVERAGE", "INTERPOLATE", "FRACTAL", "HARMONIC", "GROUP REVERSE", "CYCLE REVERSE", "TELESCOPE"};
             const auto shape = static_cast<int>(std::lround(values[2].load() * 11.0f));
-            inspectorLabel("SHAPE", 7u + waveScan);
-            menu(inspectorMenu(7u + waveScan), shapes[static_cast<unsigned>(shape)], shapes, shape,
+            inspectorLabel<E>("SHAPE", 7u + waveScan);
+            menu(inspectorMenu<E>(7u + waveScan), shapes[static_cast<unsigned>(shape)], shapes, shape,
                 [this](int choice) { p.techniqueParameters[selectedSlot][2][2].store(choice / 11.0f); markStateDirty(p); requestProcess(p); });
-            textureSliderRow(values[3], "PROCESS", I::slider(8u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
-            sliderRow(slotParamId(selectedSlot, kSlotTune), "TUNE", I::slider(9u + waveScan));
+            textureSliderRow(values[3], "PROCESS", E::slider(8u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
             if (waveScan) {
-                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", I::slider(11), 0.05f, 30.0f, ControlDefaults::shotSeconds, format("%.2f s", p.shotSeconds[selectedSlot].load()));
-                textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", I::slider(12), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
-                textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", I::slider(13), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
+                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(10), 0.05f, 30.0f, ControlDefaults::shotSeconds, format("%.2f s", p.shotSeconds[selectedSlot].load()));
+                textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", E::slider(11), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
+                textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", E::slider(12), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
             }
             bool ready = false, pending = false;
             const unsigned count = waveScan ? stackCount(p, selectedSlot) : 1u;
@@ -1505,138 +1437,122 @@ private:
                 ready |= source.wavesets && source.wavesets->asset == source.asset;
                 pending |= source.waveAnalysisPending;
             }
-            if (pending || !ready) helpText(pending ? "ANALYZING LAYERS" : "NO USABLE WAVEFORM CYCLES", I::statusTop);
+            if (pending || !ready) helpText(pending ? "ANALYZING LAYERS" : "NO USABLE WAVEFORM CYCLES", E::statusTop);
         }
+    }
+
+    void fillHoldButton(CRect bounds) {
+        foundation::drawButton(*context, bounds, p.fillActive.load() ? "FILL / OVERRIDE" : "FILL HOLD", font, p.fillActive.load());
+        drag(bounds, [](CPoint) {}, [this] { p.fillGuiHeld.store(true); requestProcess(p); },
+            [this] { p.fillGuiHeld.store(false); requestProcess(p); });
+    }
+    void fillRepeatMenu(CRect bounds) {
+        const std::vector<std::string> names {"1/4", "1/8", "1/16", "1/32", "1/64", "1/128"};
+        const auto choice = static_cast<unsigned>(p.fillRepeat.load());
+        menu(bounds, names[choice], names, static_cast<int>(choice), [this](int n) {
+            p.fillRepeat.store(static_cast<float>(n)); markStateDirty(p); requestProcess(p);
+        });
+    }
+    void paintFillToolbox() {
+        panel(rect(kPanelLeft,42,kPanelWidth,I::row(14)+18-42), "BUFFER FILL / ALL OUTPUT BUSES");
+        inspectorReadout("OUTPUT", p.fillActive.load() ? "FROZEN OVERRIDE" : "LIVE / ROLLING HISTORY", 0);
+        fillHoldButton(inspectorButton(1));
+        const std::vector<std::string> buffers {"1/4 BEAT", "1/2 BEAT", "1 BEAT", "2 BEATS", "4 BEATS"};
+        const auto choice = static_cast<unsigned>(p.fillBuffer.load());
+        inspectorLabel("GRAB",2);
+        menu(inspectorMenu(2), buffers[choice], buffers, static_cast<int>(choice), [this](int n) {
+            p.fillBuffer.store(static_cast<float>(n)); markStateDirty(p); requestProcess(p);
+        });
+        inspectorLabel("REPEAT",3); fillRepeatMenu(inspectorMenu(3));
+        textureSliderRow(p.fillBreakup,"BREAKUP",I::slider(4),0,1,.5f,format("%.0f%%",p.fillBreakup.load()*100));
+        inspectorReadout(p.fillActive.load() ? "FROZEN" : "HISTORY",format("%.2f / 4.00 s",p.fillAvailable.load()).c_str(),5);
+        inspectorReadout("TEMPO",format("%.1f BPM",p.hostTempo.load()).c_str(),6);
+        inspectorReadout("NEON HOLD","SHIFT + MODE/CENSOR",8);
+        inspectorReadout("LOOP","REPEAT LENGTH",9);
+        inspectorReadout("TRAX","BREAKUP",10);
+        button(inspectorButton(12),"RELEASE FILL",[this] { p.fillRelease.store(true); p.fillGuiHeld.store(false); requestProcess(p); });
+        button(inspectorButton(14),"BACK TO CELL",[this] { p.fillPage.store(false); });
     }
 
     void paintToolbox()
     {
-        const uint8_t mode = std::min<uint8_t>(3u,
-            p.visibleMode.load(std::memory_order_relaxed));
-        if (mode == static_cast<uint8_t>(NeonMode::Sampler)) { paintPlayToolbox(); return; }
-        if (mode == static_cast<uint8_t>(NeonMode::HotLoop)) { paintCaptureToolbox(); return; }
-        if (mode == static_cast<uint8_t>(NeonMode::Slicer)) {
-            paintSliceToolbox(mode);
-            return;
+        paintPadToolbox();
+        if (p.fillPage.load()) { paintFillToolbox(); return; }
+        const auto mode = static_cast<NeonMode>(p.visibleMode.load());
+        if (mode == NeonMode::HotLoop) { paintCaptureToolbox(); return; }
+        if (mode == NeonMode::Slicer) { paintSliceToolbox(static_cast<uint8_t>(mode)); return; }
+        // Hardware source/stack shortcuts share the same editor; 8 retains its
+        // existing layer encoder mapping, while 0 retains cursor/zoom editing.
+        if (familyPage == 3 && workspaceTab != 8) familyPage = 0;
+        const unsigned view = familyPage == 3 ? 2 : workspaceTab == 0 || workspaceTab == 8 ? 0
+            : workspaceTab == 7 ? 3 : workspaceTab == 10 ? 4 : 1;
+        const std::vector<std::string> views {"SOURCE / STACK", "PLAYBACK", "STACK PATH", "CHARACTER FX", "ROUTING"};
+        const auto method = playbackChoice();
+        const unsigned playbackLast = method == 0 ? 9 : method == 1 || method == 2
+            ? s3g::sample_neon_gui::FamilyGrid::cutoff(method == 1,
+                static_cast<unsigned>(familyValue(NeonFamily::MotionSound).load()))
+            : E::index(method == 6 ? 19 : method == 5 ? (p.sourceModes[selectedSlot].load() == 4 ? 12 : 8) : method == 4 ? 9 : 11);
+        const unsigned last = view == 0 ? 16 : view == 2 ? 17 : view == 3 ? fxLastRow() : view == 4 ? 10 : playbackLast;
+        panel(rect(kPanelLeft, 42, kPanelWidth, I::row(last) + 18 - 42), "EDIT / " + views[view]);
+        inspectorLabel("EDIT VIEW", 0);
+        menu(inspectorMenu(0), views[view], views, view, [this](int n) {
+            familyPage = n == 2 ? 3 : 0; familyDetail = 0;
+            workspaceTab = n == 0 ? 0 : n == 2 ? 8 : n == 3 ? 7 : n == 4 ? 10 : playbackEditPage(playbackChoice());
+            p.editPage.store(workspaceTab);
+        }, true, 1, kCenterText, {true, true, playbackChoice() != 0 && playbackChoice() != 3, true, true});
+        text(statusLabel(), rect(I::left, I::label(1), I::width, 18), style.value, kCenterText);
+        if (view == 0) paintStackSettings();
+        else if (view == 2) paintFamilySettings();
+        else if (view == 3) paintFxSettings();
+        else if (view == 4) paintRouting();
+        else if (playbackChoice() == 0) paintSamplePlayback();
+        else {
+            // Character, FX Amount and Pressure have one home: CHARACTER FX.
+            if (playbackChoice() >= 3) paintExtendedPlayback();
+            else { paintTexturePlayback(); paintIntegratedFamily(); }
         }
-        panel(rect(kPanelLeft, 52.0, kPanelWidth, 688.0),
-            format("EDIT / CELL %c%zu",
-                static_cast<char>('A' + selectedSlot / 8u),
-                selectedSlot % 8u + 1u));
-        const auto current = asset(selectedSlot);
-        text(statusLabel(),
-            rect(I::left, I::label(0), I::width, 18.0),
-            current ? style.value : style.dim, kCenterText, font);
-        button(inspectorButton(1, 0, 4), "LOAD",
-            [this] { chooseSample(); });
-        button(inspectorButton(1, 1, 4), "REMOVE",
-            [this] { removeLayer(p, selectedSlot); }, false,
-            static_cast<bool>(current));
-        button(inspectorButton(1, 2, 4), "AUDITION",
-            [this] {
-                if (playbackChoice() == 6u && (workspaceTab == 9u || familyPage == 3u)) auditionEditedSlot(p, selectedSlot);
-                else auditionLayer(p, selectedSlot);
-            }, false,
-            static_cast<bool>(current));
-        button(inspectorButton(1, 3, 4), "STOP",
-            [this] { p.pendingCellStops.fetch_or(1u << selectedSlot); requestProcess(p); }, false,
-            static_cast<bool>(current));
-        playbackMenu(I::menu(2));
-        inspectorLabel("EDIT VIEW", 3);
-        menu(inspectorMenu(3),
-            familyPage == 1 ? "MOTION DETAIL" : familyPage == 2 ? "GRAINS DETAIL" : familyPage == 3 ? "STACK PATH"
-                : workspaceTab == 0u ? "SOURCE / TRIM" : workspaceTab == 7u ? "CHARACTER FX" : workspaceTab == 8u ? "SAMPLE STACK" : "PLAYBACK SETTINGS",
-            { "SOURCE / TRIM", "PLAYBACK SETTINGS", "CHARACTER FX", "SAMPLE STACK", "MOTION DETAIL", "GRAINS DETAIL", "STACK PATH" },
-            familyPage ? static_cast<int>(familyPage) + 3 : workspaceTab == 0u ? 0 : workspaceTab == 7u ? 2 : workspaceTab == 8u ? 3 : 1,
-            [this](int choice) {
-                familyPage = choice >= 4 ? choice - 3 : 0; familyDetail = 0;
-                workspaceTab = static_cast<uint8_t>(choice == 6 || choice == 3 ? 8u : choice == 4 ? 2u : choice == 5 ? 3u
-                    : choice == 2 ? 7u : choice ? playbackEditPage(playbackChoice()) : 0u);
-                p.editPage.store(workspaceTab);
-            }, true, 1, kCenterText, {true, true, true, true, playbackChoice() == 1u, playbackChoice() == 2u, playbackChoice() != 0u});
+        if (fileMessage.empty() && !p.workflowMessage.empty()) helpText(p.workflowMessage, I::statusTop);
+        if (!fileMessage.empty()) { footerMessage = fileMessage; footerColor = color(0x77b9a8); }
+    }
 
-        if ((familyPage == 1 && workspaceTab != 2) || (familyPage == 2 && workspaceTab != 3) || (familyPage == 3 && workspaceTab != 8)) familyPage = 0;
-        if (familyPage) { paintFamilySettings(); return; }
-        if (workspaceTab == 8u) { paintStackSettings(); return; }
-        if (workspaceTab == 7u) { paintFxSettings(); return; }
-        if (workspaceTab && playbackChoice() >= 3u) { paintExtendedPlayback(); return; }
-
-        if (workspaceTab == 0u || playbackChoice() == 0u) {
-            sliderRow(slotParamId(selectedSlot, kSlotGain), "GAIN", I::slider(4));
-            sliderRow(slotParamId(selectedSlot, kSlotPan), "PAN", I::slider(5));
-            sliderRow(slotParamId(selectedSlot, kSlotTune), "TUNE", I::slider(6));
-            sliderRow(slotParamId(selectedSlot, kSlotStart), "START", I::slider(7));
-            sliderRow(slotParamId(selectedSlot, kSlotEnd), "END", I::slider(8));
-            if (playbackChoice() == 0u) {
-                sliderRow(slotParamId(selectedSlot, kSlotAttack), "ATTACK", I::slider(9));
-                sliderRow(slotParamId(selectedSlot, kSlotRelease), "RELEASE", I::slider(10));
-            } else if (playbackChoice() == 1u || playbackChoice() == 2u || playbackChoice() == 6u) techniqueEnvelopeRows(I::slider(9));
-            else {
-                inspectorReadout("ATTACK", "TECHNIQUE", 9);
-                inspectorReadout("RELEASE", "TECHNIQUE", 10);
-            }
-            if (playbackChoice() != 5u && playbackChoice() != 6u) sliderRow(slotParamId(selectedSlot, kSlotFilterCutoff), "CUTOFF", I::slider(11));
-            else inspectorReadout("CUTOFF", "CHARACTER FX", 11);
-            sliderRow(slotParamId(selectedSlot, kSlotMangle), "MANGLE", I::slider(12));
-            sliderRow(slotParamId(selectedSlot, kSlotPressureDepth), "PRESSURE", I::slider(13));
-            characterMenu(I::menu(14));
-            triggerMenu(I::menu(15));
-            menuRow(slotParamId(selectedSlot, kSlotSourceFormat), "FORMAT", I::menu(16));
-            menuRow(slotParamId(selectedSlot, kSlotOutputBus), "OUTPUT", I::menu(17));
-            if (playbackChoice() == 0u) menuRow(slotParamId(selectedSlot, kSlotDirection), "DIRECTION", I::menu(18));
-            else inspectorReadout("DIRECTION", "TECHNIQUE", 18);
-            const bool velocity = slotOptionEnabled(p, selectedSlot, kSlotVelocityOption);
-            inspectorLabel("VELOCITY", 19);
-            menu(inspectorMenu(19), velocity ? "PAD VELOCITY" : "CONSTANT LEVEL",
-                { "PAD VELOCITY", "CONSTANT LEVEL" }, velocity ? 0 : 1,
-                [this](int choice) { setSlotOption(p, selectedSlot, kSlotVelocityOption, choice == 0); });
-            button(inspectorButton(20), "NORMALIZE SOURCE / -1 dBFS",
-                [this] { requestWorkflow(p, WorkflowCommand::Normalize); }, false, bool(current));
-        } else {
+    void paintTexturePlayback() {
             const bool motion = playbackChoice() == 1u;
             const bool host = p.playbackClocks[selectedSlot].load() != 0u;
-            triggerMenu(I::menu(4));
-            clockMenu(I::menu(5));
+            clockMenu(E::menu(5));
             const int trigger = static_cast<int>(paramValue(p, slotParamId(selectedSlot, kSlotTriggerMode)));
             if (trigger == 0 || trigger == 2) {
-                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", I::slider(6), 0.05f, 30.0f, ControlDefaults::shotSeconds,
+                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(6), 0.05f, 30.0f, ControlDefaults::shotSeconds,
                     format("%.2f s", p.shotSeconds[selectedSlot].load()));
             } else text(trigger == 1 ? "DURATION: WHILE PAD IS HELD" : "DURATION: UNTIL PAD IS TAPPED AGAIN",
-                rect(I::left, I::label(6), I::width, 18.0), style.value);
+                rect(E::left, E::label(6), E::width, 18.0), style.value);
             if (motion) {
-                textureDoubleSliderRow(p.editPositions[selectedSlot], "OFFSET", I::slider(7), 0.0, 1.0, 0.0,
+                textureDoubleSliderRow(p.editPositions[selectedSlot], "OFFSET", E::slider(7), 0.0, 1.0, 0.0,
                     format("%.1f%%", p.editPositions[selectedSlot].load() * 100.0));
                 const auto pathIndex = std::min<uint8_t>(3u, p.motionPaths[selectedSlot].load());
                 const std::vector<std::string> paths { "FORWARD", "REVERSE", "BOUNCE", "WANDER" };
-                inspectorLabel("PATH", 8);
-                menu(inspectorMenu(8), paths[pathIndex], paths, pathIndex,
+                inspectorLabel<E>("PATH", 8);
+                menu(inspectorMenu<E>(8), paths[pathIndex], paths, pathIndex,
                     [this](int choice) { p.motionPaths[selectedSlot].store(static_cast<uint8_t>(choice)); markStateDirty(p); requestProcess(p); });
-                if (host) beatMenu(p.motionRates[selectedSlot], "CYCLE", I::menu(9));
-                else textureSliderRow(p.motionSeconds[selectedSlot], "CYCLE", I::slider(9), 0.05f, 30.0f, ControlDefaults::cycleSeconds,
+                if (host) beatMenu(p.motionRates[selectedSlot], "CYCLE", E::menu(9));
+                else textureSliderRow(p.motionSeconds[selectedSlot], "CYCLE", E::slider(9), 0.05f, 30.0f, ControlDefaults::cycleSeconds,
                     format("%.2f s", p.motionSeconds[selectedSlot].load()));
-                techniqueEnvelopeRows(I::slider(10));
+                techniqueEnvelopeRows(E::slider(10));
             } else {
-                textureDoubleSliderRow(p.editPositions[selectedSlot], "POSITION", I::slider(7), 0.0, 1.0, 0.0,
+                textureDoubleSliderRow(p.editPositions[selectedSlot], "POSITION", E::slider(7), 0.0, 1.0, 0.0,
                     format("%.1f%%", p.editPositions[selectedSlot].load() * 100.0));
-                if (host) beatMenu(p.grainIntervals[selectedSlot], "INTERVAL", I::menu(8), 8.0);
-                else textureSliderRow(p.grainDensities[selectedSlot], "DENSITY", I::slider(8), 1.0f, 80.0f, ControlDefaults::grainDensity,
+                if (host) beatMenu(p.grainIntervals[selectedSlot], "INTERVAL", E::menu(8), 8.0);
+                else textureSliderRow(p.grainDensities[selectedSlot], "DENSITY", E::slider(8), 1.0f, 80.0f, ControlDefaults::grainDensity,
                     format("%.1f Hz", p.grainDensities[selectedSlot].load()));
-                textureSliderRow(p.grainSizes[selectedSlot], "SIZE", I::slider(9), 5.0f, 500.0f, ControlDefaults::grainSize,
+                textureSliderRow(p.grainSizes[selectedSlot], "SIZE", E::slider(9), 5.0f, 500.0f, ControlDefaults::grainSize,
                     format("%.0f ms", p.grainSizes[selectedSlot].load()));
-                textureSliderRow(p.grainSprays[selectedSlot], "SPRAY", I::slider(10), 0.0f, 1.0f, ControlDefaults::grainSpray,
+                textureSliderRow(p.grainSprays[selectedSlot], "SPRAY", E::slider(10), 0.0f, 1.0f, ControlDefaults::grainSpray,
                     format("%.0f%%", p.grainSprays[selectedSlot].load() * 100.0f));
-                textureSliderRow(p.grainPitchSprays[selectedSlot], "PITCH", I::slider(11), 0.0f, 24.0f, 0.0f,
+                textureSliderRow(p.grainPitchSprays[selectedSlot], "PITCH", E::slider(11), 0.0f, 24.0f, 0.0f,
                     format("%.1f st", p.grainPitchSprays[selectedSlot].load()));
-                textureSliderRow(p.grainReverseChances[selectedSlot], "REVERSE", I::slider(12), 0.0f, 1.0f, 0.0f,
+                textureSliderRow(p.grainReverseChances[selectedSlot], "REVERSE", E::slider(12), 0.0f, 1.0f, 0.0f,
                     format("%.0f%%", p.grainReverseChances[selectedSlot].load() * 100.0f));
-                techniqueEnvelopeRows(I::slider(13));
+                techniqueEnvelopeRows(E::slider(13));
             }
-        }
-        if (fileMessage.empty() && !p.workflowMessage.empty()) helpText(p.workflowMessage, I::statusTop);
-        if (!fileMessage.empty())
-            text(fileMessage,
-                rect(I::left, I::statusTop, I::width, 18.0),
-                color(0x77b9a8), kCenterText, font);
     }
 
     void paintController()
@@ -1683,12 +1599,16 @@ private:
     }
 
     void sliderRow(clap_id id, const char* label, double y,
-        double left = kPanelLeft + 12.0, double totalWidth = 278.0)
+        double left = I::left, double totalWidth = I::width)
     {
         const auto current = asset(selectedSlot);
+        const bool distribute = paramValue(p,slotParamId(selectedSlot,kSlotSourceFormat)) == 0
+            && familySnapshot()[NeonFamily::RoutingMode] != 0;
+        const auto width = s3g::sample::sampleNeonBusWidth(static_cast<SampleNeonOutputLayout>(
+            static_cast<unsigned>(paramValue(p,kOutputLayoutParamId))));
         const bool enabled = id != slotParamId(selectedSlot, kSlotPan)
-            || !current || current->channelCount <= 2u;
-        const bool inspector = left == I::left;
+            || (distribute ? width == 2u : !current || current->channelCount <= 2u);
+        const bool inspector = left == I::left || left == P::left;
         const double labelWidth = inspector ? 82.0 : 72.0;
         const double valueWidth = inspector ? I::valueWidth : 58.0;
         const double trackX = left + labelWidth;
@@ -1705,7 +1625,7 @@ private:
         text(valueText, rect(valueLeft, y - 2.0,
             valueWidth, 18.0), style.value, kRightText, font);
         if (!enabled) return;
-        drag(rect(trackX - 4.0, y - (inspector ? 6.5 : 7.0), trackWidth + 8.0, 27.0),
+        drag(rect(trackX - 4.0, y - (inspector ? 4.5 : 7.0), trackWidth + 8.0, I::rowPitch - 1.0),
             [this, id, trackX, trackWidth](CPoint point) {
                 queueGuiParamValue(p, id, fromNormalized(id,
                     (point.x - trackX) / trackWidth));

@@ -3,6 +3,7 @@
 #include <clap/ext/state.h>
 #include <clap/ext/note-ports.h>
 #include "s3g_neon_midi.h"
+#include "s3g_neon_midi_stream.h"
 #if defined(S3G_TEST_TRACKER_RECORDER)
 #include "s3g/tracker/midi_step_recorder.h"
 #endif
@@ -61,10 +62,11 @@ struct List {
         }
         return true;
     }
-    void midi(uint32_t time, uint8_t status, uint8_t key, uint8_t value) {
+    void midi(uint32_t time, uint8_t status, uint8_t key, uint8_t value, uint16_t port = 0) {
         clap_event_midi_t e {};
         e.header = {sizeof(e), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0u};
         e.data[0] = status; e.data[1] = key; e.data[2] = value;
+        e.port_index = port;
         check(push(&out, &e.header), "test input capacity");
     }
     void param(clap_id id, double value, uint32_t time = 0u) {
@@ -138,11 +140,11 @@ struct State {
 };
 
 void testUtility(Module& p) {
-    check(p.params && p.params->count(p.plugin) == 5u, "five utility controls");
+    check(p.params && p.params->count(p.plugin) == 8u, "stable controls plus optional dual input/bank/view");
     auto* ports = static_cast<const clap_plugin_note_ports_t*>(p.plugin->get_extension(p.plugin, CLAP_EXT_NOTE_PORTS));
-    check(ports && ports->count(p.plugin, true) == 1u && ports->count(p.plugin, false) == 1u, "one MIDI input/output");
+    check(ports && ports->count(p.plugin, true) == 2u && ports->count(p.plugin, false) == 1u, "two addressable host inputs, one merged musical output");
     check(!p.plugin->get_extension(p.plugin, CLAP_EXT_AUDIO_PORTS), "MIDI only");
-    for (uint32_t i = 0u; i < 5u; ++i) {
+    for (uint32_t i = 0u; i < 8u; ++i) {
         clap_param_info_t info {}; char text[128] {}; double value = -1.;
         check(p.params->get_info(p.plugin, i, &info), "parameter info");
         check(p.params->value_to_text(p.plugin, info.id, info.default_value, text, sizeof(text))
@@ -256,6 +258,14 @@ void testUtility(Module& p) {
     in.midi(0, 0x93, 0x06, 127); in.midi(1, 0x94, 1, 127);
     in.midi(2, 0x93, 5, 127); in.midi(3, 0x97, 0, 100); in.midi(4, 0x97, 0, 0);
     p.run(in, out); check(out.notes()[0].data[1] == 52u, "CHOP bank independent of sample bank");
+    for (uint8_t layerBank=0;layerBank<4;++layerBank) {
+        in.clear(); out.clear(); p.set(1u,2.);
+        in.midi(0,0x93,7,127); in.midi(1,0x93+layerBank,0,127);
+        in.midi(2,0x97,0x10,127); in.midi(3,0x87,0x10,0);
+        p.run(in,out); check(out.notes().empty() && p.value(1u)==2, "STACK bank/gestures must not become Tracker notes or change its sample bank");
+        in.clear();out.clear();in.midi(0,0x93,5,127);in.midi(1,0x97,0,100);in.midi(2,0x87,0,0);
+        p.run(in,out);check(out.notes().size()==2 && out.notes()[0].data[1]==52,"return from STACK restores sample bank C");
+    }
     // Reject a release; it must be retried without a new note-on.
     in.clear(); out.clear(); in.midi(0, 0x97, 0, 100); p.run(in, out);
     in.clear(); out.clear(); out.limit = 0u; in.midi(3, 0x87, 0, 0); p.run(in, out);
@@ -274,7 +284,7 @@ void testUtility(Module& p) {
 
     auto* state = static_cast<const clap_plugin_state_t*>(p.plugin->get_extension(p.plugin, CLAP_EXT_STATE));
     p.set(1u, 3.); p.set(2u, 42.); p.set(3u, 6.); p.set(4u, 1.);
-    State saved; check(state && state->save(p.plugin, &saved.out) && saved.data.size() == 9u, "state partial writes");
+    State saved; check(state && state->save(p.plugin, &saved.out) && saved.data.size() == 20u, "v2 state partial writes");
     p.set(1u, 0.); check(state->load(p.plugin, &saved.in) && p.value(1u) == 3. && p.value(2u) == 42. && p.value(3u) == 6., "state roundtrip partial reads");
     for (size_t length = 0u; length < saved.data.size(); ++length) {
         State shortState; shortState.data.assign(saved.data.begin(), saved.data.begin() + static_cast<ptrdiff_t>(length));
@@ -283,7 +293,204 @@ void testUtility(Module& p) {
     saved.cursor = 0; saved.data[5] = 127;
     check(!state->load(p.plugin, &saved.in) && p.value(1u) == 3., "invalid state transactional");
     p.set(2u, std::numeric_limits<double>::quiet_NaN()); check(p.value(2u) == 42., "invalid parameter ignored");
+    State legacy; legacy.data = {'N','M','I','D',1,2,36,1,1};
+    check(state->load(p.plugin, &legacy.in) && p.value(1) == 2 && p.value(6) == 0 && p.value(7) == 1,
+        "old nine-byte state retains host MIDI and supplies independent second-bank default");
+    p.set(6,1); p.set(7,3); p.set(8,1);
+    State assignments; check(state->save(p.plugin,&assignments.out),"save dual settings");
+    for (unsigned u=0;u<2;++u) for(unsigned n=0;n<4;++n)
+        assignments.data[12u+4u*u+n] = static_cast<uint8_t>(uint32_t(u ? INT32_MAX : INT32_MIN) >> (8u*n));
+    check(state->load(p.plugin,&assignments.in) && p.value(6)==1 && p.value(7)==3 && p.value(8)==1,"restore dual mode, bank and view");
+    State assignmentsAgain; check(state->save(p.plugin,&assignmentsAgain.out)
+        && assignmentsAgain.data==assignments.data,"signed USB assignments roundtrip without loss");
+    State duplicate; duplicate.data=assignments.data;
+    std::copy_n(duplicate.data.begin()+12,4,duplicate.data.begin()+16);
+    check(!state->load(p.plugin,&duplicate.in),"cannot bind two units to one saved source");
+    for (unsigned byte : {9u,10u,11u}) {
+        State invalidDual; invalidDual.data=assignments.data; invalidDual.data[byte]=127;
+        check(!state->load(p.plugin,&invalidDual.in),"out-of-range dual setting rejected");
+    }
+    State unchangedDual; check(state->save(p.plugin,&unchangedDual.out) && unchangedDual.data==assignments.data,"invalid dual restores are transactional");
+    legacy.cursor=0; check(state->load(p.plugin,&legacy.in),"return to legacy after dual restore");
     p.set(1u, 0.); p.set(2u, 36.); p.set(3u, 1.); p.set(4u, 1.);
+}
+
+void testAddressedBridge() {
+    nm::InputPacketDecoder first, second;
+    unsigned delivered = 0, restored = 0;
+    auto receive = [&](s3g::controller::reloop_neon::MidiMessage message, bool restore) {
+        ++delivered; restored += restore;
+        check(message.data1 < 128 && message.data2 < 128, "stream decoder emits only complete MIDI messages");
+    };
+    const uint8_t bankPacket[] = {0x94,0x01,0x7f,0x94,0x07,0x7f,0x94,0x07,0};
+    second.packet(bankPacket, sizeof(bankPacket), receive);
+    check(delivered == 3 && restored == 2, "captured bank-B automatic HOT CUE restore identified within its packet");
+    const uint8_t explicitPage[] = {0x94,0x05,0x7f};
+    second.packet(explicitPage, sizeof(explicitPage), receive);
+    check(delivered == 4 && restored == 2, "later intentional page selection is never suppressed");
+    const uint8_t partial[] = {0x97,0}; first.packet(partial,sizeof(partial),receive);
+    const uint8_t other[] = {0x97,1,127}; second.packet(other,sizeof(other),receive);
+    const uint8_t finish[] = {0xf8,127,0,0}; first.packet(finish,sizeof(finish),receive);
+    check(delivered == 7, "per-unit partial and running-status messages survive interleaving and realtime bytes");
+    const uint8_t sysex[] = {0xf0,0x0a,0x40,0xf7,0,127}; first.packet(sysex,sizeof(sysex),receive);
+    check(delivered == 7, "SysEx and orphan data cannot fabricate a pad");
+    first.packet(partial,sizeof(partial),receive); first.reset(); first.packet(finish,sizeof(finish),receive);
+    check(delivered == 7, "disconnect reset discards partial/running status");
+    for (int32_t uid : {int32_t(2116083961), int32_t(341027543), INT32_MIN, INT32_MAX, int32_t(0)}) {
+        nm::BridgeMessage original {nm::BridgeKind::Control, 3, 36, 15, {0xb6, 4, 127}, 0, true, 1, uid};
+        const auto packet = nm::encodeAddressedBridge(original);
+        nm::BridgeMessage decoded;
+        check(nm::decodeBridge(packet.data(), packet.size(), decoded) && decoded.addressed && decoded.unit == 1
+            && decoded.destination == uid && decoded.midi.status == 0xb6 && decoded.bank == 3, "v2 exact signed UID and unit roundtrip");
+        for (uint32_t n = 0; n < packet.size(); ++n) check(!nm::decodeBridge(packet.data(), n, decoded), "v2 truncation rejected");
+        auto invalid = packet; invalid[14] = 2;
+        check(!nm::decodeBridge(invalid.data(), invalid.size(), decoded), "invalid unit rejected");
+        invalid = packet; invalid[19] = 16;
+        check(!nm::decodeBridge(invalid.data(), invalid.size(), decoded), "overflowing destination UID rejected");
+        invalid = packet; invalid[7] = 5;
+        check(!nm::decodeBridge(invalid.data(), invalid.size(), decoded), "unknown bridge command rejected");
+        const auto legacy = nm::encodeBridge(original);
+        check(nm::decodeBridge(legacy.data(), legacy.size(), decoded) && !decoded.addressed
+            && decoded.unit == 0 && decoded.destination == 0, "v1 clears reused v2 identity");
+    }
+}
+
+void testFillShortcutRoute(const char* path) {
+    Module p(path); p.activate();
+    List in, out;
+    for (unsigned inputMode : {0u, 1u}) for (unsigned route : {0u, 1u}) {
+        p.set(6, inputMode); p.set(4, route);
+        in.clear(); out.clear(); p.run(in, out);
+        for (unsigned unit=0;unit<(inputMode ? 2u : 1u);++unit) {
+            for (bool samplePress : {true, false}) for (unsigned release=0;release<3;++release) {
+                const uint8_t pressStatus = samplePress ? 0x96 : 0x94;
+                const uint8_t pressKey = samplePress ? 0x52 : 0x55;
+                const uint8_t releaseStatus = release == 2 ? (samplePress ? 0x84 : 0x86)
+                    : static_cast<uint8_t>(pressStatus-0x10);
+                const uint8_t releaseKey = release == 0 ? pressKey : release == 1
+                    ? (samplePress ? 0x0d : 0x10) : (samplePress ? 0x10 : 0x0d);
+                in.clear(); out.clear();
+                in.midi(0,pressStatus,pressKey,127,unit);
+                in.midi(1,releaseStatus,releaseKey,0,unit);
+                in.midi(2,0x97,0,73,unit); in.midi(3,0x87,0,0,unit);
+                p.run(in,out);
+                const auto notes = out.notes();
+                check(notes.size()==2 && notes[0].data[2]==73,
+                    "MODE/CENSOR release aliases never strand a modifier or swallow the next pad");
+                unsigned controls = 0;
+                for (unsigned n=0;n<out.count;++n) {
+                    const auto& e = out.events[n]; nm::BridgeMessage b;
+                    if (e.type != CLAP_EVENT_MIDI_SYSEX || !nm::decodeBridge(e.sysex.buffer,e.sysex.size,b)
+                        || b.kind != nm::BridgeKind::Control) continue;
+                    check(b.addressed == bool(inputMode) && b.unit == unit,
+                        "fill shortcut retains USB-unit identity");
+                    check(b.midi == (controls == 0
+                        ? s3g::controller::reloop_neon::MidiMessage{pressStatus,pressKey,127}
+                        : s3g::controller::reloop_neon::MidiMessage{releaseStatus,releaseKey,0}),
+                        "fill shortcut press/release remain exact control messages");
+                    ++controls;
+                }
+                check(controls == (route ? 2u : 0u),
+                    "fill shortcuts forwarded only in Tracker + Sample Neon route");
+            }
+        }
+    }
+}
+
+void testDualUtility(const char* path, const char* trackerPath, const char* neonPath) {
+    Module p(path); p.set(6, 1); p.activate();
+    List in, out;
+    p.run(in, out); in.clear(); out.clear();
+    in.midi(1, 0xb7, 0, 17, 0); in.midi(2, 0xb7, 0, 93, 1);
+    in.midi(3, 0x97, 0, 127, 0); in.midi(3, 0x97, 0, 127, 1);
+    in.midi(4, 0xa7, 0, 24, 0); in.midi(5, 0xa7, 0, 98, 1);
+    in.midi(6, 0x95, 0, 127, 1); // U2 changes to C under held B1.
+    in.midi(7, 0x97, 0, 0, 0); in.midi(8, 0x97, 0, 0, 1);
+    p.run(in, out); auto notes = out.notes();
+    check(notes.size() == 4 && notes[0].data[1] == 36 && notes[0].data[2] == 17
+        && notes[1].data[1] == 44 && notes[1].data[2] == 93
+        && notes[2].data[1] == 36 && notes[3].data[1] == 44, "dual CC velocity and original held releases never borrow the other unit's bank");
+    unsigned pressureCount = 0;
+    for (unsigned n = 0; n < out.count; ++n) if (out.events[n].type == CLAP_EVENT_MIDI_SYSEX) {
+        const auto& e = out.events[n]; nm::BridgeMessage b;
+        check(nm::decodeBridge(e.sysex.buffer, e.sysex.size, b) && b.addressed, "dual route uses addressed envelopes");
+        if (b.kind == nm::BridgeKind::Pressure) {
+            ++pressureCount;
+            check(b.cell == (b.unit ? 8 : 0) && b.midi.data2 == (b.unit ? 98 : 24), "dual aftertouch retains its unit and held cell");
+        }
+    }
+    check(pressureCount == 2 && p.value(1) == 0 && p.value(7) == 2, "independent bank state and pressure streams");
+    p.set(7, 0); in.clear(); out.clear();
+    in.midi(0, 0x97, 2, 100, 0); in.midi(1, 0x97, 2, 110, 1);
+    in.midi(2, 0x97, 2, 0, 0); p.run(in, out);
+    check(out.notes().size() == 2, "first same-key release does not close the other unit's gate");
+    in.clear(); out.clear(); in.midi(0, 0x97, 2, 0, 1); p.run(in, out);
+    check(out.notes().size() == 1 && out.notes()[0].data[0] == 0x80, "final same-key release closes the gate once");
+    p.set(7, 1);
+    in.clear(); out.clear(); in.midi(0, 0x96, 0x0d, 127, 1); in.midi(1, 0x97, 0, 100, 0); in.midi(2, 0x97, 0, 100, 1); p.run(in, out);
+    check(out.notes().size() == 1 && out.notes()[0].data[1] == 36, "U2 MODE modifier does not turn U1 performance into an edit");
+    p.set(5, 1); in.clear(); out.clear(); p.run(in, out);
+    check(out.notes().size() == 1 && out.notes()[0].data[0] == 0x80, "dual panic drains held musical notes");
+    // Critical rejected release/bridge retries happen before a subsequent hit.
+    in.clear(); out.clear(); in.midi(0, 0x97, 1, 100, 1); p.run(in, out);
+    in.clear(); out.clear(); out.limit = 0; in.midi(0, 0x97, 1, 0, 1); p.run(in, out);
+    in.clear(); out.clear(); p.run(in, out);
+    check(out.notes().size() == 1 && out.notes()[0].data[0] == 0x80, "U2 rejected note-off retries");
+    p.set(6, 3); in.clear(); out.clear(); in.midi(0, 0x97, 0, 127); p.run(in, out);
+    check(out.notes().empty(), "direct USB input ignores duplicate host raw MIDI");
+    p.set(6, 0); in.clear(); out.clear(); in.midi(0, 0x97, 0, 99, 1); in.midi(1, 0x97, 0, 99); in.midi(2, 0x97, 0, 0); p.run(in, out);
+    check(out.notes().size() == 2 && out.notes()[0].data[1] == 36, "returning to legacy mode restores only original host port");
+    if (!trackerPath || !neonPath) return;
+    Module tracker(trackerPath), neon(neonPath);
+    tracker.activate(); neon.set(5, 1); neon.set(7, 1); neon.activate(); p.set(6, 1);
+    std::array<std::array<float, 256>, 32> samples {};
+    std::array<float*, 32> channels {}; for (unsigned c=0;c<32;++c) channels[c]=samples[c].data();
+    clap_audio_buffer_t audio {}; audio.channel_count=32; audio.data32=channels.data();
+    List through, result;
+    auto chain = [&] { out.clear(); through.clear(); result.clear(); p.run(in,out); tracker.run(out,through); neon.run(through,result,false,&audio); };
+    in.clear(); chain();
+    const auto triggerA = neon.value(1015), triggerB = neon.value(1271);
+    in.clear();
+    in.midi(0, 0x96, 0x0d, 127, 1); in.midi(1, 0x97, 0, 110, 1); in.midi(2, 0x97, 0, 0, 1);
+    in.midi(3, 0x97, 0, 57, 0); in.midi(4, 0x97, 0, 0, 0); in.midi(5, 0x86, 0x0d, 0, 1);
+    chain();
+    check(neon.value(1015) == triggerA && neon.value(1271) != triggerB, "Tracker forwards unit identity: U2 modifier edits B1, not A1");
+    check(through.notes().size() == 2 && through.notes()[0].data[1] == 36 && through.notes()[0].data[2] == 57,
+        "simultaneous U1 performance passes Tracker once while U2 edits");
+    const auto gainA = neon.value(1000), gainB = neon.value(1256);
+    in.clear(); in.midi(0, 0xb6, 4, 1, 0); chain();
+    check(neon.value(1000) > gainA && neon.value(1256) == gainB, "U1 encoder restores its selected A1 context after U2 controls");
+    const auto newA = neon.value(1000);
+    in.clear(); in.midi(0, 0xb6, 4, 1, 1); chain();
+    check(neon.value(1000) == newA && neon.value(1256) > gainB, "U2 encoder retains independent B1 context");
+    in.clear(); in.midi(0,0x97,3,100,1); in.midi(1,0x97,3,0,1); chain();
+    in.clear(); in.midi(0,0x97,0,100,0); in.midi(1,0x97,0,0,0); chain();
+    p.plugin->reset(p.plugin); in.clear(); chain();
+    const auto gainB4 = neon.value(1352), retainedB1 = neon.value(1256);
+    in.midi(0,0xb6,4,1,1); chain();
+    check(neon.value(1352)>gainB4 && neon.value(1256)==retainedB1,
+        "reset/reconnect sync preserves the inactive unit's selected editing cell");
+    const auto* state = static_cast<const clap_plugin_state_t*>(neon.plugin->get_extension(neon.plugin,CLAP_EXT_STATE));
+    const auto repeat = [&] {
+        State saved; check(state && state->save(neon.plugin,&saved.out) && saved.data.size()>=12,
+            "read fill settings from complete state");
+        uint32_t version=0; std::memcpy(&version,saved.data.data()+4,4);
+        if (version < 19) return 2.f; // Default fill settings omit the v19 extension.
+        float value=0; std::memcpy(&value,saved.data.data()+saved.data.size()-8,4); return value;
+    };
+    for (unsigned unit=0;unit<2;++unit) {
+        const clap_id gainId = unit ? 1352 : 1000;
+        const auto beforeGain = neon.value(gainId);
+        const auto beforeRepeat = repeat();
+        in.clear(); in.midi(0,0x96,0x52,127,unit); chain();
+        in.clear(); in.midi(0,0xb6,4,1,unit); chain();
+        check(repeat()==beforeRepeat+1 && neon.value(gainId)==beforeGain,
+            "primary SAMPLE Shift MODE reaches Fill Hold through Utility and Tracker on either unit");
+        in.clear(); in.midi(0,0x84,0x10,0,unit); chain();
+        in.clear(); in.midi(0,0xb6,4,1,unit); chain();
+        check(repeat()==beforeRepeat+1 && neon.value(gainId)>beforeGain,
+            "cross-page CENSOR release restores normal encoder editing through the chain");
+    }
 }
 
 void testChain(Module& utility, const char* trackerPath, const char* neonPath) {
@@ -412,6 +619,9 @@ int main(int argc, char** argv) {
     auto utility = std::make_unique<Module>(argv[1]);
     testUtility(*utility);
     if (argc == 4) testChain(*utility, argv[2], argv[3]);
+    testAddressedBridge();
+    testFillShortcutRoute(argv[1]);
+    testDualUtility(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);
     std::printf("NEON MIDI: %u checks passed\n", checks);
     return 0;
 }

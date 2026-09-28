@@ -449,6 +449,15 @@ std::string pluginTitleText(std::string name)
     return name;
 }
 
+std::string peakDbText(float peak)
+{
+    std::ostringstream result;
+    result.imbue(std::locale::classic());
+    result << "PK " << std::showpos << std::fixed << std::setprecision(1)
+        << 20.0 * std::log10(std::max(0.000001f, peak));
+    return result.str();
+}
+
 void drawPluginTitle(CDrawContext& context, const std::string& name,
     const CRect& bounds, CFontRef titleFont)
 {

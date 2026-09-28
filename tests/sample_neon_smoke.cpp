@@ -1,11 +1,15 @@
 #include "s3g_reloop_neon.h"
 #include "s3g_sample_neon.h"
+#include "s3g_sample_neon_fill.h"
 #include "s3g_sample_neon_edit.h"
 #include "../plugins/clap_sample_neon/s3g_sample_neon_layout.h"
+#include "../plugins/clap_sample_neon/s3g_sample_neon_visual_state.h"
 
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 
@@ -338,10 +342,10 @@ void testThirtyTwoSlotRouting()
     settings.outputLayout = SampleNeonOutputLayout::StereoStems;
     settings.slots[0u].gainDecibels = 0.0f;
     settings.slots[0u].outputBus = 0u;
-    settings.slots[0u].character = SampleNeonMangleCharacter::Pulse;
+    settings.slots[0u].character = SampleNeonMangleCharacter::Punch;
     settings.slots[17u].gainDecibels = 0.0f;
     settings.slots[17u].outputBus = 15u;
-    settings.slots[17u].character = SampleNeonMangleCharacter::Pulse;
+    settings.slots[17u].character = SampleNeonMangleCharacter::Punch;
     const std::array<SampleNeonEvent, 2u> events {{
         { 0u, SampleNeonEventKind::Trigger, 1u, 0u,
             s3g::controller::reloop_neon::Mode::Sampler, 0u, 1.0f },
@@ -376,7 +380,10 @@ void testPerformanceWindowsAndPressure()
     settings.masterGainDecibels = 0.0f;
     settings.slots[0u].gainDecibels = 0.0f;
     settings.slots[0u].velocitySensitivity = 0.0f;
-    settings.slots[0u].character = SampleNeonMangleCharacter::Pulse;
+    settings.slots[0u].character = SampleNeonMangleCharacter::Punch;
+    // These assertions inspect the first raw source sample, not its new fade.
+    settings.slots[0u].family[NeonFamily::SliceAttack] = 0;
+    settings.slots[0u].family[NeonFamily::SliceRelease] = 0;
     const std::array<SampleNeonEvent, 2u> events {{
         { 0u, SampleNeonEventKind::Pressure, 1u, 0u,
             s3g::controller::reloop_neon::Mode::Slicer, 16u, 0.75f },
@@ -558,7 +565,9 @@ void testV07V08PerformanceModel()
     settings.masterGainDecibels = 0.0f;
     settings.slots[0u].gainDecibels = 0.0f;
     settings.slots[0u].velocitySensitivity = 0.0f;
-    settings.slots[0u].character = SampleNeonMangleCharacter::Pulse;
+    settings.slots[0u].character = SampleNeonMangleCharacter::Punch;
+    settings.slots[0u].family[NeonFamily::SliceAttack] = 0;
+    settings.slots[0u].family[NeonFamily::SliceRelease] = 0;
     settings.slots[0u].sliceCount = 2u;
     settings.slots[0u].sliceLayout = equalSampleNeonSliceLayout(2u);
     settings.slots[0u].sliceLayout.boundaries[1u] = 0.25;
@@ -671,7 +680,7 @@ void testV07V08PerformanceModel()
     settings.slots[1u].chokeGroup = 2u;
     settings.slots[1u].gainDecibels = 0.0f;
     settings.slots[1u].velocitySensitivity = 0.0f;
-    settings.slots[1u].character = SampleNeonMangleCharacter::Pulse;
+    settings.slots[1u].character = SampleNeonMangleCharacter::Punch;
     const std::array<SampleNeonEvent, 2u> choked {{
         { 0u, SampleNeonEventKind::Trigger, 24u, 0u,
             s3g::controller::reloop_neon::Mode::Sampler, 0u, 1.0f },
@@ -700,7 +709,7 @@ void testPlaybackTechniques()
     settings.masterGainDecibels = 0.0f;
     auto& control = settings.slots[0];
     control.gainDecibels = 0.0f;
-    control.character = SampleNeonMangleCharacter::Pulse;
+    control.character = SampleNeonMangleCharacter::Punch;
     control.velocitySensitivity = 0.0f;
     control.triggerMode = TriggerMode::OneShot;
     control.shotSeconds = 0.05f;
@@ -933,7 +942,7 @@ void testSpatialSources()
     SampleNeonSettings settings;
     settings.masterGainDecibels = 0.0f;
     settings.slots[0u].gainDecibels = 0.0f;
-    settings.slots[0u].character = SampleNeonMangleCharacter::Pulse; // No filter in this pan fixture.
+    settings.slots[0u].character = SampleNeonMangleCharacter::Punch; // No filter in this pan fixture.
     SampleNeonEvent event;
     OutputBlock output;
     engine.render(settings, &event, 1u, output.pointers.data(), 32u, OutputBlock::kFrames);
@@ -1035,13 +1044,41 @@ void testWaveformViewport()
 void testInspectorLayout()
 {
     using I = s3g::sample_neon_gui::InspectorLayout;
+    using C = s3g::sample_neon_gui::CanvasLayout;
+    using W = s3g::sample_neon_gui::WaveLayout;
+    using E = s3g::sample_neon_gui::PlaybackLayout;
+    using F = s3g::sample_neon_gui::FamilyGrid;
+    using M = s3g::sample_neon_gui::MiniLayout;
+    check(C::width * 9u == C::height * 16u, "Neon canvas must retain a 16:9 aspect ratio");
+    check(W::height() == 510 && W::top + W::height() + 14 == W::overviewTop()
+        && W::pathTop == W::overviewTop() && W::bottom() == I::row(F::cutoff(false)) + 18,
+        "Main waveform, overview and path must use fixed, aligned geometry");
+    check(E::row(5) == I::row(2) && E::controlWidth == I::controlWidth
+        && E::trackWidth == I::trackWidth && C::statusTop + 30 == C::height,
+        "Playback must reclaim duplicate FX rows without shrinking its controls");
+    for (unsigned sound = 0; sound < 3; ++sound) {
+        check(F::row(10, true, sound) == E::row(20) + I::rowPitch
+            && I::row(F::cutoff(true, sound)) + 26 <= C::statusTop,
+            "Motion details must follow the engine controls and fit above the footer");
+        check(F::row(17, true, sound) == F::row(10, true, sound) + F::articulationCount(sound) * I::rowPitch
+            && I::row(F::cutoff(true, sound)) == F::row(19, true, sound) + I::rowPitch,
+            "Motion articulation and event rows must retain standard spacing");
+    }
+    check(F::row(10) == E::row(21) + I::rowPitch
+        && F::row(17) == F::row(15) + I::rowPitch
+        && I::row(F::cutoff(false)) == F::row(19) + I::rowPitch
+        && I::row(F::cutoff(false)) + 26 <= C::statusTop,
+        "Grains details must fit in the inspector at standard row spacing");
+    check(M::padY(7) + M::padHeight + 22 == M::actions
+        && M::capture + 18 == M::bottom,
+        "Miniature NEON pads and actions must fit the fixed workspace height");
     for (unsigned row = 0u; row <= 20u; ++row) {
         check(I::slider(row) + 7.0 == I::row(row)
             && I::menu(row) + 12.5 == I::row(row)
             && I::button(row) + I::buttonHeight * 0.5 == I::row(row),
             "Mixed right-panel controls do not share a row center");
-        check(I::row(row + 1u) - I::row(row) == 28.0
-            && I::row(row) + 13.5 < I::row(row + 1u) - 13.5,
+        check(I::row(row + 1u) - I::row(row) == 24.0
+            && I::row(row) + 11.5 < I::row(row + 1u) - 11.5,
             "Inspector rows are uneven or slider hit regions overlap");
     }
     for (unsigned count : {1u, 2u, 4u}) {
@@ -1083,6 +1120,24 @@ void testSourceNormalization()
         "Over-range normalization failed to attenuate");
     source.channels[0u][0u] = std::numeric_limits<float>::quiet_NaN();
     check(sampleNeonNormalizeGain(source) == 0.0, "Nonfinite normalization source was accepted");
+    const auto quiet = constantAsset(.1f, -.2f), loud = constantAsset(.4f, -.8f), silent = constantAsset(0, 0);
+    std::array<const SampleAsset*, 32> layers {};
+    layers[0] = &quiet; layers[1] = &loud; layers[2] = &silent; layers[31] = &source;
+    const auto each = sampleNeonStackNormalizeGains(layers, false);
+    const auto linked = sampleNeonStackNormalizeGains(layers, true);
+    check(std::abs(each[0] / each[1] - 4) < 1e-6 && each[2] == 0 && each[3] == 0 && each[31] == 0,
+        "Stack normalization did not skip silence/missing/invalid layers");
+    check(linked[0] == linked[1] && linked[1] == each[1] && linked[2] == 0,
+        "Balanced normalization did not choose a common gain from the loudest layer");
+    const auto balancedQuiet = sampleNeonNormalize(quiet, linked[0]);
+    const auto balancedLoud = sampleNeonNormalize(loud, linked[1]);
+    check(std::abs(balancedLoud.channels[1][0] / balancedQuiet.channels[1][0] - 4) < 1e-6
+        && std::abs(balancedLoud.channels[1][0] + kSampleNeonNormalizePeak) < 1e-6,
+        "Balanced normalization changed inter-layer level or missed the peak target");
+    layers.fill(&quiet); layers.back() = &loud;
+    const auto fullStack = sampleNeonStackNormalizeGains(layers, true);
+    check(std::all_of(fullStack.begin(), fullStack.end(), [&](double value) { return value == each[1]; }),
+        "32-layer normalization missed the final layer's peak");
 }
 
 void testBoundarySelectionAndCapture()
@@ -1318,7 +1373,8 @@ void testCharacterFxAndNewPlayback()
     engine->render(settings, &trigger, 1u, output.pointers.data(), 32u, 64u);
     check(engine->voiceCursorCount(0u) == 1u && engine->voiceCursors(0u)[0u].sourceStartNormalized == 0.0f,
         "Slice Sequence did not start at the first authored region");
-    for (unsigned n = 0u; n < 40u; ++n) engine->render(settings, nullptr, 0u, output.pointers.data(), 32u, 64u);
+    // Include the new 5 ms overlap before expecting only the incoming cursor.
+    for (unsigned n = 0u; n < 42u; ++n) engine->render(settings, nullptr, 0u, output.pointers.data(), 32u, 64u);
     check(engine->voiceCursorCount(0u) == 1u && std::abs(engine->voiceCursors(0u)[0u].sourceStartNormalized - 0.25f) < 1.0e-5f,
         "Slice Sequence did not advance through CHOP markers");
     engine->reset(); slot.technique[1u] = 0.5f;
@@ -1332,6 +1388,94 @@ void testCharacterFxAndNewPlayback()
 }
 
 } // namespace
+
+void testExpandedCharacterModes() {
+    using namespace s3g::sample;
+    SampleNeonFx fx;
+    check(fx.prepare(48000),"Expanded FX prepare");
+    OutputBlock block;
+    // Every algorithm and named model must be deterministic after reset,
+    // remain finite at extremes, and retain channel ratios in field mode.
+    for(unsigned effect=0;effect<8;++effect) {
+        const auto type=static_cast<SampleNeonMangleCharacter>(effect);
+        const unsigned models=*kNeonCharacterDefs[effect][0].choices?static_cast<unsigned>(kNeonCharacterDefs[effect][0].maximum)+1:1;
+        for(unsigned mode=0;mode<models;++mode) {
+            auto values=neonCharacterDefaults(effect);
+            if(models>1) values[0]=static_cast<float>(mode)/float(models-1);
+            if(effect==0) values[3]=.85f;
+            if(effect==1) {values[1]=.25f;values[2]=.7f;values[4]=.5f;values[5]=.5f;}
+            if(effect==2) {values[1]=.75f;values[2]=.8f;}
+            if(effect==4) values[3]=.9f;
+            if(effect==7) {values[2]=.8f;values[3]=.6f;values[5]=1;}
+            std::array<double,2> fingerprints {};
+            for(unsigned pass=0;pass<2;++pass) {
+                fx.reset();
+                for(unsigned cycle=0;cycle<140;++cycle) {
+                    for(unsigned frame=0;frame<64;++frame) {
+                        const float input=cycle<100?static_cast<float>(.13*std::sin((cycle*64+frame)*.071)):0;
+                        for(unsigned ch=0;ch<16;++ch) block.samples[ch][frame]=input*(float(ch+1)/16);
+                    }
+                    fx.process(block.pointers.data(),16,64,type,values,1,effect<6,120);
+                    for(unsigned frame=0;frame<64;++frame) {
+                        fingerprints[pass]+=block.samples[15][frame]*(1+frame*.001);
+                        for(unsigned ch=0;ch<16;++ch) {
+                            check(std::isfinite(block.samples[ch][frame])&&std::abs(block.samples[ch][frame])<20,"Character model escaped finite bounded output");
+                            if(effect<6) check(std::abs(block.samples[ch][frame]-block.samples[15][frame]*(float(ch+1)/16))<1e-5,"Character model altered encoded channel ratios");
+                        }
+                    }
+                }
+            }
+            check(std::abs(fingerprints[0]-fingerprints[1])<1e-6,"Character reset/retrigger was nondeterministic");
+        }
+    }
+    auto filter=neonCharacterDefaults(0);filter[0]=1;filter[1]=.5f;
+    fx.reset();
+    for(unsigned n=0;n<64;++n)for(unsigned ch=0;ch<16;++ch)block.samples[ch][n]=.123f;
+    fx.process(block.pointers.data(),16,64,SampleNeonMangleCharacter::Filter,filter,1,true);
+    check(std::all_of(block.samples[0].begin(),block.samples[0].end(),[](float x){return x==.123f;}),"DJ midpoint is not neutral");
+    auto echo=neonCharacterDefaults(1);echo[7]=1;echo[8]=5.f/8;
+    check(neonCharacterEchoSeconds(echo,120)==.5 && neonCharacterEchoSeconds(echo,240)==.25,"Beat echo did not follow tempo");
+    check(neonCharacterKnob(1,0,true,true)==8 && neonCharacterKnob(1,0,true,false)==1,
+        "Echo time encoder must edit the division in Beats mode");
+    echo[8]=1;
+    check(neonCharacterEchoSeconds(echo,20)==2,"Echo memory limit differs from displayed time cap");
+    check(!neonCharacterControlAllowed(1,0,1,true)&&neonCharacterControlAllowed(1,0,1,false),"Tape field restriction missing");
+    // Space must remain continuous through its main-buffer wrap (2.1 s),
+    // then reset without leaking any old tank or predelay sample.
+    auto space=neonCharacterDefaults(2);space[2]=1;fx.reset();
+    for(unsigned cycle=0;cycle<1700;++cycle) {
+        for(auto& channel:block.samples)channel.fill(0);
+        if(cycle==0)block.samples[0][0]=.5f;
+        fx.process(block.pointers.data(),1,64,SampleNeonMangleCharacter::Space,space,1,false);
+        for(float x:block.samples[0])check(std::isfinite(x)&&std::abs(x)<1,"Space tank unstable through ring wrap");
+    }
+    fx.reset();for(auto& channel:block.samples)channel.fill(0);
+    fx.process(block.pointers.data(),1,64,SampleNeonMangleCharacter::Space,space,1,false);
+    check(std::all_of(block.samples[0].begin(),block.samples[0].end(),[](float x){return x==0;}),"Space reset leaked a tank tail");
+}
+
+void benchmarkCharacterFx() {
+    if (!std::getenv("S3G_NEON_FX_BENCHMARK")) return;
+    using namespace s3g::sample;
+    SampleNeonFx fx;
+    check(fx.prepare(48000),"FX benchmark prepare");
+    OutputBlock block, source;
+    for(unsigned ch=0;ch<16;++ch) for(unsigned n=0;n<64;++n)
+        source.samples[ch][n]=static_cast<float>(.2*std::sin(n*.071)*(ch+1)/16);
+    constexpr unsigned blocks=1500;
+    for(unsigned effect=0;effect<8;++effect) {
+        fx.reset();
+        const auto values=neonCharacterDefaults(effect);
+        const auto start=std::chrono::steady_clock::now();
+        for(unsigned n=0;n<blocks;++n) {
+            block.samples=source.samples;
+            fx.process(block.pointers.data(),16,64,static_cast<SampleNeonMangleCharacter>(effect),values,.8f,false);
+        }
+        const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count();
+        std::cout << "FX benchmark, one 16-channel pad, " << kNeonCharacterNames[effect]
+            << ": " << elapsed/(blocks*64.0/48000)*100 << "% of one realtime core\n";
+    }
+}
 
 void testStackPlayback() {
     using namespace s3g::sample;
@@ -1410,7 +1554,7 @@ void testStackPlayback() {
     s.sliceCount = 3u; s.sliceLayout = equalSampleNeonSliceLayout(3u);
     stack.primarySliceCount = 2u; stack.primarySlices = {}; stack.primarySlices[1] = 0.25; stack.primarySlices[2] = 1.0;
     s.technique = {{1.0f, 0.0f, 0.0f, 1.0f}};
-    for (unsigned n = 0u; n < 40u; ++n)
+    for (unsigned n = 0u; n < 43u; ++n)
         engine->render(settings, n ? nullptr : &note, n ? 0u : 1u, output.pointers.data(), 32u, 64u);
     check(engine->voiceCursorCount(0u) == 1u && engine->voiceCursors(0u)[0].sourceAsset == &a
         && engine->stackWaveformLayer(0u, settings) == 0
@@ -1529,6 +1673,22 @@ void testWavesetStackScan() {
     }
     check(heard && sawA && sawB && engine->stackScanActive(0u, settings)
         && engine->stackWaveformLayer(0u, settings) == -2, "held Wavesets must crossfade both analyzed sources");
+    s.selectedLayer = 1; note.selectedSource = true;
+    engine->render(settings, &note, 1u, output.pointers.data(), 32u, 64u);
+    SampleNeonEvent position; position.kind = SampleNeonEventKind::StackPosition; position.value = 1;
+    engine->render(settings, &position, 1u, output.pointers.data(), 32u, 64u);
+    for (unsigned n = 0; n < 100; ++n) engine->render(settings, nullptr, 0u, output.pointers.data(), 32u, 64u);
+    check(engine->stackPosition(0) > .999f, "Wavesets manual override reaches last layer");
+    position.value = -1; position.resumeNavigation = true;
+    engine->render(settings, &position, 1u, output.pointers.data(), 32u, 64u);
+    bool low = false, high = false;
+    for (unsigned n = 0; n < 450; ++n) {
+        engine->render(settings, nullptr, 0u, output.pointers.data(), 32u, 64u);
+        low |= engine->stackPosition(0) < .2f; high |= engine->stackPosition(0) > .8f;
+    }
+    check(low && high && engine->stackWaveformLayer(0,settings) == -2 && s.selectedLayer == 1,
+        "Wavesets scan resumes after manual override and edit audition without another trigger");
+    note.selectedSource = false;
     s.clock = SampleNeonClock::Host; settings.transportPlaying = false;
     engine->render(settings, nullptr, 0u, output.pointers.data(), 32u, 64u);
     check(engine->outputPeak() == 0.0f, "HOST Wavesets scan must pause with stopped transport");
@@ -1669,6 +1829,66 @@ void testChopDestinations()
         check(!neonChopDestinationPlan(0u, 0u, 1u, false, invalid).valid(), "invalid destination must not address outside the pad array");
 }
 
+void testStackPerformanceOverride()
+{
+    using namespace s3g::sample;
+    auto a=rampAsset(48001), b=rampAsset(48001);
+    for(auto* asset:{&a,&b}) {
+        asset->channelCount=16;
+        for(unsigned ch=0;ch<16;++ch) asset->channels[ch].assign(48001,(asset==&a?.02f:-.01f)*(ch+1));
+    }
+    NeonStack stack; stack.count=32;
+    for(unsigned n=0;n<32;++n) stack.layers[n]={n%2?&b:&a,0,1};
+    auto engine=std::make_unique<SampleNeonEngine>();
+    check(engine->prepare(48000,64)&&engine->setAsset(0,&a),"STACK performance prepare");
+    SampleNeonSettings settings;settings.outputLayout=SampleNeonOutputLayout::Ambisonic3;settings.masterGainDecibels=0;
+    auto& s=settings.slots[0];s.stack=&stack;s.sourceFormat=SampleNeonSourceFormat::Ambisonic;s.gainDecibels=0;
+    s.triggerMode=TriggerMode::Gate;s.clock=SampleNeonClock::Free;s.techniqueAttackSeconds=.001f;s.techniqueReleaseSeconds=.001f;
+    s.family[NeonFamily::LaneSlew]=.001f;s.family[NeonFamily::LaneAuto]=1;s.stackCycleSeconds=.1f;
+    s.sourceMode=NeonSourceMode::Scan;
+    OutputBlock output;
+    const auto render=[&](const SampleNeonEvent* event=nullptr) {
+        engine->render(settings,event,event?1:0,output.pointers.data(),32,64);
+        for(unsigned ch=1;ch<16;++ch)for(unsigned frame=0;frame<64;++frame)
+            check(std::isfinite(output.samples[ch][frame])&&std::abs(output.samples[ch][frame]-output.samples[0][frame]*(ch+1))<.00002f,
+                "STACK cue preserves linked ACN/SN3D channels");
+    };
+    for(auto method:{SampleNeonPlayback::Motion,SampleNeonPlayback::Grains,SampleNeonPlayback::Stretch,SampleNeonPlayback::Lanes}) {
+        engine->reset();s.playback=method;
+        const auto saved=s.family.values;
+        SampleNeonEvent note;note.noteId=42;render(&note);
+        SampleNeonEvent cue;cue.kind=SampleNeonEventKind::StackPosition;cue.value=1;cue.frameOffset=32;render(&cue);
+        for(unsigned n=0;n<300;++n)render();
+        check(engine->stackPosition(0)>.999f && engine->stackWaveformLayer(0,settings)==-2,"held cue reaches layer 32 without changing technique");
+        cue.frameOffset=0;cue.value=0;render(&cue);for(unsigned n=0;n<300;++n)render();
+        check(engine->stackPosition(0)<.001f,"held cue returns to first layer with slew");
+        cue.value=-1;render(&cue);bool moved=false;
+        for(unsigned n=0;n<150;++n){render();moved|=engine->stackPosition(0)>.2f;}
+        check(moved&&s.family.values==saved&&s.sourceMode==NeonSourceMode::Scan,"release resumes saved navigation without rewriting path");
+        // A layer audition deliberately ignores the path until the user
+        // explicitly selects navigation again; takeover must not retrigger.
+        note.selectedSource = true; s.selectedLayer = 31; render(&note);
+        for (unsigned n = 0; n < 100; ++n) render();
+        check(engine->stackWaveformLayer(0,settings) == -1, "isolated edit audition retains its layer");
+        cue.value = 1; render(&cue);
+        for (unsigned n = 0; n < 100; ++n) render();
+        cue.value = -1; cue.resumeNavigation = true; cue.frameOffset = 32; render(&cue);
+        bool low = false, high = false;
+        for (unsigned n = 0; n < 600; ++n) {
+            render(); low |= engine->stackPosition(0) < .3f; high |= engine->stackPosition(0) > .7f;
+        }
+        check(low && high && engine->stackWaveformLayer(0,settings) == -2 && s.selectedLayer == 31,
+            "explicit navigation resumes held stack scan after latched override and edit audition");
+        check(s.family.values == saved, "navigation takeover retains breakpoint shape and timing");
+        note.kind=SampleNeonEventKind::Release;render(&note);for(unsigned n=0;n<10;++n)render();
+        check(!engine->slotPlaybackActive(0),"layer override must not strand a released underlying voice");
+    }
+    engine->reset();s.playback=SampleNeonPlayback::Sample;s.sourceMode=NeonSourceMode::Primary;s.selectedLayer=0;
+    SampleNeonEvent note;note.sourceLayer=31;render(&note);
+    check(engine->stackWaveformLayer(0,settings)==31&&s.selectedLayer==0&&s.sourceMode==NeonSourceMode::Primary,
+        "explicit layer audition follows sounding source without changing edit layer or source mode");
+}
+
 void testStackShapes()
 {
     using namespace s3g::sample;
@@ -1699,6 +1919,91 @@ void testStackShapes()
     check(std::abs(neonStackPath(triangle,.5)-1) < 1e-6 && std::abs(neonStackPath(triangle,.75)-.5) < 1e-6, "Triangle reaches full stack with even point count");
     check(neonStackPath(sine,.125) < .15 && neonStackPath(sine,.125) > .14, "Sine has curved ramp distinct from Triangle");
     check(neonStackPath(square,.25) == 0 && neonStackPath(square,.75) == 1, "Square plateaus");
+}
+
+void testStackPointEditing() {
+    using namespace s3g::sample;
+    using F = NeonFamily;
+    const auto t = neonFamilyIndex(F::PathTime), v = neonFamilyIndex(F::PathValue);
+    for (unsigned shape = 1; shape <= 6; ++shape) {
+        NeonFamilySettings f; neonSetStackShape(f, static_cast<NeonStackShape>(shape), 9);
+        f[F::StackCurve] = .6f; f[F::StackOffset] = .2f; f[F::LaneAuto] = 1;
+        const auto before = f;
+        check(neonMoveStackPoint(f, 4, f.values[t+4], f.values[v+4]) && f.valid()
+            && f[F::StackShape] == 0, "direct point edit unlocks every named shape");
+        f[F::StackShape] = before[F::StackShape];
+        check(f.values == before.values, "unlock keeps existing curve coordinates, phase and navigation intact");
+        check(neonMoveStackPoint(f,4,-1,2) && f.valid() && f.values[t+4] > f.values[t+3]
+            && f.values[v+4] == 1, "drag clamps to neighbors and stack range");
+        check(neonMoveStackPoint(f,4,2,-1) && f.valid() && f.values[t+4] < f.values[t+5]
+            && f.values[v+4] == 0, "drag cannot cross the next node");
+        check(neonMoveStackPoint(f,0,.4f,.7f) && neonMoveStackPoint(f,8,.6f,.3f)
+            && f.valid() && f.values[t] == 0 && f.values[t+8] == 1, "endpoints move vertically only");
+        check(neonRemoveStackPoint(f,4) && f.valid() && f[F::PathCount] == 8
+            && f[F::StackCurve] == .6f && f[F::StackOffset] == .2f && f[F::LaneAuto] == 1,
+            "right-click removal keeps curve/navigation controls");
+    }
+    NeonFamilySettings f; neonSetStackShape(f,NeonStackShape::RampUp,2);
+    check(neonAddStackPoint(f,.7f,.2f,.01f) == 1 && neonAddStackPoint(f,.2f,.8f,.01f) == 1
+        && f.valid() && f[F::PathCount] == 4 && f.values[t+1] == .2f && f.values[t+2] == .7f,
+        "empty-space clicks insert sorted points");
+    check(neonAddStackPoint(f,.2f,.4f,.01f) == 1 && f[F::PathCount] == 4 && f.valid(),
+        "vertically aligned click cannot create a duplicate time");
+    check(!neonRemoveStackPoint(f,0) && !neonRemoveStackPoint(f,3), "cannot remove endpoints");
+    check(neonRemoveStackPoint(f,1) && neonRemoveStackPoint(f,1) && !neonRemoveStackPoint(f,1)
+        && f.valid() && f[F::PathCount] == 2, "two-point minimum");
+    neonSetStackShape(f,NeonStackShape::RampUp,32);
+    const auto full = f.values;
+    check(neonAddStackPoint(f,.51f,.1f,.01f) == -1 && f.values == full, "32-point cap does not overwrite a node");
+    check(neonAddStackPoint(f,.001f,.6f,.01f) == 0 && f.valid() && f[F::PathCount] == 32
+        && f.values[t] == 0 && f.values[v] == .6f, "endpoint editing remains available at capacity");
+    const auto safe = f.values;
+    check(!neonMoveStackPoint(f,3,std::numeric_limits<float>::quiet_NaN(),0)
+        && neonAddStackPoint(f,0,std::numeric_limits<float>::infinity(),.01f) == -1 && f.values == safe,
+        "reject nonfinite breakpoint input");
+}
+
+void testStackPathPhase() {
+    using namespace s3g::sample;
+    auto a = rampAsset(48000); NeonStack stack; stack.count = 2;
+    stack.layers[0] = {&a,0,1}; stack.layers[1] = {&a,0,1};
+    auto engine = std::make_unique<SampleNeonEngine>();
+    check(engine->prepare(48000,64) && engine->setAsset(0,&a), "path phase prepare");
+    SampleNeonSettings settings; auto& s = settings.slots[0];
+    s.stack = &stack; s.playback = SampleNeonPlayback::Lanes; s.clock = SampleNeonClock::Free;
+    s.triggerMode = TriggerMode::Gate; s.stackCycleSeconds = 1; s.stackCycleBeats = 8;
+    s.family[NeonFamily::LaneAuto] = 1; s.family[NeonFamily::StackOffset] = .125f;
+    SampleNeonEvent note; OutputBlock out;
+    const auto render = [&](const SampleNeonEvent* event = nullptr) {
+        engine->render(settings,event,event?1:0,out.pointers.data(),32,64);
+    };
+    check(engine->stackPathPhase(0,settings) == -1, "stopped path has no false playhead");
+    render(&note);
+    check(std::abs(engine->stackPathPhase(0,settings) - (.125 + 63./48000)) < 1e-6,
+        "FREE phase includes offset and actual rendered age");
+    s.clock = SampleNeonClock::Host; settings.hostBeatValid = true;
+    settings.transportPlaying = true; settings.hostBeatPosition = 2; settings.hostTempoBpm = 120;
+    render();
+    check(std::abs(engine->stackPathPhase(0,settings) - (.375 + 63./48000*2/8)) < 1e-6,
+        "HOST phase follows beat timeline and stack cycle");
+    const float paused = engine->stackPathPhase(0,settings);
+    settings.transportPlaying = false; for(unsigned n=0;n<10;++n) render();
+    check(engine->stackPathPhase(0,settings) == paused, "stopped HOST keeps the last real phase");
+    s.family[NeonFamily::LaneAuto] = 0;
+    check(engine->stackPathPhase(0,settings) == -1, "manual Lanes has no automatic path dot");
+    s.playback = SampleNeonPlayback::Grains; s.clock = SampleNeonClock::Free;
+    s.sourceMode = NeonSourceMode::Scan; s.grainDensityHz = 20;
+    s.family[NeonFamily::StackAdvance] = 1;
+    render(&note); const float first = engine->stackPathPhase(0,settings);
+    check(std::abs(first-.125f)<1e-6, "event path starts at the first emitted grain plus offset");
+    for(unsigned n=0;n<10;++n)render();
+    check(engine->stackPathPhase(0,settings) == first, "event path does not drift between grains");
+    for(unsigned n=0;n<30;++n)render();
+    check(std::abs(engine->stackPathPhase(0,settings) - (first+1.f/32)) < 1e-6,
+        "event path advances once per emitted grain");
+    note.selectedSource = true; render(&note);
+    check(engine->stackPathPhase(0,settings) == -1, "edit-layer audition hides inactive path dot");
+    engine->killAll(); check(engine->stackPathPhase(0,settings) == -1, "kill clears path phase");
 }
 
 void testLanesPlayback() {
@@ -1739,6 +2044,17 @@ void testLanesPlayback() {
     check(engine->stackPosition(0) > .999f && engine->voiceCursorCount(0) == 1
         && engine->voiceCursors(0)[0].sourceAsset == &b && engine->voiceCursors(0)[0].sourcePositionNormalized > .13,
         "held Lanes reaches layer 32 without restarting the read head");
+    check(engine->voiceCursors(0)[0].layer == 31 && engine->voiceCursors(0)[0].level > .999f,
+        "Lanes display reports actual layer identity and smoothed weight even with duplicate assets");
+    s.family[NeonFamily::LanePosition] = .5f;
+    for (unsigned n=0;n<100;++n) render();
+    float energy=0; bool layer16=false,layer17=false;
+    for (unsigned n=0;n<engine->voiceCursorCount(0);++n) {
+        const auto& cursor=engine->voiceCursors(0)[n]; energy+=cursor.level*cursor.level;
+        layer16 |= cursor.layer==15; layer17 |= cursor.layer==16;
+    }
+    check(layer16 && layer17 && std::abs(energy-1.f)<.001f,
+        "Lanes cursor weights expose the actual equal-power mix");
     settings.transportPlaying = false; s.clock = SampleNeonClock::Host; render();
     check(out.samples[0][32] == 0, "Lanes HOST pauses");
     settings.transportPlaying = true; render();
@@ -1766,6 +2082,354 @@ void testLanesPlayback() {
     check(!engine->slotPlaybackActive(0), "Lanes one-shot respects explicit duration");
 }
 
+void testPlaybackVisuals() {
+    using namespace s3g::sample;
+    auto source=rampAsset(48000);
+    auto engine=std::make_unique<SampleNeonEngine>();
+    check(engine->prepare(48000,64) && engine->setAsset(0,&source),"visual telemetry prepare");
+    SampleNeonSettings settings; auto& s=settings.slots[0];
+    s.playback=SampleNeonPlayback::Grains; s.clock=SampleNeonClock::Free;
+    s.grainDensityHz=1; s.grainSizeMs=200; s.grainSpray=0; s.grainReverseChance=1;
+    s.launchPosition=.4; s.family[NeonFamily::GrainWindow]=2;
+    s.triggerMode=TriggerMode::Gate;
+    OutputBlock output; SampleNeonEvent note; note.noteId=11; note.value=1;
+    engine->render(settings,&note,1,output.pointers.data(),32,64);
+    check(engine->voiceCursorCount(0)>0,"Grains publishes live window");
+    auto first=engine->voiceCursors(0)[0];
+    check(first.reverse && first.window==1 && first.windowPhase>0 && first.windowPhase<1,
+        "Grains publishes latched direction/envelope and elapsed phase");
+    check(std::abs(neonCursorSource(first,first.windowPhase)-first.sourcePositionNormalized)<.0001,
+        "reverse grain contour and audible read position agree");
+    s.family[NeonFamily::GrainWindow]=4;
+    engine->render(settings,nullptr,0,output.pointers.data(),32,64);
+    const auto second=engine->voiceCursors(0)[0];
+    check(second.window==first.window && second.windowPhase>first.windowPhase,
+        "editing Grain Window does not redraw an existing voice with a new envelope");
+    check(std::isfinite(second.level) && second.level>=0,"cursor intensity follows finite rendered voice level");
+    for (unsigned window=0;window<5;++window) for (float skew : {-.8f,0.f,.8f}) {
+        auto cursor=second; cursor.window=static_cast<uint8_t>(window); cursor.windowSkew=skew;
+        for (unsigned n=0;n<=32;++n) {
+            const auto phase=n/32.f;
+            check(neonCursorEnvelope(cursor,phase)==grainWindow(static_cast<GrainEnvelope>(window),phase,skew),
+                "Grains contour reuses the exact DSP window function");
+        }
+    }
+    VoiceCursor adsr; adsr.attack=.1f; adsr.decay=.2f; adsr.sustain=.4f; adsr.release=.2f;
+    check(std::abs(neonCursorEnvelope(adsr,.05f)-.5f)<.00001f
+        && std::abs(neonCursorEnvelope(adsr,.9f)-.2f)<.00001f,"legacy ADSR contour retains attack and release");
+    for (unsigned count : {1u,4u,8u,16u,32u}) for (float position : {0.f,.5f,1.f}) {
+        const auto begin=neonLaneViewFirst(count,position);
+        check(begin+std::min(8u,count)<=count,"lane view stays bounded through layer 32");
+    }
+    NeonVisualPublication publication; NeonVisualSnapshot snapshot;
+    publication.publish(engine->voiceCursors(0),engine->voiceCursorCount(0));
+    check(publication.read(snapshot) && snapshot.count>0 && snapshot.cursors[0].reverse
+        && snapshot.cursors[0].sourceAsset==&source && snapshot.cursors[0].window==1,
+        "atomic GUI snapshot carries complete grain identity and window");
+    publication.clear(); check(publication.read(snapshot) && snapshot.count==0 && !snapshot.motion.active,
+        "reset clears published cursors and scope");
+    engine->reset(); s.playback=SampleNeonPlayback::Motion; s.motionCycleSeconds=.7f;
+    s.family[NeonFamily::MotionSound]=2;
+    engine->render(settings,&note,1,output.pointers.data(),32,64);
+    const auto motion=engine->motionVisual(0,settings);
+    check(motion.active && motion.seconds>0 && std::abs(motion.cycle-.7)<.00001
+        && motion.articulation==neonMotionArticulation(s.family,motion.seconds),
+        "Motion scope publishes engine clock and actual packet/motor articulation");
+    check(std::abs(engine->motionPosition(0,settings)-SampleNeonEngine::motionTrajectory(s,
+        motion.seconds/motion.cycle,motion.seconds,0))<.00001,"Motion scope trajectory agrees with audio scan");
+    s.clock=SampleNeonClock::Host; settings.transportPlaying=false;
+    engine->render(settings,nullptr,0,output.pointers.data(),32,64);
+    const auto paused=engine->motionVisual(0,settings);
+    engine->render(settings,nullptr,0,output.pointers.data(),32,64);
+    check(engine->motionVisual(0,settings).seconds==paused.seconds,"HOST scope cannot drift while stopped");
+    engine->killAll(); check(!engine->motionVisual(0,settings).active,"killed Motion leaves no fake moving scope");
+}
+
+void testSliceEnvelopeAndRouting() {
+    using namespace s3g::sample;
+    using F=NeonFamily;
+    auto source=std::make_shared<SampleAsset>(rampAsset(48000));
+    auto engine=std::make_unique<SampleNeonEngine>();
+    check(engine->prepare(48000,64) && engine->setAsset(0,source.get()),"routing/envelope prepare");
+    SampleNeonSettings s; auto& c=s.slots[0];
+    s.masterGainDecibels=0; c.gainDecibels=0; c.triggerMode=TriggerMode::Gate;
+    c.clock=SampleNeonClock::Free; c.sliceCount=2;
+    c.sliceLayout=equalSampleNeonSliceLayout(2); c.sliceLayout.boundaries[1]=.25;
+    c.family[F::SliceAttack]=.1f; c.family[F::SliceDecay]=.2f;
+    c.family[F::SliceSustain]=.4f; c.family[F::SliceRelease]=.3f;
+    c.playback=SampleNeonPlayback::SliceSequence;
+    c.technique[0]=0; c.technique[3]=1;
+    OutputBlock out; SampleNeonEvent note; note.noteId=1;
+    engine->render(s,&note,1,out.pointers.data(),32,64);
+    auto head=engine->voiceCursors(0)[0];
+    check(engine->voiceCursorCount(0)==1 && std::abs(head.sourceEndNormalized-.25f)<.0001f
+        && std::abs(head.attack-.1f)<.0001f && std::abs(head.decay-.2f)<.0001f
+        && std::abs(head.sustain-.4f)<.0001f && std::abs(head.release-.3f)<.0001f,
+        "Slice Sequence uses proportional ADSR on the short slice");
+    for(unsigned n=1;n<=750;++n) engine->render(s,nullptr,0,out.pointers.data(),32,64);
+    head=engine->voiceCursors(0)[0];
+    check(std::abs(head.sourceStartNormalized-.25f)<.0001f && std::abs(head.sourceEndNormalized-1)<.0001f
+        && std::abs(head.attack-.1f)<.0001f && std::abs(head.release-.3f)<.0001f,
+        "Unequal next slice retains proportions but scales times to its own window");
+    for (float tune : {-12.f,0.f,12.f}) {
+        engine->reset(); c.tuneSemitones=tune; c.playback=SampleNeonPlayback::Sample;
+        note.mode=s3g::controller::reloop_neon::Mode::Slicer; note.performanceIndex=1;
+        engine->render(s,&note,1,out.pointers.data(),32,64);
+        const auto slice=engine->voiceCursors(0)[0];
+        check(std::abs(slice.attack-.1f)<.0002f && std::abs(slice.decay-.2f)<.0002f
+            && std::abs(slice.release-.3f)<.0002f,"CHOP audition matches the slice envelope at changed pitch");
+    }
+    c.family[F::SliceAttack]=c.family[F::SliceDecay]=c.family[F::SliceRelease]=1;
+    const auto envelope=neonSliceEnvelope(c.family);
+    check(std::abs(envelope.attack+envelope.decay+envelope.release-1)<.00001f,
+        "overfull ADR proportions fit the slice without losing their relative shape");
+    note.mode=s3g::controller::reloop_neon::Mode::Sampler;
+    c.tuneSemitones=0; c.launchPosition=.3; c.grainPosition=.3f; c.grainSpray=.5f;
+    c.grainDensityHz=1; c.grainSizeMs=200; c.family[F::GrainWindow]=2;
+    const auto energy=[&](unsigned channel) { double v=0; for(float x:out.samples[channel])v+=std::abs(x);return v; };
+    c.playback=SampleNeonPlayback::Grains;
+    engine->reset(); engine->render(s,&note,1,out.pointers.data(),32,64);
+    check(out.samples[0]==out.samples[1],"linked grains preserve identical stereo channels");
+    c.family[F::GrainStereoLink]=1;
+    engine->render(s,&note,1,out.pointers.data(),32,64);
+    check(engine->voiceCursorCount(0)==2 && out.samples[0]!=out.samples[1]
+        && energy(0)>0 && energy(1)>0,"independent grains retain both source channels with distinct read trajectories");
+    c.family[F::GrainStereoLink]=0; c.family[F::RoutingMode]=1; c.family[F::RoutingWidth]=1;
+    s.outputLayout=SampleNeonOutputLayout::Quad; c.outputBus=1; c.grainSpray=0;
+    c.family[F::LanePosition]=0;
+    for (auto method : {SampleNeonPlayback::Sample,SampleNeonPlayback::Motion,SampleNeonPlayback::Grains,
+        SampleNeonPlayback::SliceSequence,SampleNeonPlayback::Stretch,SampleNeonPlayback::Lanes}) {
+        c.playback=method; engine->reset(); ++note.noteId;
+        engine->render(s,&note,1,out.pointers.data(),32,64);
+        for(unsigned n=0;n<3;++n)engine->render(s,nullptr,0,out.pointers.data(),32,64);
+        check(energy(4)>0 && energy(5)>0 && energy(6)==0 && energy(7)==0,
+            "distribute starts in first stereo pair of selected quad bus");
+        check(energy(0)==0 && energy(8)==0,"distribute cannot leak outside selected bus");
+        SampleNeonEvent stop; stop.kind=SampleNeonEventKind::Choke;
+        engine->render(s,&stop,1,out.pointers.data(),32,64);
+        ++note.noteId; engine->render(s,&note,1,out.pointers.data(),32,64);
+        // Motion may have launched further windows; test exact next-pair
+        // sequence on one-event methods and continuous gestures.
+        if(method==SampleNeonPlayback::Sample || method==SampleNeonPlayback::Grains || method==SampleNeonPlayback::Lanes)
+            check(energy(6)>0 && energy(7)>0 && energy(4)==0,"next object advances to the next stereo pair");
+    }
+    auto waveSource=std::make_shared<SampleAsset>(*source);
+    for(unsigned ch=0;ch<2;++ch)for(unsigned frame=0;frame<48000;++frame)
+        waveSource->channels[ch][frame]=std::sin(float(frame)*.06f)*.2f;
+    const auto waveMap=analyzeWavesets(waveSource);
+    check(waveMap&&waveMap->valid(),"distributed waveset fixture analysis");
+    engine->setPreparedAsset(0,waveSource.get()); engine->setPreparedWavesets(0,waveMap.get());
+    NeonStack stack; stack.count=2;
+    stack.layers[0]={waveSource.get(),0,1,waveMap.get()}; stack.layers[1]=stack.layers[0];
+    c.stack=&stack; c.playback=SampleNeonPlayback::Wavesets;
+    for(auto sourceMode:{NeonSourceMode::Primary,NeonSourceMode::Scan}) {
+        c.sourceMode=sourceMode; engine->reset(); ++note.noteId;
+        engine->render(s,&note,1,out.pointers.data(),32,64);
+        for(unsigned n=0;n<5;++n)engine->render(s,nullptr,0,out.pointers.data(),32,64);
+        check(energy(4)>0 && energy(5)>0 && energy(6)==0 && energy(7)==0,
+            "Wavesets routes one coherent stereo object per pad gesture, including stack scan");
+        check(engine->voiceCursorCount(0)>0 && engine->voiceCursors(0)[0].layer<2,
+            "Wavesets publishes logical layer identity for Stack Lanes");
+    }
+    c.stack=nullptr; c.sourceMode=NeonSourceMode::Primary;
+    auto spatial=std::make_shared<SampleAsset>(); spatial->sampleRate=48000; spatial->channelCount=16;
+    for(unsigned ch=0;ch<16;++ch) { spatial->channels[ch]=source->channels[0];
+        for(float& x:spatial->channels[ch])x*=float(ch+1)*.02f; }
+    check(engine->setAsset(0,spatial.get()),"load 16-channel routing source");
+    c.playback=SampleNeonPlayback::Grains; c.outputBus=0;
+    c.family[F::GrainStereoLink]=1; c.family[F::RoutingWidth]=0;
+    c.sourceFormat=SampleNeonSourceFormat::Ambisonic; s.outputLayout=SampleNeonOutputLayout::Ambisonic3;
+    engine->reset(); engine->render(s,&note,1,out.pointers.data(),32,64);
+    bool coherent=energy(0)>0;
+    for(unsigned ch=1;ch<16;++ch)for(unsigned n=0;n<64;++n)
+        coherent &= std::abs(out.samples[ch][n]-out.samples[0][n]*(ch+1))<1.e-5f;
+    check(coherent,"Ambisonics forces linked Preserve Field even with latent independent/distribute controls");
+    c.sourceFormat=SampleNeonSourceFormat::Discrete; s.outputLayout=SampleNeonOutputLayout::Stereo;
+    engine->reset(); engine->render(s,&note,1,out.pointers.data(),32,64);
+    check(energy(0)>0 && energy(1)==0 && energy(2)==0,"explicit Distribute folds a wide discrete source into a mono object");
+    c.family[F::RoutingMode]=0; engine->render(s,&note,1,out.pointers.data(),32,64);
+    check(energy(0)==0 && energy(1)==0,"Preserve Field never silently folds a wide source onto a narrow bus");
+}
+
+void testSliceSequenceHandoffs()
+{
+    using namespace s3g::sample;
+    using F = NeonFamily;
+    auto asset = constantAsset(.5f, .5f, 192000);
+    SampleNeonSettings settings;
+    auto& c = settings.slots[0];
+    settings.masterGainDecibels = c.gainDecibels = 0;
+    c.triggerMode = TriggerMode::Gate;
+    c.playback = SampleNeonPlayback::SliceSequence;
+    c.clock = SampleNeonClock::Free;
+    c.sliceCount = 2; c.sliceLayout = equalSampleNeonSliceLayout(2);
+    c.technique[0] = c.technique[3] = 1;
+    c.family[F::SliceAttack] = c.family[F::SliceDecay] = c.family[F::SliceRelease] = 0;
+    c.family[F::SliceSustain] = 1;
+    const auto render = [&](unsigned blockSize, double rate, unsigned frames, bool stop = false) {
+        auto engine = std::make_unique<SampleNeonEngine>();
+        check(engine->prepare(rate, 64) && engine->setAsset(0, &asset), "prepare slice handoff fixture");
+        OutputBlock out;
+        SampleNeonEvent note; note.noteId = 123;
+        std::vector<float> audio;
+        audio.reserve(frames);
+        bool bounded = true, coherent = true;
+        for (unsigned at = 0; at < frames;) {
+            const unsigned size = std::min(blockSize, frames - at);
+            SampleNeonEvent release = note; release.kind = SampleNeonEventKind::Release;
+            const bool releaseNow = stop && at == 4096;
+            engine->render(settings, at == 0 ? &note : releaseNow ? &release : nullptr,
+                at == 0 || releaseNow ? 1 : 0, out.pointers.data(), 32, size);
+            bounded &= engine->voiceCursorCount(0) <= 2;
+            for (unsigned n = 0; n < size; ++n) {
+                audio.push_back(out.samples[0][n]);
+                for (unsigned ch = 1; ch < asset.channelCount; ++ch)
+                    coherent &= std::abs(out.samples[ch][n] - out.samples[0][n]
+                        * (asset.channelCount == 16 ? float(ch + 1) : 1.f)) < .00001f;
+            }
+            at += size;
+        }
+        check(bounded, "slice handoffs never accumulate more than two voices");
+        check(coherent, "slice handoff weights preserve the channel field");
+        return audio;
+    };
+    const auto maxJump = [](const std::vector<float>& audio) {
+        float result = 0;
+        for (std::size_t i = 1; i < audio.size(); ++i)
+            result = std::max(result, std::abs(audio[i] - audio[i - 1]));
+        return result;
+    };
+    auto audio = render(64, 48000, 12000);
+    bool unity = true;
+    for (unsigned i = 240; i < audio.size(); ++i) unity &= std::abs(audio[i] - .5f) < .000001f;
+    check(unity, "correlated continuous slices crossfade without a gain bump or dip at zero ADR");
+    c.clock = SampleNeonClock::Host; c.grainIntervalBeats = .03125;
+    settings.hostTempoBpm = 300; settings.transportPlaying = true;
+    for (double rate : {44100., 48000., 96000.}) {
+        const auto fast = render(64, rate, 4000);
+        for (unsigned i = static_cast<unsigned>(std::ceil(rate * .005)); i < fast.size(); ++i)
+            unity &= std::abs(fast[i] - .5f) < .000001f;
+    }
+    check(unity, "fractional fast steps retain complementary fade lengths without gain flutter");
+    c.clock = SampleNeonClock::Free;
+    for (unsigned ch = 0; ch < 2; ++ch)
+        std::fill(asset.channels[ch].begin() + 96000, asset.channels[ch].end(), -.5f);
+    audio = render(64, 48000, 12000);
+    check(audio == render(13, 48000, 12000), "slice handoffs are invariant to host block partition");
+    check(std::abs(audio[2400] - .5f) < .000001f && std::abs(audio[2639] + .5f) < .000001f
+        && maxJump(audio) < .007f, "opposite-polarity long slices overlap for 5 ms instead of hard cutting");
+    c.family[F::SliceAttack] = .1f; c.family[F::SliceDecay] = .2f;
+    c.family[F::SliceSustain] = .4f; c.family[F::SliceRelease] = .3f;
+    audio = render(64, 48000, 12000);
+    check(std::abs(audio[240] - .5f) < .00001f && std::abs(audio[720] - .2f) < .00001f
+        && audio[2399] < .06f && maxJump(audio) < .007f,
+        "ADSR fits the step duration and releases before the next handoff, not the long source duration");
+    c.family[F::SliceAttack] = c.family[F::SliceDecay] = c.family[F::SliceRelease] = 0;
+    c.family[F::SliceSustain] = 1;
+    c.family[F::SliceAttack] = .1f; c.family[F::SliceSustain] = 0;
+    check(maxJump(render(64, 48000, 12000)) < .007f,
+        "zero Decay cannot hard-drop an attacked slice from peak to sustain");
+    c.family[F::SliceAttack] = 0; c.family[F::SliceSustain] = 1;
+    for (float tune : {-24.f, 0.f, 24.f}) for (unsigned reverse : {0u, 1u}) {
+        c.tuneSemitones = tune; c.direction = static_cast<uint8_t>(reverse);
+        check(maxJump(render(64, 48000, 12000)) < .007f,
+            "reverse and repitched slices retain bounded step transitions");
+    }
+    c.tuneSemitones = 0; c.direction = 0;
+    c.clock = SampleNeonClock::Host; c.grainIntervalBeats = .03125;
+    settings.hostTempoBpm = 300; settings.transportPlaying = true;
+    for (double rate : {44100., 48000., 96000.}) {
+        audio = render(64, rate, 4000);
+        check(audio == render(17, rate, 4000) && maxJump(audio) < .023f,
+            "160 Hz fractional steps scale safety overlap to a quarter step at every sample rate");
+    }
+    c.clock = SampleNeonClock::Free;
+    audio = render(64, 48000, 8192, true);
+    check(audio.back() == 0 && maxJump(audio) < .01f, "gate release fades and terminates overlapping slices");
+    {
+        auto engine = std::make_unique<SampleNeonEngine>();
+        engine->prepare(48000, 64); engine->setAsset(0, &asset);
+        SampleNeonEvent note; note.noteId = 987;
+        OutputBlock out; float previous = 0, jump = 0;
+        bool quietRest = true, bounded = true;
+        for (unsigned block = 0; block < 400; ++block) {
+            if (block == 64) { c.clock = SampleNeonClock::Host; c.technique[1] = 1; c.technique[2] = .5f; }
+            if (block == 128) c.technique[3] = 0;
+            if (block == 192) { c.technique[3] = 1; c.clock = SampleNeonClock::Free; }
+            engine->render(settings, block ? nullptr : &note, block ? 0 : 1, out.pointers.data(), 32, 64);
+            bounded &= engine->voiceCursorCount(0) <= 2;
+            for (float x : out.samples[0]) {
+                jump = std::max(jump, std::abs(x - previous)); previous = x;
+                if (block >= 140 && block < 192) quietRest &= x == 0;
+            }
+        }
+        check(bounded && quietRest && jump < .023f,
+            "rate/clock changes, random repeats and skipped steps fade without accumulating voices or stuck tails");
+        c.technique[1] = c.technique[2] = 0;
+    }
+    const auto longAsset = asset;
+    asset = constantAsset(.5f, .5f, 512);
+    for (unsigned ch = 0; ch < 2; ++ch)
+        std::fill(asset.channels[ch].begin() + 256, asset.channels[ch].end(), -.5f);
+    for (float tune : {0.f, 24.f}) for (unsigned reverse : {0u, 1u}) {
+        c.tuneSemitones = tune; c.direction = static_cast<uint8_t>(reverse);
+        audio = render(64, 48000, 4800);
+        check(audio[0] == 0 && audio[2399] == 0 && audio.back() == 0 && maxJump(audio) < .051f,
+            "short repitched slices fade at their actual source boundary without reading into adjacent slices");
+    }
+    c.tuneSemitones = 0; c.direction = 0; asset = longAsset;
+    // Same clock/fade for all ACN/SN3D components, including a sign-changing field.
+    asset.channelCount = 16;
+    for (unsigned ch = 1; ch < 16; ++ch) {
+        asset.channels[ch] = asset.channels[0];
+        for (auto& x : asset.channels[ch]) x *= float(ch + 1);
+    }
+    c.sourceFormat = SampleNeonSourceFormat::Ambisonic;
+    settings.outputLayout = SampleNeonOutputLayout::Ambisonic3;
+    render(64, 48000, 6000);
+}
+
+void testBufferFill() {
+    using namespace s3g::sample;
+    NeonFill fill;
+    check(fill.prepare(48000), "fill preallocates tapes");
+    NeonFillSettings s; s.breakup = 0;
+    OutputBlock out;
+    const auto render = [&](float input, const NeonFillEvent* event = nullptr, float gain = 1.f) {
+        for (unsigned ch = 0; ch < 32; ++ch) out.samples[ch].fill(input * float(ch + 1) * gain);
+        fill.render(out.pointers.data(),32,64,120,gain,s,event,event ? 1 : 0);
+        for (unsigned ch = 1; ch < 32; ++ch) for (unsigned n = 0; n < 64; ++n)
+            check(std::isfinite(out.samples[ch][n]) && std::abs(out.samples[ch][n] - out.samples[0][n] * float(ch + 1)) < .0001,
+                "fill retains all 32 source channel relationships");
+    };
+    NeonFillEvent on {32,true}, off {32,false};
+    render(.01f,&on);
+    check(fill.active(), "fill can grab partial history at the actual MIDI frame");
+    fill.reset();
+    NeonFillEvent empty {0,true}; render(0,&empty);
+    check(!fill.active(), "empty history cannot strand an override");
+    for (unsigned block = 0; block < 400; ++block) render(.01f);
+    check(out.samples[0][0] == .01f, "fill idle dry path is bit identical");
+    render(-.03f,&on);
+    check(out.samples[0][0] == -.03f && out.samples[0][31] == -.03f, "fill note offset never changes earlier samples");
+    for (unsigned block = 0; block < 10; ++block) render(-.03f);
+    check(out.samples[0][32] > .009f, "fill totally replaces live negative input with captured history");
+    render(-.03f,nullptr,.5f);
+    check(out.samples[0][32] > .004f && out.samples[0][32] < .0051f, "master gain still controls frozen audio");
+    s.breakup = 1; s.repeat = 5;
+    bool heard = false, gap = false;
+    for (unsigned block = 0; block < 300; ++block) {
+        render(-.03f); heard |= out.samples[0][32] > .005f; gap |= std::abs(out.samples[0][32]) < 1e-8f;
+    }
+    check(heard && gap, "breakup produces repeats and linked gaps");
+    render(-.03f,&off);
+    for (unsigned block = 0; block < 6; ++block) render(-.03f);
+    check(!fill.active() && out.samples[0][32] == -.03f, "fill release returns to current live output");
+    render(-.03f,&on); check(fill.active(), "second hold grabs the continuously updated history");
+    fill.reset(); render(0);
+    check(!fill.active() && out.samples[0][32] == 0, "panic clears frozen and rolling tapes without replaying stale audio");
+}
+
 int main()
 {
     testProtocolDecode();
@@ -1782,13 +2446,22 @@ int main()
     testBoundarySelectionAndCapture();
     testWaveformViewport();
     testCharacterFxAndNewPlayback();
+    testExpandedCharacterModes();
+    benchmarkCharacterFx();
     testStackPlayback();
     testStackWaveform();
     testWavesetStackScan();
     testFamilyIntegration();
     testStackShapes();
+    testStackPointEditing();
+    testStackPathPhase();
+    testStackPerformanceOverride();
     testChopDestinations();
     testLanesPlayback();
+    testPlaybackVisuals();
+    testSliceEnvelopeAndRouting();
+    testSliceSequenceHandoffs();
+    testBufferFill();
     if (failures != 0) {
         std::cerr << failures << " Sample Neon checks failed\n";
         return 1;

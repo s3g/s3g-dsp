@@ -21,6 +21,7 @@
 #include "../dsp/s3g_parameter_surface.h"
 #include "../plugins/clap_sample_neon/s3g_sample_neon_layout.h"
 #include "../dsp/s3g_sample_neon_family.h"
+#include "../dsp/s3g_sample_neon_character.h"
 
 #include <array>
 #include <algorithm>
@@ -3884,12 +3885,30 @@ int main(int argc, char** argv)
             clickAt(540, 22);
             params->flush(plugin, nullptr, &captured.events);
             ok = ok && params->get_value(plugin, 5u, &value) && value == 0.;
+            failureStage = "Utility Neon MIDI independent unit view and bank editing";
+            double firstBank = -1;
+            ok = params->get_value(plugin, 1u, &firstBank) && ok;
+            SingleParamEventInput viewUnit {};
+            setSingleParamEvent(viewUnit, 8u, 1.);
+            params->flush(plugin, &viewUnit.events, nullptr); redraw();
+            clickAt(149, 92); // C edits U2's bank, not U1's.
+            params->flush(plugin, nullptr, &captured.events);
+            ok = params->get_value(plugin, 7u, &value) && value == 2. && ok;
+            ok = params->get_value(plugin, 1u, &value) && value == firstBank && ok;
+            setSingleParamEvent(viewUnit, 8u, 0.);
+            params->flush(plugin, &viewUnit.events, nullptr); redraw();
             hostContext.deferParamFlush = false;
             hostContext.paramFlushRequested = false;
         }
         if (ok && portableVstguiRoot
             && std::strcmp(pluginId, "org.s3g.s3g-dsp.sample-neon") == 0) {
             using I = s3g::sample_neon_gui::InspectorLayout;
+            using P = s3g::sample_neon_gui::PadLayout;
+            using M = s3g::sample_neon_gui::MiniLayout;
+            using W = s3g::sample_neon_gui::WaveLayout;
+            using C = s3g::sample_neon_gui::CanvasLayout;
+            using E = s3g::sample_neon_gui::PlaybackLayout;
+            using FG = s3g::sample_neon_gui::FamilyGrid;
             failureStage = "Sample Neon multichannel editor and routing menus";
             const auto* state = static_cast<const clap_plugin_state_t*>(
                 plugin->get_extension(plugin, CLAP_EXT_STATE));
@@ -3965,33 +3984,91 @@ int main(int argc, char** argv)
                 plugin->on_main_thread(plugin);
                 redraw();
             };
+            bool playbackInspector = false;
+            unsigned playbackMethod = 0;
+            const auto inspectorY = [&](unsigned row) {
+                return playbackInspector && playbackMethod != 0 ? E::row(row) : I::row(row);
+            };
             const auto inspectorChoice = [&](unsigned row, unsigned item) {
                 const double center = I::controlLeft + I::controlWidth * 0.5;
-                clickAt(center, I::row(row));
-                clickAt(center, I::row(row) + I::menuHeight * 0.5 + I::popupRowHeight * (item + 0.5));
+                clickAt(center, inspectorY(row));
+                clickAt(center, inspectorY(row) + I::menuHeight * 0.5 + I::popupRowHeight * (item + 0.5));
+                if (row == 0) playbackInspector = item == 1;
             };
-            const auto chopTarget = [&](unsigned pad, unsigned row = 8u) {
+            const auto padChoice = [&](unsigned row, unsigned item) {
+                if (row >= 10) {
+                    const double x = FG::controlLeft(row) + I::controlWidth * .5;
+                    const double y = FG::row(row);
+                    // Extra menus near the bottom open upward when needed.
+                    const unsigned count = row == 10 ? 6 : row == 12 ? 4 : row == 17 ? 5 : 2;
+                    const double height = count * I::popupRowHeight;
+                    const double top = y + I::menuHeight*.5 + height <= C::height - 6
+                        ? y + I::menuHeight*.5 : y - I::menuHeight*.5 - height;
+                    // SOUND has 3 choices, unlike the Grains ENVELOPE at the
+                    // same address; the Motion test uses its own helper below.
+                    clickAt(x,y); clickAt(x,top+I::popupRowHeight*(item+.5)); return;
+                }
+                const double center = P::controlLeft + P::controlWidth * .5;
+                clickAt(center, P::row(row));
+                if (row == 3) clickAt(nativeWidth - 6 - 4 * 86 + (item % 4 + .5) * 86,
+                    P::row(row) + P::menuHeight * .5 + P::popupRowHeight * (item / 4 + .5));
+                else clickAt(center, P::row(row) + P::menuHeight * .5 + P::popupRowHeight * (item + .5));
+            };
+            const auto selectWorkspace = [&](unsigned page) {
+                clickAt(M::pageCenter(page==2?3:page), M::pageCenterY);
+                playbackInspector = false;
+            };
+            const auto encoderAssignment = [&](bool editing) {
+                clickAt(M::encoderCenter, M::encoderCenterY);
+                clickAt(M::encoderCenter, M::encoderCenterY + I::menuHeight * .5 + I::popupRowHeight * (editing ? 1.5 : .5));
+            };
+            const auto selectPlay = [&](bool editing = false) {
+                selectWorkspace(0); encoderAssignment(editing);
+            };
+            const auto choosePlaybackView = [&](unsigned method) {
+                constexpr unsigned display[] {0,2,3,6,4,5,1};
+                padChoice(1, display[method]);
+                playbackMethod = method;
+                clickAt(I::left, inspectorY(1)); // Dismiss a disabled method item.
+                inspectorChoice(0, 1);
+            };
+            const auto chopTarget = [&](unsigned pad, unsigned row = 7u) {
                 const unsigned item = pad < 32u ? pad + 1u : 0u;
-                clickAt(I::controlLeft + I::controlWidth * 0.5, I::row(row));
-                clickAt(nativeWidth - 6.0 - 4.0 * 86.0 + (item % 4u + 0.5) * 86.0,
-                    I::row(row) + I::menuHeight * 0.5 + I::popupRowHeight * (item / 4u + 0.5));
+                clickAt(I::controlLeft + I::controlWidth * 0.5, inspectorY(row));
+                clickAt(I::controlLeft + (item % 4u + 0.5) * 86.0,
+                    inspectorY(row) + I::menuHeight * 0.5 + I::popupRowHeight * (item / 4u + 0.5));
             };
             redraw();
-            clickAt(456.0, 588.0); // EDIT, leaving the selected cell unchanged.
+            selectPlay(true); // EDIT, leaving the selected cell unchanged.
             // Format dropdown: first row is DISCRETE; this must invalidate the 3OA route.
-            inspectorChoice(16, 0);
+            inspectorChoice(0, 4);
+            // MIDI IN is a global, existing host parameter, exposed here with
+            // every musical channel and Omni. Menu selection must reach DSP/state.
+            for (unsigned channel : {1u, 7u, 8u, 12u, 16u, 0u}) {
+                inspectorChoice(2, channel);
+                double receive = -1;
+                ok = params->get_value(plugin, 7u, &receive) && receive == channel && ok;
+                MemoryPluginState channelState;
+                clap_ostream_t channelSave {&channelState,stateWriteWhole};
+                ok = state->save(plugin,&channelSave) && channelState.bytes.size() > 16+7*sizeof(double) && ok;
+                double stored = -1;
+                if (channelState.bytes.size() > 16+7*sizeof(double))
+                    std::memcpy(&stored,channelState.bytes.data()+16+6*sizeof(double),sizeof(double));
+                ok = stored == channel && ok;
+            }
+            inspectorChoice(3, 0);
             double format = -1.0;
             ok = params->get_value(plugin, 1016u, &format) && format == 0.0 && ok;
-            inspectorChoice(16, 1);
+            inspectorChoice(3, 1);
             ok = params->get_value(plugin, 1016u, &format) && format == 1.0 && ok;
             // Bus menu exposes two 16-channel buses, with state-backed selection.
-            inspectorChoice(17, 1);
+            inspectorChoice(4, 1);
             double bus = -1.0;
             ok = params->get_value(plugin, 1012u, &bus) && bus == 2.0 && ok;
             double zeroCross = -1.0;
-            clickAt(765.0, 97.0);
+            clickAt(765.0, W::actionCenter);
             ok = params->get_value(plugin, 1017u, &zeroCross) && zeroCross == 0.0 && ok;
-            clickAt(765.0, 97.0);
+            clickAt(765.0, W::actionCenter);
             ok = params->get_value(plugin, 1017u, &zeroCross) && zeroCross == 1.0 && ok;
             if (!ok) std::cerr << "Neon failed before waveform zoom\n";
             failureStage = "Sample Neon pointer zoom, pan and transient pre-roll";
@@ -4008,22 +4085,64 @@ int main(int argc, char** argv)
                 [image release];
                 return pixels;
             };
-            const auto overviewPixels = [&] { return regionPixels(177.0, 426.0, 635.0, 72.0); };
-            const auto waveformPixels = [&] { return regionPixels(32.0, 122.0, 793.0, 254.0); };
+            const auto overviewPixels = [&] { return regionPixels(W::overviewLeft, W::overviewTop(), W::overviewWidth, W::overviewHeight); };
+            const auto waveformPixels = [&] { return regionPixels(W::left, W::top, W::width, W::height()); };
             const auto waveChoice = [&](unsigned item) {
-                clickAt(743.0, 62.0);
-                clickAt(743.0, 62.0 + I::menuHeight * 0.5 + I::popupRowHeight * (item + 0.5));
+                clickAt(743.0, W::viewCenter);
+                clickAt(743.0, W::viewCenter + I::menuHeight * 0.5 + I::popupRowHeight * (item + 0.5));
             };
+            // PK lives in the upper-right title band and follows the actual
+            // multichannel output, then returns to the silence floor.
+            const auto peakPixels = [&] { return regionPixels(C::width-C::statusRightInset-116, C::titleTop, 116, C::titleHeight); };
+            const auto soundingPeak = peakPixels();
+            const bool meterActive = plugin->activate(plugin,48000,1,64);
+            const bool meterRunning = meterActive && plugin->start_processing(plugin);
+            if (meterRunning) {
+                plugin->reset(plugin); block.in_events = nullptr;
+                plugin->process(plugin, &block);
+                plugin->stop_processing(plugin);
+            }
+            if (meterActive) plugin->deactivate(plugin);
+            redraw();
+            ok = meterRunning && !soundingPeak.empty() && soundingPeak != peakPixels() && ok;
+            if (!ok) std::cerr << "Neon upper-right PK meter did not update\n";
+            // A fresh editor defaults to separate channel rows; its aligned
+            // panel reaches the Grains inspector's bottom, inside the 16:9 canvas.
+            const auto defaultWave = waveformPixels();
+            ok = nativeHeight == C::height
+                && nativeWidth * 9u == nativeHeight * 16u
+                && regionPixels(W::panelLeft, C::panelTop, 6, 2) == regionPixels(I::left - 16, C::panelTop, 6, 2)
+                && regionPixels(W::panelLeft, C::panelTop, 6, 2) == regionPixels(P::left - 16, C::panelTop, 6, 2)
+                && W::overviewLeft == W::left && W::overviewWidth == W::width
+                && W::pathLeft == W::overviewLeft && W::pathWidth == W::overviewWidth
+                && regionPixels(W::overviewLeft + 2, W::overviewTop() + 4, 4, 8)
+                    != regionPixels(W::overviewLeft - 6, W::overviewTop() + 4, 4, 8)
+                && W::height() == 510 && W::bottom() == I::row(FG::cutoff(false)) + 18 && ok;
+            if (const char* directory = std::getenv("S3G_GUI_SMOKE_PDF_DIR")) {
+                NSString* folder = [NSString stringWithUTF8String:directory];
+                [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
+                NSData* render = [document dataWithPDFInsideRect:[document bounds]];
+                ok = [render writeToFile:[folder stringByAppendingPathComponent:@"sample-neon.default-all-channels.pdf"] atomically:YES] && ok;
+            }
+            waveChoice(0u);
             const auto combinedWave = waveformPixels();
             const auto combinedOverview = overviewPixels();
             waveChoice(1u);
             const auto firstChannelWave = waveformPixels();
             waveChoice(2u);
             const auto allChannelsWave = waveformPixels();
-            ok = !combinedWave.empty() && firstChannelWave != combinedWave && allChannelsWave != firstChannelWave
+            ok = !combinedWave.empty() && defaultWave == allChannelsWave && firstChannelWave != combinedWave && allChannelsWave != firstChannelWave
                 && overviewPixels() == combinedOverview && ok;
+            if (!ok) std::cerr << "Neon channels: default=" << (defaultWave == allChannelsWave)
+                << " first=" << (firstChannelWave != combinedWave) << " all=" << (allChannelsWave != firstChannelWave)
+                << " overview=" << (overviewPixels() == combinedOverview) << '\n';
+            ok = gui->hide(plugin) && gui->show(plugin) && ok;
+            redraw();
+            ok = waveformPixels() == allChannelsWave && ok;
+            if (!ok) std::cerr << "Neon channels reopen=" << (waveformPixels() == allChannelsWave) << '\n';
             waveChoice(0u);
             ok = waveformPixels() == combinedWave && ok;
+            if (!ok) std::cerr << "Neon default channels/aligned waveform layout failed\n";
             const auto scrollAt = [&](double x, double y, double delta, NSEventModifierFlags modifiers = 0) {
                 S3GSmokeScrollEvent* event = [[S3GSmokeScrollEvent alloc]
                     initWithLocation:[document convertPoint:NSMakePoint(x * scale, y * scale) toView:nil]
@@ -4036,21 +4155,23 @@ int main(int argc, char** argv)
             clap_ostream_t saveBeforeScroll { &beforeScroll, stateWriteWhole };
             ok = state->save(plugin, &saveBeforeScroll) && ok;
             const auto fitPixels = overviewPixels();
-            scrollAt(600.0, 210.0, 10.0);
+            scrollAt(600.0, W::top + W::height() - 8, 10.0); // New lower waveform area accepts zoom.
             const auto zoomPixels = overviewPixels();
             scrollAt(600.0, 210.0, 10.0, NSEventModifierFlagShift);
             const auto panPixels = overviewPixels();
             scrollAt(940.0, 460.0, 10.0); // Outside waveform must not zoom.
             ok = !fitPixels.empty() && fitPixels != zoomPixels && zoomPixels != panPixels
                 && panPixels == overviewPixels() && ok;
+            if (!ok) std::cerr << "Neon enlarged waveform zoom/pan failed\n";
             for (unsigned i = 0u; i < 5u; ++i) scrollAt(600.0, 210.0, -40.0);
             ok = overviewPixels() == fitPixels && ok;
             MemoryPluginState afterScroll;
             clap_ostream_t saveAfterScroll { &afterScroll, stateWriteWhole };
             ok = state->save(plugin, &saveAfterScroll) && afterScroll.bytes == beforeScroll.bytes && ok;
-            clickAt(367.0, 588.0); // CHOP.
-            clickAt(110.0, 98.0); clickAt(110.0, 133.0); // Transients, popup row 2.
-            clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(4)); // Pre-roll midpoint = 25 ms.
+            if (!ok) std::cerr << "Neon waveform zoom restore/state invariance failed\n";
+            selectWorkspace(1); // CHOP.
+            clickAt(110.0, W::actionCenter); clickAt(110.0, 113.0); // Transients, popup row 2.
+            clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(4)); // Pre-roll midpoint = 25 ms.
             MemoryPluginState withPreRoll;
             clap_ostream_t savePreRoll { &withPreRoll, stateWriteWhole };
             ok = state->save(plugin, &savePreRoll) && ok;
@@ -4065,7 +4186,7 @@ int main(int argc, char** argv)
             ok = std::abs(preRoll - 25.0f) < 0.11f && ok;
             if (!ok) std::cerr << "Neon failed before playback menus\n";
             failureStage = "Sample Neon explicit playback menu and clock";
-            clickAt(456.0, 588.0); // EDIT.
+            selectPlay(true); // EDIT.
             const auto savedState = [&] {
                 MemoryPluginState result;
                 clap_ostream_t output { &result, stateWriteWhole };
@@ -4075,20 +4196,20 @@ int main(int argc, char** argv)
             constexpr size_t textureBytes = 2u * 32u + 11u * 32u * sizeof(float);
             const size_t textureOffset = preRollOffset - textureBytes;
             const size_t clockOffset = preRollOffset + transientBytes;
-            inspectorChoice(2, 1); // MOTION, not a page-only change.
+            choosePlaybackView(1); // MOTION, not a page-only change.
             auto motionState = savedState();
             ok = motionState.bytes[textureOffset] == 1u && motionState.bytes[clockOffset] == 0u && ok;
             inspectorChoice(5, 1); // HOST clock.
             auto hostState = savedState();
             ok = hostState.bytes[clockOffset] == 1u && ok;
             inspectorChoice(5, 0); // FREE clock.
-            inspectorChoice(3, 0); // SOURCE/TRIM does not change technique.
+            inspectorChoice(0, 0); // SOURCE/TRIM does not change technique.
             auto sourceView = savedState();
             ok = sourceView.bytes[textureOffset] == 1u && sourceView.bytes[clockOffset] == 0u && ok;
-            inspectorChoice(2, 2); // GRAINS commits, clearing Motion.
+            choosePlaybackView(2); // GRAINS commits, clearing Motion.
             auto grainsState = savedState();
             ok = grainsState.bytes[textureOffset] == 4u && ok;
-            clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(6)); // Explicit total shot duration, midpoint.
+            clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(6)); // Explicit total shot duration, midpoint.
             auto lengthState = savedState();
             float shotLength = 0.0f;
             std::memcpy(&shotLength, lengthState.bytes.data() + clockOffset + 32u + 32u * sizeof(float), sizeof(float));
@@ -4108,47 +4229,48 @@ int main(int argc, char** argv)
                 NSData* render = [document dataWithPDFInsideRect:[document bounds]];
                 ok = [render writeToFile:[directory stringByAppendingPathComponent:name] atomically:YES] && ok;
             };
-            inspectorChoice(3, 2); // Dedicated Character FX view.
-            inspectorChoice(4, 3); // RING.
+            inspectorChoice(0, 3); // Dedicated Character FX view.
+            inspectorChoice(2, 3); // SHIFT.
             double fxChoice = -1.0;
             ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 3.0 && ok;
             const auto beforeFx = savedState();
-            clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(7)); // Effect frequency slider, not playback position.
+            clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(7)); // Post-playback pitch, not source position.
             const auto afterFx = savedState();
             const size_t modernOffset = fixture.bytes.size() - captureBytes - modernBytes;
-            ok = std::memcmp(beforeFx.bytes.data() + modernOffset + 9u * sizeof(float),
-                afterFx.bytes.data() + modernOffset + 9u * sizeof(float), sizeof(float)) != 0 && ok;
+            ok = std::memcmp(beforeFx.bytes.data() + modernOffset + 10u * sizeof(float),
+                afterFx.bytes.data() + modernOffset + 10u * sizeof(float), sizeof(float)) != 0 && ok;
             captureNeonPage(@"sample-neon.character-fx.pdf");
-            clickAt(80.0, 675.0); // SECOND: same eight FX on miniature NEON.
-            clickAt(367.0, 690.0); // PULSE, not EDIT Hold.
+            clickAt(P::left+43, M::actions); // SECOND: same eight FX on miniature NEON.
+            clickAt(M::padX(5)+M::padWidth*.5, M::padY(5)+M::padHeight*.5); // PUNCH, not EDIT Hold.
             ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 5.0
                 && savedState().bytes[textureOffset] == 4u && ok;
-            clickAt(456.0, 690.0); // Disabled DRIVE pad.
+            clickAt(M::padX(6)+M::padWidth*.5, M::padY(6)+M::padHeight*.5); // Disabled DRIVE pad.
             ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 5.0 && ok;
-            clickAt(80.0, 675.0); // Back to primary cell pads.
-            inspectorChoice(4, 3); // Restore RING for menu restriction check.
-            inspectorChoice(4, 6); // Disabled DRIVE for ACN/SN3D.
+            clickAt(P::left+43, M::actions); // Back to primary cell pads.
+            inspectorChoice(2, 3); // Restore SHIFT for menu restriction check.
+            inspectorChoice(2, 6); // Disabled DRIVE for ACN/SN3D.
             ok = params->get_value(plugin, 1011u, &fxChoice) && fxChoice == 3.0 && ok;
             captureNeonPage(@"sample-neon.ambisonic-fx-menu.pdf");
             clickAt(880.0, 200.0); // Dismiss if disabled row left menu open.
-            inspectorChoice(4, 0); // FILTER, amount remains dry.
-            inspectorChoice(2, 3); // SLICE SEQUENCE.
+            clickAt(I::left+60,I::row(12)); // Restore the changed Shift bank before legacy capture-layout fixtures.
+            inspectorChoice(2, 0); // FILTER, amount remains dry.
+            choosePlaybackView(3); // SLICE SEQUENCE.
             ok = savedState().bytes[textureOffset] == 8u && ok;
             captureNeonPage(@"sample-neon.slice-sequence.pdf");
-            inspectorChoice(2, 4); // STRETCH.
+            choosePlaybackView(4); // STRETCH.
             ok = savedState().bytes[textureOffset] == 16u && ok;
             captureNeonPage(@"sample-neon.stretch.pdf");
-            inspectorChoice(2, 5); // WAVESETS is disabled for ACN/SN3D.
+            choosePlaybackView(5); // WAVESETS is disabled for ACN/SN3D.
             ok = savedState().bytes[textureOffset] == 16u && ok;
             clickAt(880.0, 200.0);
-            inspectorChoice(2, 0); // SAMPLE clears generated techniques.
+            choosePlaybackView(0); // SAMPLE clears generated techniques.
             auto sampleState = savedState();
             ok = sampleState.bytes[textureOffset] == 0u && ok;
-            // Exercise all four primary surfaces and capture their actual renders.
-            const char* pageNames[] { "play", "chop", "edit", "resample" };
+            // Three workspaces: editing lives inside PLAY, not a fourth page.
+            const char* pageNames[] { "play", "chop", "resample" };
             const char* captureDirectory = std::getenv("S3G_GUI_SMOKE_PDF_DIR");
-            for (unsigned page = 0u; ok && page < 4u; ++page) {
-                clickAt(278.0 + page * 89.0, 588.0);
+            for (unsigned page = 0u; ok && page < 3u; ++page) {
+                selectWorkspace(page);
                 NSData* render = [document dataWithPDFInsideRect:[document bounds]];
                 ok = render && [render length] > 0u;
                 if (ok && captureDirectory && captureDirectory[0]) {
@@ -4184,9 +4306,9 @@ int main(int argc, char** argv)
                 plugin->process(plugin, &block);
                 inspectorChoice(0, 1); // Capture bus 2, matching A1's 3OA output.
                 const auto emptyTakePixels = overviewPixels();
-                clickAt(934.0, I::row(2)); // Record, without changing page.
-                clickAt(80.0, 675.0); // PLAY PADS on miniature NEON; no duplicate toolbox grid.
-                clickAt(278.0, 636.0); // A1 on the RESAMPLE secondary layer.
+                clickAt(934.0, inspectorY(2)); // Record, without changing page.
+                clickAt(P::left+43, M::actions); // PLAY PADS on miniature NEON; no duplicate toolbox grid.
+                clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); // A1 on the RESAMPLE secondary layer.
                 ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
                 const auto capturedSamples = samples;
                 ok = std::any_of(samples[31u].begin(), samples[31u].end(),
@@ -4201,7 +4323,7 @@ int main(int argc, char** argv)
                 ok = recordingCombined != recordingFirst && recordingFirst != waveformPixels()
                     && recordingPixels == overviewPixels() && ok;
                 captureNeonPage(@"sample-neon.recording-live.pdf");
-                clickAt(1079.0, I::row(2)); // Stop, still in Resample.
+                clickAt(1079.0, inspectorY(2)); // Stop, still in Resample.
                 ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
                 plugin->on_main_thread(plugin);
                 auto directCapture = savedState();
@@ -4216,34 +4338,34 @@ int main(int argc, char** argv)
                 redraw(); // Finalizing the take enables trim and Discard.
                 if (ok) {
                     failureStage = "Sample Neon resample trim, cursor and zoom double-click defaults";
-                    clickAt(765.0,98.0); // Disable snapping for exact endpoint assertions.
+                    clickAt(765.0, W::actionCenter); // Disable snapping for exact endpoint assertions.
                     for (unsigned n = 0u; n < 2u; ++n) {
                         const double x = I::controlLeft + I::trackWidth * 0.73;
                         const size_t offset = fixture.bytes.size() - captureBytes + n * sizeof(double);
-                        clickAt(x,I::row(5u+n));
+                        clickAt(x,inspectorY(5u+n));
                         const auto changed = savedState();
                         double trim = 0.0; std::memcpy(&trim,changed.bytes.data()+offset,sizeof(trim));
                         ok = std::abs(trim-double(n)) > 0.1 && ok;
-                        doubleClickAt(x,I::row(5u+n));
+                        doubleClickAt(x,inspectorY(5u+n));
                         const auto restored = savedState();
                         std::memcpy(&trim,restored.bytes.data()+offset,sizeof(trim));
                         ok = trim == double(n) && ok;
                     }
-                    doubleClickAt(752.0,634.0); const auto cursorDefault = waveformPixels();
-                    clickAt(752.0,634.0); const auto movedCursor = waveformPixels();
-                    doubleClickAt(752.0,634.0);
+                    doubleClickAt(P::controlLeft+P::trackWidth*.73, M::loop); const auto cursorDefault = waveformPixels();
+                    clickAt(P::controlLeft+P::trackWidth*.73, M::loop); const auto movedCursor = waveformPixels();
+                    doubleClickAt(P::controlLeft+P::trackWidth*.73, M::loop);
                     ok = cursorDefault != movedCursor && cursorDefault == waveformPixels() && ok;
-                    doubleClickAt(157.0,605.0); const auto fullTake = overviewPixels();
-                    clickAt(157.0,605.0); const auto zoomedTake = overviewPixels();
-                    doubleClickAt(157.0,605.0);
+                    doubleClickAt(P::controlLeft+P::trackWidth*.73, M::trax); const auto fullTake = overviewPixels();
+                    clickAt(P::controlLeft+P::trackWidth*.73, M::trax); const auto zoomedTake = overviewPixels();
+                    doubleClickAt(P::controlLeft+P::trackWidth*.73, M::trax);
                     ok = fullTake != zoomedTake && fullTake == overviewPixels() && ok;
-                    clickAt(765.0,98.0); // Restore the existing zero-cross setting.
+                    clickAt(765.0, W::actionCenter); // Restore the existing zero-cross setting.
                 }
-                clickAt(1079.0, I::row(3)); // Discard this test review, not any source cell.
+                clickAt(1079.0, inspectorY(3)); // Discard this test review, not any source cell.
                 plugin->on_main_thread(plugin);
                 redraw();
                 if (ok) failureStage = "Sample Neon reset confirmation and recording abort";
-                clickAt(77.0, 98.0); // RESAMPLE Record.
+                clickAt(77.0, W::actionCenter); // RESAMPLE Record.
                 block.in_events = &input;
                 ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
                 block.in_events = nullptr;
@@ -4253,7 +4375,7 @@ int main(int argc, char** argv)
                 redraw();
                 ok = beginningTakePixels != overviewPixels() && ok;
                 captureNeonPage(@"sample-neon.recording-live.pdf");
-                clickAt(730.0, 697.0); // Queue a master edit without an output consumer.
+                clickAt(P::controlLeft+P::trackWidth*.73, M::master); // Queue a master edit without an output consumer.
                 clickAt(698.0, 24.0);
                 clickAt(1062.0, 82.0); // Confirm clear.
                 plugin->on_main_thread(plugin);
@@ -4304,12 +4426,12 @@ int main(int argc, char** argv)
                 if (processing) plugin->stop_processing(plugin);
                 if (active) plugin->deactivate(plugin);
                 redraw();
-                clickAt(367.0, 588.0); // CHOP the restored A1.
-                clickAt(110.0, 98.0); clickAt(110.0, 151.0); // Equal.
-                clickAt(765.0, 97.0); // Zero cross off: retain the exact authored half.
-                clickAt(239.0, 98.0); clickAt(310.0, 115.0); // Two slices, first row column 2.
+                selectWorkspace(1); // CHOP the restored A1.
+                clickAt(110.0, W::actionCenter); clickAt(110.0, 131.0); // Equal.
+                clickAt(765.0, W::actionCenter); // Zero cross off: retain the exact authored half.
+                clickAt(239.0, W::actionCenter); clickAt(310.0, 95.0); // Two slices, first row column 2.
                 const auto sourceWave = overviewPixels();
-                clickAt(1008.0, I::row(9)); // Destination/layer rows precede Assign One.
+                clickAt(1008.0, inspectorY(8)); // Destination rows precede Assign One; edit layer lives in PAD.
                 plugin->on_main_thread(plugin);
                 redraw();
                 auto assignedSlice = savedState();
@@ -4320,9 +4442,9 @@ int main(int argc, char** argv)
                     std::memcpy(&frames, assignedSlice.bytes.data() + cellHeader + 4u, sizeof(frames));
                 }
                 ok = width == 16u && frames == 113u && ok;
-                clickAt(278.0, 588.0); // PLAY selects cells, not source slices.
-                clickAt(367.0, 636.0); // A2.
-                clickAt(367.0, 588.0); // CHOP must now show only A2's new audio.
+                selectPlay(); // PLAY selects cells, not source slices.
+                clickAt(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); // A2.
+                selectWorkspace(1); // CHOP must now show only A2's new audio.
                 double start = -1.0, end = -1.0;
                 ok = params->get_value(plugin, 1035u, &start) && start == 0.0
                     && params->get_value(plugin, 1036u, &end) && end == 1.0 && ok;
@@ -4379,9 +4501,9 @@ int main(int argc, char** argv)
                             && equal(modernOffset, 36u * sizeof(float), 36u * sizeof(float))
                             && equal(modernOffset + 32u * 36u * sizeof(float), 2u * sizeof(float), 2u * sizeof(float));
                     };
-                    clickAt(456.0, 588.0); // EDIT A2, whose audio is embedded and cropped.
-                    inspectorChoice(2, 1); // Motion.
-                    clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(10)); clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(11)); // 5-second gesture fades.
+                    selectPlay(true); // EDIT A2, whose audio is embedded and cropped.
+                    choosePlaybackView(1); // Motion.
+                    clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(10)); clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(11)); // 5-second gesture fades.
                     const size_t envelopes = modernOffset + 32u * 36u * sizeof(float);
                     auto envelopeState = savedState();
                     float attack = 0.0f, release = 0.0f;
@@ -4389,14 +4511,14 @@ int main(int argc, char** argv)
                     std::memcpy(&release, envelopeState.bytes.data() + envelopes + 3u * sizeof(float), sizeof(float));
                     ok = attack > 4.9f && release > 4.9f && ok;
                     captureNeonPage(@"sample-neon.motion-envelope.pdf");
-                    inspectorChoice(2, 2); // Grains shares this cell's gesture envelope.
-                    clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(13)); clickAt(I::controlLeft + I::trackWidth * 0.5, I::row(14));
+                    choosePlaybackView(2); // Grains shares this cell's gesture envelope.
+                    clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(13)); clickAt(I::controlLeft + I::trackWidth * 0.5, inspectorY(14));
                     captureNeonPage(@"sample-neon.grains-envelope.pdf");
                     const auto source = savedState();
-                    clickAt(367.0, 636.0); // Focus A2.
+                    clickAt(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); // Focus A2.
                     key(@"c", NSEventModifierFlagControl); // Physical Ctrl-C, not only Cmd-C.
-                    clickAt(105.0, 631.0); // Bank B.
-                    clickAt(278.0, 636.0); // Empty B1.
+                    clickAt(M::pageCenter(1), M::banks); // Bank B.
+                    clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); // Empty B1.
                     key(@"v", NSEventModifierFlagControl);
                     auto bankCopy = savedState();
                     ok = sameCell(source, 1u, bankCopy, 8u) && bankCopy.bytes.size() == source.bytes.size() && ok;
@@ -4405,16 +4527,16 @@ int main(int argc, char** argv)
                         << " target/playback=" << unsigned(bankCopy.bytes[textureOffset + 8u]) << '\n';
                     // Native Mac shortcuts also work. Source settings are independent.
                     key(@"c", NSEventModifierFlagCommand);
-                    clickAt(367.0, 636.0); key(@"v", NSEventModifierFlagCommand); // B2.
+                    clickAt(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); key(@"v", NSEventModifierFlagCommand); // B2.
                     ok = sameCell(source, 1u, savedState(), 9u) && ok;
-                    inspectorChoice(2, 0); // B2 becomes Sample, B1 stays Grains.
+                    choosePlaybackView(0); // B2 becomes Sample, B1 stays Grains.
                     auto independent = savedState();
                     ok = independent.bytes[textureOffset + 9u] == 0u && independent.bytes[textureOffset + 8u] == 4u && ok;
-                    rightClick(278.0, 636.0); clickAt(300.0, 645.0); // COPY B1 via context menu.
-                    rightClick(456.0, 636.0); clickAt(480.0, 663.0); // PASTE into empty B3.
+                    rightClick(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); clickAt(std::min(M::padX(0)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(0)+M::padHeight*.5+9); // COPY B1 via context menu.
+                    rightClick(M::padX(2)+M::padWidth*.5, M::padY(2)+M::padHeight*.5); clickAt(std::min(M::padX(2)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(2)+M::padHeight*.5+27); // PASTE into empty B3.
                     ok = sameCell(source, 1u, savedState(), 10u) && ok;
                     // Populated cells require confirmation, with a non-mutating cancel.
-                    rightClick(367.0, 636.0); clickAt(385.0, 663.0);
+                    rightClick(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); clickAt(std::min(M::padX(1)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(1)+M::padHeight*.5+27);
                     auto beforeReplace = savedState();
                     clickAt(740.0, 65.0); // Cancel.
                     ok = savedState().bytes == beforeReplace.bytes && ok;
@@ -4422,7 +4544,7 @@ int main(int argc, char** argv)
                     ok = sameCell(source, 1u, savedState(), 9u) && ok;
                     // Clipboard owns the PCM even after RESET ALL frees its source cell.
                     clickAt(698.0, 24.0); clickAt(1062.0, 82.0); plugin->on_main_thread(plugin); redraw();
-                    clickAt(278.0, 588.0); clickAt(278.0, 636.0);
+                    selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5);
                     key(@"v", NSEventModifierFlagControl);
                     auto afterResetPaste = savedState();
                     ok = sameCell(source, 1u, afterResetPaste, 0u)
@@ -4433,10 +4555,10 @@ int main(int argc, char** argv)
                     ok = pastedWidth == 16u && pastedFrames == 113u && ok;
                     failureStage = "Sample Neon linked source normalization and copy isolation";
                     // Paste a shared-PCM sibling, then normalize A1 only.
-                    clickAt(456.0, 588.0); // EDIT also allows selecting empty cells.
-                    clickAt(367.0, 636.0); key(@"v", NSEventModifierFlagControl);
-                    clickAt(278.0, 636.0);
-                    inspectorChoice(3, 0); // SOURCE / TRIM.
+                    selectPlay(true); // EDIT also allows selecting empty cells.
+                    clickAt(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); key(@"v", NSEventModifierFlagControl);
+                    clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5);
+                    inspectorChoice(0, 0); // SOURCE / TRIM.
                     const auto beforeNormalize = savedState();
                     const auto embeddedCell = [&](const MemoryPluginState& bytes, unsigned target) {
                         size_t offset = fixture.bytes.size() - 33u * 16u;
@@ -4461,7 +4583,7 @@ int main(int argc, char** argv)
                         return pcm[target];
                     };
                     const auto originalPcm = embeddedCell(beforeNormalize, 0u);
-                    clickAt(1000.0, I::row(20)); plugin->on_main_thread(plugin); redraw();
+                    clickAt(1000.0, inspectorY(7)); plugin->on_main_thread(plugin); redraw();
                     const auto afterNormalize = savedState();
                     const auto normalizedPcm = embeddedCell(afterNormalize, 0u);
                     ok = sameCell(beforeNormalize, 0u, afterNormalize, 0u)
@@ -4474,7 +4596,7 @@ int main(int argc, char** argv)
                     if (originalPeak > 0.0f && normalizedPcm.size() == originalPcm.size())
                         for (size_t n = 0u; n < originalPcm.size(); ++n)
                             ok = std::abs(normalizedPcm[n] - originalPcm[n] * normalizedPeak / originalPeak) < 1.0e-6f && ok;
-                    clickAt(1000.0, I::row(20)); plugin->on_main_thread(plugin); redraw();
+                    clickAt(1000.0, inspectorY(7)); plugin->on_main_thread(plugin); redraw();
                     ok = savedState().bytes == afterNormalize.bytes && ok;
                     captureNeonPage(@"sample-neon.normalized-source.pdf");
                     MemoryPluginState recalledNormalize = afterNormalize;
@@ -4512,7 +4634,7 @@ int main(int argc, char** argv)
                 ok = waveLoaded && ok;
                 if (waveProcessing) plugin->stop_processing(plugin);
                 if (waveActive) plugin->deactivate(plugin);
-                redraw(); clickAt(456.0, 588.0); // EDIT.
+                redraw(); selectPlay(true); // EDIT.
                 waveChoice(0u);
                 const auto beforeView = savedState();
                 const auto combined = waveformPixels();
@@ -4530,8 +4652,8 @@ int main(int argc, char** argv)
             MemoryPluginState lanesFixture;
             if (ok) {
                 failureStage = "Sample Neon stack source editing, scan menu and embedded recall";
-                clickAt(278.0, 588.0); clickAt(278.0, 636.0); clickAt(456.0, 588.0); // A1 / EDIT.
-                inspectorChoice(3u, 3u); // SAMPLE STACK.
+                selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true); // A1 / EDIT.
+                inspectorChoice(0, 0); // SAMPLE STACK.
                 S3GSmokeDropWindow* dropWindow = [[S3GSmokeDropWindow alloc] initWithContentRect:[parent bounds]
                     styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
                 [dropWindow setReleasedWhenClosed:NO]; [dropWindow setContentView:parent];
@@ -4555,22 +4677,102 @@ int main(int argc, char** argv)
                 }
                 ok = twoLayers && ok; redraw();
                 if (!twoLayers) std::cerr << "Stack append count missing; saved bytes=" << savedState().bytes.size() << " prefix=" << fixture.bytes.size() << '\n';
-                clickAt(I::columnLeft(1u, 4u) + 20.0, I::row(12)); // Edit layer 2.
-                clickAt(I::controlLeft + I::trackWidth * 0.25, I::row(7));
+                clickAt(I::columnLeft(1u, 4u) + 20.0, inspectorY(9)); // Edit layer 2.
+                clickAt(I::controlLeft + I::trackWidth * 0.25, inspectorY(4));
                 double layerTrim = 0.0, primaryTrim = -1.0, recalledTrim = -1.0;
                 params->get_value(plugin, 1003u, &layerTrim);
-                clickAt(I::columnLeft(0u, 4u) + 20.0, I::row(12));
+                clickAt(I::columnLeft(0u, 4u) + 20.0, inspectorY(9));
                 params->get_value(plugin, 1003u, &primaryTrim);
-                clickAt(I::columnLeft(1u, 4u) + 20.0, I::row(12));
+                clickAt(I::columnLeft(1u, 4u) + 20.0, inspectorY(9));
                 params->get_value(plugin, 1003u, &recalledTrim);
                 ok = layerTrim > 0.1 && primaryTrim == 0.0 && recalledTrim == layerTrim && ok;
                 if (!(layerTrim > 0.1 && primaryTrim == 0.0 && recalledTrim == layerTrim))
                     std::cerr << "Stack layer trim=" << layerTrim << " primary=" << primaryTrim << " recalled=" << recalledTrim << '\n';
-                inspectorChoice(2u, 1u); // Motion; then return to the stack editor.
-                inspectorChoice(3u, 3u); inspectorChoice(4u, 4u); // Continuous stack scan.
+                choosePlaybackView(1u); // Motion; then return to the stack editor.
+                inspectorChoice(0, 0); padChoice(2, 4u); // Continuous stack scan.
                 clickAt(586.0, 24.0); clickAt(586.0, 31.5 + 18.0 * 2.5); // EMBED.
                 const auto stackSound = savedState();
                 lanesFixture = stackSound;
+                // Three normalization scopes use the real main-thread editor
+                // workflow, including a selection change before the callback.
+                {
+                    failureStage = "Sample Neon stack normalization scopes and persistent PAD toolbox";
+                    struct LayerPcm { size_t data = 0; unsigned channels = 0, frames = 0; };
+                    const auto stackPcm = [&](const MemoryPluginState& sound) {
+                        std::array<LayerPcm, 1025> result {};
+                        size_t at = fixture.bytes.size() + 1;
+                        for (unsigned pad = 0; pad < 32; ++pad) {
+                            if (at + 12 > sound.bytes.size()) { ok = false; return result; }
+                            const unsigned count = sound.bytes[at]; at += 12;
+                            for (unsigned layer = 0; layer < count; ++layer) {
+                                at += 305;
+                                if (at + 4 > sound.bytes.size()) { ok = false; return result; }
+                                uint32_t length; std::memcpy(&length, sound.bytes.data() + at, 4); at += 4 + length;
+                            }
+                        }
+                        for (unsigned i = 0; i < result.size(); ++i) {
+                            if (at + 16 > sound.bytes.size()) { ok = false; return result; }
+                            uint32_t channels, frames; std::memcpy(&channels, sound.bytes.data()+at,4);
+                            std::memcpy(&frames,sound.bytes.data()+at+4,4); at += 16;
+                            if (channels == UINT32_MAX) {
+                                if (frames >= i) { ok = false; return result; }
+                                result[i] = result[frames];
+                            } else {
+                                result[i] = {at, channels, frames}; at += size_t(channels) * frames * 4;
+                                if (at > sound.bytes.size()) { ok = false; return result; }
+                            }
+                        }
+                        return result;
+                    };
+                    auto normalizeFixture = stackSound;
+                    auto locations = stackPcm(normalizeFixture);
+                    ok = locations[0].channels == 16 && locations[1].channels == 16
+                        && locations[0].data != locations[1].data && ok;
+                    if (ok) for (size_t n = 0; n < size_t(locations[1].channels) * locations[1].frames; ++n) {
+                        float value; auto* at = normalizeFixture.bytes.data()+locations[1].data+n*4;
+                        std::memcpy(&value,at,4); value *= .25f; std::memcpy(at,&value,4);
+                    }
+                    const auto peak = [&](const MemoryPluginState& sound, LayerPcm pcm) {
+                        float result = 0;
+                        for (size_t n=0; n<size_t(pcm.channels)*pcm.frames; ++n) {
+                            float value; std::memcpy(&value,sound.bytes.data()+pcm.data+n*4,4); result=std::max(result,std::abs(value));
+                        }
+                        return result;
+                    };
+                    const float originalPeak = peak(normalizeFixture,locations[0]);
+                    for (unsigned scope=0; ok && scope<3; ++scope) {
+                        normalizeFixture.offset=0; clap_istream_t recall {&normalizeFixture,stateReadWhole};
+                        ok = state->load(plugin,&recall) && ok;
+                        selectPlay(); clickAt(M::pageCenter(0), M::banks); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                        inspectorChoice(0,0); padChoice(3,1); inspectorChoice(6,scope);
+                        const auto beforeView = regionPixels(I::left,inspectorY(0)-10,I::width,20);
+                        padChoice(1,3); // Grains changes sound but must retain Source / Stack.
+                        ok = beforeView == regionPixels(I::left,inspectorY(0)-10,I::width,20) && ok;
+                        clickAt(I::left+100,inspectorY(7));
+                        if (scope == 0) padChoice(3,0); // Normalize must target the layer at click time.
+                        plugin->on_main_thread(plugin); redraw();
+                        const auto normalized = savedState(); const auto pcm = stackPcm(normalized);
+                        const float target = std::pow(10.f,-1.f/20.f);
+                        ok = std::abs(peak(normalized,pcm[0]) - (scope ? target : originalPeak)) < 1e-6
+                            && std::abs(peak(normalized,pcm[1]) - (scope == 2 ? target*.25f : target)) < 1e-6
+                            && normalized.bytes[fixture.bytes.size()+2] == (scope ? 1 : 0) && ok;
+                        for (unsigned layer=0; layer<2; ++layer) {
+                            const double gain = (scope == 0 && layer == 0) ? 1 : target / originalPeak * ((scope != 2 && layer == 1) ? 4 : 1);
+                            ok = pcm[layer].channels == locations[layer].channels && pcm[layer].frames == locations[layer].frames && ok;
+                            for (size_t n=0; ok && n<size_t(pcm[layer].channels)*pcm[layer].frames; ++n) {
+                                float before,after; std::memcpy(&before,normalizeFixture.bytes.data()+locations[layer].data+n*4,4);
+                                std::memcpy(&after,normalized.bytes.data()+pcm[layer].data+n*4,4);
+                                ok = std::abs(after-before*gain)<1e-6 && ok;
+                            }
+                        }
+                        auto roundtrip=normalized; roundtrip.offset=0; clap_istream_t saved {&roundtrip,stateReadWhole};
+                        ok=state->load(plugin,&saved) && savedState().bytes==normalized.bytes && ok;
+                        captureNeonPage(scope == 2 ? @"sample-neon.normalize-balanced.pdf" : @"sample-neon.normalize-stack.pdf");
+                    }
+                    auto restore=stackSound; restore.offset=0; clap_istream_t saved {&restore,stateReadWhole};
+                    ok=state->load(plugin,&saved) && ok; redraw();
+                    if (!ok) std::cerr << "Stack normalization workflow failed\n";
+                }
                 ok = stackSound.bytes[4] == 15u && stackSound.bytes[fixture.bytes.size()] == 2u
                     && stackSound.bytes[fixture.bytes.size() + 2u] == 1u
                     && stackSound.bytes[fixture.bytes.size() + 3u] == 4u && ok;
@@ -4588,8 +4790,8 @@ int main(int argc, char** argv)
                         timestamp:0.0 windowNumber:[clipboardWindow windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1.0]];
                     [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, NSMakePoint(x * scale, y * scale))]; redraw();
                 };
-                contextClick(278.0, 636.0); clickAt(300.0, 645.0);
-                contextClick(367.0, 636.0); clickAt(385.0, 663.0);
+                contextClick(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); clickAt(std::min(M::padX(0)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(0)+M::padHeight*.5+9);
+                contextClick(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); clickAt(std::min(M::padX(1)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(1)+M::padHeight*.5+27);
                 [parent removeFromSuperview]; [clipboardWindow close]; [clipboardWindow release];
                 const auto copiedStack = savedState();
                 ok = copiedStack.bytes.size() > stackSound.bytes.size() && ok;
@@ -4612,13 +4814,13 @@ int main(int argc, char** argv)
                 if (active) plugin->deactivate(plugin);
                 if (ok) {
                     failureStage = "Sample Neon CHOP commits slices to a new pad layer stack";
-                    clickAt(278.0, 588.0); clickAt(278.0, 636.0); clickAt(456.0, 588.0);
-                    inspectorChoice(2u, 0u); inspectorChoice(3u, 3u); inspectorChoice(5u, 0u); // Sample / stack / primary edit layer.
-                    clickAt(367.0, 588.0);
-                    clickAt(110.0, 98.0); clickAt(110.0, 151.0); // Equal.
-                    clickAt(239.0, 98.0); clickAt(310.0, 115.0); // Two slices.
-                    inspectorChoice(7u, 1u); chopTarget(32u); // One stack, first empty destination.
-                    clickAt(1008.0, I::row(10u)); plugin->on_main_thread(plugin); redraw();
+                    selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                    choosePlaybackView(0u); inspectorChoice(0, 0); padChoice(3, 0u); // Sample / stack / primary edit layer.
+                    selectWorkspace(1);
+                    clickAt(110.0, W::actionCenter); clickAt(110.0, 131.0); // Equal.
+                    clickAt(239.0, W::actionCenter); clickAt(310.0, 95.0); // Two slices.
+                    inspectorChoice(6u, 1u); chopTarget(32u); // One stack, first empty destination.
+                    clickAt(1008.0, inspectorY(9u)); plugin->on_main_thread(plugin); redraw();
                     const auto slicedStack = savedState();
                     const auto layerCount = [&](const MemoryPluginState& sound, unsigned target) -> unsigned {
                         size_t at = fixture.bytes.size() + 1u;
@@ -4642,41 +4844,41 @@ int main(int argc, char** argv)
                     captureNeonPage(@"sample-neon.slice-to-stack.pdf");
                     if (ok) {
                         failureStage = "Sample Neon explicit CHOP pad/layer destinations and occupied-pad protection";
-                        clickAt(278.0, 588.0); clickAt(278.0, 636.0); clickAt(367.0, 588.0); // A1 CHOP.
-                        inspectorChoice(7u, 0u); chopTarget(7u); // Pads starting A8, across to B1.
+                        selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectWorkspace(1); // A1 CHOP.
+                        inspectorChoice(6u, 0u); chopTarget(7u); // Pads starting A8, across to B1.
                         const auto beforeTargets = savedState();
-                        clickAt(1008.0, I::row(10u)); plugin->on_main_thread(plugin); redraw();
+                        clickAt(1008.0, inspectorY(9u)); plugin->on_main_thread(plugin); redraw();
                         const auto acrossBanks = savedState();
                         ok = layerCount(acrossBanks, 7u) == 1u && layerCount(acrossBanks, 8u) == 1u
                             && layerCount(acrossBanks, 6u) == 0u && layerCount(acrossBanks, 9u) == 0u
                             && layerCount(acrossBanks, 0u) == 2u && acrossBanks.bytes != beforeTargets.bytes && ok;
                         // A7 is empty but A8 is occupied: reject the entire pair.
                         chopTarget(6u); const auto beforeBlocked = savedState();
-                        clickAt(1008.0, I::row(10u)); plugin->on_main_thread(plugin); redraw();
+                        clickAt(1008.0, inspectorY(9u)); plugin->on_main_thread(plugin); redraw();
                         ok = savedState().bytes == beforeBlocked.bytes && ok;
                         captureNeonPage(@"sample-neon.chop-occupied-range.pdf");
                         // D8 cannot hold two consecutive pads. Assign One still can.
                         chopTarget(31u); const auto beforeEnd = savedState();
-                        clickAt(1008.0, I::row(10u)); plugin->on_main_thread(plugin); redraw();
+                        clickAt(1008.0, inspectorY(9u)); plugin->on_main_thread(plugin); redraw();
                         ok = savedState().bytes == beforeEnd.bytes && ok;
-                        clickAt(1008.0, I::row(9u)); plugin->on_main_thread(plugin); redraw();
+                        clickAt(1008.0, inspectorY(8u)); plugin->on_main_thread(plugin); redraw();
                         ok = layerCount(savedState(), 31u) == 1u && ok;
                         // The target is snapshotted with the queued assignment:
                         // changing the menu before its callback cannot redirect it.
-                        inspectorChoice(7u, 1u); chopTarget(18u); // C3 stack.
+                        inspectorChoice(6u, 1u); chopTarget(18u); // C3 stack.
                         captureNeonPage(@"sample-neon.chop-stack-target.pdf");
-                        clickAt(1008.0, I::row(10u));
-                        chopTarget(19u); inspectorChoice(7u, 0u);
+                        clickAt(1008.0, inspectorY(9u));
+                        chopTarget(19u); inspectorChoice(6u, 0u);
                         plugin->on_main_thread(plugin); redraw();
                         const auto explicitStack = savedState();
                         ok = layerCount(explicitStack, 18u) == 2u && layerCount(explicitStack, 19u) == 0u && ok;
                         // Explicit source choice replaces only that pad's stack.
-                        clickAt(278.0, 588.0); clickAt(54.0, 638.0); // PLAY, bank A (stack assignment selected bank C).
-                        clickAt(278.0, 636.0); clickAt(367.0, 588.0);
-                        inspectorChoice(7u, 1u); chopTarget(0u);
+                        selectPlay(); clickAt(M::pageCenter(0), M::banks); // PLAY, bank A (stack assignment selected bank C).
+                        clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectWorkspace(1);
+                        inspectorChoice(6u, 1u); chopTarget(0u);
                         captureNeonPage(@"sample-neon.chop-replace-target.pdf");
                         const auto beforeReplace = savedState();
-                        clickAt(1008.0, I::row(10u)); plugin->on_main_thread(plugin); redraw();
+                        clickAt(1008.0, inspectorY(9u)); plugin->on_main_thread(plugin); redraw();
                         const auto replaced = savedState();
                         double replacedStart = -1.0, replacedEnd = -1.0;
                         ok = layerCount(replaced, 0u) == 2u && layerCount(replaced, 18u) == 2u
@@ -4684,7 +4886,7 @@ int main(int argc, char** argv)
                             && params->get_value(plugin, 1003u, &replacedStart) && replacedStart == 0.0
                             && params->get_value(plugin, 1004u, &replacedEnd) && replacedEnd == 1.0 && ok;
                         if (!ok) std::cerr << "CHOP explicit targets/range protection failed\n";
-                        chopTarget(32u); inspectorChoice(7u, 0u);
+                        chopTarget(32u); inspectorChoice(6u, 0u);
                     }
                 }
                 if (ok) {
@@ -4695,8 +4897,8 @@ int main(int argc, char** argv)
                     std::memcpy(scanRecall.bytes.data() + fixture.bytes.size() + 5u, &cycle, sizeof(cycle));
                     clap_istream_t scanInput {&scanRecall, stateReadWhole};
                     ok = state->load(plugin, &scanInput) && ok;
-                    clickAt(278.0, 588.0); clickAt(278.0, 636.0); clickAt(456.0, 588.0);
-                    inspectorChoice(3u, 3u);
+                    selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                    inspectorChoice(0, 0);
                     const bool scanActive = plugin->activate(plugin, 48000.0, 1u, 64u);
                     const bool scanRunning = scanActive && plugin->start_processing(plugin);
                     block.in_events = &input;
@@ -4706,11 +4908,12 @@ int main(int argc, char** argv)
                         }
                         redraw();
                     };
+                    clickAt(416.0,W::viewCenter); clickAt(416.0,141.0); // FOLLOW STACK.
                     advance(15u); const auto nearPrimary = overviewPixels();
                     advance(85u); const auto nearSecond = overviewPixels();
                     ok = scanRunning && nearPrimary != nearSecond && ok;
                     captureNeonPage(@"sample-neon.follow-stack.pdf");
-                    clickAt(416.0, 98.0); clickAt(416.0, 137.0); // EDIT LAYER.
+                    clickAt(416.0, W::viewCenter); clickAt(416.0, 159.0); // EDIT LAYER.
                     const auto fixedLayer = overviewPixels(); advance(80u);
                     ok = fixedLayer == overviewPixels() && ok;
                     const auto unchangedEdit = savedState();
@@ -4722,9 +4925,9 @@ int main(int argc, char** argv)
                     if (scanRunning) plugin->stop_processing(plugin);
                     if (scanActive) plugin->deactivate(plugin);
                     failureStage = "Sample Neon discrete source modes follow the playing waveform without moving edit selection";
-                    clickAt(416.0, 98.0); clickAt(416.0, 119.0); // FOLLOW STACK.
+                    clickAt(416.0, W::viewCenter); clickAt(416.0, 141.0); // FOLLOW STACK.
                     for (unsigned technique : {0u, 1u, 2u, 4u}) {
-                        inspectorChoice(2u, technique); inspectorChoice(3u, 3u);
+                        choosePlaybackView(technique); inspectorChoice(0, 0);
                         const bool discreteActive = plugin->activate(plugin, 48000.0, 1u, 64u);
                         const bool discreteRunning = discreteActive && plugin->start_processing(plugin);
                         // Changing technique queues an edit audition. Drain it
@@ -4740,23 +4943,23 @@ int main(int argc, char** argv)
                             }
                             redraw(); return overviewPixels();
                         };
-                        inspectorChoice(4u, 0u); const auto primaryWave = triggerWave(1.0);
+                        padChoice(2, 0u); const auto primaryWave = triggerWave(1.0);
                         if (technique == 0u) captureNeonPage(@"sample-neon.follow-primary.pdf");
-                        inspectorChoice(4u, 1u); const auto selectedWave = triggerWave(1.0);
+                        padChoice(2, 1u); const auto selectedWave = triggerWave(1.0);
                         if (technique == 0u) captureNeonPage(@"sample-neon.follow-selected.pdf");
                         bool modesFollow = discreteRunning && primaryWave != selectedWave;
-                        inspectorChoice(4u, 2u); // Velocity must follow low and high strikes.
+                        padChoice(2, 2u); // Velocity must follow low and high strikes.
                         const bool lowFollows = triggerWave(0.1) == primaryWave;
                         const bool highFollows = triggerWave(1.0) == selectedWave;
                         modesFollow = lowFollows && highFollows && modesFollow;
-                        inspectorChoice(4u, 3u);
+                        padChoice(2, 3u);
                         bool primarySeen = false, selectedSeen = false;
                         for (unsigned hit = 0u; hit < 32u; ++hit) {
                             const auto randomWave = triggerWave(1.0);
                             primarySeen |= randomWave == primaryWave; selectedSeen |= randomWave == selectedWave;
                             modesFollow = (randomWave == primaryWave || randomWave == selectedWave) && modesFollow;
                         }
-                        clickAt(416.0, 98.0); clickAt(416.0, 137.0); // EDIT LAYER remains fixed in all modes.
+                        clickAt(416.0, W::viewCenter); clickAt(416.0, 159.0); // EDIT LAYER remains fixed in all modes.
                         const auto fixed = overviewPixels();
                         bool fixedStayed = true;
                         for (unsigned hit = 0u; hit < 4u; ++hit) fixedStayed = triggerWave(1.0) == fixed && fixedStayed;
@@ -4772,18 +4975,18 @@ int main(int argc, char** argv)
                                 << " selected=" << unsigned(afterHits.bytes[fixture.bytes.size() + 2u])
                                 << " random=" << primarySeen << '/' << selectedSeen << " trim=" << afterTrim << '\n';
                         ok = modesFollow && primarySeen && selectedSeen && ok;
-                        clickAt(416.0, 98.0); clickAt(416.0, 119.0);
+                        clickAt(416.0, W::viewCenter); clickAt(416.0, 141.0);
                         if (technique == 2u) captureNeonPage(@"sample-neon.follow-random-grains.pdf");
                         if (discreteRunning) plugin->stop_processing(plugin);
                         if (discreteActive) plugin->deactivate(plugin);
                     }
                     note.velocity = 1.0;
-                    inspectorChoice(4u, 4u); // Return to STACK SCAN for the technique transition check.
+                    padChoice(2, 4u); // Return to STACK SCAN for the technique transition check.
                     // Switching to Stretch retains STACK SCAN; Sequence commits
                     // to primary and restores that source's editing context.
-                    inspectorChoice(2u, 4u); inspectorChoice(3u, 3u);
+                    choosePlaybackView(4u); inspectorChoice(0, 0);
                     ok = savedState().bytes[fixture.bytes.size() + 3u] == 4u && ok;
-                    inspectorChoice(2u, 3u); plugin->on_main_thread(plugin); redraw();
+                    choosePlaybackView(3u); plugin->on_main_thread(plugin); redraw();
                     const auto sequence = savedState();
                     ok = sequence.bytes[fixture.bytes.size() + 2u] == 0u && sequence.bytes[fixture.bytes.size() + 3u] == 0u && ok;
                 }
@@ -4839,7 +5042,7 @@ int main(int argc, char** argv)
                     });
                 };
                 const auto floatRow = [&](unsigned row, size_t offset, double expected) {
-                    fieldReset(sliderX, I::row(row), offset, expected);
+                    fieldReset(sliderX, inspectorY(row), offset, expected);
                 };
                 const size_t modernOffset = clockOffset + playbackBytes;
                 const size_t envelopeOffset = modernOffset + 32u * 36u * sizeof(float);
@@ -4849,47 +5052,116 @@ int main(int argc, char** argv)
                 const size_t shotOffset = durationOffset + 32u * sizeof(float);
                 const size_t intervalOffset = shotOffset + 32u * sizeof(float);
                 const size_t grainOffset = textureOffset + 64u + 5u * 32u * sizeof(float);
-                const auto playback = [&](unsigned method) { inspectorChoice(2u, method); plugin->on_main_thread(plugin); redraw(); };
-                clickAt(278.0, 588.0); clickAt(278.0, 636.0); clickAt(456.0, 588.0);
-                playback(0u); inspectorChoice(3u, 0u);
+                const auto playback = [&](unsigned method) { choosePlaybackView(method); plugin->on_main_thread(plugin); redraw(); };
+                selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                playback(0u); inspectorChoice(0, 0);
                 setValue(1016u, 0.0); setValue(1017u, 0.0); setValue(1015u, 0.0);
-                // Source trim, logarithmic cutoff and all host-backed edit sliders.
-                for (const auto rowAndId : std::array<std::pair<unsigned, clap_id>, 9u>{{
-                    {4u,1000u},{6u,1002u},{8u,1004u},{7u,1003u},{9u,1005u},
-                    {10u,1006u},{11u,1007u},{12u,1009u},{13u,1010u}}})
-                    paramReset(sliderX, I::row(rowAndId.first), rowAndId.second);
-                // A multichannel source's disabled pan must ignore both clicks.
+                // Persistent host controls and source, engine, FX, routing defaults.
+                paramReset(P::controlLeft + P::trackWidth * .73, P::row(5), 1000u);
+                paramReset(P::controlLeft + P::trackWidth * .73, P::row(6), 1002u);
+                paramReset(sliderX, inspectorY(5), 1004u); paramReset(sliderX, inspectorY(4), 1003u);
+                inspectorChoice(0,1);
+                paramReset(sliderX,inspectorY(4),1005u); paramReset(sliderX,inspectorY(5),1006u); paramReset(sliderX,inspectorY(6),1007u);
+                inspectorChoice(0,3);
+                paramReset(sliderX,inspectorY(3),1009u); paramReset(sliderX,inspectorY(5),1010u);
+                inspectorChoice(0,4);
                 const double panBefore = paramValue(1001u);
-                clickAt(sliderX, I::row(5)); doubleClickAt(sliderX, I::row(5));
+                clickAt(sliderX,inspectorY(5)); doubleClickAt(sliderX,inspectorY(5));
                 ok = paramValue(1001u) == panBefore && ok;
+                inspectorChoice(0,0);
                 // Cursor and zoom on SOURCE; zoom is view-only, so compare its overview.
-                fieldReset(752.0, 634.0, positionOffset, 0.0, true);
-                doubleClickAt(157.0, 605.0); const auto fit = overviewPixels();
-                clickAt(157.0, 605.0); const auto zoomed = overviewPixels();
-                doubleClickAt(157.0, 605.0);
+                fieldReset(P::controlLeft+P::trackWidth*.73, M::loop, positionOffset, 0.0, true);
+                doubleClickAt(P::controlLeft+P::trackWidth*.73, M::trax); const auto fit = overviewPixels();
+                clickAt(P::controlLeft+P::trackWidth*.73, M::trax); const auto zoomed = overviewPixels();
+                doubleClickAt(P::controlLeft+P::trackWidth*.73, M::trax);
                 ok = fit != zoomed && fit == overviewPixels() && ok;
+                failureStage = "Sample Neon unified PLAY and independent encoder assignment";
+                const auto playExpect = [&](bool pass, const char* message) {
+                    if (!pass) std::cerr << "PLAY: " << message << '\n';
+                    ok = pass && ok;
+                };
+                const auto beforeAssignment = savedState();
+                const auto primaryPads = regionPixels(M::pageLeft,M::padTop,P::width,2*M::padHeight+M::padGapY);
+                encoderAssignment(false);
+                playExpect(savedState().bytes == beforeAssignment.bytes, "encoder menu changed saved sound");
+                selectWorkspace(0); selectWorkspace(0);
+                playExpect(regionPixels(M::pageLeft,M::padTop,P::width,2*M::padHeight+M::padGapY) == primaryPads, "repeated PLAY changed primary pads");
+                const auto cursorValue = [&] {
+                    auto sound = savedState(); double value = -1;
+                    std::memcpy(&value, sound.bytes.data() + positionOffset, sizeof(value));
+                    return value;
+                };
+                // Wave editing is available even with PERFORM encoders.
+                clickAt(430, 270);
+                playExpect(cursorValue() > .45 && cursorValue() < .55, "PERFORM waveform cursor unavailable");
+                encoderAssignment(true); doubleClickAt(P::controlLeft+P::trackWidth*.73, M::loop);
+                const double priorNeonOwner = paramValue(5);
+                setValue(5, 1); // Decode synthetic hardware input; direct CoreMIDI is disabled by the test environment.
+                const bool encoderActive = plugin->activate(plugin, 48000, 1, 64);
+                const bool encoderRunning = encoderActive && plugin->start_processing(plugin);
+                playExpect(encoderRunning, "could not activate encoder test");
+                block.in_events = nullptr; block.out_events = nullptr;
+                if (encoderRunning) { plugin->process(plugin, &block); plugin->reset(plugin); }
+                const auto sendEncoderMidi = [&](uint8_t status, uint8_t key, uint8_t value = 127) {
+                    clap_event_midi_t event {};
+                    event.header = {sizeof(event), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0};
+                    event.data[0] = status; event.data[1] = key; event.data[2] = value;
+                    clap_input_events_t midiInput {};
+                    midiInput.ctx = &event;
+                    midiInput.size = [](const clap_input_events_t*) -> uint32_t { return 1; };
+                    midiInput.get = [](const clap_input_events_t* events, uint32_t index) -> const clap_event_header_t* {
+                        return index == 0 ? &static_cast<const clap_event_midi_t*>(events->ctx)->header : nullptr;
+                    };
+                    block.in_events = &midiInput;
+                    if (encoderRunning) ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                    block.in_events = nullptr; redraw();
+                };
+                setValue(1000, 0);
+                sendEncoderMidi(0x97, 0); sendEncoderMidi(0x87, 0, 0); // Sampler pad must retain EDIT knobs.
+                sendEncoderMidi(0x93, 0); // Bank A must retain EDIT knobs too.
+                sendEncoderMidi(0xb6, 4, 10);
+                playExpect(std::abs(cursorValue() - .1) < 1e-8 && paramValue(1000) == 0, "Sampler pad/bank lost EDIT assignment");
+                selectWorkspace(1); selectWorkspace(0); // Returning to PLAY remembers the assignment.
+                sendEncoderMidi(0xb6, 4, 10);
+                playExpect(std::abs(cursorValue() - .2) < 1e-8 && paramValue(1000) == 0, "return to PLAY lost EDIT assignment");
+                encoderAssignment(false);
+                sendEncoderMidi(0xb6, 4, 2);
+                playExpect(std::abs(cursorValue() - .2) < 1e-8 && paramValue(1000) == 1, "PERFORM menu did not restore gain encoder");
+                sendEncoderMidi(0x93, 7); // Physical Hot Cue now navigates the stack without editing the source cursor.
+                sendEncoderMidi(0xb6, 4, 10);
+                playExpect(std::abs(cursorValue() - .2) < 1e-8 && paramValue(1000) == 1, "STACK encoder changed trim cursor/gain");
+                sendEncoderMidi(0x93, 5); // Physical Sampler restores PERFORM.
+                sendEncoderMidi(0xb6, 4, 2);
+                playExpect(std::abs(cursorValue() - .2) < 1e-8 && paramValue(1000) == 2, "physical Sampler did not select PERFORM encoders");
+                if (encoderRunning) plugin->stop_processing(plugin);
+                if (encoderActive) plugin->deactivate(plugin);
+                setValue(5, priorNeonOwner);
+                setValue(1000, 0); encoderAssignment(true); doubleClickAt(P::controlLeft+P::trackWidth*.73, M::loop);
+                captureNeonPage(@"sample-neon.play-edit-encoders.pdf");
+                if (!ok) std::cerr << "Unified PLAY / encoder assignment regression failed\n";
+                failureStage = "Sample Neon slider defaults across playback methods";
                 for (unsigned method : {1u, 2u, 4u}) {
                     playback(method); inspectorChoice(5u, 0u);
                     if (method != 4u) {
                         floatRow(6u, shotOffset, 1.0);
-                        fieldReset(sliderX, I::row(7u), positionOffset, 0.0, true);
+                        fieldReset(sliderX, inspectorY(7u), positionOffset, 0.0, true);
                     }
                     if (method == 2u) {
                         for (const auto rowOffsetDefault : std::array<std::pair<unsigned,double>,5u>{{{0u,12.0},{1u,80.0},{3u,0.15},{4u,0.0},{5u,0.0}}}) {
                             const unsigned n = rowOffsetDefault.first;
                             floatRow(n < 2u ? 8u + n : 7u + n, grainOffset + n * 32u * sizeof(float), rowOffsetDefault.second);
                         }
-                        fieldReset(157.0,605.0,grainOffset,12.0);
-                        fieldReset(752.0,634.0,grainOffset + 32u * sizeof(float),80.0);
+                        fieldReset(P::controlLeft+P::trackWidth*.73, M::trax,grainOffset,12.0);
+                        fieldReset(P::controlLeft+P::trackWidth*.73, M::loop,grainOffset + 32u * sizeof(float),80.0);
                     } else {
                         floatRow(method == 1u ? 9u : 6u, durationOffset, 4.0);
-                        fieldReset(method == 1u ? 157.0 : 752.0, method == 1u ? 605.0 : 634.0, durationOffset, 4.0);
+                        fieldReset(P::controlLeft+P::trackWidth*.73, method == 1u ? M::trax : M::loop, durationOffset, 4.0);
                     }
-                    const unsigned envelopeRow = method == 1u ? 10u : method == 2u ? 13u : 9u;
+                    const unsigned envelopeRow = method == 1u ? 10u : method == 2u ? 13u : 8u;
                     floatRow(envelopeRow,envelopeOffset,0.005); floatRow(envelopeRow+1u,envelopeOffset+sizeof(float),0.005);
-                    if (method == 4u) paramReset(157.0,605.0,1002u);
+                    if (method == 4u) paramReset(P::controlLeft+P::trackWidth*.73, M::trax,1002u);
                     inspectorChoice(5u,1u); // Synced miniature timing resets to its own beat default.
-                    fieldReset(method == 4u ? 650.0 : 80.0, method == 4u ? 634.0 : 605.0,
+                    fieldReset(P::controlLeft+P::trackWidth*.18, method == 4u ? M::loop : M::trax,
                         method == 2u ? intervalOffset : textureOffset + 64u, method == 2u ? 0.25 : 8.0);
                 }
                 for (unsigned method : {3u,5u}) {
@@ -4899,42 +5171,69 @@ int main(int argc, char** argv)
                     floatRow(method == 3u ? 7u : 5u,technique,0.35);
                     floatRow(method == 3u ? 9u : 6u,technique + (method == 3u ? 2u : 1u) * sizeof(float),0.0);
                     floatRow(method == 3u ? 10u : 8u,technique + 3u * sizeof(float),1.0);
-                    fieldReset(752.0,634.0,technique,0.35);
-                    fieldReset(157.0,605.0,technique + (method == 3u ? 2u : 1u) * sizeof(float),0.0);
+                    fieldReset(P::controlLeft+P::trackWidth*.73, M::loop,technique,0.35);
+                    fieldReset(P::controlLeft+P::trackWidth*.73, M::trax,technique + (method == 3u ? 2u : 1u) * sizeof(float),0.0);
                 }
-                playback(1u); inspectorChoice(3u,3u); inspectorChoice(4u,4u); inspectorChoice(9u,0u);
-                floatRow(10u,fixture.bytes.size()+5u,4.0);
-                fieldReset(157.0,605.0,fixture.bytes.size()+5u,4.0);
-                clickAt(752.0,634.0); plugin->on_main_thread(plugin); redraw();
+                playback(1u); inspectorChoice(0, 2); padChoice(2,4u); inspectorChoice(10u,0u);
+                floatRow(11u,fixture.bytes.size()+5u,4.0);
+                fieldReset(P::controlLeft+P::trackWidth*.73, M::trax,fixture.bytes.size()+5u,4.0);
+                clickAt(P::controlLeft+P::trackWidth*.73, M::loop); plugin->on_main_thread(plugin); redraw();
                 ok = savedState().bytes[fixture.bytes.size()+2u] == 1u && ok;
-                doubleClickAt(752.0,634.0);
+                doubleClickAt(P::controlLeft+P::trackWidth*.73, M::loop);
                 ok = savedState().bytes[fixture.bytes.size()+2u] == 0u && ok;
-                inspectorChoice(9u,1u); fieldReset(80.0,605.0,fixture.bytes.size()+9u,8.0);
-                inspectorChoice(3u,2u); // CHARACTER FX.
-                for (unsigned effect = 0u; effect < 8u; ++effect) {
-                    inspectorChoice(4u,effect);
-                    for (unsigned n = 0u; n < 3u; ++n) {
-                        const size_t offset = modernOffset + (effect * 3u + n) * sizeof(float);
-                        float expected; std::memcpy(&expected,fixture.bytes.data()+offset,sizeof(expected));
-                        if (!((effect == 0u && n == 0u) || (effect == 3u && n == 1u))) floatRow(7u+n,offset,expected);
-                        inspectorChoice(10u,n == 2u ? 1u : 0u);
-                        fieldReset(n == 1u ? 157.0 : 752.0,n == 1u ? 605.0 : 634.0,offset,expected);
+                inspectorChoice(10u,1u); fieldReset(P::controlLeft+P::trackWidth*.25, M::trax,fixture.bytes.size()+9u,8.0);
+                inspectorChoice(0, 3); // CHARACTER FX: real controls, values and named encoder pairs.
+                using namespace s3g::sample;
+                constexpr size_t fxExtraBytes = 32*8*(kNeonCharacterControls-3)*sizeof(float);
+                const auto readFx = [&](unsigned effect,unsigned n) {
+                    const auto sound = savedState();
+                    if (sound.bytes[4]<21) return double(neonCharacterDefaults(effect)[n]);
+                    const size_t offset = n<3 ? modernOffset+(effect*3+n)*sizeof(float)
+                        : sound.bytes.size()-fxExtraBytes+(effect*(kNeonCharacterControls-3)+n-3)*sizeof(float);
+                    float value; std::memcpy(&value,sound.bytes.data()+offset,sizeof(value)); return double(value);
+                };
+                for (unsigned effect=0;effect<8;++effect) {
+                    inspectorChoice(2,effect);
+                    const unsigned count = kNeonCharacterCounts[effect];
+                    for (unsigned n=0;n<count;++n) {
+                        const auto& d = kNeonCharacterDefs[effect][n];
+                        if (*d.choices) {
+                            const unsigned selected = static_cast<unsigned>(neonCharacterDisplay(effect,n,d.initial));
+                            const unsigned other = (selected+1)%(static_cast<unsigned>(d.maximum)+1);
+                            inspectorChoice(6+n,other);
+                            ok = std::abs(readFx(effect,n)-neonCharacterNormalized(effect,n,other))<1e-6 && ok;
+                            inspectorChoice(6+n,selected);
+                        } else checkReset(sliderX,I::row(6+n),d.initial,[&]{return readFx(effect,n);});
                     }
+                    checkReset(sliderX,I::row(4),.75,[&]{return readFx(effect,11);});
+                    for (unsigned pair=0;pair<kNeonCharacterPairCounts[effect];++pair) {
+                        inspectorChoice(6+count,pair);
+                        for (bool loop : {true,false}) {
+                            const unsigned n=neonCharacterKnob(effect,pair,loop);
+                            if(n==12) paramReset(P::controlLeft+P::trackWidth*.73,loop?M::loop:M::trax,1009u);
+                            else if(!*kNeonCharacterDefs[effect][n].choices)
+                                checkReset(P::controlLeft+P::trackWidth*.73,loop?M::loop:M::trax,kNeonCharacterDefs[effect][n].initial,[&]{return readFx(effect,n);});
+                        }
+                    }
+                    captureNeonPage([NSString stringWithFormat:@"sample-neon.fx-%u.pdf",effect]);
+                    clickAt(I::left+60,I::row(7+count)); // Reset only this effect.
+                    for(unsigned n=0;n<kNeonCharacterControls;++n)
+                        ok = std::abs(readFx(effect,n)-neonCharacterDefaults(effect)[n])<1e-6 && ok;
                 }
-                paramReset(157.0,605.0,1009u); // Alternate FX encoder pair, amount.
-                clickAt(367.0,588.0); clickAt(110.0,98.0); clickAt(110.0,133.0); // CHOP transients.
+                captureNeonPage(@"sample-neon.character-fx.pdf");
+                selectWorkspace(1); clickAt(110.0, W::actionCenter); clickAt(110.0, 113.0); // CHOP transients.
                 floatRow(4u,preRollOffset,0.0);
-                clickAt(110.0,98.0); clickAt(110.0,169.0); // Beat-grid BPM and trim must regenerate slices.
-                fieldReset(sliderX,I::row(5u),bpmOffset,120.0,true);
-                paramReset(sliderX,I::row(2u),1003u);
-                paramReset(sliderX,I::row(3u),1004u);
-                clickAt(278.0,588.0);
-                paramReset(157.0,605.0,3u); // Global Mangle.
-                paramReset(728.0,629.0,1000u);
-                paramReset(728.0,702.0,2u); // Master.
+                clickAt(110.0, W::actionCenter); clickAt(110.0, 149.0); // Beat-grid BPM and trim must regenerate slices.
+                fieldReset(sliderX,inspectorY(5u),bpmOffset,120.0,true);
+                paramReset(sliderX,inspectorY(2u),1003u);
+                paramReset(sliderX,inspectorY(3u),1004u);
+                selectPlay();
+                paramReset(P::controlLeft+P::trackWidth*.73, M::trax,3u); // Global Mangle.
+                paramReset(P::controlLeft+P::trackWidth*.73, M::loop,1000u);
+                paramReset(P::controlLeft+P::trackWidth*.73, M::master,2u); // Master.
                 // Empty A8 allows pan, without modifying A1's disabled spatial pan.
-                clickAt(545.0,706.0); clickAt(456.0,588.0); playback(0u); inspectorChoice(3u,0u);
-                paramReset(sliderX,I::row(5u),1000u + 7u * 32u + 1u);
+                clickAt(M::padX(7)+M::padWidth*.5, M::padY(7)+M::padHeight*.5); selectPlay(true); playback(0u); inspectorChoice(0, 0);
+                inspectorChoice(0,4); paramReset(sliderX,inspectorY(9u),1000u + 7u * 32u + 1u);
                 std::cerr << "Sample Neon slider reset checks: " << resets << '\n';
                 failureStage = "Sample Neon family controls, breakpoint editing and recall";
                 using F = s3g::sample::NeonFamily;
@@ -4942,45 +5241,61 @@ int main(int argc, char** argv)
                     const auto sound = savedState();
                     const unsigned index = s3g::sample::neonFamilyIndex(key);
                     if (sound.bytes[4] < 16u) return double(s3g::sample::neonFamilyDef(index).initial);
-                    const unsigned count = sound.bytes[4] >= 18 ? s3g::sample::kNeonFamilyCount : s3g::sample::kNeonFamilyV17Count;
+                    const unsigned count = sound.bytes[4] >= 20 ? s3g::sample::kNeonFamilyCount
+                        : sound.bytes[4] >= 18 ? s3g::sample::kNeonFamilyV19Count : s3g::sample::kNeonFamilyV17Count;
                     if (index >= count) return double(s3g::sample::neonFamilyDef(index).initial);
-                    const auto offset = sound.bytes.size() - 32u * count * sizeof(float)
+                    const auto offset = sound.bytes.size() - (sound.bytes[4] >= 19 ? 12u : 0u) - 32u * count * sizeof(float)
                         + (pad * count + index) * sizeof(float);
                     float value; std::memcpy(&value, sound.bytes.data() + offset, sizeof(value)); return double(value);
                 };
                 const auto familyReset = [&](unsigned row, F key) {
-                    checkReset(sliderX, I::row(row), s3g::sample::neonFamilyDef(s3g::sample::neonFamilyIndex(key)).initial,
+                    checkReset(sliderX, inspectorY(row), s3g::sample::neonFamilyDef(s3g::sample::neonFamilyIndex(key)).initial,
                         [&] { return familyRead(key); });
                 };
-                clickAt(278.0,588.0); clickAt(278.0,636.0); clickAt(456.0,588.0);
-                playback(1); inspectorChoice(3,4);
-                inspectorChoice(5,2);
-                ok = familyRead(F::MotionSound) == 2 && ok;
-                familyReset(6,F::PacketRate); familyReset(7,F::PacketDuty); familyReset(8,F::MotorRate);
-                familyReset(10,F::MotorSymmetry); familyReset(11,F::MotionWindow);
+                selectPlay(); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                const auto padFamilyReset = [&](unsigned row, F key) {
+                    checkReset(FG::controlLeft(row) + I::trackWidth * .73, FG::row(row, playbackMethod == 1, static_cast<unsigned>(familyRead(F::MotionSound))),
+                        s3g::sample::neonFamilyDef(s3g::sample::neonFamilyIndex(key)).initial, [&] { return familyRead(key); });
+                };
+                const auto motionSound = [&](unsigned item) {
+                    clickAt(I::controlLeft + I::controlWidth*.5, FG::row(10, true));
+                    clickAt(I::controlLeft + I::controlWidth*.5, FG::row(10, true)+I::menuHeight*.5+I::popupRowHeight*(item+.5));
+                };
+                playback(1);
+                for (unsigned sound = 0; sound < 3; ++sound) {
+                    motionSound(sound);
+                    ok = familyRead(F::MotionSound) == sound && ok;
+                    paramReset(sliderX, I::row(FG::cutoff(true, sound)), 1007u);
+                }
+                motionSound(1);
+                ok = familyRead(F::MotionSound) == 1 && ok;
+                padFamilyReset(11,F::PacketRate); padFamilyReset(12,F::PacketDuty);
+                motionSound(2); padFamilyReset(11,F::MotorRate);
+                padFamilyReset(13,F::MotorSymmetry); padFamilyReset(14,F::MotionWindow);
                 captureNeonPage(@"sample-neon.motion-motor.pdf");
-                inspectorChoice(4,1);
-                familyReset(6,F::MotionLocus); familyReset(7,F::MotionField); familyReset(8,F::MotionTravel); familyReset(9,F::MotionJitter);
-                inspectorChoice(4,2);
-                for (auto item : std::array<std::pair<unsigned,F>,6>{{{6,F::EventRate},{7,F::EventRepeats},{8,F::EventStep},
-                    {9,F::EventPitch},{10,F::EventLevel},{11,F::EventCurve}}}) familyReset(item.first,item.second);
-                playback(2); inspectorChoice(3,5); inspectorChoice(5,1);
+                familyReset(13,F::MotionLocus); familyReset(14,F::MotionField); familyReset(15,F::MotionTravel); familyReset(16,F::MotionJitter);
+                for (auto item : std::array<std::pair<unsigned,F>,3>{{{18,F::EventRate},{19,F::EventRepeats},{20,F::EventStep}}})
+                    familyReset(item.first,item.second);
+                padFamilyReset(17,F::EventPitch); padFamilyReset(18,F::EventLevel); padFamilyReset(19,F::EventCurve);
+                playback(2); inspectorChoice(15,1);
                 ok = familyRead(F::GrainSource) == 1 && ok;
-                familyReset(7,F::GrainRegions); familyReset(8,F::GrainPitch); familyReset(11,F::GrainDensityScale);
-                inspectorChoice(4,1); inspectorChoice(5,3);
+                paramReset(sliderX, I::row(FG::cutoff(false)), 1007u);
+                familyReset(17,F::GrainRegions); familyReset(18,F::GrainPitch); familyReset(20,F::GrainDensityScale);
+                padChoice(10,3);
                 ok = familyRead(F::GrainWindow) == 3 && ok;
-                familyReset(6,F::GrainSkew); familyReset(7,F::GrainSizeScale); familyReset(8,F::GrainSizeVariation);
-                familyReset(9,F::GrainLevelVariation); familyReset(10,F::GrainScatter);
+                padFamilyReset(11,F::GrainSkew); padFamilyReset(12,F::GrainSizeScale); padFamilyReset(13,F::GrainSizeVariation);
+                padFamilyReset(14,F::GrainLevelVariation); padFamilyReset(15,F::GrainScatter);
                 captureNeonPage(@"sample-neon.grain-window.pdf");
-                inspectorChoice(4,2); inspectorChoice(5,4); familyReset(6,F::GrainAmount); familyReset(7,F::GrainRegions);
+                padChoice(17,4); padFamilyReset(18,F::GrainAmount);
                 ok = familyRead(F::GrainProcess) == 4 && ok;
-                inspectorChoice(3,6);
+                inspectorChoice(0,2);
                 const auto pathSnapshot = [&] {
                     s3g::sample::NeonFamilySettings f;
                     const auto sound = savedState();
-                    const unsigned count = sound.bytes[4] >= 18 ? s3g::sample::kNeonFamilyCount : s3g::sample::kNeonFamilyV17Count;
+                    const unsigned count = sound.bytes[4] >= 20 ? s3g::sample::kNeonFamilyCount
+                        : sound.bytes[4] >= 18 ? s3g::sample::kNeonFamilyV19Count : s3g::sample::kNeonFamilyV17Count;
                     if (sound.bytes[4] >= 17u) std::memcpy(f.values.data(), sound.bytes.data()
-                        + sound.bytes.size() - 32u * count * sizeof(float), count * sizeof(float));
+                        + sound.bytes.size() - (sound.bytes[4] >= 19 ? 12u : 0u) - 32u * count * sizeof(float), count * sizeof(float));
                     else ok = false;
                     return f;
                 };
@@ -4991,43 +5306,118 @@ int main(int argc, char** argv)
                     s3g::sample::neonSetStackShape(expected, static_cast<s3g::sample::NeonStackShape>(shape), 32, 0);
                     ok = generated.valid() && generated.values == expected.values && ok;
                     const unsigned t = s3g::sample::neonFamilyIndex(F::PathTime), v = s3g::sample::neonFamilyIndex(F::PathValue);
-                    const double x = 177 + 635 * generated.values[t+8], y = 498 - 72 * generated.values[v+8];
+                    const double x = W::pathLeft + W::pathWidth * generated.values[t+8],
+                        y = W::pathTop + W::pathHeight * generated.values[v+8];
+                    clickAt(x,y); // Direct editing unlocks the current shape intact.
+                    auto unlocked = pathSnapshot();
+                    ok = unlocked[F::StackShape] == 0 && unlocked.valid() && ok;
+                    unlocked[F::StackShape] = static_cast<float>(shape);
+                    ok = unlocked.values == generated.values && ok;
                     [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,NSMakePoint(x*scale,y*scale))];
-                    [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,NSMakePoint(420*scale,451*scale))];
-                    [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,NSMakePoint(420*scale,451*scale))]; redraw();
-                    clickAt(sliderX,I::row(14)); clickAt(sliderX,I::row(15));
-                    ok = generated.values == pathSnapshot().values && ok; // Named shape points are read-only.
-                    inspectorChoice(5,0);
-                    auto unlocked = pathSnapshot(); unlocked[F::StackShape] = static_cast<float>(shape);
-                    ok = unlocked.values == generated.values && ok; // Unlock without resetting the curve.
+                    [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,NSMakePoint(420*scale,(W::pathTop+25)*scale))];
+                    [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,NSMakePoint(420*scale,(W::pathTop+25)*scale))]; redraw();
+                    const auto edited = pathSnapshot();
+                    if (!edited.valid() || edited[F::StackShape] != 0 || std::abs(edited.values[v+8] - 25.f/72) >= 1e-5)
+                        std::cerr << "Neon path shape drag failed: shape=" << shape << " value=" << edited.values[v+8] << '\n';
+                    ok = edited.valid() && edited[F::StackShape] == 0 && edited.values != generated.values
+                        && std::abs(edited.values[v+8] - 25.f/72) < 1e-5 && ok;
                 }
                 inspectorChoice(5,4); captureNeonPage(@"sample-neon.stack-sine.pdf");
-                inspectorChoice(3,3); inspectorChoice(11,2); // Same shape control on the main Stack page.
+                inspectorChoice(5,2); inspectorChoice(0,0); // Source editor navigation must not change path shape.
                 ok = familyRead(F::StackShape) == 2 && ok;
-                inspectorChoice(3,6);
+                inspectorChoice(0, 2);
                 ok = familyRead(F::StackShape) == 2 && ok;
                 inspectorChoice(5,1);
+                // A first-to-last-layer ramp descends on screen, matching
+                // Stack Lanes. Check rendering separately from hit testing.
+                const auto pathInk = [&](double value) {
+                    const auto pixels = regionPixels(W::pathLeft+W::pathWidth*.25-4,
+                        W::pathTop+W::pathHeight*value-4,8,8);
+                    return std::count_if(pixels.begin(),pixels.end(),[](uint8_t x){return x>110;});
+                };
+                ok = pathInk(.25) > pathInk(.75) && ok;
+                if (!ok) std::cerr << "Neon stack path must show layer 1 at top and higher layers below\n";
+                captureNeonPage(@"sample-neon.stack-path-top-down.pdf");
                 inspectorChoice(5,0); // Manual retains the generated Ramp Up points.
                 familyReset(8,F::StackOffset); familyReset(9,F::StackCurve);
                 const auto pointKey = static_cast<F>(s3g::sample::neonFamilyIndex(F::PathValue) + 16u);
-                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown, NSMakePoint((177 + 635.0*16/31)*scale, (498-72.0*16/31)*scale))];
-                [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged, NSMakePoint(510*scale, 442*scale))];
-                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, NSMakePoint(510*scale, 442*scale))];
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown, NSMakePoint((W::pathLeft + W::pathWidth*16/31)*scale,
+                    (W::pathTop+W::pathHeight*(16.0/31))*scale))];
+                [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged, NSMakePoint(510*scale, (W::pathTop+16)*scale))];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp, NSMakePoint(510*scale, (W::pathTop+16)*scale))];
                 redraw();
-                ok = std::abs(familyRead(pointKey) - 56.0/72.0) < 1e-5 && ok;
+                ok = std::abs(familyRead(pointKey) - 16.0/72.0) < 1e-5 && ok;
                 auto familySound = savedState(); familySound.offset = 0;
                 clap_istream_t familyRestore {&familySound,stateReadWhole};
                 ok = state->load(plugin,&familyRestore) && savedState().bytes == familySound.bytes && ok;
                 captureNeonPage(@"sample-neon.stack-path.pdf");
-                clickAt(I::controlLeft + I::controlWidth * .5, I::row(12));
+                clickAt(I::controlLeft + I::controlWidth * .5, inspectorY(12));
                 // The 31-item point-count menu fits below its anchor in two columns.
-                clickAt(I::controlLeft + 20, I::row(12) + I::menuHeight * .5 + I::popupRowHeight * .5);
+                clickAt(I::controlLeft + 20, inspectorY(12) + I::menuHeight * .5 + I::popupRowHeight * .5);
                 ok = familyRead(F::PathCount) == 2 && ok;
                 if (familyRead(F::PathCount) != 2) std::cerr << "Family resized path count=" << familyRead(F::PathCount) << '\n';
+                failureStage = "Sample Neon full-width breakpoint add, drag, remove and endpoint protection";
+                const auto pathAt = [&](double phase, double value) {
+                    return NSMakePoint((W::pathLeft+phase*W::pathWidth)*scale,(W::pathTop+value*W::pathHeight)*scale);
+                };
+                const auto pathClick = [&](double phase, double value, unsigned button = 0) {
+                    const auto at = pathAt(phase,value);
+                    if (button == 1) {
+                        // AppKit's synthetic factory reports buttonNumber=0
+                        // even for RightMouseDown. VSTGUI uses buttonNumber,
+                        // so supply the actual secondary-button field too.
+                        const auto secondaryEvent = [&](NSEventType type) {
+                            CGEventRef cg = CGEventCreateCopy([mouseEvent(type,at) CGEvent]);
+                            CGEventSetIntegerValueField(cg,kCGMouseEventButtonNumber,kCGMouseButtonRight);
+                            NSEvent* event = [NSEvent eventWithCGEvent:cg]; CFRelease(cg);
+                            ok = [event buttonNumber] == 1 && ok;
+                            return event;
+                        };
+                        [document rightMouseDown:secondaryEvent(NSEventTypeRightMouseDown)];
+                        [document rightMouseUp:secondaryEvent(NSEventTypeRightMouseUp)];
+                    } else if (button == 2) {
+                        [document mouseDown:[NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+                            location:[document convertPoint:at toView:nil] modifierFlags:NSEventModifierFlagControl
+                            timestamp:0 windowNumber:0 context:nil eventNumber:0 clickCount:1 pressure:1]];
+                        [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,at)];
+                    } else {
+                        [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,at)];
+                        [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,at)];
+                    }
+                    redraw();
+                };
+                // The new left-hand portion used to be a caption gutter.
+                pathClick(.08,.8);
+                auto added = pathSnapshot();
+                const unsigned pathT = s3g::sample::neonFamilyIndex(F::PathTime), pathV = s3g::sample::neonFamilyIndex(F::PathValue);
+                std::cerr << "Neon path add: count=" << added[F::PathCount] << " point=" << added.values[pathT+1] << ',' << added.values[pathV+1] << '\n';
+                ok = added.valid() && added[F::PathCount] == 3 && added[F::StackShape] == 0
+                    && std::abs(added.values[pathT+1]-.08f)<1e-5 && std::abs(added.values[pathV+1]-.8f)<1e-5 && ok;
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,pathAt(.08,.8))];
+                [document mouseDragged:mouseEvent(NSEventTypeLeftMouseDragged,pathAt(.3,.2))];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,pathAt(.3,.2))]; redraw();
+                auto moved = pathSnapshot();
+                std::cerr << "Neon path drag: point=" << moved.values[pathT+1] << ',' << moved.values[pathV+1] << '\n';
+                ok = moved.valid() && std::abs(moved.values[pathT+1]-.3f)<1e-5
+                    && std::abs(moved.values[pathV+1]-.2f)<1e-5 && ok;
+                pathClick(.3,.2,1);
+                std::cerr << "Neon path remove: count=" << familyRead(F::PathCount) << '\n';
+                ok = pathSnapshot().valid() && familyRead(F::PathCount) == 2 && ok;
+                pathClick(0,0,1); pathClick(1,1,1);
+                ok = familyRead(F::PathCount) == 2 && ok;
+                // Full-width graph and direct edits do not touch the sample trim.
+                const auto endpoints = pathSnapshot();
+                pathClick(.5,.8); pathClick(.5,.8,2); // macOS Control-click too.
+                const auto restoredEndpoints = pathSnapshot();
+                ok = restoredEndpoints.valid() && restoredEndpoints[F::PathCount] == 2
+                    && restoredEndpoints.values[pathT] == endpoints.values[pathT]
+                    && restoredEndpoints.values[pathT+1] == endpoints.values[pathT+1]
+                    && restoredEndpoints.values[pathV] == endpoints.values[pathV]
+                    && restoredEndpoints.values[pathV+1] == endpoints.values[pathV+1] && ok;
                 auto resizedPath = savedState(); resizedPath.offset = 0;
                 clap_istream_t resizedRestore {&resizedPath,stateReadWhole};
                 ok = state->load(plugin,&resizedRestore) && ok;
-                clickAt(278.0,588.0); // PLAY, copy/paste the complete family sound.
+                selectPlay(); // PLAY, copy/paste the complete family sound.
                 NSWindow* familyWindow = [[S3GSmokeKeyWindow alloc] initWithContentRect:[parent bounds]
                     styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
                 [familyWindow setReleasedWhenClosed:NO]; [familyWindow setContentView:parent];
@@ -5038,10 +5428,10 @@ int main(int argc, char** argv)
                         context:nil eventNumber:0 clickCount:1 pressure:1]];
                     [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,NSMakePoint(x*scale,y*scale))]; redraw();
                 };
-                familyRightClick(278,636);
-                clickAt(300,645);
-                familyRightClick(367,636);
-                clickAt(389,663); plugin->on_main_thread(plugin); redraw();
+                familyRightClick(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5);
+                clickAt(std::min(M::padX(0)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(0)+M::padHeight*.5+9);
+                familyRightClick(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5);
+                clickAt(std::min(M::padX(1)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(1)+M::padHeight*.5+27); plugin->on_main_thread(plugin); redraw();
                 ok = familyRead(F::MotionSound,1) == familyRead(F::MotionSound)
                     && familyRead(F::GrainProcess,1) == familyRead(F::GrainProcess)
                     && familyRead(F::PathCount,1) == 2 && ok;
@@ -5056,13 +5446,13 @@ int main(int argc, char** argv)
                 MemoryPluginState laneRecall = lanesFixture; laneRecall.offset = 0;
                 clap_istream_t laneInput {&laneRecall, stateReadWhole};
                 ok = state->load(plugin, &laneInput) && ok;
-                clickAt(278,588); clickAt(54,638); clickAt(278,636); clickAt(456,588);
-                playback(6); inspectorChoice(4,1); inspectorChoice(5,0); // LANES / HOLD / FREE
+                selectPlay(); clickAt(M::pageCenter(0), M::banks); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                playback(6); padChoice(4,1); inspectorChoice(5,0); // LANES / HOLD / FREE
                 ok = familyRead(F::LaneAuto) == 0 && familyRead(F::LanePosition) == 0 && savedState().bytes[4] == 18 && ok;
                 familyReset(7,F::LanePosition); familyReset(10,F::LaneRate);
                 familyReset(11,F::LaneSlew); familyReset(12,F::LaneJoin);
-                checkReset(752,634,0,[&] { return familyRead(F::LanePosition); });
-                checkReset(157,605,1,[&] { return familyRead(F::LaneRate); });
+                checkReset(P::controlLeft+P::trackWidth*.73, M::loop,0,[&] { return familyRead(F::LanePosition); });
+                checkReset(P::controlLeft+P::trackWidth*.73, M::trax,1,[&] { return familyRead(F::LaneRate); });
                 const bool lanesActive = plugin->activate(plugin,48000,1,64);
                 const bool lanesRunning = lanesActive && plugin->start_processing(plugin);
                 block.in_events = nullptr;
@@ -5075,18 +5465,223 @@ int main(int argc, char** argv)
                     redraw();
                 };
                 advanceLanes(); const auto laneOne = overviewPixels();
-                clickAt(I::columnLeft(1,2)+20,I::row(8)); // Next changes playback layer, not edit layer.
+                failureStage = "Sample Neon STACK surface, live hold/release and independent banks";
+                const auto stackSound = savedState();
+                clickAt(M::pageCenter(2), M::pageCenterY);
+                const double oldOwner = paramValue(5); setValue(5,1);
+                const auto stackMidi = [&](uint8_t status,uint8_t key,uint8_t value=127) {
+                    clap_event_midi_t event {};event.header={sizeof(event),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI,0};
+                    event.data[0]=status;event.data[1]=key;event.data[2]=value;
+                    clap_input_events_t events {};events.ctx=&event;
+                    events.size=[](const clap_input_events_t*)->uint32_t{return 1;};
+                    events.get=[](const clap_input_events_t* list,uint32_t index)->const clap_event_header_t*{
+                        return index?nullptr:&static_cast<const clap_event_midi_t*>(list->ctx)->header;
+                    };
+                    block.in_events=&events;if(lanesRunning)plugin->process(plugin,&block);block.in_events=nullptr;
+                    redraw();
+                };
+                const NSPoint layerTwoPoint=NSMakePoint((M::padX(1)+M::padWidth*.5)*scale,(M::padY(1)+M::padHeight*.5)*scale);
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,layerTwoPoint)];advanceLanes();
+                const auto heldLayer=overviewPixels();
+                ok = heldLayer != laneOne && familyRead(F::LanePosition)==0 && ok;
+                stackMidi(0x94,0); // Layer bank B; selected sample cell must remain A1.
+                stackMidi(0x93,0); stackMidi(0x97,0x10); // Physical layer 1 temporarily wins over GUI layer 2.
+                advanceLanes();ok=overviewPixels()!=heldLayer&&ok;
+                stackMidi(0x94,0); stackMidi(0x93,5); // Change bank and mode while held.
+                stackMidi(0x87,0x10,0);advanceLanes();
+                ok=overviewPixels()==heldLayer&&ok; // Releasing hardware restores still-held GUI cue.
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,layerTwoPoint)];advanceLanes();
+                ok=overviewPixels()==laneOne&&ok;
+                clickAt(M::pageCenter(2),M::pageCenterY);
+                clickAt(P::controlLeft+P::trackWidth,M::loop);advanceLanes();
+                ok=overviewPixels()!=laneOne&&familyRead(F::LaneAuto)==0&&familyRead(F::LanePosition)==0&&ok;
+                clickAt(P::left+235,M::actions);advanceLanes();
+                ok=overviewPixels()==laneOne&&ok;
+                setValue(5,oldOwner);
+                ok=savedState().bytes==stackSound.bytes&&ok;
+                setValue(5,1);stackMidi(0x93,7);stackMidi(0x93,0);
+                stackMidi(0x97,0x30); // SHIFT + layer 1 selects only the edit target.
+                plugin->on_main_thread(plugin);redraw();
+                ok=savedState().bytes[fixture.bytes.size()+2]==0&&familyRead(F::LanePosition)==0&&ok;
+                const auto layerSelected=savedState();
+                stackMidi(0x96,0);stackMidi(0x97,0x17);stackMidi(0x87,0x17,0); // Empty layer 32 cannot change the cell or source.
+                ok=savedState().bytes==layerSelected.bytes&&ok;
+                stackMidi(0x93,0);padChoice(3,1);setValue(5,oldOwner);
+                captureNeonPage(@"sample-neon.stack-controller.pdf");
+                selectPlay(true);
+                if(!ok)std::cerr<<"STACK GUI hold/return/bank/state regression failed\n";
+                failureStage = "Sample Neon persistent pad toolbox and Lanes navigation";
+                // The PAD toolbox remains real, usable controls on every
+                // hardware page, not merely a repeated picture of the pad.
+                for (unsigned page : {1u,2u,0u}) {
+                    selectWorkspace(page);
+                    double beforeGain, afterGain;
+                    ok = params->get_value(plugin,1000u,&beforeGain) && ok;
+                    clickAt(P::controlLeft + P::trackWidth*.73,P::row(5));
+                    ok = params->get_value(plugin,1000u,&afterGain) && afterGain != beforeGain && ok;
+                    doubleClickAt(P::controlLeft + P::trackWidth*.73,P::row(5));
+                    clickAt(P::left+40,P::row(7)); advanceLanes();
+                    bool heardPad = false;
+                    for (const auto& channel : samples) for (float value : channel) heardPad |= std::abs(value)>1e-6;
+                    ok = heardPad && ok;
+                }
+                selectPlay(true);
+                playbackInspector = true; // Returning from CHOP/RESAMPLE retains the Lanes inspector.
+                clickAt(I::columnLeft(1,2)+20,inspectorY(8)); // Next changes playback layer, not edit layer.
                 advanceLanes(); const auto laneTwo = overviewPixels();
                 ok = lanesRunning && familyRead(F::LanePosition) == 1 && laneOne != laneTwo
                     && savedState().bytes[fixture.bytes.size()+2] == 1 && ok;
                 captureNeonPage(@"sample-neon.lanes-manual.pdf");
-                inspectorChoice(6,1); // Optional PATH; LOOP must return to MANUAL.
-                clickAt(752,634);
+                failureStage = "Sample Neon Lanes stack view and multichannel view preserve sound";
+                const auto beforeLaneView = savedState();
+                clickAt(416,W::viewCenter); clickAt(416,123); // STACK LANES in every stack-capable method.
+                const auto stackedRows = regionPixels(W::left,W::top,W::width,W::height());
+                clickAt(416,W::viewCenter); clickAt(416,141); // FOLLOW STACK, all-channel waveform.
+                const auto channelRows = regionPixels(W::left,W::top,W::width,W::height());
+                ok = stackedRows != channelRows && savedState().bytes == beforeLaneView.bytes && ok;
+                captureNeonPage(@"sample-neon.lanes-channel-view.pdf");
+                clickAt(416,W::viewCenter); clickAt(416,123); // STACK LANES.
+                ok = regionPixels(W::left,W::top,W::width,W::height()) == stackedRows && ok;
+                padChoice(2,1); // Optional PATH; LOOP must return to MANUAL.
+                clickAt(P::controlLeft+P::trackWidth*.73, M::loop);
                 ok = familyRead(F::LaneAuto) == 0 && familyRead(F::LanePosition) > .5 && ok;
-                inspectorChoice(6,1); clickAt(I::left+50,I::row(18));
+                failureStage = "Sample Neon navigation takes over stale STACK override and edit audition";
+                const auto navigationExpect = [&](bool condition, const char* message) {
+                    if (!condition) std::cerr << "Stack navigation: " << message << '\n';
+                    ok = condition && ok;
+                };
+                const auto latchLastLayer = [&] {
+                    clickAt(M::pageCenter(2), M::pageCenterY);
+                    clickAt(P::controlLeft+P::trackWidth, M::loop); advanceLanes();
+                    selectPlay(true); inspectorChoice(0,1);
+                };
+                latchLastLayer();
+                clickAt(I::controlLeft,inspectorY(7)); advanceLanes();
+                navigationExpect(familyRead(F::LanePosition)==0 && overviewPixels()==laneOne,
+                    "inspector Layer Position did not take over latched STACK position");
+                latchLastLayer(); setValue(5,1);
+                stackMidi(0xb6,4,8); advanceLanes(); // Physical Loop, eight eighth-layer steps.
+                navigationExpect(familyRead(F::LanePosition)==1 && overviewPixels()==laneTwo,
+                    "physical Loop did not reach last layer");
+                stackMidi(0xb6,4,120); advanceLanes(); // Relative -8.
+                navigationExpect(familyRead(F::LanePosition)==0 && overviewPixels()==laneOne,
+                    "physical Loop did not take over and return to first layer");
+                clickAt(M::pageCenter(2), M::pageCenterY);
+                stackMidi(0x97,0x11); advanceLanes(); // Hold physical layer 2.
+                selectPlay(true); inspectorChoice(0,1);
+                clickAt(I::controlLeft,inspectorY(7)); advanceLanes();
+                navigationExpect(overviewPixels()==laneTwo, "manual navigation stole a still-held layer pad");
+                stackMidi(0x87,0x11,0); advanceLanes();
+                navigationExpect(overviewPixels()==laneOne, "held layer release did not restore new manual navigation");
+                setValue(5,oldOwner);
+                latchLastLayer(); padChoice(2,1); advanceLanes();
+                const auto pathA = overviewPixels(); advanceLanes();
+                navigationExpect(familyRead(F::LaneAuto)==1 && overviewPixels()!=pathA,
+                    "PATH did not resume a held voice after manual override");
+                clickAt(I::controlLeft,inspectorY(7)); advanceLanes();
+                navigationExpect(familyRead(F::LaneAuto)==0 && familyRead(F::LanePosition)==0 && overviewPixels()==laneOne,
+                    "PATH position slider did not take over as Manual");
+                inspectorChoice(0,0); clickAt(I::left+60,inspectorY(3)); advanceLanes(); // Isolated edit audition.
+                padChoice(2,1); advanceLanes(); const auto afterAudition = overviewPixels(); advanceLanes();
+                navigationExpect(overviewPixels()!=afterAudition,
+                    "PATH did not release isolated edit-layer audition");
+                // Discrete source selection and edit selection stay independent;
+                // each generated technique can resume scan without a new note.
+                for (unsigned method : {1u,2u,4u}) {
+                    playback(method); padChoice(4,1); inspectorChoice(5,0); padChoice(2,4);
+                    advanceLanes(); latchLastLayer(); padChoice(2,4);
+                    const auto scanPixels = [&] { return regionPixels(W::overviewLeft,
+                        W::overviewTop(), W::overviewWidth, W::overviewHeight); };
+                    advanceLanes(); const auto scanA = scanPixels(); advanceLanes();
+                    navigationExpect(scanPixels()!=scanA, "STACK SCAN did not clear stale manual override");
+                    inspectorChoice(0,0); clickAt(I::left+60,inspectorY(3)); advanceLanes();
+                    padChoice(2,4); advanceLanes(); const auto scanB = overviewPixels(); advanceLanes();
+                    navigationExpect(overviewPixels()!=scanB, "STACK SCAN stayed pinned to edit audition");
+                }
+                playback(6); inspectorChoice(5,0);
+                padChoice(2,1); clickAt(I::left+50,inspectorY(18)); playbackInspector = false;
                 inspectorChoice(5,4); // Edit Stack Path uses the shared Sine breakpoints.
                 ok = familyRead(F::StackShape) == 4 && familyRead(F::LaneAuto) == 1 && ok;
+                failureStage = "Sample Neon DSP-driven full-width stack path playhead";
+                const auto graphPixels = [&] { return regionPixels(W::pathLeft,W::pathTop,W::pathWidth,W::pathHeight); };
+                advanceLanes(); const auto cursorSound = savedState(); const auto pathFrame = graphPixels();
+                advanceLanes();
+                navigationExpect(graphPixels()!=pathFrame && savedState().bytes==cursorSound.bytes,
+                    "path cursor did not move independently of saved curve state");
                 captureNeonPage(@"sample-neon.lanes-path.pdf");
+                inspectorChoice(10,1); // HOST with stopped transport freezes the graph dot.
+                const auto* oldTransport = block.transport; block.transport = nullptr;
+                advanceLanes(); const auto pausedPath = graphPixels(); advanceLanes();
+                navigationExpect(graphPixels()==pausedPath, "path cursor advanced while HOST stopped");
+                block.transport = oldTransport; inspectorChoice(10,0);
+                failureStage = "Sample Neon expanded stack views and vertical playback cursors";
+                const auto advanceVisual = [&] {
+                    // These sources are only 256 frames long. Sample during
+                    // the actual window, not an inter-grain silent interval.
+                    if (lanesRunning) plugin->process(plugin,&block);
+                    block.in_events=nullptr; redraw();
+                };
+                for (unsigned method : {0u,1u,2u,3u,4u,6u}) {
+                    // A slice in the 256-frame fixture can be shorter than a
+                    // block. Observe its real cursor before that slice ends.
+                    block.frames_count = method == 3u ? 1u : 64u;
+                    playback(method); padChoice(4,1);
+                    if (method) inspectorChoice(5,0);
+                    if (method == 1 || method == 2 || method == 4) padChoice(2,4);
+                    else if (method == 0 || method == 6) padChoice(2,0);
+                    if (method == 1) motionSound(2); // Motor uses the live outer clock.
+                    else if (method == 2) padChoice(10,2);
+                    if (method == 1 || method == 2) {
+                        const auto panelEdge = [&] { return regionPixels(W::panelLeft,
+                            W::bottom() - 2, W::panelWidth, 4); };
+                        const auto engineEdge = panelEdge();
+                        const auto lowerSpace = [&] { return regionPixels(W::panelLeft, W::bottom() + 12,
+                            W::panelWidth, C::statusTop - W::bottom() - 24); };
+                        const auto unusedSpace = lowerSpace();
+                        const auto controls = [&] { return regionPixels(I::left, I::row(2), I::width, 72); };
+                        const auto engineControls = controls();
+                        uint32_t beforeWidth = 0, beforeHeight = 0, afterWidth = 0, afterHeight = 0;
+                        gui->get_size(plugin, &beforeWidth, &beforeHeight);
+                        inspectorChoice(0,0); // Engine details live only in the inspector.
+                        const bool fixed = panelEdge() == engineEdge && lowerSpace() == unusedSpace;
+                        const bool changed = controls() != engineControls;
+                        inspectorChoice(0,1);
+                        gui->get_size(plugin, &afterWidth, &afterHeight);
+                        navigationExpect(fixed && changed && controls() == engineControls
+                            && lowerSpace() == unusedSpace && panelEdge() == engineEdge
+                            && beforeWidth == afterWidth && beforeHeight == afterHeight,
+                            "Motion/Grains details escaped the inspector or changed the fixed workspace");
+                    }
+                    clickAt(416,W::viewCenter); clickAt(416,123); // STACK LANES.
+                    ++note.note_id; block.in_events=&input; advanceVisual();
+                    const auto liveSound=savedState();
+                    const auto liveWave=regionPixels(W::left,W::top,W::width,W::height());
+                    redraw();
+                    const bool stableRedraw=regionPixels(W::left,W::top,W::width,W::height()) == liveWave;
+                    ok = stableRedraw && ok;
+                    advanceVisual();
+                    const bool moved=regionPixels(W::left,W::top,W::width,W::height()) != liveWave;
+                    const bool soundStable=savedState().bytes == liveSound.bytes;
+                    ok = moved && soundStable && ok;
+                    if (method == 1 || method == 2) captureNeonPage(method == 1 ? @"sample-neon.motion-stack.pdf" : @"sample-neon.grains-stack.pdf");
+                    clickAt(416,W::viewCenter); clickAt(416,141); // FOLLOW STACK restores vertical heads.
+                    const bool viewChanged=regionPixels(W::left,W::top,W::width,W::height()) != liveWave;
+                    const bool viewSoundStable=savedState().bytes == liveSound.bytes;
+                    ok = viewChanged && viewSoundStable && ok;
+                    if(!stableRedraw || !moved || !soundStable || !viewChanged || !viewSoundStable)
+                        std::cerr << "Stack view method=" << method << " stable=" << stableRedraw << " moved=" << moved
+                            << " sound=" << soundStable << " view=" << viewChanged << " viewSound=" << viewSoundStable << '\n';
+                    if (method == 1 || method == 2) captureNeonPage(method == 1 ? @"sample-neon.motion-live.pdf" : @"sample-neon.grains-live.pdf");
+                    if (method == 1) {
+                        inspectorChoice(5,1); block.transport=nullptr; advanceLanes();
+                        const auto pausedScope=regionPixels(W::left+190,W::top+W::height()-60,W::width-198,60);
+                        advanceLanes();
+                        ok = regionPixels(W::left+190,W::top+W::height()-60,W::width-198,60) == pausedScope && ok;
+                        block.transport=oldTransport;
+                    }
+                }
+                block.frames_count = 64u;
+                playback(6); padChoice(2,1); inspectorChoice(5,0);
                 if (lanesRunning) plugin->stop_processing(plugin);
                 if (lanesActive) plugin->deactivate(plugin);
                 auto laneSound = savedState(); laneSound.offset = 0;
@@ -5094,17 +5689,96 @@ int main(int argc, char** argv)
                 ok = state->load(plugin,&laneRestore) && savedState().bytes == laneSound.bytes && ok;
                 if (!ok) std::cerr << "LANES GUI: manual waveform changed=" << (laneOne != laneTwo)
                     << " position=" << familyRead(F::LanePosition) << " navigation=" << familyRead(F::LaneAuto) << '\n';
-                clickAt(278,588);
+                selectPlay();
                 familyWindow = [[S3GSmokeKeyWindow alloc] initWithContentRect:[parent bounds]
                     styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
                 [familyWindow setReleasedWhenClosed:NO]; [familyWindow setContentView:parent];
-                familyRightClick(278,636); clickAt(300,645);
-                familyRightClick(367,636); clickAt(389,663); plugin->on_main_thread(plugin); redraw();
+                familyRightClick(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); clickAt(std::min(M::padX(0)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(0)+M::padHeight*.5+9);
+                familyRightClick(M::padX(1)+M::padWidth*.5, M::padY(1)+M::padHeight*.5); clickAt(std::min(M::padX(1)+M::padWidth*.5, double(nativeWidth)-170)+22, M::padY(1)+M::padHeight*.5+27); plugin->on_main_thread(plugin); redraw();
                 ok = familyRead(F::LaneAuto,1) == 1 && familyRead(F::LanePosition,1) == familyRead(F::LanePosition)
                     && familyRead(F::StackShape,1) == 4 && savedState().bytes[textureOffset+1] == (1u << 6u) && ok;
                 clickAt(698,24); clickAt(1060,82); plugin->on_main_thread(plugin); redraw();
                 ok = savedState().bytes[4] < 16 && familyRead(F::LanePosition) == 0 && familyRead(F::LaneAuto) == 0 && ok;
                 [parent removeFromSuperview]; [familyWindow close]; [familyWindow release];
+                failureStage = "Sample Neon buffer fill controls, hold/release and GUI hide safety";
+                laneRecall = lanesFixture; laneRecall.offset = 0;
+                clap_istream_t fillInput {&laneRecall,stateReadWhole};
+                ok = state->load(plugin,&fillInput) && ok;
+                selectPlay(); clickAt(M::pageCenter(0), M::banks); clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); selectPlay(true);
+                playback(6); padChoice(4,1); inspectorChoice(5,0);
+                clickAt(P::left+200, M::fill); playbackInspector = false; inspectorChoice(2,4); inspectorChoice(3,4);
+                const auto fillValue = [&](unsigned index) {
+                    const auto sound = savedState();
+                    if (sound.bytes[4] != 19) return index == 2 ? .5 : 2.;
+                    float v; std::memcpy(&v,sound.bytes.data()+sound.bytes.size()-12+index*4,4); return double(v);
+                };
+                checkReset(sliderX,inspectorY(4),.5,[&] {return fillValue(2);});
+                ok = fillValue(0) == 4 && fillValue(1) == 4 && ok;
+                auto fillSaved = savedState(); fillSaved.offset = 0;
+                clap_istream_t fillRestore {&fillSaved,stateReadWhole};
+                ok = state->load(plugin,&fillRestore) && savedState().bytes == fillSaved.bytes && ok;
+                const bool fillActive = plugin->activate(plugin,48000,1,64);
+                const bool fillRunning = fillActive && plugin->start_processing(plugin);
+                block.in_events = nullptr;
+                if(fillRunning) { plugin->process(plugin,&block); plugin->reset(plugin); }
+                ++note.note_id; note.velocity = 1; block.in_events = &input;
+                const auto advanceFill = [&](unsigned blocks) {
+                    for(unsigned n=0;fillRunning && n<blocks;++n) {plugin->process(plugin,&block);block.in_events=nullptr;}
+                    redraw();
+                };
+                advanceFill(200);
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,NSMakePoint((P::left+60)*scale,M::fill*scale))];
+                advanceFill(8);
+                note.header.type=CLAP_EVENT_NOTE_OFF; block.in_events=&input; advanceFill(20); note.header.type=CLAP_EVENT_NOTE_ON;
+                bool fillHeard=false;
+                for(unsigned n=0;n<20;++n) {advanceFill(1);for(float v:samples[0])fillHeard |= std::abs(v)>1e-6;}
+                ok = fillRunning && fillHeard && savedState().bytes == fillSaved.bytes && ok;
+                captureNeonPage(@"sample-neon.fill-hold.pdf");
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,NSMakePoint(830*scale,735*scale))];
+                advanceFill(8);
+                for(float v:samples[0])ok = std::abs(v)<1e-7 && ok;
+                // GUI hide must release a held mouse gesture even without mouse-up.
+                block.in_events=&input; advanceFill(100);
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,NSMakePoint((P::left+60)*scale,M::fill*scale))];advanceFill(8);
+                note.header.type=CLAP_EVENT_NOTE_OFF;block.in_events=&input;advanceFill(20);note.header.type=CLAP_EVENT_NOTE_ON;
+                ok = gui->hide(plugin) && ok; advanceFill(8); ok = gui->show(plugin) && ok;
+                for(float v:samples[0])ok = std::abs(v)<1e-7 && ok;
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,NSMakePoint(830*scale,735*scale))];
+                if(fillRunning)plugin->stop_processing(plugin);
+                if(fillActive)plugin->deactivate(plugin);
+                if(!ok)std::cerr << "Buffer fill GUI: held audio=" << fillHeard << '\n';
+                failureStage = "Sample Neon proportional slice ADSR and protected routing controls";
+                clickAt(I::left+80,inspectorY(14)); // Exit the persistent Fill toolbox.
+                selectPlay(true); playback(3);
+                clickAt(I::left+80,inspectorY(11)); // Sequence's direct CHOP/envelope shortcut.
+                playbackInspector = false;
+                clickAt(110,W::actionCenter); clickAt(110,131); // Equal slicing.
+                clickAt(239,W::actionCenter); clickAt(310,95); // Two slices.
+                inspectorChoice(6,1); chopTarget(32); // Short, deterministic one-stack destination summary.
+                familyReset(14,F::SliceAttack); familyReset(15,F::SliceDecay);
+                familyReset(16,F::SliceSustain); familyReset(17,F::SliceRelease);
+                clickAt(sliderX,inspectorY(14)); clickAt(sliderX,inspectorY(15));
+                clickAt(sliderX,inspectorY(16)); clickAt(sliderX,inspectorY(17));
+                ok = familyRead(F::SliceAttack)>.5 && familyRead(F::SliceDecay)>.5
+                    && familyRead(F::SliceSustain)>.5 && familyRead(F::SliceRelease)>.5 && ok;
+                captureNeonPage(@"sample-neon.slice-envelope.pdf");
+                auto envelopeSaved=savedState(); envelopeSaved.offset=0;
+                clap_istream_t envelopeRestore {&envelopeSaved,stateReadWhole};
+                ok = envelopeSaved.bytes[4]==20 && state->load(plugin,&envelopeRestore)
+                    && savedState().bytes==envelopeSaved.bytes && ok;
+                selectPlay(true); playback(2); inspectorChoice(0,4);
+                const auto safeField=savedState();
+                inspectorChoice(5,1); inspectorChoice(8,1);
+                ok = savedState().bytes==safeField.bytes && ok; // ACN/SN3D cannot unlock routing or stereo.
+                captureNeonPage(@"sample-neon.ambisonic-routing.pdf");
+                inspectorChoice(3,0); inspectorChoice(5,1); inspectorChoice(6,0); inspectorChoice(7,4);
+                ok = familyRead(F::RoutingMode)==1 && familyRead(F::RoutingWidth)==0
+                    && familyRead(F::RoutingTraversal)==4 && ok;
+                captureNeonPage(@"sample-neon.distribute-routing.pdf");
+                auto routeSaved=savedState(); routeSaved.offset=0;
+                clap_istream_t routeRestore {&routeSaved,stateReadWhole};
+                ok = state->load(plugin,&routeRestore) && savedState().bytes==routeSaved.bytes && ok;
+                if(!ok)std::cerr << "Slice ADSR / Routing GUI regression\n";
             }
             if (!ok) std::cerr << "Neon GUI audible=" << audible << " format=" << format << " bus=" << bus << '\n';
             std::remove([fixturePath fileSystemRepresentation]);

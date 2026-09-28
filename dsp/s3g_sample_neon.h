@@ -9,6 +9,7 @@
 #include "s3g_sample_neon_stack.h"
 #include "s3g_sample_neon_waveset_stack.h"
 #include "s3g_sample_neon_lanes.h"
+#include "s3g_voice_output_allocator.h"
 
 #include <algorithm>
 #include <array>
@@ -53,7 +54,7 @@ inline constexpr bool sampleNeonChannelCountSupported(uint32_t channels)
 
 inline constexpr bool sampleNeonRouteCompatible(uint32_t channels,
     SampleNeonSourceFormat format, SampleNeonOutputLayout layout,
-    uint32_t bus)
+    uint32_t bus, bool distribute = false)
 {
     const bool ambisonic = layout >= SampleNeonOutputLayout::Ambisonic1;
     const auto width = sampleNeonBusWidth(layout);
@@ -62,7 +63,7 @@ inline constexpr bool sampleNeonRouteCompatible(uint32_t channels,
         && (ambisonic
             ? format == SampleNeonSourceFormat::Ambisonic && channels == width
             : format == SampleNeonSourceFormat::Discrete
-                && channels <= 8u && channels <= width);
+                && (distribute || (channels <= 8u && channels <= width)));
 }
 
 enum class SampleNeonEventKind : uint8_t {
@@ -70,6 +71,7 @@ enum class SampleNeonEventKind : uint8_t {
     Release,
     Pressure,
     Choke,
+    StackPosition, // transient performance override; -1 resumes saved navigation
 };
 
 // These are the first three mutually-exclusive status lamps printed below
@@ -243,6 +245,8 @@ struct SampleNeonEvent {
     bool loopedSlicer = false;
     bool alternate = false;
     bool selectedSource = false;
+    uint8_t sourceLayer = 255u; // explicit audition without changing the edit layer
+    bool resumeNavigation = false; // explicit source/manual choice exits an isolated layer audition
 };
 
 struct SampleNeonSlotSettings {
@@ -308,7 +312,7 @@ struct SampleNeonSlotSettings {
     float grainSpray = 0.15f;
     float grainPitchSpraySemitones = 0.0f;
     float grainReverseChance = 0.0f;
-    std::array<float, 3u> fx = kSampleNeonFxDefaults[0];
+    NeonCharacterValues fx = kSampleNeonFxDefaults[0];
     std::array<float, 4u> technique {{ 0.35f, 0.0f, 0.0f, 1.0f }};
     float techniqueAttackSeconds = 0.005f, techniqueReleaseSeconds = 0.005f;
 
@@ -335,6 +339,16 @@ private:
         return lengths[std::min<std::size_t>(index, lengths.size() - 1u)];
     }
 };
+
+inline bool neonDistributes(const SampleNeonSlotSettings& control) noexcept {
+    return control.sourceFormat == SampleNeonSourceFormat::Discrete
+        && control.family[NeonFamily::RoutingMode] != 0;
+}
+inline SampleVoiceEnvelope neonSliceEnvelope(const NeonFamilySettings& f) noexcept {
+    const float scale = std::max(1.f, f[NeonFamily::SliceAttack] + f[NeonFamily::SliceDecay] + f[NeonFamily::SliceRelease]);
+    return {f[NeonFamily::SliceAttack]/scale, f[NeonFamily::SliceDecay]/scale,
+        f[NeonFamily::SliceSustain], f[NeonFamily::SliceRelease]/scale};
+}
 
 struct SampleNeonSettings {
     std::array<SampleNeonSlotSettings, kSampleNeonSlotCount> slots {};
@@ -418,12 +432,18 @@ public:
         grainEmitters_ = {};
         outputPeak_ = 0.0f;
         stackPositions_.fill(0.0f);
+        stackPathPhases_.fill(-1.0f);
+        stackCueTargets_.fill(-1.0f); stackCuePositions_.fill(0.0); stackCueReturning_.fill(false);
         stackVoiceCounts_.fill(0u);
         for (unsigned n = 0u; n < stackSeeds_.size(); ++n) stackSeeds_[n] = 0x9e3779b97f4a7c15ull + n;
+        for (unsigned n = 0u; n < allocators_.size(); ++n) allocators_[n].reset(0x6d2b79f5u + n);
+        gestureRoutes_ = {}; routeSignatures_.fill(0u);
     }
 
     void killAll() noexcept
     {
+        stackPathPhases_.fill(-1.0f);
+        stackCueTargets_.fill(-1.0f); stackCueReturning_.fill(false);
         for (auto& player : players_) player.killAll();
         for (auto& effect : effects_) effect.reset();
         for (auto& waveset : wavesets_) waveset.reset();
@@ -474,10 +494,18 @@ public:
 
     float outputPeak() const noexcept { return outputPeak_; }
     float stackPosition(std::size_t slot) const noexcept { return stackPositions_[slot]; }
+    float stackPathPhase(std::size_t slot, const SampleNeonSettings& settings) const noexcept {
+        const auto& s = settings.slots[slot]; const auto& e = grainEmitters_[slot];
+        const bool path = s.playback == SampleNeonPlayback::Lanes ? s.family[NeonFamily::LaneAuto] != 0
+            : s.sourceMode == NeonSourceMode::Scan && s.playback != SampleNeonPlayback::Sample
+                && s.playback != SampleNeonPlayback::SliceSequence;
+        return path && e.active && !e.selectedSource && s.stack && s.stack->count > 1 ? stackPathPhases_[slot] : -1.f;
+    }
     bool stackScanActive(std::size_t slot, const SampleNeonSettings& settings) const noexcept {
         const auto& e = grainEmitters_[slot];
         const auto& s = settings.slots[slot];
-        return (s.sourceMode == NeonSourceMode::Scan || s.playback == SampleNeonPlayback::Lanes) && e.active && !e.selectedSource
+        return (((s.sourceMode == NeonSourceMode::Scan || s.playback == SampleNeonPlayback::Lanes) && !e.selectedSource)
+            || stackCueTargets_[slot] >= 0 || stackCueReturning_[slot]) && e.active
             && s.playback != SampleNeonPlayback::Sample && s.playback != SampleNeonPlayback::SliceSequence;
     }
 
@@ -489,8 +517,9 @@ public:
         const auto& s = settings.slots[slot];
         const auto& emitter = grainEmitters_[slot];
         if (emitter.ownsOutput) {
-            if (!emitter.active || emitter.selectedSource) return -1;
+            if (!emitter.active) return -1;
             if (stackScanActive(slot, settings)) return -2;
+            if (emitter.selectedSource) return -1;
             return static_cast<int>(emitter.layer);
         }
         if (waveActive_[slot]) return wavesets_[slot].activeVoiceCount() ? 0 : -1;
@@ -513,6 +542,51 @@ public:
         return slot < kSampleNeonSlotCount
             ? scanPosition(settings, slot, grainEmitters_[slot].ageFrames, 0u)
             : 0.0;
+    }
+
+    struct MotionVisual {
+        double seconds = 0, cycle = 0;
+        float articulation = 0;
+        bool active = false;
+    };
+    MotionVisual motionVisual(std::size_t slot, const SampleNeonSettings& settings) const noexcept {
+        const auto& s = settings.slots[slot]; const auto& e = grainEmitters_[slot];
+        MotionVisual result;
+        if (s.playback != SampleNeonPlayback::Motion || !e.active || !e.ownsOutput) return result;
+        result.active = true;
+        result.seconds = s.clock == SampleNeonClock::Host
+            ? motionBeatAtFrame(settings, 0) * 60.0 / std::clamp<double>(settings.hostTempoBpm, 20, 999)
+            : e.ageFrames / sampleRate_;
+        result.cycle = s.clock == SampleNeonClock::Host
+            ? std::clamp<double>(s.motionCycleBeats, .25, 32) * 60.0 / std::clamp<double>(settings.hostTempoBpm, 20, 999)
+            : std::clamp<double>(s.motionCycleSeconds, .05, 30);
+        result.articulation = neonMotionArticulation(s.family, result.seconds);
+        return result;
+    }
+
+    // Same trajectory used by the engine and its scope; the display does not
+    // invent another waveform or advance the clock on the GUI timer.
+    static double motionTrajectory(const SampleNeonSlotSettings& control, double phase,
+        double seconds, std::size_t slot) noexcept {
+        double position = resolvedMotionValue(control.motionPath, phase + control.launchPosition, slot);
+        const auto& f = control.family;
+        const double travel = f[NeonFamily::MotionTravel];
+        switch (static_cast<unsigned>(f[NeonFamily::MotionTrajectory])) {
+        case 1: position = .5; break;
+        case 2: position = .5 + .5 * std::sin(neonUnitPhase(phase) * 6.28318530718); break;
+        case 3: {
+            const double p = neonUnitPhase(phase);
+            position = std::clamp(p + travel * (resolvedMotionValue(SampleNeonMotionPath::RoundTrip, p * 8, slot) - .5), 0.0, 1.0);
+            break;
+        }
+        case 4: position = neonUnitPhase(phase * travel + neonUnitPhase(phase * 8) * (1 - travel)); break;
+        default: break;
+        }
+        const bool bounded = f[NeonFamily::MotionTrajectory] != 0 ? f[NeonFamily::MotionTrajectory] != 4
+            : control.motionPath != SampleNeonMotionPath::Forward && control.motionPath != SampleNeonMotionPath::Reverse;
+        if (f[NeonFamily::MotionSound] == 2 && bounded
+            && neonUnitPhase(seconds * f[NeonFamily::MotorRate]) > f[NeonFamily::MotorSymmetry]) position = 1 - position;
+        return std::clamp(f[NeonFamily::MotionLocus] + (position - .5) * f[NeonFamily::MotionField], 0.0, 1.0);
     }
 
     const std::array<VoiceCursor, kMaximumVoices>& voiceCursors(
@@ -572,7 +646,14 @@ public:
         outputPeak_ = 0.0f;
 
         for (std::size_t slot = 0u; slot < players_.size(); ++slot) {
-            if (lastPlayback_[slot] != settings.slots[slot].playback) {
+            const auto& routeControl = settings.slots[slot];
+            const unsigned routeSignature = 1u + static_cast<unsigned>(routeControl.sourceFormat)
+                + (static_cast<unsigned>(settings.outputLayout) << 2u)
+                + (static_cast<unsigned>(routeControl.family[NeonFamily::RoutingMode]) << 6u)
+                + (static_cast<unsigned>(routeControl.family[NeonFamily::RoutingWidth]) << 7u)
+                + (static_cast<unsigned>(routeControl.family[NeonFamily::RoutingTraversal]) << 8u)
+                + (static_cast<unsigned>(routeControl.family[NeonFamily::GrainStereoLink]) << 12u);
+            if (lastPlayback_[slot] != settings.slots[slot].playback || routeSignatures_[slot] != routeSignature) {
                 players_[slot].killAll();
                 effects_[slot].reset();
                 wavesets_[slot].reset(); waveActive_[slot] = false;
@@ -581,13 +662,16 @@ public:
                 grainEmitters_[slot] = {};
                 stackVoiceCounts_[slot] = 0u;
                 lastPlayback_[slot] = settings.slots[slot].playback;
+                routeSignatures_[slot] = routeSignature;
+                allocators_[slot].reset(0x6d2b79f5u + static_cast<unsigned>(slot));
+                gestureRoutes_[slot] = {}; continuousRoutingActive_[slot] = false;
             }
             std::array<RenderEvent, kSampleNeonMaximumBlockEvents>
                 playerEvents {};
             std::size_t playerEventCount = 0u;
             for (std::size_t index = 0u; index < eventCount; ++index) {
                 const auto& source = events[index];
-                if (source.kind == SampleNeonEventKind::Pressure
+                if (source.kind == SampleNeonEventKind::Pressure || source.kind == SampleNeonEventKind::StackPosition
                     || source.slot >= kSampleNeonSlotCount) continue;
                 if (playerEventCount >= playerEvents.size()) break;
                 const auto& control = settings.slots[source.slot];
@@ -624,6 +708,7 @@ public:
                 unsigned layer = sourceSettings.selectedLayer;
                 if (sampler && source.kind == SampleNeonEventKind::Trigger && !source.selectedSource)
                     layer = chooseStackLayer(sourceSettings, source.value, slot);
+                if (source.sourceLayer < 32u) layer = source.sourceLayer;
                 const auto selectedSource = stackLayer(sourceSettings, layer, assets_[slot]);
                 sourceSettings.start = selectedSource.start; sourceSettings.end = selectedSource.end;
                 auto event = makePlayerEvent(sourceSettings,
@@ -632,6 +717,9 @@ public:
                 if (!selectedSource.asset) event.sourceGain = 0.0f;
                 event.sourceStart = selectedSource.start;
                 event.sourceLength = selectedSource.end - selectedSource.start;
+                event.sourceLayer = static_cast<uint8_t>(layer);
+                if (source.kind == SampleNeonEventKind::Trigger) event.route = nextRoute(settings, slot);
+                if (source.mode == controller::reloop_neon::Mode::Slicer) event.envelope = neonSliceEnvelope(sourceSettings.family);
                 if (source.kind == SampleNeonEventKind::Trigger)
                     rememberStackVoice(slot, event, layer, sampler && !source.selectedSource);
                 if (sampler && source.kind == SampleNeonEventKind::Trigger) {
@@ -666,17 +754,22 @@ public:
                 waveCursorCounts_[slot] = lanes_[slot].cursorCount();
                 stackPositions_[slot] = lanes_[slot].position();
             }
+            if ((settings.slots[slot].playback == SampleNeonPlayback::Lanes
+                || settings.slots[slot].playback == SampleNeonPlayback::Wavesets) && neonDistributes(settings.slots[slot]))
+                routeContinuous(settings, slot, events, eventCount, channels.data(), frameCount);
             slotPeaks_[slot] = 0.0f;
             const auto& slotSettings = settings.slots[slot];
             const auto* asset = assets_[slot];
             if (!asset || !sampleNeonRouteCompatible(asset->channelCount,
                     slotSettings.sourceFormat, settings.outputLayout,
-                    slotSettings.outputBus)) continue;
+                    slotSettings.outputBus, neonDistributes(slotSettings))) continue;
             const uint32_t first = slotSettings.outputBus
                 * sampleNeonBusWidth(settings.outputLayout);
-            const uint32_t count = std::max<uint32_t>(2u, asset->channelCount);
+            const bool distributed = neonDistributes(slotSettings);
+            const uint32_t count = distributed ? sampleNeonBusWidth(settings.outputLayout) : std::max<uint32_t>(2u, asset->channelCount);
             if (first + count > outputChannelCount) continue;
-            for (uint32_t channel = 0u; channel < asset->channelCount; ++channel)
+            const uint32_t processedChannels = distributed ? count : asset->channelCount;
+            for (uint32_t channel = 0u; channel < processedChannels; ++channel)
                 for (uint32_t frame = 0u; frame < frameCount; ++frame)
                     channels[channel][frame] *= techniqueEnvelope_[frame];
             // Explicit Stop and choke groups silence tails at their event
@@ -684,10 +777,10 @@ public:
             uint32_t fxFrame = 0u;
             const auto processFxTo = [&](uint32_t end) {
                 std::array<float*, kMaximumAudioChannels> segment {};
-                for (unsigned ch = 0u; ch < asset->channelCount; ++ch) segment[ch] = channels[ch] + fxFrame;
-                effects_[slot].process(segment.data(), asset->channelCount, end - fxFrame,
+                for (unsigned ch = 0u; ch < processedChannels; ++ch) segment[ch] = channels[ch] + fxFrame;
+                effects_[slot].process(segment.data(), processedChannels, end - fxFrame,
                     slotSettings.character, slotSettings.fx, effectiveMangle(settings, slot),
-                    slotSettings.sourceFormat == SampleNeonSourceFormat::Ambisonic);
+                    slotSettings.sourceFormat == SampleNeonSourceFormat::Ambisonic, settings.hostTempoBpm);
                 fxFrame = end;
             };
             for (std::size_t n = 0u; n < eventCount; ++n) {
@@ -705,10 +798,10 @@ public:
             // identical gain/envelope/time processing, including grains.
             const float pan = std::clamp(slotSettings.pan, -1.0f, 1.0f);
             for (uint32_t channel = 0u; channel < count; ++channel) {
-                const float balance = asset->channelCount > 2u ? 1.0f
+                const float balance = (distributed ? count : asset->channelCount) > 2u ? 1.0f
                     : std::sqrt(channel == 0u ? std::min(1.0f, 1.0f - pan)
                         : std::min(1.0f, 1.0f + pan));
-                const auto* source = channels[asset->channelCount == 1u
+                const auto* source = channels[!distributed && asset->channelCount == 1u
                     ? 0u : channel];
                 for (uint32_t frame = 0u; frame < frameCount; ++frame) {
                     auto& output = outputs[first + channel][frame];
@@ -723,6 +816,44 @@ public:
     }
 
 private:
+    SampleVoiceRoute nextRoute(const SampleNeonSettings& settings, std::size_t slot) noexcept {
+        const auto& control = settings.slots[slot];
+        if (!neonDistributes(control)) return {};
+        s3g::routing::VoiceOutputRouting routing;
+        routing.width = static_cast<s3g::routing::OutputVoiceWidth>(control.family[NeonFamily::RoutingWidth]);
+        routing.traversal = static_cast<s3g::routing::OutputTraversal>(control.family[NeonFamily::RoutingTraversal]);
+        const auto assignment = allocators_[slot].next(sampleNeonBusWidth(settings.outputLayout), routing);
+        return {assignment.channelCount, assignment.firstChannel, assignment.secondChannel, 0xffu};
+    }
+    // Continuous Lanes/Wavesets are one object per pad gesture. Event-based
+    // methods allocate in their RenderEvent instead, once per note/grain/slice.
+    void routeContinuous(const SampleNeonSettings& settings, std::size_t slot,
+        const SampleNeonEvent* events, std::size_t count, float* const* channels, uint32_t frames) noexcept {
+        const unsigned sourceChannels = assets_[slot] ? assets_[slot]->channelCount : 0u;
+        std::size_t next = 0;
+        for (uint32_t frame = 0; frame < frames; ++frame) {
+            while (next < count && events[next].frameOffset <= frame) {
+                const auto& event = events[next++];
+                if (event.slot != slot || event.kind != SampleNeonEventKind::Trigger) continue;
+                continuousRoutingActive_[slot] = event.mode == controller::reloop_neon::Mode::Sampler;
+                if (continuousRoutingActive_[slot]) gestureRoutes_[slot] = nextRoute(settings, slot);
+            }
+            if (!continuousRoutingActive_[slot]) continue;
+            const auto route = gestureRoutes_[slot];
+            if (!route.width) continue;
+            float left = 0.f, right = 0.f;
+            unsigned leftCount = 0u, rightCount = 0u;
+            for (unsigned ch = 0; ch < sourceChannels; ++ch) {
+                if (route.width == 2u && (ch & 1u)) { right += channels[ch][frame]; ++rightCount; }
+                else { left += channels[ch][frame]; ++leftCount; }
+            }
+            left /= static_cast<float>(std::max(1u,leftCount));
+            right = rightCount ? right / rightCount : left;
+            for (unsigned ch = 0; ch < kMaximumAudioChannels; ++ch) channels[ch][frame] = 0.f;
+            channels[route.first][frame] = left;
+            if (route.width == 2u) channels[route.second][frame] = right;
+        }
+    }
     struct StackVoice {
         const SampleAsset* asset = nullptr;
         uint64_t noteId = 0u;
@@ -773,14 +904,28 @@ private:
         return layer;
     }
     double stackScan(const SampleNeonSettings& settings, std::size_t slot,
-        uint64_t age, uint32_t frame) const noexcept {
+        uint64_t age, uint32_t frame) noexcept {
         const auto& s = settings.slots[slot];
         const double phase = s.clock == SampleNeonClock::Host
             ? motionBeatAtFrame(settings, frame) / std::clamp<double>(s.stackCycleBeats, 0.25, 32.0)
             : static_cast<double>(age) / sampleRate_ / std::clamp<double>(s.stackCycleSeconds, 0.05, 30.0);
         const double clock = s.family[NeonFamily::StackAdvance] != 0 && s.playback == SampleNeonPlayback::Grains
             ? static_cast<double>(grainEmitters_[slot].serial) / 32.0 : phase;
+        // Avoid float rounding to 1: the wrapped graph would jump to its start
+        // while the cursor is still at the right edge of this cycle.
+        stackPathPhases_[slot] = std::min(std::nextafter(1.f, 0.f),
+            static_cast<float>(neonUnitPhase(clock + s.family[NeonFamily::StackOffset])));
         return neonStackPath(s.family, clock);
+    }
+    double cuePosition(std::size_t slot, double normal, double alpha) noexcept {
+        auto& position = stackCuePositions_[slot];
+        const double target = stackCueTargets_[slot] >= 0 ? stackCueTargets_[slot] : normal;
+        if (stackCueTargets_[slot] >= 0 || stackCueReturning_[slot]) {
+            position += (target - position) * alpha;
+            if (stackCueTargets_[slot] < 0 && (std::abs(position - normal) < .00001
+                || !stackCueReturnFrames_[slot] || --stackCueReturnFrames_[slot] == 0)) stackCueReturning_[slot] = false;
+        } else position = normal;
+        return std::clamp(position, 0.0, 1.0);
     }
     struct GrainEmitter {
         unsigned layer = 0u;
@@ -804,6 +949,37 @@ private:
         uint64_t seed = 0x9e3779b97f4a7c15ull;
         float velocity = 1.0f;
     };
+
+    void insertTechniqueVoice(const SampleNeonSlotSettings& control, GrainEmitter& emitter,
+        RenderEvent grain, std::array<RenderEvent, kSampleNeonMaximumBlockEvents>& events, std::size_t& count) noexcept {
+        const bool independent = control.playback == SampleNeonPlayback::Grains
+            && control.sourceFormat == SampleNeonSourceFormat::Discrete
+            && control.family[NeonFamily::GrainStereoLink] != 0
+            && grain.sourceAsset && grain.sourceAsset->channelCount == 2u;
+        if (!independent) { insertEvent(events,count,grain); return; }
+        if (count + 2u > events.size()) return;
+        auto right = grain;
+        grain.route.sourceChannel = 0u; right.route.sourceChannel = 1u;
+        right.noteId ^= 0x0400000000000000ull;
+        if (grain.route.width == 2u) {
+            grain.route.width = right.route.width = 1u;
+            right.route.first = right.route.second;
+        } else if (grain.route.width == 1u) {
+            grain.sourceGain *= .5f; right.sourceGain *= .5f;
+        }
+        const double random = nextRandom01(emitter.seed)*2-1;
+        const double bias = control.family[NeonFamily::GrainBias] == 0 ? -std::abs(random)
+            : control.family[NeonFamily::GrainBias] == 2 ? std::abs(random) : random;
+        right.startOffsetNormalized = std::clamp(grain.startOffsetNormalized + bias*control.grainSpray*grain.sourceLength,
+            0., std::max(0.,grain.sourceLength-grain.windowLengthNormalized));
+        const double pitch = control.family[NeonFamily::GrainPitch]
+            + (nextRandom01(emitter.seed)*2-1)*control.grainPitchSpraySemitones;
+        const int semitones = static_cast<int>(std::lround(pitch));
+        right.key = static_cast<uint8_t>(std::clamp(60+semitones,0,127));
+        right.fineTuneOffsetCents = static_cast<float>((pitch-semitones)*100);
+        right.playModeOverride = static_cast<uint8_t>(nextRandom01(emitter.seed)<control.grainReverseChance ? PlayMode::Reverse : PlayMode::Forward);
+        insertEvent(events,count,grain); insertEvent(events,count,right);
+    }
 
     static float decibelsToLinear(float decibels) noexcept
     {
@@ -868,28 +1044,9 @@ private:
         const double phase = control.clock == SampleNeonClock::Host
             ? motionBeatAtFrame(settings, frameOffset) / std::clamp<double>(control.motionCycleBeats, 0.25, 32.0)
             : static_cast<double>(ageFrames) / sampleRate_ / std::clamp<double>(control.motionCycleSeconds, 0.05, 30.0);
-        double position = resolvedMotionValue(control.motionPath, phase + control.launchPosition, slot);
-        const auto& f = control.family;
-        const double travel = f[NeonFamily::MotionTravel];
-        switch (static_cast<unsigned>(f[NeonFamily::MotionTrajectory])) {
-        case 1: position = .5; break; // Hover
-        case 2: position = .5 + .5 * std::sin(neonUnitPhase(phase) * 6.28318530718); break;
-        case 3: { // Zigzag advances while making local returns.
-            const double p = neonUnitPhase(phase);
-            position = std::clamp(p + travel * (resolvedMotionValue(SampleNeonMotionPath::RoundTrip, p * 8, slot) - .5), 0.0, 1.0);
-            break;
-        }
-        case 4: position = neonUnitPhase(phase * travel + neonUnitPhase(phase * 8) * (1 - travel)); break;
-        default: break;
-        }
-        const bool bounded = f[NeonFamily::MotionTrajectory] != 0 ? f[NeonFamily::MotionTrajectory] != 4
-            : control.motionPath != SampleNeonMotionPath::Forward && control.motionPath != SampleNeonMotionPath::Reverse;
-        if (f[NeonFamily::MotionSound] == 2 && bounded) {
-            const double seconds = control.clock == SampleNeonClock::Host
-                ? motionBeatAtFrame(settings, frameOffset) * 60.0 / settings.hostTempoBpm : ageFrames / sampleRate_;
-            if (neonUnitPhase(seconds * f[NeonFamily::MotorRate]) > f[NeonFamily::MotorSymmetry]) position = 1 - position;
-        }
-        return std::clamp(f[NeonFamily::MotionLocus] + (position - .5) * f[NeonFamily::MotionField], 0.0, 1.0);
+        const double seconds = control.clock == SampleNeonClock::Host
+            ? motionBeatAtFrame(settings, frameOffset) * 60.0 / settings.hostTempoBpm : ageFrames / sampleRate_;
+        return motionTrajectory(control, phase, seconds, slot);
     }
 
     void synchronizeMotionClock(const SampleNeonSettings& settings) noexcept
@@ -969,6 +1126,7 @@ private:
 
     void resetSlotProcessing(std::size_t slot) noexcept
     {
+        stackCueTargets_[slot] = -1; stackCueReturning_[slot] = false;
         grainEmitters_[slot] = {};
         stackVoiceCounts_[slot] = 0u;
         effects_[slot].reset(); wavesets_[slot].reset(); waveActive_[slot] = false;
@@ -1028,7 +1186,8 @@ private:
         };
         for (std::size_t n = 0u; n < count; ++n) {
             const auto& event = input[n];
-            if (event.slot >= kSampleNeonSlotCount || event.kind == SampleNeonEventKind::Pressure) continue;
+            if (event.slot >= kSampleNeonSlotCount || event.kind == SampleNeonEventKind::Pressure
+                || event.kind == SampleNeonEventKind::StackPosition) continue;
             const uint32_t at = std::clamp(event.frameOffset, begin, frames);
             if (event.slot != slot) {
                 if (waveActive_[slot] && control.chokeGroup && settings.slots[event.slot].chokeGroup == control.chokeGroup
@@ -1052,9 +1211,11 @@ private:
         renderTo(frames);
         const auto& cursors = wavesets_[slot].voiceCursors();
         waveCursorCounts_[slot] = wavesets_[slot].voiceCursorCount();
-        for (unsigned n = 0u; n < wavesets_[slot].voiceCursorCount(); ++n)
+        for (unsigned n = 0u; n < wavesets_[slot].voiceCursorCount(); ++n) {
             waveCursors_[slot][n] = { cursors[n].sourcePositionNormalized, cursors[n].key,
                 static_cast<float>(s.start), static_cast<float>(s.end), cursors[n].identity, primary.asset };
+            waveCursors_[slot][n].layer = 0u;
+        }
     }
 
     static void insertEvent(std::array<RenderEvent, kSampleNeonMaximumBlockEvents>& events,
@@ -1111,6 +1272,7 @@ private:
             : std::clamp<double>(settings.hostTempoBpm, 20.0, 999.0) / 60.0
                 / std::clamp<double>(control.grainIntervalBeats, 0.03125, 4.0);
         const double interval = sampleRate_ / std::clamp(density * (grains ? f[NeonFamily::GrainDensityScale] : 1), 0.1, 160.0);
+        const double cueAlpha = 1-std::exp(-1.0/(sampleRate_*std::clamp<double>(f[NeonFamily::LaneSlew],.001,.1)));
         for (uint32_t frame = begin; frame < end; ++frame) {
             if (waveScan) waveScanPositions_[frame] = emitter.ownsOutput ? -2.0f : -1.0f;
             if (!emitter.ownsOutput) { techniqueEnvelope_[frame] = 1.0f; continue; }
@@ -1139,11 +1301,16 @@ private:
                     : emitter.ageFrames / sampleRate_;
                 techniqueEnvelope_[frame] *= neonMotionArticulation(f, seconds);
             }
+            const bool liveStack = stackCueTargets_[slot] >= 0 || stackCueReturning_[slot];
+            const double ordinaryStack = !waveScan && !liveStack ? stackPositions_[slot] : control.stack && control.stack->count > 1u
+                ? !emitter.selectedSource && (control.sourceMode == NeonSourceMode::Scan || lanes)
+                    ? lanes && f[NeonFamily::LaneAuto] == 0 ? f[NeonFamily::LanePosition]
+                        : stackScan(settings, slot, emitter.ageFrames, frame)
+                    : static_cast<double>(emitter.layer) / (control.stack->count - 1u) : 0.0;
+            const double livePosition = cuePosition(slot, ordinaryStack, cueAlpha);
             if (waveScan) {
-                double position = !emitter.selectedSource ? lanes && f[NeonFamily::LaneAuto] == 0
-                    ? f[NeonFamily::LanePosition] : stackScan(settings, slot, emitter.ageFrames, frame)
-                    : control.stack && control.stack->count > 1u ? static_cast<double>(emitter.layer) / (control.stack->count - 1u) : 0.0;
-                if (!lanes && f[NeonFamily::StackJump] != 0 && control.stack && control.stack->count > 1u)
+                double position = liveStack ? livePosition : ordinaryStack;
+                if (!liveStack && !lanes && f[NeonFamily::StackJump] != 0 && control.stack && control.stack->count > 1u)
                     position = std::round(position * (control.stack->count - 1u)) / (control.stack->count - 1u);
                 waveScanPositions_[frame] = static_cast<float>(position);
                 waveScanVelocities_[frame] = emitter.velocity;
@@ -1151,16 +1318,16 @@ private:
             }
             if (!waveScan && emitter.framesUntilNext <= 0.0
                 && assets_[slot] && count + 1u < events.size()) {
-                const bool scan = !emitter.selectedSource && control.sourceMode == NeonSourceMode::Scan && control.stack
+                const bool scan = ((!emitter.selectedSource && control.sourceMode == NeonSourceMode::Scan) || liveStack) && control.stack
                     && (motion || stretch || control.playback == SampleNeonPlayback::Grains);
-                const double positionInStack = scan ? stackScan(settings, slot, emitter.ageFrames, frame) : 0.0;
+                const double positionInStack = scan ? liveStack ? livePosition : stackScan(settings, slot, emitter.ageFrames, frame) : 0.0;
                 auto blend = scan ? neonStackBlend(positionInStack, control.stack->count)
                     : NeonStackBlend {emitter.layer, emitter.layer, 0.0f};
-                if (scan && f[NeonFamily::StackJump] != 0) {
+                if (scan && !liveStack && f[NeonFamily::StackJump] != 0) {
                     const unsigned layer = blend.mix >= .5f ? blend.second : blend.first;
                     blend = {layer, layer, 0};
                 }
-                if (scan) stackPositions_[slot] = f[NeonFamily::StackJump] != 0 && control.stack->count > 1u
+                if (scan) stackPositions_[slot] = !liveStack && f[NeonFamily::StackJump] != 0 && control.stack->count > 1u
                     ? static_cast<float>(blend.first) / (control.stack->count - 1u) : static_cast<float>(positionInStack);
                 const auto source = stackLayer(control, blend.first, assets_[slot]);
                 const double range = std::max(0.0, source.end - source.start);
@@ -1169,6 +1336,7 @@ private:
                 if (source.asset && range > 0.0) {
                 RenderEvent grain;
                 grain.sourceAsset = source.asset; grain.sourceStart = source.start; grain.sourceLength = range;
+                grain.sourceLayer = static_cast<uint8_t>(blend.first);
                 grain.frameOffset = frame; grain.kind = EventKind::NoteOn;
                 grain.noteId = 0x7000000000000000ull | (static_cast<uint64_t>(slot) << 48u) | (++emitter.serial & 0x0000ffffffffffffull);
                 grain.key = 60u; grain.velocity = emitter.velocity;
@@ -1243,6 +1411,15 @@ private:
                     : nextRandom01(emitter.seed) < control.grainReverseChance;
                 grain.playModeOverride = static_cast<uint8_t>(reverse ? PlayMode::Reverse : PlayMode::Forward);
                 if (sequence) {
+                    grain.envelope = neonSliceEnvelope(f);
+                    // Fit the envelope to this actual step (including the
+                    // fractional scheduler remainder), not an arbitrarily
+                    // long slice. Keep a bounded, channel-coherent overlap.
+                    grain.stepDurationFrames = static_cast<uint32_t>(std::max(1.0,
+                        std::ceil(interval + emitter.framesUntilNext)));
+                    grain.edgeFadeFrames = static_cast<uint32_t>(std::max(2.0,
+                        std::min(std::round(sampleRate_ * .005),
+                            std::floor(interval * .25))));
                     const bool primaryMap = control.stack && control.selectedLayer != 0u && !emitter.selectedSource;
                     const auto slices = std::clamp<unsigned>(primaryMap ? control.stack->primarySliceCount : control.sliceCount, 1u, 32u);
                     const auto repeats = 1u + static_cast<unsigned>(std::lround(control.technique[2] * 7.0f));
@@ -1258,9 +1435,12 @@ private:
                     if (primaryMap) { layout.sliceCount = static_cast<uint8_t>(slices); layout.boundaries = control.stack->primarySlices; }
                     grain.startOffsetNormalized = range * layout.boundaries[index];
                     grain.windowLengthNormalized = range * (layout.boundaries[index + 1u] - layout.boundaries[index]);
-                    insertEvent(events, count, RenderEvent {frame, EventKind::Choke});
+                    RenderEvent handoff {frame, EventKind::Choke};
+                    handoff.chokeFadeFrames = grain.edgeFadeFrames;
+                    insertEvent(events, count, handoff);
                 }
                 if (!sequence || nextRandom01(emitter.seed) < control.technique[3]) {
+                    grain.route = nextRoute(settings, slot);
                     // Overlapping voices retain their own immutable source.
                     // Linear source weights preserve correlated channel fields.
                     if (scan && blend.first != blend.second && blend.mix > 0.0f) {
@@ -1268,6 +1448,7 @@ private:
                         const auto b = stackLayer(control, blend.second, assets_[slot]);
                         if (b.asset) {
                             other.sourceAsset = b.asset; other.sourceStart = b.start; other.sourceLength = b.end - b.start;
+                            other.sourceLayer = static_cast<uint8_t>(blend.second);
                             const double bDuration = b.asset->frameCount() / b.asset->sampleRate;
                             const double bWindow = std::min(other.sourceLength, std::clamp(windowSeconds, .001, 4.0)
                                 * (stretch ? std::pow(2.0, control.tuneSemitones / 12.0) : 1.0) / bDuration);
@@ -1275,11 +1456,11 @@ private:
                             other.windowLengthNormalized = bWindow;
                             other.noteId ^= 0x0800000000000000ull;
                             other.sourceGain *= blend.mix;
-                            insertEvent(events, count, other);
+                            insertTechniqueVoice(control, emitter, other, events, count);
                         }
                         grain.sourceGain *= 1.0f - blend.mix;
                     }
-                    insertEvent(events, count, grain);
+                    insertTechniqueVoice(control, emitter, grain, events, count);
                 }
                 }
                 double spacing = interval;
@@ -1334,6 +1515,17 @@ private:
             const uint32_t at = std::clamp(event.frameOffset, begin, frames);
             appendTechniqueRange(settings, slot, begin, at, events, count);
             begin = at;
+            if (event.kind == SampleNeonEventKind::StackPosition) {
+                const bool hadOverride = stackCueTargets_[slot] >= 0 || stackCueReturning_[slot];
+                if (event.resumeNavigation && emitter.selectedSource) {
+                    emitter.selectedSource = false;
+                    emitter.layer = chooseStackLayer(control, emitter.velocity, slot);
+                }
+                stackCueTargets_[slot] = std::isfinite(event.value) ? std::clamp(event.value, -1.0f, 1.0f) : -1.0f;
+                stackCueReturning_[slot] = hadOverride && stackCueTargets_[slot] < 0;
+                stackCueReturnFrames_[slot] = static_cast<uint32_t>(sampleRate_ * control.family[NeonFamily::LaneSlew] * 8);
+                continue;
+            }
             if (peerChoke || event.kind == SampleNeonEventKind::Choke) {
                 emitter.active = false; continue;
             }
@@ -1352,6 +1544,7 @@ private:
                 insertEvent(events, count, RenderEvent { at, EventKind::Choke, 0u, 0xffu });
                 emitter.active = true; emitter.ownsOutput = true;
                 emitter.noteId = event.noteId; emitter.ageFrames = 0u; emitter.releaseFrames = 0u;
+                stackPathPhases_[slot] = -1.f;
                 emitter.framesUntilNext = 0.0;
                 emitter.serial = 0u;
                 emitter.heldPosition = emitter.eventPosition = control.launchPosition;
@@ -1360,6 +1553,7 @@ private:
                 emitter.velocity = std::clamp(event.value, 0.0f, 1.0f);
                 emitter.selectedSource = event.selectedSource && control.playback != SampleNeonPlayback::SliceSequence;
                 emitter.layer = event.selectedSource ? control.selectedLayer : chooseStackLayer(control, emitter.velocity, slot);
+                if (event.sourceLayer < 32u) emitter.layer = event.sourceLayer;
                 if (control.playback == SampleNeonPlayback::SliceSequence) emitter.layer = 0u;
                 if ((control.playback == SampleNeonPlayback::Wavesets || control.playback == SampleNeonPlayback::Lanes)
                     && at < frames) waveScanRetriggers_[at] = 1u;
@@ -1568,7 +1762,16 @@ private:
     }
 
     std::array<SamplePlayerEngine, kSampleNeonSlotCount> players_ {};
+    std::array<s3g::routing::TriggerOutputAllocator<16u>, kSampleNeonSlotCount> allocators_ {};
+    std::array<SampleVoiceRoute, kSampleNeonSlotCount> gestureRoutes_ {};
+    std::array<unsigned, kSampleNeonSlotCount> routeSignatures_ {};
+    std::array<bool, kSampleNeonSlotCount> continuousRoutingActive_ {};
     std::array<float, kSampleNeonSlotCount> stackPositions_ {};
+    std::array<float, kSampleNeonSlotCount> stackPathPhases_ {};
+    std::array<float, kSampleNeonSlotCount> stackCueTargets_ {};
+    std::array<double, kSampleNeonSlotCount> stackCuePositions_ {};
+    std::array<bool, kSampleNeonSlotCount> stackCueReturning_ {};
+    std::array<uint32_t, kSampleNeonSlotCount> stackCueReturnFrames_ {};
     std::array<std::array<StackVoice, kMaximumVoices>, kSampleNeonSlotCount> stackVoices_ {};
     std::array<unsigned, kSampleNeonSlotCount> stackVoiceCounts_ {};
     std::array<uint64_t, kSampleNeonSlotCount> stackSeeds_ = [] {

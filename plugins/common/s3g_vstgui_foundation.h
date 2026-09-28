@@ -74,6 +74,8 @@ void drawTextInRect(VSTGUI::CDrawContext& context, const std::string& text,
 // Presentation only: never use this spelling for CLAP descriptors, IDs, paths,
 // or preset names. Keep the s3g brand lowercase and uppercase the ASCII name.
 std::string pluginTitleText(std::string name);
+// Match the shared Cocoa PK convention; the value is an amplitude, not dB.
+std::string peakDbText(float peak);
 void drawPluginTitle(VSTGUI::CDrawContext& context, const std::string& name,
     const VSTGUI::CRect& bounds, VSTGUI::CFontRef titleFont);
 // Match Cocoa's bounded slider values: reduce numeric precision before clipping.

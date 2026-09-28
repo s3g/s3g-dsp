@@ -25,13 +25,15 @@ public:
         foundation::drawPluginTitle(*context, kName, rect(16, 12, 370, 20), titleFont);
         button(rect(490, 12, 114, 20), "RELEASE HELD", [this] { change(kPanic, 1.); });
         panel(rect(16, 46, 588, 76), "NOTE ROUTING");
-        const auto bank = static_cast<uint8_t>(getValue(p, kBank));
+        const auto unit = static_cast<unsigned>(getValue(p, kUnit));
+        const auto bankId = unit ? kBank2 : kBank;
+        const auto bank = static_cast<uint8_t>(getValue(p, bankId));
         const auto base = static_cast<uint8_t>(getValue(p, kBase));
         const auto channel = static_cast<int>(getValue(p, kChannel));
         text("BANK", rect(28, 82, 36, 20), style.label);
         for (uint8_t b = 0u; b < 4u; ++b)
             button(rect(68 + b * 34, 82, 26, 20), format("%c", 'A' + b),
-                [this, b] { change(kBank, b); }, b == bank);
+                [this, b, bankId] { change(bankId, b); }, b == bank);
         text("BASE NOTE", rect(232, 82, 68, 20), style.label);
         const auto baseBox = rect(304, 84.5, 56, 15);
         fill(baseBox, style.cell);
@@ -45,10 +47,10 @@ public:
         static constexpr std::array<const char*, 8u> pages {{
             "SAMPLE / PERFORMANCE", "CHOP / CONTROLS", "EDIT / CONTROLS", "RESAMPLE / CONTROLS",
             "SAMPLE FX / CONTROLS", "CHOP TOOLS / CONTROLS", "EDIT TOOLS / CONTROLS", "RESAMPLE PADS / CONTROLS"}};
-        text(pages[std::min<size_t>(p.page.load(), 7u)], rect(16, 130, 330, 18), style.dim);
+        text(pages[std::min<size_t>(p.page[unit].load(), 7u)], rect(16, 130, 330, 18), style.dim);
         choice(rect(360, 131.5, 244, 15), kRoute,
             {"NOTES ONLY", "TRACKER + SAMPLE NEON"}, static_cast<int>(getValue(p, kRoute)));
-        const auto held = p.heldCells.load();
+        const auto held = p.heldCells[unit].load();
         for (uint8_t pad = 0u; pad < 8u; ++pad) {
             const auto cell = static_cast<uint8_t>(bank * 8u + pad);
             const auto bounds = rect(16 + (pad % 4u) * 150, 158 + (pad / 4u) * 66, 138, 54);
@@ -60,7 +62,7 @@ public:
             text(active ? "HELD" : "NOTE", rect(bounds.left + 10, bounds.top + 31, 118, 14), style.dim, kLeftText, smallFont);
         }
         line({16, 293}, {604, 293}, color(0x3a3a3a));
-        const auto last = p.lastHit.load();
+        const auto last = p.lastHit[unit].load();
         const auto velocity = last & 0x7fu;
         text(last == UINT32_MAX ? "NOTE -- / VEL ---"
             : format("NOTE %u / VEL %03u", (last >> 8u) & 0x7fu, velocity),
@@ -70,10 +72,24 @@ public:
         text(last == UINT32_MAX ? "VOL -.---" : format("VOL %.3f", velocity / 127.0),
             rect(240, 300, 80, 20), style.value);
         const auto rejected = p.rejected.load();
-        text(rejected ? format("HOST REJECTED %u EVENTS", rejected) : "SAMPLE LAYER 1 ONLY",
+        text(rejected ? format("HOST REJECTED %u EVENTS", rejected)
+            : p.usb.errors.load() ? format("USB DROPS / ERR %u", p.usb.errors.load()) : "SAMPLE LAYER 1 ONLY",
             rect(332, 300, 206, 20), style.dim, kCenterText);
-        text("v0.1.2", rect(552, 300, 52, 20), style.dim, kRightText);
+        text("v0.2.1", rect(552, 300, 52, 20), style.dim, kRightText);
         text("SHIFT + SAMPLER: VELOCITY ON / OFF", rect(16, 322, 480, 16), style.label);
+        panel(rect(16, 346, 588, 86), "CONTROLLERS");
+        text("INPUT", rect(32, 377, 54, 20), style.label);
+        choice(rect(90, 379.5, 214, 15), kInput,
+            {"HOST MIDI", "HOST DUAL PORTS", "USB ONE NEON", "USB TWO NEONS"}, static_cast<int>(getValue(p, kInput)));
+        text("VIEW", rect(322, 377, 42, 20), style.label);
+        choice(rect(370, 379.5, 218, 15), kUnit, {"UNIT 1", "UNIT 2"}, static_cast<int>(unit));
+        const auto uid = p.usb.source[unit].load();
+        const auto input = static_cast<int>(getValue(p, kInput));
+        text(input < 2 ? format("UNIT %u / HOST PORT %u", unit+1, unit+1)
+            : format("U%u %s / %d", unit+1, p.usb.connected[unit].load() ? "USB" : "WAIT", uid),
+            rect(32, 405, 342, 18), style.value);
+        button(rect(388, 403, 92, 18), "SWAP USB", [this] { p.usb.assignmentRequest.store(1); ::notify(p); });
+        button(rect(488, 403, 100, 18), "RELEARN USB", [this] { p.usb.assignmentRequest.store(2); ::notify(p); });
     }
 private:
     Plugin& p;

@@ -8,6 +8,8 @@
 #include "../plugins/common/s3g_sample_storage.h"
 #include "realtime_alloc_probe_api.h"
 #include "../dsp/s3g_sample_neon_family.h"
+#include "../dsp/s3g_sample_neon_character.h"
+#include "../dsp/s3g_neon_midi_bridge.h"
 
 #include <dlfcn.h>
 
@@ -554,7 +556,7 @@ int main(int argc, char** argv)
         setStateParameter(saved, 1u, 0.0);  // master gain
         setStateParameter(saved, 4u, 1.0);  // Neon owner
         setStateParameter(saved, 7u, 0.0);  // slot A1 gain
-        setStateParameter(saved, 18u, 5.0); // slot A1 Gate character
+        setStateParameter(saved, 18u, 5.0); // retired slot A1 Character selection
         const std::size_t pathOffset = sizeof(StateHeader)
             + kParameterCount * sizeof(double);
         std::snprintf(reinterpret_cast<char*>(saved.bytes.data() + pathOffset),
@@ -564,6 +566,15 @@ int main(int argc, char** argv)
         const std::size_t sliceCountOffset = sliceModeOffset
             + kSliceModeBytes;
         saved.bytes[sliceCountOffset] = 17u;
+        // The extended stack state validates slice geometry, so changing its
+        // count must also construct a matching, ordered boundary table.
+        const std::size_t boundaryOffset = kPerformanceStateOffset
+            + 4u * 32u + 32u * sizeof(double);
+        for (unsigned n = 0; n <= 32; ++n) {
+            const double boundary = std::min(1.0, static_cast<double>(n) / 17.0);
+            std::memcpy(saved.bytes.data() + boundaryOffset + n * sizeof(double),
+                &boundary, sizeof(boundary));
+        }
         const std::size_t sliceOptionOffset = sliceCountOffset
             + kSliceCountBytes;
         saved.bytes[sliceOptionOffset] = 3u;
@@ -586,8 +597,60 @@ int main(int argc, char** argv)
         ok = expect(std::equal(saved.bytes.begin() + playbackOffset,
             saved.bytes.begin() + playbackOffset + kPlaybackStateBytes,
             modeRoundTrip.bytes.begin() + playbackOffset), "Playback clock/cycle/shot/interval did not round-trip") && ok;
-        ok = expect(std::equal(saved.bytes.begin() + modernOffset, saved.bytes.begin() + modernOffset + kModernStateBytes,
-            modeRoundTrip.bytes.begin() + modernOffset), "Per-effect and per-technique settings did not round-trip") && ok;
+        for (unsigned pad=0;pad<32;++pad) {
+            for (unsigned effect=0;effect<8;++effect) for (unsigned n=0;n<3;++n) {
+                float value; std::memcpy(&value,modeRoundTrip.bytes.data()+modernOffset+(pad*36+effect*3+n)*sizeof(float),sizeof(float));
+                ok = expect(value==s3g::sample::neonCharacterDefaults(effect)[n],"Retired Character settings did not reset to the new defaults") && ok;
+            }
+            const auto first=modernOffset+(pad*36+24)*sizeof(float);
+            ok = expect(std::equal(saved.bytes.begin()+first,saved.bytes.begin()+first+12*sizeof(float),modeRoundTrip.bytes.begin()+first),
+                "Playback technique settings changed during Character migration") && ok;
+        }
+        ok = expect(std::equal(saved.bytes.begin()+envelopeOffset,saved.bytes.begin()+envelopeOffset+64*sizeof(float),modeRoundTrip.bytes.begin()+envelopeOffset),
+            "Gesture envelope settings changed during Character migration") && ok;
+
+        // Version 21 retains every effect bank (including hidden settings and
+        // trim), not only the selected effect's old three-value prefix.
+        clap_event_param_value_t mixEvent {};
+        mixEvent.header={sizeof(mixEvent),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_PARAM_VALUE,0};
+        mixEvent.param_id=1009; mixEvent.value=.25;
+        clap_input_events_t mixInput {};
+        mixInput.ctx=&mixEvent;
+        mixInput.size=[](const clap_input_events_t*)->uint32_t{return 1;};
+        mixInput.get=[](const clap_input_events_t* e,uint32_t i)->const clap_event_header_t*{return i?nullptr:&static_cast<const clap_event_param_value_t*>(e->ctx)->header;};
+        params->flush(instrument,&mixInput,nullptr);
+        StateBuffer expanded;
+        ok=expect(state->save(instrument,&expanded.output) && expanded.bytes[4]==21,"Expanded Character bank did not use version 21")&&ok;
+        const bool plainFxLoad=state->load(instrument,&expanded.input);
+        if(!plainFxLoad)std::cerr<<"FX state load offset="<<expanded.cursor<<" bytes="<<expanded.bytes.size()<<'\n';
+        ok=expect(plainFxLoad,"Unmodified expanded Character state failed to load")&&ok;
+        expanded.cursor=0;
+        constexpr size_t extraFxBytes=32*8*(s3g::sample::kNeonCharacterControls-3)*sizeof(float);
+        if(expanded.bytes.size()>extraFxBytes) {
+            const size_t extraOffset=expanded.bytes.size()-extraFxBytes;
+            for(unsigned pad=0;pad<32;++pad) for(unsigned effect=0;effect<8;++effect)
+                for(unsigned n=0;n<s3g::sample::kNeonCharacterControls;++n) {
+                    const float value=float((pad+effect+n)%17)/16;
+                    const size_t at=n<3?modernOffset+(pad*36+effect*3+n)*sizeof(float)
+                        :extraOffset+((pad*8+effect)*(s3g::sample::kNeonCharacterControls-3)+n-3)*sizeof(float);
+                    std::memcpy(expanded.bytes.data()+at,&value,sizeof(value));
+                }
+            const bool loadedFx=state->load(instrument,&expanded.input);
+            if(!loadedFx)std::cerr<<"Mutated FX load offset="<<expanded.cursor<<" bytes="<<expanded.bytes.size()<<'\n';
+            ok=expect(loadedFx,"Expanded Character banks failed to load")&&ok;
+            StateBuffer recalledFx;
+            ok=expect(state->save(instrument,&recalledFx.output) && recalledFx.bytes==expanded.bytes,"Expanded Character banks failed exact recall")&&ok;
+            StateBuffer truncatedFx;truncatedFx.bytes=expanded.bytes;truncatedFx.bytes.pop_back();
+            ok=expect(!state->load(instrument,&truncatedFx.input),"Truncated extended Character bank accepted")&&ok;
+            StateBuffer badFx;badFx.bytes=expanded.bytes;
+            const float invalid=std::numeric_limits<float>::quiet_NaN();
+            std::memcpy(badFx.bytes.data()+extraOffset,&invalid,sizeof(invalid));
+            ok=expect(!state->load(instrument,&badFx.input),"Nonfinite extended Character bank accepted")&&ok;
+            StateBuffer stableFx;
+            ok=expect(state->save(instrument,&stableFx.output)&&stableFx.bytes==expanded.bytes,"Rejected Character state mutated active sound")&&ok;
+        }
+        modeRoundTrip.cursor=0;
+        ok=expect(state->load(instrument,&modeRoundTrip.input),"Could not restore source/playback fixture after Character bank test")&&ok;
 
         StateBuffer combinedProcess;
         combinedProcess.bytes = saved.bytes;
@@ -726,7 +789,7 @@ int main(int argc, char** argv)
 
     MidiInput cursorInput;
     cursorInput.events[0u].data[0u] = 0x93u;
-    cursorInput.events[0u].data[1u] = 0x07u; // deck A Hot Cue
+    cursorInput.events[0u].data[1u] = 0x06u; // deck A CHOP cursor editor
     cursorInput.events[0u].data[2u] = 0x7fu;
     cursorInput.events[1u].data[0u] = 0xb6u;
     cursorInput.events[1u].data[1u] = 0x04u; // deck A LOOP
@@ -736,12 +799,12 @@ int main(int argc, char** argv)
     std::vector<float> cursorRight;
     ok = expect(processStereo(instrument, cursorInput, cursorOutput,
             cursorLeft, cursorRight),
-        "Hot Cue cursor encoder process failed") && ok;
+        "CHOP cursor encoder process failed") && ok;
     StateBuffer cursorState;
     ok = expect(state->save(instrument, &cursorState.output)
             && std::abs(stateDouble(cursorState, kEditPositionOffset) - 0.10)
                 < 1.0e-9,
-        "Hot Cue LOOP encoder did not move the edit cursor") && ok;
+        "CHOP LOOP encoder did not move the edit cursor") && ok;
 
     MidiInput midi;
     OutputEvents output;
@@ -789,9 +852,138 @@ int main(int argc, char** argv)
         };
         params->flush(instrument, &input, &output.list);
     };
+    // Exercise every new processor in the exact CLAP binary, including effect
+    // switches on an active voice. processChannels measures allocations when
+    // the optional realtime probe is enabled.
+    double previousCharacter=0, previousMix=0;
+    params->get_value(instrument,1011u,&previousCharacter);
+    params->get_value(instrument,1009u,&previousMix);
+    change(1009u,.8);
+    for(unsigned effect=0;effect<8;++effect) {
+        change(1011u,effect);
+        ok=expect(send(0x97u,0u),"Character FX trigger failed")&&ok;
+        for(unsigned n=0;n<180;++n) {
+            ok=expect(send(0x90u,127u,0u),"Character FX processing failed")&&ok;
+            ok=expect(std::all_of(left.begin(),left.end(),[](float value){return std::isfinite(value);})
+                && std::all_of(right.begin(),right.end(),[](float value){return std::isfinite(value);}),
+                "Character FX produced nonfinite host output")&&ok;
+        }
+    }
+    change(1011u,previousCharacter);change(1009u,previousMix);
+    instrument->reset(instrument);
+    // Explicit musical channels must work even where the controller's raw
+    // protocol uses the same note addresses. Private bridge controls remain
+    // independent; Omni retains the existing hardware priority.
+    struct HeaderInput {
+        std::vector<const clap_event_header_t*> headers;
+        clap_input_events_t list {};
+        HeaderInput() {
+            list.ctx=this;
+            list.size=[](const clap_input_events_t* e) {return static_cast<uint32_t>(static_cast<const HeaderInput*>(e->ctx)->headers.size());};
+            list.get=[](const clap_input_events_t* e,uint32_t n) {return static_cast<const HeaderInput*>(e->ctx)->headers[n];};
+        }
+    };
+    double oldReceive=0,oldTrigger=0,oldRelease=0;
+    params->get_value(instrument,7u,&oldReceive);
+    params->get_value(instrument,1015u,&oldTrigger);
+    params->get_value(instrument,1006u,&oldRelease);
+    change(1015u,1);change(1006u,0);
+    clap_event_note_t standard {};
+    standard.header={sizeof(standard),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_NOTE_ON,0};
+    standard.port_index=0;standard.key=36;standard.note_id=222;standard.velocity=1;
+    HeaderInput channelNotes;channelNotes.headers={&standard.header};
+    for (unsigned channel=0;channel<16;++channel) {
+        change(7u,channel+1);instrument->reset(instrument);
+        ok=expect(send(static_cast<uint8_t>(0x90u|channel),36) && maximumMagnitude(left)>.001f,
+            "Selected raw MIDI channel failed to trigger A1 with NEON ownership enabled")&&ok;
+        send(static_cast<uint8_t>(0x80u|channel),36,0);
+        for(unsigned n=0;n<8;++n) send(0x90u,127,0);
+        ok=expect(maximumMagnitude(left)==0,"Selected raw MIDI note-off did not release the pad")&&ok;
+        instrument->reset(instrument);standard.channel=static_cast<int16_t>((channel+1)%16);
+        standard.header.type=CLAP_EVENT_NOTE_ON;
+        ok=expect(processStereo(instrument,channelNotes,output,left,right) && maximumMagnitude(left)==0,
+            "CLAP note from an unselected channel was accepted")&&ok;
+        standard.channel=static_cast<int16_t>(channel);
+        ok=expect(processStereo(instrument,channelNotes,output,left,right) && maximumMagnitude(left)>.001f,
+            "Selected CLAP channel failed to trigger A1")&&ok;
+        standard.header.type=CLAP_EVENT_NOTE_OFF;
+        standard.channel=static_cast<int16_t>((channel+1)%16);
+        ok=expect(processStereo(instrument,channelNotes,output,left,right) && maximumMagnitude(left)>.001f,
+            "Wrong-channel CLAP note-off released the selected channel")&&ok;
+        standard.channel=static_cast<int16_t>(channel);
+        processStereo(instrument,channelNotes,output,left,right);
+        for(unsigned n=0;n<8;++n) send(0x90u,127,0);
+        ok=expect(maximumMagnitude(left)==0,"Selected CLAP note-off did not release the pad")&&ok;
+    }
+    change(7u,1);instrument->reset(instrument);
+    ok=expect(send(0x91u,36) && maximumMagnitude(left)==0,"Wrong-channel raw MIDI was accepted")&&ok;
+    clap_event_param_value_t channelChange {};
+    channelChange.header={sizeof(channelChange),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_PARAM_VALUE,0};
+    channelChange.param_id=7;channelChange.value=2;
+    standard.channel=1;standard.header.type=CLAP_EVENT_NOTE_ON;
+    channelNotes.headers={&channelChange.header,&standard.header};
+    ok=expect(processStereo(instrument,channelNotes,output,left,right) && maximumMagnitude(left)>.001f,
+        "MIDI channel automation did not apply before a following note in the same block")&&ok;
+    double oldPressure=0;
+    params->get_value(instrument,1010u,&oldPressure);
+    change(1010u,1);change(1011u,0);
+    clap_event_note_expression_t pressure {};
+    pressure.header={sizeof(pressure),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_NOTE_EXPRESSION,0};
+    pressure.expression_id=CLAP_NOTE_EXPRESSION_PRESSURE;
+    pressure.port_index=0;pressure.key=36;pressure.note_id=222;
+    const auto pressureRender=[&](int16_t channel,double value,bool raw) {
+        instrument->reset(instrument);
+        standard.header.type=CLAP_EVENT_NOTE_ON;standard.channel=1;
+        channelNotes.headers={&standard.header};
+        ok=processStereo(instrument,channelNotes,output,left,right)&&ok;
+        pressure.channel=channel;pressure.value=value;
+        channelNotes.headers={&pressure.header};
+        if(raw) ok=send(static_cast<uint8_t>(0xa0u|channel),36,static_cast<uint8_t>(value*127))&&ok;
+        else ok=processStereo(instrument,channelNotes,output,left,right)&&ok;
+        return left;
+    };
+    const auto noPressure=pressureRender(1,0,false);
+    const auto wrongPressure=pressureRender(0,1,false);
+    const auto rightPressure=pressureRender(1,1,false);
+    ok=expect(noPressure==wrongPressure && rightPressure!=noPressure,
+        "CLAP pressure did not respect the selected musical channel")&&ok;
+    ok=expect(pressureRender(0,1,true)==noPressure && pressureRender(1,1,true)==rightPressure,
+        "Raw poly pressure did not respect the selected musical channel")&&ok;
+    change(1010u,oldPressure);change(1011u,previousCharacter);
+    // Save/load the existing parameter, without introducing a new state schema.
+    StateBuffer channelState;
+    ok=expect(state->save(instrument,&channelState.output),"MIDI receive state save failed")&&ok;
+    const auto* recalledChannel=factory->create_plugin(factory,&host.host,"org.s3g.s3g-dsp.sample-neon");
+    const bool channelInit=recalledChannel && recalledChannel->init(recalledChannel);
+    const auto* channelStateApi=channelInit?static_cast<const clap_plugin_state_t*>(recalledChannel->get_extension(recalledChannel,CLAP_EXT_STATE)):nullptr;
+    const auto* channelParams=channelInit?static_cast<const clap_plugin_params_t*>(recalledChannel->get_extension(recalledChannel,CLAP_EXT_PARAMS)):nullptr;
+    double recalledReceive=-1;
+    ok=expect(channelStateApi && channelStateApi->load(recalledChannel,&channelState.input)
+        && channelParams && channelParams->get_value(recalledChannel,7,&recalledReceive) && recalledReceive==2,
+        "MIDI receive channel failed project recall")&&ok;
+    if(recalledChannel)recalledChannel->destroy(recalledChannel);
+    change(7u,16);instrument->reset(instrument);
+    using namespace s3g::controller::neon_midi;
+    BridgeMessage control;control.kind=BridgeKind::Control;control.midi={0x97,0,127};
+    const auto packet=encodeBridge(control);
+    clap_event_midi_sysex_t bridge {};
+    bridge.header={sizeof(bridge),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI_SYSEX,0};
+    bridge.buffer=packet.data();bridge.size=static_cast<uint32_t>(packet.size());
+    channelNotes.headers={&bridge.header};
+    ok=expect(processStereo(instrument,channelNotes,output,left,right) && maximumMagnitude(left)>.001f,
+        "Musical channel filter disabled private NEON control input")&&ok;
+    // Omni accepts ordinary musical channels that do not overlap raw controls.
+    change(7u,0);
+    for(uint8_t channel:{0u,1u,12u,15u}) {
+        instrument->reset(instrument);
+        ok=expect(send(static_cast<uint8_t>(0x90u|channel),36) && maximumMagnitude(left)>.001f,
+            "Omni stopped accepting ordinary MIDI notes")&&ok;
+    }
+    change(7u,oldReceive);change(1015u,oldTrigger);change(1006u,oldRelease);
+    instrument->reset(instrument);
     // Compare the actual instrument output for ordinary velocity with the
     // hardware's separate CC + fixed-127 note sequence across host blocks.
-    for (uint8_t key : {0u, 0x10u}) { // PLAY and EDIT audition.
+    for (uint8_t key : {0u, 0x10u}) { // Both physical shortcuts into PLAY.
         float previousPeak = 0.0f;
         for (uint8_t velocity : {3u, 32u, 64u, 127u}) {
             instrument->reset(instrument);
@@ -878,17 +1070,20 @@ int main(int argc, char** argv)
         "changing page/bank stranded the original held note") && ok;
     change(1015u, 2.0); // One-shot
 
-    // Toggle remains a performance gesture, not a forced edit retrigger.
+    // All cell-pad shortcuts share performance behavior, including Hot Cue:
+    // selecting EDIT encoders must not turn Toggle into a forced retrigger.
     send(0x93u, 0x00u); // Bank A
     change(1015u, 3.0);
-    instrument->reset(instrument);
-    ok = expect(send(0x97u, 0x78u) && maximumMagnitude(left) > 0.001f,
-        "RESAMPLE Toggle did not start") && ok;
-    send(0x87u, 0x78u, 0u);
-    ok = expect(maximumMagnitude(left) > 0.001f, "RESAMPLE Toggle stopped on release") && ok;
-    send(0x97u, 0x78u);
-    for (unsigned block = 0u; block < 8u; ++block) send(0x90u, 127u, 0u);
-    ok = expect(maximumMagnitude(left) == 0.0f, "RESAMPLE Toggle retriggered instead of stopping") && ok;
+    for (uint8_t key : {0u, 0x10u, 0x78u}) {
+        instrument->reset(instrument);
+        ok = expect(send(0x97u, key) && maximumMagnitude(left) > 0.001f,
+            "Cell pad Toggle did not start") && ok;
+        send(0x87u, key, 0u);
+        ok = expect(maximumMagnitude(left) > 0.001f, "Cell pad Toggle stopped on release") && ok;
+        send(0x97u, key);
+        for (unsigned block = 0u; block < 8u; ++block) send(0x90u, 127u, 0u);
+        ok = expect(maximumMagnitude(left) == 0.0f, "Cell pad Toggle retriggered instead of stopping") && ok;
+    }
     change(1015u, 2.0);
 
     // Record and perform entirely within RESAMPLE, then choose an empty target.
@@ -1007,7 +1202,7 @@ int main(int argc, char** argv)
             captured.bytes.data() + expectedStateBytes, 256u * 2u * sizeof(float)) == 0,
             "cropping the review modified an already assigned cell") && ok;
     }
-    send(0x97u, 0x11u); // EDIT selects A2 (the captured cell).
+    send(0x97u, 0x01u); // PLAY selects A2 (the captured cell).
     send(0x97u, 0x6eu); // CHOP secondary Assign One -> first empty cell A1.
     instrument->on_main_thread(instrument);
     instrument->reset(instrument);
@@ -1026,7 +1221,7 @@ int main(int argc, char** argv)
     bool readyForReplace = false;
     for (unsigned attempt = 0u; attempt < 100u && !readyForReplace; ++attempt) {
         instrument->on_main_thread(instrument);
-        readyForReplace = send(0x97u, 0x10u) && maximumMagnitude(left) > 0.001f;
+        readyForReplace = send(0x97u, 0x00u) && maximumMagnitude(left) > 0.001f;
         if (!readyForReplace) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     send(0x97u, 0x4fu); // Shift + CHOP secondary Assign All -> replace source.
@@ -1158,7 +1353,7 @@ int main(int argc, char** argv)
             if (kHostLedOutput) returned.events.clear();
         }
         output.captureMidi = false; output.messages.clear();
-        send(0x96u, 0x07u); send(0xb6u, 0x07u, 10u); // EDIT/Source LOOP moves selected cell cursor.
+        send(0x96u, 0x06u); send(0xb6u, 0x07u, 10u); // CHOP LOOP moves selected cell cursor.
         StateBuffer afterHold;
         ok = expect(state->save(instrument, &afterHold.output)
             && stateDouble(afterHold, kEditPositionOffset + 24u * sizeof(double)) > 0.09
@@ -1182,7 +1377,7 @@ int main(int argc, char** argv)
             if (n > 40u) secondHeld = secondHeld || maximumMagnitude(left) > 0.00001f;
         }
         ok = expect(secondHeld, "Releasing D1 stopped a genuinely held D2") && ok;
-        send(0x96u, 0x07u); send(0xb6u, 0x07u, 10u);
+        send(0x96u, 0x06u); send(0xb6u, 0x07u, 10u);
         StateBuffer realSecond;
         ok = expect(state->save(instrument, &realSecond.output)
             && stateDouble(realSecond, kEditPositionOffset + 25u * sizeof(double)) > 0.09,
@@ -1525,12 +1720,59 @@ int main(int argc, char** argv)
                 f[NeonFamily::LaneRate] = 1.25f;
                 f[NeonFamily::LaneAuto] = 1;
                 const auto* bytes = reinterpret_cast<const uint8_t*>(f.values.data());
-                lanes.bytes.insert(lanes.bytes.end(), bytes, bytes + sizeof(f.values));
+                lanes.bytes.insert(lanes.bytes.end(), bytes, bytes + kNeonFamilyV19Count*sizeof(float));
             }
             ok = expect(stackState->load(stacked, &lanes.input), "Lanes v18 state load") && ok;
             StateBuffer savedLanes;
             ok = expect(stackState->save(stacked, &savedLanes.output) && savedLanes.bytes == lanes.bytes,
                 "Lanes state roundtrip preserves all 32 pads") && ok;
+            StateBuffer routing; routing.bytes=savedStack.bytes; routing.bytes[4]=20;
+            for(unsigned pad=0;pad<32;++pad) {
+                NeonFamilySettings f;
+                f[NeonFamily::SliceAttack]=.12f; f[NeonFamily::SliceDecay]=.2f;
+                f[NeonFamily::SliceSustain]=.4f; f[NeonFamily::SliceRelease]=.3f;
+                f[NeonFamily::RoutingMode]=float(pad%2); f[NeonFamily::RoutingWidth]=float((pad+1)%2);
+                f[NeonFamily::RoutingTraversal]=float(pad%5); f[NeonFamily::GrainStereoLink]=1;
+                const auto* bytes=reinterpret_cast<const uint8_t*>(f.values.data());
+                routing.bytes.insert(routing.bytes.end(),bytes,bytes+sizeof(f.values));
+            }
+            const std::array<float,3> defaultFill {{2,2,.5f}};
+            const auto* defaultFillBytes=reinterpret_cast<const uint8_t*>(defaultFill.data());
+            routing.bytes.insert(routing.bytes.end(),defaultFillBytes,defaultFillBytes+sizeof(defaultFill));
+            ok=expect(stackState->load(stacked,&routing.input),"v20 slice ADSR and object routing state loads")&&ok;
+            StateBuffer savedRouting;
+            ok=expect(stackState->save(stacked,&savedRouting.output)&&savedRouting.bytes==routing.bytes,
+                "v20 retains all 32 pads, routing choices and slice envelopes byte-identically")&&ok;
+            StateBuffer badRouting; badRouting.bytes=routing.bytes;
+            const float badTraversal=5;
+            std::memcpy(badRouting.bytes.data()+savedStack.bytes.size()+neonFamilyIndex(NeonFamily::RoutingTraversal)*sizeof(float),&badTraversal,sizeof(float));
+            ok=expect(!stackState->load(stacked,&badRouting.input),"invalid routing traversal rejected atomically")&&ok;
+            StateBuffer stillRouting;
+            ok=expect(stackState->save(stacked,&stillRouting.output)&&stillRouting.bytes==routing.bytes,
+                "invalid routing restore preserves current audio state")&&ok;
+            StateBuffer distributed; distributed.bytes=routing.bytes;
+            setStateParameter(distributed,0,2); // Quad output, first bus.
+            setStateParameter(distributed,7u+12u,1); setStateParameter(distributed,7u+16u,0); // Discrete 16-channel source.
+            distributed.bytes[textureOffset]=kGrainsOption;
+            distributed.bytes[textureOffset+kTextureStateBytes+kTransientStateBytes]=0; // FREE.
+            const float enabledRoute=1;
+            std::memcpy(distributed.bytes.data()+savedStack.bytes.size()+neonFamilyIndex(NeonFamily::RoutingMode)*sizeof(float),&enabledRoute,sizeof(float));
+            ok=expect(stackState->load(stacked,&distributed.input),"distributed wide-source state load")&&ok;
+            const bool distributedRunning=active&&stacked->start_processing(stacked);
+            MidiInput routeGesture; OutputEvents routeFeedback; std::array<std::vector<float>,32> routedOutput;
+            bool distributedAudible=false, busSafe=true;
+            for(unsigned block=0;distributedRunning&&block<400;++block) {
+                ok=processChannels(stacked,routeGesture,routeFeedback,routedOutput)&&ok;
+                routeGesture.list.size=[](const clap_input_events_t*)->uint32_t{return 0;};
+                for(unsigned ch=0;ch<32;++ch)for(float value:routedOutput[ch]) {
+                    if(ch<4)distributedAudible|=std::abs(value)>1.e-6f;
+                    else busSafe&=value==0;
+                }
+            }
+            ok=expect(distributedRunning&&distributedAudible&&busSafe,"distributed grains fold into selected bus without channel leaks")&&ok;
+            if(distributedRunning)stacked->stop_processing(stacked);
+            lanes.cursor=0;
+            ok=expect(stackState->load(stacked,&lanes.input),"old v18 reload resets new controls to Preserve Field/default slice envelope")&&ok;
             StateBuffer badLane; badLane.bytes = lanes.bytes;
             const float invalidRate = 0;
             std::memcpy(badLane.bytes.data() + savedStack.bytes.size() + neonFamilyIndex(NeonFamily::LaneRate) * sizeof(float), &invalidRate, sizeof(float));
@@ -1551,6 +1793,129 @@ int main(int argc, char** argv)
             }
             if (lanesRunning) stacked->stop_processing(stacked);
             ok = expect(lanesRunning && lanesAudible && lanesLinked, "Lanes processing remains audible and ACN-linked") && ok;
+            StateBuffer fillState; fillState.bytes = savedLanes.bytes; fillState.bytes[4] = 19;
+            const std::array<float,3> fillControls {{2,2,0}};
+            const auto* fillBytes = reinterpret_cast<const uint8_t*>(fillControls.data());
+            fillState.bytes.insert(fillState.bytes.end(),fillBytes,fillBytes+sizeof(fillControls));
+            ok = expect(stackState->load(stacked,&fillState.input),"Fill v19 loads") && ok;
+            StateBuffer fillRoundtrip;
+            ok = expect(stackState->save(stacked,&fillRoundtrip.output) && fillRoundtrip.bytes == fillState.bytes,"Fill v19 roundtrip") && ok;
+            StateBuffer badFill; badFill.bytes = fillState.bytes; const float invalidFill = 6;
+            std::memcpy(badFill.bytes.data()+badFill.bytes.size()-8,&invalidFill,4);
+            ok = expect(!stackState->load(stacked,&badFill.input),"Fill invalid repeat rejected") && ok;
+            StateBuffer safeFill;
+            ok = expect(stackState->save(stacked,&safeFill.output) && safeFill.bytes == fillState.bytes,"Fill invalid state rejection atomic") && ok;
+            const bool filling = stacked->start_processing(stacked);
+            MidiInput fillMidi; MidiInput noMidi; noMidi.list.size = [](const clap_input_events_t*) { return 0u; };
+            const auto fillBlock = [&](auto& input) {
+                ok = processChannels(stacked,input,laneFeedback,laneOutput) && ok;
+                for (unsigned n=0;n<64;++n) for (unsigned ch=1;ch<16;++ch)
+                    ok = expect(std::abs(laneOutput[ch][n]-laneOutput[0][n]*(ch+1)) < 1e-4,"Fill ACN linkage") && ok;
+            };
+            const auto control = [&](uint8_t status,uint8_t key,uint8_t value) {
+                fillMidi.list.size = [](const clap_input_events_t*) { return 1u; };
+                fillMidi.events[0].data[0]=status; fillMidi.events[0].data[1]=key; fillMidi.events[0].data[2]=value;
+                fillBlock(fillMidi);
+            };
+            if (filling) {
+                fillBlock(fillMidi);
+                for (unsigned n=0;n<200;++n) fillBlock(noMidi);
+                control(0x93,0x55,127); // SHIFT+CENSOR.
+                control(0x87,0,0); // Stop the held pad; frozen output must keep sounding.
+                for (unsigned n=0;n<20;++n) fillBlock(noMidi);
+                ok = expect(maximumMagnitude(laneOutput[0]) > 1e-5,"Shift Censor replaces now-silent live output") && ok;
+                control(0x97,0x38,127); control(0x87,0x38,0); // SHIFT+REC while fill overrides silent live pads.
+                for(unsigned n=0;n<8;++n)fillBlock(noMidi);
+                control(0x97,0x38,127); control(0x87,0x38,0); stacked->on_main_thread(stacked);
+                StateBuffer printedFill;
+                ok = stackState->save(stacked,&printedFill.output) && ok;
+                constexpr unsigned printedFrames = 10u * 64u;
+                const size_t printedBytes = printedFrames * 16u * sizeof(float);
+                bool printedAudible=false,printedLinked=true;
+                if(printedFill.bytes.size() == fillRoundtrip.bytes.size()+printedBytes) {
+                    const size_t pcm = printedFill.bytes.size()-32u*kNeonFamilyV19Count*sizeof(float)-12u-printedBytes;
+                    for(unsigned frame=0;frame<printedFrames;++frame) {
+                        float first=0;std::memcpy(&first,printedFill.bytes.data()+pcm+frame*4u,4);
+                        printedAudible |= std::abs(first)>1e-5;
+                        for(unsigned ch=1;ch<16;++ch) {
+                            float v=0;std::memcpy(&v,printedFill.bytes.data()+pcm+(ch*printedFrames+frame)*4u,4);
+                            printedLinked &= std::abs(v-first*(ch+1))<1e-4;
+                        }
+                    }
+                }
+                ok = expect(printedAudible && printedLinked,"resample prints frozen fill, not silent live mix, with all ACN channels") && ok;
+                control(0xb6,0x49,1); control(0xb6,0x45,1); // Shift encoders edit global fill, not selected pad.
+                StateBuffer editedFill; stackState->save(stacked,&editedFill.output);
+                float repeat=0,breakup=0;
+                std::memcpy(&repeat,editedFill.bytes.data()+editedFill.bytes.size()-8,4);
+                std::memcpy(&breakup,editedFill.bytes.data()+editedFill.bytes.size()-4,4);
+                ok = expect(repeat == 3 && std::abs(breakup-.01f)<1e-6,"held fill consumes LOOP/TRAX") && ok;
+                control(0x84,0x10,0); // SHIFT released first, release addressed to another bank.
+                for (unsigned n=0;n<6;++n) fillBlock(noMidi);
+                ok = expect(maximumMagnitude(laneOutput[0]) < 1e-8,"unshifted cross-bank release cannot strand fill") && ok;
+                // The same physical top-right button is MODE on primary
+                // SAMPLE (96,52 shifted), and CENSOR on every deck page.
+                // Include both release encodings and a page change while held.
+                for (unsigned release = 0; release < 3; ++release) {
+                    control(0x97,0,127);
+                    for (unsigned n=0;n<100;++n) fillBlock(noMidi);
+                    control(0x96,0x52,127);
+                    control(0x87,0,0);
+                    for (unsigned n=0;n<20;++n) fillBlock(noMidi);
+                    ok = expect(maximumMagnitude(laneOutput[0])>1e-5,
+                        "primary SAMPLE Shift MODE must freeze recent output") && ok;
+                    // SLIP release must not end a hold on MODE/CENSOR.
+                    control(0x83,0x11,0);
+                    for (unsigned n=0;n<6;++n) fillBlock(noMidi);
+                    ok = expect(maximumMagnitude(laneOutput[0])>1e-5,
+                        "unrelated utility release must not stop Sample fill") && ok;
+                    if (release == 2) control(0x94,0x06,127);
+                    control(release == 2 ? 0x84 : 0x86,
+                        release == 0 ? 0x52 : release == 1 ? 0x0d : 0x10,0);
+                    for (unsigned n=0;n<6;++n) fillBlock(noMidi);
+                    ok = expect(maximumMagnitude(laneOutput[0])<1e-8,
+                        "Sample fill releases with Shift held, released first, or page changed") && ok;
+                }
+                using namespace s3g::controller::neon_midi;
+                struct BridgeInput {
+                    clap_input_events_t list {}; clap_event_midi_sysex_t event {}; BridgePacket packet {};
+                } bridge;
+                bridge.list.ctx=&bridge; bridge.list.size=[](const clap_input_events_t*){return 1u;};
+                bridge.list.get=[](const clap_input_events_t* list,uint32_t)->const clap_event_header_t*{return &static_cast<BridgeInput*>(list->ctx)->event.header;};
+                bridge.event.header={sizeof(bridge.event),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI_SYSEX,0};
+                bridge.event.buffer=bridge.packet.data(); bridge.event.size=15;
+                control(0x97,0,127); for(unsigned n=0;n<100;++n) fillBlock(noMidi);
+                bridge.packet=encodeBridge({BridgeKind::Control,0,36,0,{0x93,0x55,127},0}); fillBlock(bridge);
+                control(0x87,0,0); for(unsigned n=0;n<20;++n) fillBlock(noMidi);
+                bool bridgeAudible=maximumMagnitude(laneOutput[0])>1e-5;
+                bridge.packet=encodeBridge({BridgeKind::Control,0,36,0,{0x83,0x55,0},0}); fillBlock(bridge);
+                for(unsigned n=0;n<6;++n) fillBlock(noMidi);
+                ok = expect(bridgeAudible && maximumMagnitude(laneOutput[0])<1e-8,"Utility/Tracker private bridge carries fill press and release") && ok;
+                struct DualBridgeInput {
+                    clap_input_events_t list {}; clap_event_midi_sysex_t event {}; AddressedBridgePacket packet {};
+                } dual;
+                dual.list.ctx=&dual; dual.list.size=[](const clap_input_events_t*){return 1u;};
+                dual.list.get=[](const clap_input_events_t* list,uint32_t)->const clap_event_header_t*{return &static_cast<DualBridgeInput*>(list->ctx)->event.header;};
+                dual.event.header={sizeof(dual.event),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI_SYSEX,0};
+                dual.event.buffer=dual.packet.data(); dual.event.size=21;
+                const auto dualControl = [&](uint8_t unit, BridgeKind kind, uint8_t status, uint8_t key, uint8_t value) {
+                    dual.packet=encodeAddressedBridge({kind,0,36,0,{status,key,value},0,true,unit,unit?341027543:2116083961});
+                    fillBlock(dual);
+                };
+                control(0x97,0,127); for(unsigned n=0;n<100;++n) fillBlock(noMidi);
+                dualControl(0,BridgeKind::Control,0x93,0x55,127);
+                dualControl(1,BridgeKind::Control,0x96,0x52,127);
+                dualControl(0,BridgeKind::Control,0x87,0,0);
+                for(unsigned n=0;n<20;++n) fillBlock(noMidi);
+                dualControl(1,BridgeKind::Disconnect,0,0,0);
+                for(unsigned n=0;n<6;++n) fillBlock(noMidi);
+                ok = expect(maximumMagnitude(laneOutput[0])>1e-5,"U2 disconnect cannot release U1's held fill") && ok;
+                dualControl(0,BridgeKind::Control,0x86,0x0d,0);
+                for(unsigned n=0;n<6;++n) fillBlock(noMidi);
+                ok = expect(maximumMagnitude(laneOutput[0])<1e-8,"last USB-unit fill release restores silent live output") && ok;
+                bridge.packet=encodeBridge({BridgeKind::Sync,0,36,0,{},0}); fillBlock(bridge);
+                stacked->stop_processing(stacked);
+            }
             savedStack.cursor = 0;
             ok = expect(stackState->load(stacked, &savedStack.input), "legacy family defaults restore") && ok;
         }

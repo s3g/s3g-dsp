@@ -1,4 +1,7 @@
     unsigned familyPage = 0, familyDetail = 0, pathPoint = 0;
+    int pathDragPoint = -1;
+    bool pathPointLimit = false;
+    std::size_t pathDragSlot = 0;
     std::atomic<float>& familyValue(NeonFamily key) { return p.familyControls[selectedSlot][neonFamilyIndex(key)]; }
     NeonFamilySettings familySnapshot() const {
         NeonFamilySettings result;
@@ -26,23 +29,32 @@
             storeStackPath(f); pathPoint = std::min(pathPoint, static_cast<unsigned>(f[NeonFamily::PathCount]) - 1);
         });
     }
-    void familyMenu(NeonFamily key, const char* label, unsigned row, const std::vector<std::string>& names) {
+    template<class L = I> void familyMenu(NeonFamily key, const char* label, unsigned row, const std::vector<std::string>& names) {
         const auto choice = std::clamp(static_cast<int>(familyValue(key).load()), 0, static_cast<int>(names.size()) - 1);
-        inspectorLabel(label, row);
-        menu(inspectorMenu(row), names[choice], names, choice, [this, key](int n) {
+        inspectorLabel<L>(label, row);
+        menu(inspectorMenu<L>(row), names[choice], names, choice, [this, key](int n) {
             familyValue(key).store(static_cast<float>(n)); markStateDirty(p); requestProcess(p);
+            if (key == NeonFamily::LaneAuto) takeStackNavigation(p, static_cast<unsigned>(selectedSlot));
         });
     }
-    void familySlider(NeonFamily key, const char* label, unsigned row, const char* unit = "") {
+    template<class L = I> void familySlider(NeonFamily key, const char* label, unsigned row, const char* unit = "") {
         const auto d = neonFamilyDef(neonFamilyIndex(key)); auto& target = familyValue(key);
-        textureSliderRow(target, label, I::slider(row), d.minimum, d.maximum, d.initial,
+        textureSliderRow(target, label, L::slider(row), d.minimum, d.maximum, d.initial,
             format(d.stepped ? "%.0f%s" : "%.2f%s", target.load(), unit), {},
-            [stepped = d.stepped](double value) { return stepped ? std::round(value) : value; });
+            [stepped = d.stepped](double value) { return stepped ? std::round(value) : value; }, L::left, L::width);
     }
     void paintFamilySettings() {
         using F = NeonFamily;
         if (familyPage == 3) {
-            sourceModeMenu(4);
+            const bool pathActive = playbackChoice() == 6 ? familyValue(F::LaneAuto).load() != 0
+                : p.sourceModes[selectedSlot].load() == 4;
+            inspectorReadout("PATH", stackCount(p, selectedSlot) < 2 ? "NEEDS 2+ LAYERS"
+                : p.stackHeld[selectedSlot].load() ? "HELD PAD OVERRIDE"
+                : p.stackManual[selectedSlot].load() >= 0 ? "MANUAL OVERRIDE"
+                : !pathActive ? "INACTIVE / PAD NAV"
+                : p.slotPlaying[selectedSlot].load() && p.stackWaveformLayers[selectedSlot].load() == -1 ? "EDIT AUDITION"
+                : !p.slotPlaying[selectedSlot].load() ? "READY / TRIGGER PAD"
+                : p.playbackClocks[selectedSlot].load() && !p.transportPlaying.load() ? "HOST STOPPED" : "RUNNING", 4);
             stackShapeMenu(5);
             familyMenu(F::StackJump, "TRANSITION", 6, {"CROSSFADE", "JUMP"});
             if (playbackChoice() == 2) familyMenu(F::StackAdvance, "ADVANCE", 7, {"TIME", "GRAIN EVENTS"});
@@ -98,10 +110,10 @@
             const unsigned layers = stackCount(p, selectedSlot);
             const auto layerText = layers > 1 ? format("%.2f", 1 + values[v + pathPoint].load() * (layers - 1))
                 : format("%.1f%%", values[v + pathPoint].load() * 100);
-            if (manual && layers > 1) textureSliderRow(values[v + pathPoint], "LAYER POS", I::slider(15), 0, 1, float(pathPoint) / (count - 1), layerText,
+            if (manual && layers > 1) textureSliderRow(values[v + pathPoint], "POINT LAYER", I::slider(15), 0, 1, float(pathPoint) / (count - 1), layerText,
                 [layers](double value) { return 1 + value * (layers - 1); }, [layers](double value) { return (value - 1) / (layers - 1); });
-            else if (manual) textureSliderRow(values[v + pathPoint], "LAYER POS", I::slider(15), 0, 1, float(pathPoint) / (count - 1), layerText);
-            else inspectorReadout("LAYER POS", layerText.c_str(), 15);
+            else if (manual) textureSliderRow(values[v + pathPoint], "POINT LAYER", I::slider(15), 0, 1, float(pathPoint) / (count - 1), layerText);
+            else inspectorReadout("POINT LAYER", layerText.c_str(), 15);
             button(inspectorButton(17), "RESET PATH", [this] {
                 auto f = familySnapshot(); const auto shape = static_cast<NeonStackShape>(f[NeonFamily::StackShape]);
                 neonSetStackShape(f, shape == NeonStackShape::Manual ? NeonStackShape::RampUp : shape,
@@ -111,104 +123,128 @@
             });
             return;
         }
-        const bool motion = familyPage == 1;
-        const std::vector<std::string> sections = motion ? std::vector<std::string>{"ARTICULATION", "MOVEMENT", "EVENTS"}
-            : std::vector<std::string>{"SOURCE", "WINDOW", "PROCESS"};
-        familyDetail = std::min(2u, familyDetail);
-        inspectorLabel("DETAIL", 4);
-        menu(inspectorMenu(4), sections[familyDetail], sections, static_cast<int>(familyDetail), [this](int n) { familyDetail = n; });
-        if (motion && familyDetail == 0) {
-            familyMenu(F::MotionSound, "SOUND", 5, {"CONTINUOUS", "PACKETS", "MOTOR"});
-            familySlider(F::PacketRate, "PACKET RATE", 6, " Hz");
-            familySlider(F::PacketDuty, "DUTY", 7);
-            familySlider(F::MotorRate, "MOTOR RATE", 8, " Hz");
-            familyMenu(F::MotorShape, "MOTOR SHAPE", 9, {"LINEAR", "ROUNDED", "EXPONENTIAL", "PLATEAU"});
-            familySlider(F::MotorSymmetry, "SYMMETRY", 10);
-            familySlider(F::MotionWindow, "JOIN WINDOW", 11, " ms");
-        } else if (motion && familyDetail == 1) {
-            familyMenu(F::MotionTrajectory, "TRAJECTORY", 5, {"BASIC PATH", "HOVER", "MIRROR", "ZIGZAG", "MOVING LOOP"});
-            familySlider(F::MotionLocus, "LOCUS", 6);
-            familySlider(F::MotionField, "FIELD", 7);
-            familySlider(F::MotionTravel, "TRAVEL", 8);
-            familySlider(F::MotionJitter, "JITTER", 9);
-        } else if (motion) {
-            familyMenu(F::MotionModel, "EVENT MODEL", 5, {"SMOOTH", "FREEZE", "ITERATE", "DOUBLETS", "BOUNCE"});
-            familySlider(F::EventRate, "EVENT RATE", 6, " Hz");
-            familySlider(F::EventRepeats, "REPEATS", 7);
-            familySlider(F::EventStep, "STEP", 8);
-            familySlider(F::EventPitch, "PITCH SPRAY", 9, " st");
-            familySlider(F::EventLevel, "LEVEL VAR", 10);
-            familySlider(F::EventCurve, "ACCELERATE", 11);
-        } else if (familyDetail == 0) {
-            familyMenu(F::GrainSource, "SOURCE", 5, {"FREEZE", "SCAN", "CLOUD", "SLICE"});
-            familyMenu(F::GrainBias, "SPRAY BIAS", 6, {"BEHIND", "AROUND", "AHEAD"});
-            familySlider(F::GrainRegions, "REGIONS", 7);
-            familySlider(F::GrainPitch, "GRAIN TUNE", 8, " st");
-            clockMenu(I::menu(9));
-            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.motionRates[selectedSlot], "SCAN CYCLE", I::menu(10));
-            else textureSliderRow(p.motionSeconds[selectedSlot], "SCAN CYCLE", I::slider(10), .05f, 30, ControlDefaults::cycleSeconds,
+    }
+
+    void paintIntegratedFamily() {
+        using F = NeonFamily;
+        using FG = s3g::sample_neon_gui::FamilyGrid;
+        const bool motion = playbackChoice() == 1;
+        const unsigned sound = static_cast<unsigned>(familyValue(F::MotionSound).load());
+        const auto extraMenu = [&](F key, const char* label, unsigned row, const std::vector<std::string>& choices) {
+            familyMenu(key, label, FG::index(row, motion, sound), choices);
+        };
+        const auto extraSlider = [&](F key, const char* label, unsigned row, const char* unit = "") {
+            familySlider(key, label, FG::index(row, motion, sound), unit);
+        };
+        if (motion) {
+            extraMenu(F::MotionSound, "SOUND", 10, {"CONTINUOUS", "PACKETS", "MOTOR"});
+            unsigned row = 11;
+            if (sound == 1) {
+                extraSlider(F::PacketRate, "PACKET RATE", row++, " Hz");
+                extraSlider(F::PacketDuty, "DUTY", row++);
+            } else if (sound == 2) {
+                extraSlider(F::MotorRate, "MOTOR RATE", row++, " Hz");
+                extraMenu(F::MotorShape, "MOTOR SHAPE", row++, {"LINEAR", "ROUNDED", "EXPONENTIAL", "PLATEAU"});
+                extraSlider(F::MotorSymmetry, "SYMMETRY", row++);
+            }
+            extraSlider(F::MotionWindow, "JOIN WINDOW", row, " ms");
+            familyMenu<E>(F::MotionTrajectory, "TRAJECTORY", 12, {"BASIC PATH", "HOVER", "MIRROR", "ZIGZAG", "MOVING LOOP"});
+            familySlider<E>(F::MotionLocus, "LOCUS", 13);
+            familySlider<E>(F::MotionField, "FIELD", 14);
+            familySlider<E>(F::MotionTravel, "TRAVEL", 15);
+            familySlider<E>(F::MotionJitter, "JITTER", 16);
+            familyMenu<E>(F::MotionModel, "EVENT MODEL", 17, {"SMOOTH", "FREEZE", "ITERATE", "DOUBLETS", "BOUNCE"});
+            familySlider<E>(F::EventRate, "EVENT RATE", 18, " Hz");
+            familySlider<E>(F::EventRepeats, "REPEATS", 19);
+            familySlider<E>(F::EventStep, "STEP", 20);
+            extraSlider(F::EventPitch, "PITCH SPRAY", 17, " st");
+            extraSlider(F::EventLevel, "LEVEL VAR", 18);
+            extraSlider(F::EventCurve, "ACCELERATE", 19);
+        } else {
+            familyMenu<E>(F::GrainSource, "GRAIN SRC", 15, {"FREEZE", "SCAN", "CLOUD", "SLICE"});
+            familyMenu<E>(F::GrainBias, "SPRAY BIAS", 16, {"BEHIND", "AROUND", "AHEAD"});
+            familySlider<E>(F::GrainRegions, "REGIONS", 17);
+            familySlider<E>(F::GrainPitch, "GRAIN TUNE", 18, " st");
+            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.motionRates[selectedSlot], "SCAN CYCLE", E::menu(19));
+            else textureSliderRow(p.motionSeconds[selectedSlot], "SCAN CYCLE", E::slider(19), .05f, 30, ControlDefaults::cycleSeconds,
                 format("%.2f s", p.motionSeconds[selectedSlot].load()));
-            familySlider(F::GrainDensityScale, "DENSITY x", 11);
+            familySlider<E>(F::GrainDensityScale, "DENSITY x", 20);
             const std::vector<std::string> paths {"FORWARD", "REVERSE", "BOUNCE", "WANDER"};
             const auto path = std::min<unsigned>(3, p.motionPaths[selectedSlot].load());
-            inspectorLabel("SCAN PATH", 12);
-            menu(inspectorMenu(12), paths[path], paths, static_cast<int>(path), [this](int n) {
+            inspectorLabel<E>("SCAN PATH", 21);
+            menu(inspectorMenu<E>(21), paths[path], paths, path, [this](int n) {
                 p.motionPaths[selectedSlot].store(static_cast<uint8_t>(n)); markStateDirty(p); requestProcess(p);
             });
-        } else if (familyDetail == 1) {
-            familyMenu(F::GrainWindow, "ENVELOPE", 5, {"LEGACY", "PARZEN", "SINE", "HANN", "TRIANGLE", "GAUSSIAN"});
-            familySlider(F::GrainSkew, "SKEW", 6);
-            familySlider(F::GrainSizeScale, "SIZE x", 7);
-            familySlider(F::GrainSizeVariation, "SIZE VAR", 8);
-            familySlider(F::GrainLevelVariation, "LEVEL VAR", 9);
-            familySlider(F::GrainScatter, "TIME SCATTER", 10);
-        } else {
-            familyMenu(F::GrainProcess, "PROCESS", 5, {"ORDINARY", "SORTER", "STUTTER", "SHRINK", "DOUBLETS"});
-            familySlider(F::GrainAmount, "AMOUNT", 6);
-            familySlider(F::GrainRegions, "REGIONS", 7);
-            familyMenu(F::GrainTimeSync, "DOUBLETS", 8, {"SAME POSITION", "SOURCE TIME"});
+            extraMenu(F::GrainWindow, "ENVELOPE", 10, {"LEGACY", "PARZEN", "SINE", "HANN", "TRIANGLE", "GAUSSIAN"});
+            extraSlider(F::GrainSkew, "SKEW", 11);
+            extraSlider(F::GrainSizeScale, "SIZE x", 12);
+            extraSlider(F::GrainSizeVariation, "SIZE VAR", 13);
+            extraSlider(F::GrainLevelVariation, "LEVEL VAR", 14);
+            extraSlider(F::GrainScatter, "TIME SCATTER", 15);
+            extraMenu(F::GrainProcess, "PROCESS", 17, {"ORDINARY", "SORTER", "STUTTER", "SHRINK", "DOUBLETS"});
+            extraSlider(F::GrainAmount, "AMOUNT", 18);
+            extraMenu(F::GrainTimeSync, "DOUBLETS", 19, {"SAME POSITION", "SOURCE TIME"});
         }
+        sliderRow(slotParamId(selectedSlot, kSlotFilterCutoff), "CUTOFF", I::slider(FG::cutoff(motion, sound)));
+    }
+    void editStackPathAt(CPoint pos, bool remove) {
+        auto f = familySnapshot(); const auto area = stackPathRect();
+        const auto t = neonFamilyIndex(NeonFamily::PathTime), v = neonFamilyIndex(NeonFamily::PathValue);
+        const unsigned count = static_cast<unsigned>(f[NeonFamily::PathCount]);
+        int nearest = -1; double distance = 12 * 12;
+        for (unsigned n = 0; n < count; ++n) {
+            const double dx = pos.x - (area.left + area.getWidth() * f.values[t + n]);
+            const double dy = pos.y - (area.top + area.getHeight() * f.values[v + n]);
+            if (dx * dx + dy * dy <= distance) { distance = dx * dx + dy * dy; nearest = static_cast<int>(n); }
+        }
+        if (remove) {
+            if (nearest >= 0 && s3g::sample::neonRemoveStackPoint(f, static_cast<unsigned>(nearest))) {
+                pathPoint = std::min(static_cast<unsigned>(nearest), static_cast<unsigned>(f[NeonFamily::PathCount]) - 1);
+                storeStackPath(f);
+            }
+            return;
+        }
+        f[NeonFamily::StackShape] = static_cast<float>(NeonStackShape::Manual);
+        if (nearest < 0) nearest = s3g::sample::neonAddStackPoint(f,
+            static_cast<float>((pos.x - area.left) / area.getWidth()),
+            static_cast<float>((pos.y - area.top) / area.getHeight()), static_cast<float>(10 / area.getWidth()));
+        if (nearest >= 0) pathPoint = static_cast<unsigned>(nearest);
+        pathPointLimit = nearest < 0 && count == 32;
+        pathDragPoint = nearest; pathDragSlot = selectedSlot;
+        storeStackPath(f);
     }
     void paintStackPathGraph() {
-        const auto area = rect(177, 426, 635, 72);
+        const auto area = stackPathRect();
         fill(area, style.strip); stroke(area, style.dim);
         auto f = familySnapshot(); const auto t = neonFamilyIndex(NeonFamily::PathTime), v = neonFamilyIndex(NeonFamily::PathValue);
         const unsigned count = static_cast<unsigned>(f[NeonFamily::PathCount]);
         const unsigned layers = stackCount(p, selectedSlot);
+        // Match Stack Lanes: normalized zero (layer 1) is at the top. Only
+        // the screen mapping changes; authored values and playback stay intact.
         for (unsigned i = 1; i + 1 < layers; ++i) {
-            const double y = area.bottom - area.getHeight() * i / (layers - 1);
+            const double y = area.top + area.getHeight() * i / (layers - 1);
             auto shade = style.dim; shade.alpha = 60;
             line(CPoint(area.left, y), CPoint(area.right, y), shade);
         }
-        auto point = [&](unsigned n) { return CPoint(area.left + area.getWidth() * f.values[t + n], area.bottom - area.getHeight() * f.values[v + n]); };
+        auto point = [&](unsigned n) { return CPoint(area.left + area.getWidth() * f.values[t + n], area.top + area.getHeight() * f.values[v + n]); };
         // Draw the actual curved path, independent of the phase offset.
         f[NeonFamily::StackOffset] = 0;
         CPoint previous = point(0);
-        for (unsigned x = 1; x <= 635; ++x) {
-            const double value = x == 635 ? f.values[v + count - 1] : s3g::sample::neonStackPath(f, x / 635.0);
-            CPoint next(area.left + x, area.bottom - value * area.getHeight());
+        for (unsigned x = 1; x <= W::pathWidth; ++x) {
+            const double value = x == W::pathWidth ? f.values[v + count - 1] : s3g::sample::neonStackPath(f, x / W::pathWidth);
+            CPoint next(area.left + x, area.top + value * area.getHeight());
             line(previous, next, style.value); previous = next;
         }
         for (unsigned n = 0; n < count; ++n) {
-            const auto at = point(n); const auto node = rect(at.x - 5, at.y - 5, 10, 10);
+            const auto at = point(n);
             fill(rect(at.x - 2, at.y - 2, 4, 4), n == pathPoint ? style.text : style.value);
-            const auto slot = selectedSlot;
-            if (f[NeonFamily::StackShape] != 0) {
-                hit(node, [this, n] { pathPoint = n; });
-                continue;
-            }
-            drag(node, [this, area, slot, n, count, t, v](CPoint pos) {
-                auto& controls = p.familyControls[slot];
-                if (n && n + 1 < count) {
-                    const double left = controls[t + n - 1].load(), right = controls[t + n + 1].load();
-                    const double margin = std::min(.0001, (right - left) * .25);
-                    controls[t + n].store(static_cast<float>(std::clamp((pos.x - area.left) / area.getWidth(), left + margin, right - margin)));
-                }
-                controls[v + n].store(static_cast<float>(std::clamp((area.bottom - pos.y) / area.getHeight(), 0.0, 1.0)));
-                markStateDirty(p); requestProcess(p);
-            }, [this, n] { pathPoint = n; }, {}, [this, slot, n, count, v] {
-                p.familyControls[slot][v + n].store(float(n) / (count - 1)); markStateDirty(p); requestProcess(p);
-            });
         }
-        text("STACK PATH", rect(32, 480, 140, 18), style.value);
+        const float phase = p.stackPathPhases[selectedSlot].load();
+        if (phase >= 0 && phase <= 1 && layers > 1) {
+            const double x = area.left + phase * area.getWidth();
+            const double y = area.top + s3g::sample::neonStackPath(f, phase) * area.getHeight();
+            const bool overridden = p.stackTargets[selectedSlot].load() >= 0;
+            line({x, area.top}, {x, area.bottom}, style.dim);
+            ellipse(rect(x - 4, y - 4, 8, 8), overridden ? style.value : color(0x91aaa3), !overridden, 1.5);
+        }
     }

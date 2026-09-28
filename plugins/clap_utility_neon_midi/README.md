@@ -1,6 +1,6 @@
 # s3g Utility Neon MIDI
 
-Version 0.1.2. MIDI-only CLAP companion for a Reloop NEON. No firmware change,
+Version 0.2.1. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
 audio processing, hardware MIDI output or second LED owner. Uses the same
 factory-message decoder as Sample Neon 32. Utility-family Fira Code/grayscale
 editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
@@ -9,11 +9,11 @@ editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
 
 Place these **in this order in the normal track FX chain**:
 
-1. **s3g Utility Neon MIDI 0.1.2** — Control Route `TRACKER + SAMPLE NEON`,
+1. **s3g Utility Neon MIDI 0.2.1** — Control Route `TRACKER + SAMPLE NEON`,
    Base Note `36`, Output Channel `1`.
 2. **s3g Tracker 0.4.1 or newer** — participating lanes, including the recording
    destination, on `CH01`.
-3. **s3g Sample Neon 32 0.22.2 or newer** — Base Note `36`, Standard MIDI Receive
+3. **s3g Sample Neon 32 0.29.0 or newer** — Base Note `36`, Standard MIDI Receive
    `1`, and `NEON OWNER: ON` in this one instrument instance.
 
 Choose the physical NEON as the track's MIDI input, on all its native channels;
@@ -21,7 +21,8 @@ enable input monitoring (and arm the track if required by the REAPER setup).
 Do not remap input channels before the Utility. No parallel raw-NEON send
 to the instrument: that would duplicate the controller path. On Mac, **no MIDI
 hardware send back to NEON**; Sample Neon owns direct CoreMIDI LED output.
-The Utility does not open the MIDI device itself.
+In the default `HOST MIDI` mode, Utility does not connect to device inputs.
+The optional USB modes below open NEON inputs directly on macOS.
 
 Use the hardware's **primary SAMPLE layer** to record performances. `REC OFF`
 in updated Tracker passes notes without writing a pattern. `REC STEP`,
@@ -41,8 +42,13 @@ The Utility is the **performance-bank authority**: select banks on the hardware
 or its A/B/C/D buttons. It sends that selection downstream, including after
 project recall. Sample Neon's GUI bank selection is not a return connection to
 the Utility; the next controller message restores the Utility bank. CHOP's
-separate slice bank never changes the performance bank. This is one-way
+separate slice bank and HOT CUE's STACK layer bank never change the performance bank. This is one-way
 synchronization, not automatic bidirectional linking.
+
+In 0.1.3, HOT CUE bank buttons remain private STACK controls rather than
+changing the musical sample bank. Returning to SAMPLER restores its last bank.
+STACK layer gestures, modifiers and encoders continue through the private
+Sample Neon route; they do not become Tracker notes or recorded automation.
 
 ## Controls and recording are separate
 
@@ -110,8 +116,104 @@ stop also releases held notes; output-rejected releases are retried. This is
 not an instrument-wide kill for One Shot/Toggle or editor audition; Sample
 Neon's KILL remains available. Change base/channel with no keys held and keep
 the destination's map matched. Default CH01 avoids Neon's native command
-channels. Each Utility instance handles **one controller**; merged two-NEON
-input and Smart Link are not implemented.
+channels. `HOST MIDI` handles one controller on the original input port. Never
+merge two raw NEONs into that port and expect independent banks.
+
+## Optional two-USB setup (0.2.0 / Sample Neon 0.30.0)
+
+Keep the same **Utility → Tracker → Sample Neon** chain. Connect each NEON by
+USB and remove the Smart Link cable. In Utility's CONTROLLERS toolbox, choose
+`USB TWO NEONS`; keep Control Route at `TRACKER + SAMPLE NEON`. Enable
+`NEON OWNER` only in the destination Sample Neon 32 instance. No REAPER MIDI
+hardware send is needed. Existing host raw MIDI input is ignored in USB modes,
+so it cannot double-trigger the USB input. The track must still be processing
+and monitored for the plugin chain to play/record.
+
+- Unit 1 defaults to A and unit 2 to B, offering 16 performance pads. Both can
+  independently choose any bank; disconnecting one does not reassign the other.
+- `VIEW: UNIT 1/2` selects which bank, held-pad display and NOTE/VEL/AT/VOL
+  monitor Utility shows. It does not change hardware page or musical routing.
+- USB source IDs are saved with Utility's state. `SWAP USB` exchanges physical
+  assignments; `RELEARN USB` forgets them for a new controller or MIDI setup.
+  These actions release previous gestures. Save the project after assignment.
+- `USB ONE NEON` uses the saved unit-1 assignment; use SWAP/RELEARN if only a
+  previously assigned unit 2 is connected. `USB TWO NEONS` also works with only
+  either one of its assigned units connected, without changing its bank.
+- Each surface retains its own performance, slice and stack bank, page,
+  selected cell, modifiers, velocity pairing, held gestures and LED destination.
+  Sample Neon's single editor follows the most recent press or encoder action;
+  another unit's pressure/release or background sync does not steal that focus.
+  Performance banks/USB assignments are saved in Utility; the separate editing
+  contexts are session-local.
+- Musical notes remain standard bank-aware notes for Tracker. Two controllers
+  on the same note can retrigger it, but its MIDI gate closes only after the
+  final held finger releases. Pressure remains unit-tagged in the control path;
+  when both address the same voice, the latest pressure controls that voice.
+- Samples, effects, capture and the fill buffer remain shared instrument state.
+  Both CENSOR fill holds contribute to the same override; either unit may keep
+  it held after the other releases.
+- A missing input or input-queue overflow releases that unit's held gestures.
+  Recovery requires a fresh press; stale queued presses/velocity are discarded.
+  LED output is paired by CoreMIDI entity/destination ID, never display name.
+  No fallback sends unit 2's feedback to unit 1 if a device is absent.
+- The captured same-packet bank/page restore is ignored in USB mode, retaining
+  the current editing page. Intentional later page presses remain functional.
+
+`HOST DUAL PORTS` is an alternative for hosts/routing that provide distinct
+CLAP input ports 0 and 1. It preserves unit identity through Tracker but does
+not assign hardware LED destinations. REAPER's merged “All MIDI inputs” is not
+equivalent; use `USB TWO NEONS` for this Mac setup. Direct USB is macOS-only.
+NOTES ONLY still suppresses control/pressure envelopes and therefore does not
+provide Sample Neon editing or bank/page LED synchronization.
+
+The original HOST MIDI workflow and nine-byte v1 saved states remain accepted.
+The new v2 state stores both banks, input/view choice and USB assignments. The
+private v2 bridge adds unit/output identity; Sample Neon still accepts v1.
+Tracker's binary/editor need no changes.
+
+### Two-controller bring-up
+
+Do not merge two controllers into the legacy single-controller mapper and
+expect independent banks: its bank, page, velocity pairing and held pads are
+one controller's state. This limitation motivated the separate USB path above.
+
+The [factory MIDI map](https://www.reloop.com/media/custom/upload/Reloop-NEON_MIDI-Map.pdf)
+uses identical primary SAMPLE pad addresses in all four banks. Smart Link's
+documented connection notification alone does not identify each pad's sender.
+Before adapting bank ownership, capture both units' input and establish a
+reliable source identity and a separately addressable LED return path. Never
+infer the sender from the most recently received bank button: simultaneous
+holds, releases, velocity CCs and aftertouch would become ambiguous.
+
+On macOS the repository includes a **read-only** diagnostic:
+
+```sh
+clang++ -std=c++17 -framework Foundation -framework CoreMIDI \
+  scripts/neon-midi-monitor.mm -o /tmp/s3g-neon-midi-monitor
+/tmp/s3g-neon-midi-monitor
+/tmp/s3g-neon-midi-monitor --capture 60
+```
+
+It lists only NEON endpoints; capture logs source ID, timestamp and raw packet
+bytes. It creates no MIDI output, changes no device properties or host routing,
+and stops automatically. While capturing, test each unit separately, clearly
+noting which one: SAMPLE, bank A/B, pad 1 press/release, varied velocity and
+pressure, then an overlapping hold/release. Existing plugin LED feedback can
+change hardware bank/page state; disable NEON OWNER manually for an isolated
+input test if needed. No output/LED experiment is performed by this monitor.
+
+If Smart Link merges indistinguishable messages into one endpoint, separate
+USB input identities are the next setup to investigate. This is a diagnostic
+path, not a claim that dual independent banks or LEDs are already supported.
+
+Separate-USB testing on 2026-09-27 confirmed two distinct CoreMIDI sources,
+each paired with its own destination by entity/device identity. Both units
+sent the same primary SAMPLE pad-1 bytes, distinguishable by source UID;
+overlapping pad gestures also retained their source identities. The diagnostic
+now prints entity/device IDs for that pairing. Version 0.2.0 implements separate
+input contexts and pairs each LED return through Sample Neon 0.30.0. Physical
+LED feedback, held-pad unplug/replug and Tracker recording still require
+acceptance in the user's actual REAPER session.
 
 ## Implementation and verification
 
@@ -131,7 +233,8 @@ The user's actual REAPER/hardware audition after reload remains separate.
 - CLAP ID `org.s3g.s3g-dsp.utility-neon-midi`; installed bundle
   `s3g_utility_neon_midi.clap`. No audio-channel suffix: this Utility has no audio ports.
 - Parameters: 1 Bank, 2 Base Note, 3 Output Channel, 4 Control Route,
-  5 Release Held Notes (momentary). Fixed versioned state stores only settings.
+  5 Release Held Notes (momentary), 6 Input, 7 Unit 2 Bank, 8 Monitor Unit.
+  Fixed versioned state stores settings/assignments, never held fingers.
 - Allocation-free bounded event processing; SysEx storage lives until process
   returns. No background MIDI heartbeat. Unknown input, status lamps and
   unrelated SysEx are dropped, never sent back to hardware.
