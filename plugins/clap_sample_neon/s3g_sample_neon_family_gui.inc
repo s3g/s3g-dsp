@@ -41,7 +41,8 @@
         const auto d = neonFamilyDef(neonFamilyIndex(key)); auto& target = familyValue(key);
         textureSliderRow(target, label, L::slider(row), d.minimum, d.maximum, d.initial,
             format(d.stepped ? "%.0f%s" : "%.2f%s", target.load(), unit), {},
-            [stepped = d.stepped](double value) { return stepped ? std::round(value) : value; }, L::left, L::width);
+            [stepped = d.stepped](double value) { return stepped ? std::round(value) : value; }, L::left, L::width,
+            std::numeric_limits<double>::quiet_NaN(),d.stepped);
     }
     void paintFamilySettings() {
         using F = NeonFamily;

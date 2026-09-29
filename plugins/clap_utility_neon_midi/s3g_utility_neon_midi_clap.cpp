@@ -10,7 +10,11 @@
 #include "../common/s3g_clap_state_stream.h"
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 #include "../common/s3g_vstgui_canvas.h"
+#include "../common/s3g_neon_note_map_editor.h"
 #include "../common/s3g_clap_vstgui.h"
+#if defined(__APPLE__)
+#include "../common/s3g_vstgui_readable_text_edit.h"
+#endif
 #endif
 
 #include <atomic>
@@ -29,7 +33,7 @@ constexpr const char* kId = "org.s3g.s3g-dsp.utility-neon-midi";
 constexpr const char* kName = "s3g Utility Neon MIDI";
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_NOTE_EFFECT, CLAP_PLUGIN_FEATURE_UTILITY, nullptr};
 const clap_plugin_descriptor_t descriptor {
-    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.2.1",
+    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.3.1",
     "Bank-aware Reloop NEON performance notes for Tracker and MIDI instruments.", features,
 };
 
@@ -68,6 +72,12 @@ struct Plugin {
     std::array<std::array<uint8_t, 4u>, 2> bridgeSettings {{{255u, 255u, 255u, 255u}, {255u, 255u, 255u, 255u}}};
     std::array<s3g::controller::neon_midi::AddressedBridgePacket, 8192u> bridgePackets {};
     uint32_t bridgeCount = 0u;
+    s3g::controller::neon_midi::PublishedNoteMap noteMap;
+    s3g::controller::neon_midi::NoteMap audioMap;
+    s3g::controller::neon_midi::PadNotes mappedNotes = s3g::controller::neon_midi::sequentialNotes();
+    std::array<s3g::controller::neon_midi::NoteMapPacket, 4096> mapPackets {};
+    uint32_t mapPacketCount = 0;
+    bool mapDirty = true, mapSent = false;
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
@@ -102,18 +112,39 @@ void clearAftertouch(Plugin& p) {
 }
 void syncMapping(Plugin& p) {
     const bool panic = p.panicRequested.exchange(false);
+    p.noteMap.read(p.audioMap);
+    const auto notes = p.audioMap.resolved(static_cast<unsigned>(getValue(p, kBase)));
+    if (notes != p.mappedNotes) { p.mappedNotes = notes; p.mapDirty = true; p.mapSent = false; }
     const auto previous = p.unit;
     for (p.unit = 0; p.unit < 2; ++p.unit) {
         auto& mapper = p.mapper[p.unit];
         mapper.setBank(static_cast<uint8_t>(getValue(p, p.unit ? kBank2 : kBank)));
         mapper.setBaseNote(static_cast<uint8_t>(getValue(p, kBase)));
+        mapper.setNotes(p.mappedNotes);
         mapper.setChannel(static_cast<uint8_t>(getValue(p, kChannel) - 1.));
         if (panic) { mapper.panic(); clearAftertouch(p); if (p.inputMode) p.disconnectPending[p.unit] = true; }
         const std::array<uint8_t, 4u> settings {{mapper.bank(), mapper.baseNote(),
             mapper.channel(), static_cast<uint8_t>(getValue(p, kRoute))}};
-        if (settings != p.bridgeSettings[p.unit]) { p.bridgeSettings[p.unit] = settings; p.bridgeDirty[p.unit] = true; }
+        if (settings != p.bridgeSettings[p.unit]) {
+            p.bridgeSettings[p.unit] = settings; p.bridgeDirty[p.unit] = true; p.mapDirty = true; p.mapSent = false;
+        }
     }
     p.unit = previous;
+}
+
+bool pushNoteMap(Plugin& p, const clap_output_events_t* out, uint32_t time) {
+    if (getValue(p, kRoute) < .5) return true;
+    if (p.mapSent) return true;
+    if (p.mapPacketCount >= p.mapPackets.size()) { p.rejected.fetch_add(1); p.mapDirty = true; return false; }
+    auto& packet = p.mapPackets[p.mapPacketCount++];
+    packet = s3g::controller::neon_midi::encodeNoteMap(p.mappedNotes);
+    clap_event_midi_sysex_t event {};
+    event.header = {sizeof(event), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI_SYSEX, CLAP_EVENT_IS_LIVE};
+    event.port_index = 0; event.buffer = packet.data(); event.size = static_cast<uint32_t>(packet.size());
+    const bool accepted = out && out->try_push && out->try_push(out, &event.header);
+    p.mapDirty = !accepted; p.mapSent = accepted;
+    if (!accepted) p.rejected.fetch_add(1);
+    return accepted;
 }
 
 bool pushBridge(Plugin& p, const clap_output_events_t* out, uint32_t time,
@@ -173,8 +204,12 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
     auto& p = *self(plugin);
     const auto* out = block->out_events;
     p.bridgeCount = 0u;
+    p.mapPacketCount = 0; p.mapSent = false;
     auto sink = [&p, out](uint32_t time, neon::MidiMessage message) {
         const bool release = (message.status & 0xf0u) == 0x80u;
+        // A new musical note must not outrun its map through Tracker. Releases
+        // are never blocked by map backpressure and keep their latched key.
+        if (!release && !pushNoteMap(p, out, time)) return false;
         // Two fingers on the same mapped key share its MIDI gate: either may
         // retrigger it, but only the final release closes it.
         if (release && p.mapper[1u-p.unit].holds(message.data1, message.status & 0x0fu)) {
@@ -231,6 +266,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
         p.mapper[p.unit].flush(0u, sink);
         if (!p.unit || inputMode == 1 || inputMode == 3 || p.disconnectPending[p.unit]) syncBridge(p, out, 0u);
     }
+    if (p.mapDirty) pushNoteMap(p, out, 0u);
     auto rawInput = [&](unsigned unit, neon::MidiMessage raw, uint32_t time) {
         p.unit = unit;
         if (p.disconnectPending[unit]) return; // Retry critical release before accepting new gestures.
@@ -261,6 +297,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
                     if (!p.unit || inputMode == 1 || inputMode == 3) syncBridge(p, out, header->time);
                     p.mapper[p.unit].flush(header->time, sink);
                 }
+                if (p.mapDirty) pushNoteMap(p, out, header->time);
             } else if (header->type == CLAP_EVENT_MIDI && header->size >= sizeof(clap_event_midi_t)) {
                 const auto* event = reinterpret_cast<const clap_event_midi_t*>(header);
                 if (inputMode < 2 && event->port_index < (inputMode == 1 ? 2u : 1u))
@@ -284,7 +321,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
         rawInput(usbEvent.unit, usbEvent.midi, time); previousTime = time;
     }
     while (i < n) hostEvent(in->get(in, i++));
-    bool awake = inputMode >= 2 || getValue(p, kInput) != inputMode; // Apply input-mode edits even if otherwise idle.
+    bool awake = inputMode >= 2 || getValue(p, kInput) != inputMode || (p.mapDirty && getValue(p,kRoute) >= .5);
     for (p.unit = 0; p.unit < 2; ++p.unit) {
         auto& mapper = p.mapper[p.unit]; mapper.advance(block->frames_count);
         p.heldCells[p.unit].store(mapper.heldCells());
@@ -359,6 +396,8 @@ const clap_plugin_note_ports_t ports {portCount, portInfo};
 
 bool saveState(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
     const auto& p = *self(plugin);
+    s3g::controller::neon_midi::NoteMap map;
+    if (!p.noteMap.read(map)) return false;
     // Fixed byte layout: magic, version, bank, base, channel. No struct padding.
     std::array<uint8_t, 20u> data {{'N', 'M', 'I', 'D', 2u,
         static_cast<uint8_t>(getValue(p, kBank)), static_cast<uint8_t>(getValue(p, kBase)),
@@ -366,14 +405,16 @@ bool saveState(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
         static_cast<uint8_t>(getValue(p, kInput)), static_cast<uint8_t>(getValue(p, kBank2)), static_cast<uint8_t>(getValue(p, kUnit))}};
     for (unsigned u = 0; u < 2; ++u) for (unsigned n = 0; n < 4; ++n)
         data[12u+u*4u+n] = static_cast<uint8_t>(static_cast<uint32_t>(p.usb.source[u].load()) >> (8u*n));
-    return s3g::clap_state::writeAll(stream, data.data(), data.size());
+    if (map.custom) data[4] = 3;
+    return s3g::clap_state::writeAll(stream, data.data(), data.size())
+        && (!map.custom || s3g::clap_state::writeAll(stream, map.notes.data(), map.notes.size()));
 }
 bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
     std::array<uint8_t, 20u> data {};
     if (!s3g::clap_state::readAll(stream, data.data(), 9u)
-        || std::memcmp(data.data(), "NMID", 4u) || (data[4] != 1u && data[4] != 2u)
+        || std::memcmp(data.data(), "NMID", 4u) || (data[4] != 1u && data[4] != 2u && data[4] != 3u)
         || data[5] > 3u || data[6] > 96u || data[7] < 1u || data[7] > 16u || data[8] > 1u) return false;
-    if (data[4] == 2u && (!s3g::clap_state::readAll(stream, data.data()+9u, 11u)
+    if (data[4] >= 2u && (!s3g::clap_state::readAll(stream, data.data()+9u, 11u)
         || data[9] > 3u || data[10] > 3u || data[11] > 1u)) return false;
     if (data[4] == 1u) data[10] = 1u;
     std::array<int32_t, 2> sources {};
@@ -382,7 +423,12 @@ bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
         sources[u] = static_cast<int32_t>(bits);
     }
     if (sources[0] && sources[0] == sources[1]) return false;
+    s3g::controller::neon_midi::NoteMap map;
+    map.custom = data[4] == 3;
+    if (map.custom && (!s3g::clap_state::readAll(stream,map.notes.data(),map.notes.size())
+        || !s3g::controller::neon_midi::validNotes(map.notes))) return false;
     auto& p = *self(plugin);
+    p.noteMap.store(map);
     for (uint32_t i = 0u; i < 4u; ++i) p.values[i].store(data[5u + i]);
     p.values[kInput-1].store(data[9]); p.values[kBank2-1].store(data[10]); p.values[kUnit-1].store(data[11]);
     for (unsigned u = 0; u < 2; ++u) p.usb.source[u].store(sources[u]);
@@ -418,6 +464,7 @@ bool activate(const clap_plugin_t* plugin, double rate, uint32_t minimum, uint32
     if (!std::isfinite(rate) || rate <= 0. || minimum > maximum || !maximum) return false;
     auto& p = *self(plugin);
     p.wasPlaying = false; p.sampleRate = rate;
+    p.mapDirty = true; p.mapSent = false;
     for (auto& mapper : p.mapper) mapper.prepare(rate);
     syncMapping(p); return true;
 }
@@ -433,6 +480,7 @@ void stop(const clap_plugin_t* plugin) {
 }
 void reset(const clap_plugin_t* plugin) {
     auto& p = *self(plugin);
+    p.mapDirty = true; p.mapSent = false;
     for (p.unit = 0; p.unit < 2; ++p.unit) { p.mapper[p.unit].panic(); clearAftertouch(p); if (p.inputMode) p.disconnectPending[p.unit] = true; }
     p.unit = 0; p.wasPlaying = false;
 }

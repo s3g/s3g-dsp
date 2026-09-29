@@ -14,6 +14,7 @@
 #include "vstgui/lib/idatapackage.h"
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <functional>
 #include <iomanip>
@@ -51,7 +52,8 @@ class View : public foundation::ContentView,
              public IControlListener,
              public ITextEditListener {
 public:
-  explicit View(double w, double h) : ContentView(rect(0, 0, w, h)) {
+  explicit View(double w, double h, bool buttonFeedback = false)
+      : ContentView(rect(0, 0, w, h)), buttonFeedbackEnabled(buttonFeedback) {
     font = foundation::makeUiFont(foundation::fontMetrics().body);
     titleFont = foundation::makeUiFont(foundation::fontMetrics().title);
     smallFont = foundation::makeUiFont(foundation::fontMetrics().channel);
@@ -94,6 +96,7 @@ public:
   }
   void stopRefresh() override {
     timer = nullptr;
+    pressedButtonUntil = {};
     finishNumeric();
     finishDrag();
     popupItems.clear();
@@ -160,11 +163,33 @@ public:
                       std::move(reset)});
   }
   void button(CRect b, const std::string &label, std::function<void()> action,
-              bool active = false, bool enabled = true) {
-    foundation::drawButton(*context, b, label, font, active);
-    if (!enabled)
-      text(label, b, color(0x686868), kCenterText);
-    hit(b, std::move(action), enabled);
+              bool active = false, bool enabled = true, const std::string& feedbackKey = {}) {
+    buttonFace(b,label,active,enabled,feedbackKey);
+    if (!buttonFeedbackEnabled) { hit(b,std::move(action),enabled); return; }
+    hit(b,[this,b,key=feedbackKey.empty()?label:feedbackKey,action=std::move(action)] {
+      flashButton(b,key);
+      if (action) action();
+    },enabled);
+  }
+  void buttonFace(CRect b, const std::string& label, bool active = false, bool enabled = true,
+                  const std::string& feedbackKey = {}) {
+    if (buttonPressActive(b,feedbackKey.empty()?label:feedbackKey)) {
+      fill(b,color(0xa3a3a3));
+      text(label,b,color(0x141414),kCenterText);
+    } else {
+      foundation::drawButton(*context,b,label,font,active);
+      if (!enabled) text(label,b,color(0x686868),kCenterText);
+    }
+  }
+  void flashButton(CRect bounds, const std::string& label) {
+    if (!buttonFeedbackEnabled) return;
+    pressedButtonBounds=bounds; pressedButtonLabel=label;
+    pressedButtonUntil=std::chrono::steady_clock::now()+std::chrono::milliseconds(180);
+    invalid();
+  }
+  bool buttonPressActive(CRect bounds, const std::string& label) const {
+    return buttonFeedbackEnabled && bounds==pressedButtonBounds && label==pressedButtonLabel
+        && std::chrono::steady_clock::now()<pressedButtonUntil;
   }
   void menu(CRect b, const std::string &value, std::vector<std::string> items,
             int selected, std::function<void(int)> apply, bool enabled = true,
@@ -230,7 +255,7 @@ public:
           numericEnd = end;
           if (begin)
             begin();
-          numeric = new CTextEdit(b, this, 1, format("%.9g", value).c_str());
+          numeric = makeNumericTextEdit(b, format("%.9g", value).c_str());
           numeric->setFont(font);
           numeric->setFontColor(style.value);
           numeric->setBackColor(style.cell);
@@ -376,11 +401,18 @@ public:
   }
 
 protected:
+  virtual CTextEdit* makeNumericTextEdit(CRect bounds, const char* text) {
+    return new CTextEdit(bounds, this, 1, text);
+  }
   CDrawContext *context = nullptr;
   foundation::Palette style = foundation::palette();
   SharedPointer<CFontDesc> font, titleFont, smallFont;
 
 private:
+  bool buttonFeedbackEnabled = false;
+  CRect pressedButtonBounds;
+  std::string pressedButtonLabel;
+  std::chrono::steady_clock::time_point pressedButtonUntil {};
   uint32_t nextRefreshInterval() {
     refreshFraction += std::clamp(refreshPeriodMilliseconds(), 1., 1000.);
     const auto interval = static_cast<uint32_t>(refreshFraction);

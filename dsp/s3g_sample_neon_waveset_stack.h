@@ -4,6 +4,27 @@
 #include "s3g_sample_player.h"
 
 namespace s3g::sample {
+// Neon keeps discrete channels, so a silent channel or a cancelling mono sum
+// must not veto an otherwise usable multichannel cycle map. Worker-thread only.
+inline std::shared_ptr<const WavesetMap> analyzeNeonWavesets(std::shared_ptr<const SampleAsset> asset) {
+    if (auto normal = analyzeWavesets(asset)) return normal;
+    if (!asset || !asset->valid() || asset->frameCount() < 8) return {};
+    auto map = std::make_shared<WavesetMap>(); map->asset = asset;
+    unsigned reference = 16; double strongest = 0;
+    for (unsigned ch = 0; ch < asset->channelCount; ++ch) {
+        const auto& data = asset->channels[ch];
+        auto& units = map->channelUnits[ch];
+        units = analyzeWavesetSignal(asset->frameCount(), asset->sampleRate, WavesetCrossingDetail::Raw,
+            [&data](uint32_t i) { return data[i]; });
+        double energy = 0; for (const auto& unit : units) energy += unit.rms * unit.rms * unit.sampleLength();
+        if (energy > strongest) { strongest = energy; reference = ch; }
+    }
+    if (reference == 16) return {};
+    for (unsigned ch = 0; ch < asset->channelCount; ++ch)
+        if (map->channelUnits[ch].empty()) map->channelUnits[ch] = map->channelUnits[reference];
+    map->sumUnits = map->channelUnits[reference];
+    return map;
+}
 // Two cycle processors, not 32 running layers. Neighboring layers retain
 // their processor as the scan crosses a boundary; the incoming layer starts
 // at zero blend weight. All maps are prepared/owned outside the audio thread.

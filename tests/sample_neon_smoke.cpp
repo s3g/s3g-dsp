@@ -2430,6 +2430,212 @@ void testBufferFill() {
     check(!fill.active() && out.samples[0][32] == 0, "panic clears frozen and rolling tapes without replaying stale audio");
 }
 
+void testFramePlaybackAndMosaic()
+{
+    using namespace s3g::sample;
+    auto asset = std::make_shared<SampleAsset>();
+    asset->sampleRate = 48000; asset->channelCount = 16;
+    for (unsigned ch = 0; ch < 16; ++ch) {
+        asset->channels[ch].resize(16384);
+        for (unsigned i = 0; i < 16384; ++i) asset->channels[ch][i] = static_cast<float>(
+            .2 * std::sin(6.283185307179586 * 375 * i / 48000) * (ch % 2 ? -.5 : 1));
+    }
+    const auto map = analyzeWavesets(asset);
+    auto engine = std::make_unique<SampleNeonEngine>();
+    check(engine->prepare(48000, 64), "frame synthesis prepare");
+    engine->setAsset(0, asset.get()); engine->setPreparedWavesets(0, map.get());
+    NeonStack stack; stack.count = 2;
+    stack.layers[0] = stack.layers[1] = {asset.get(), .1, .9, map.get()};
+    SampleNeonSettings settings;
+    settings.masterGainDecibels = 0; settings.outputLayout = SampleNeonOutputLayout::Ambisonic3;
+    auto& s = settings.slots[0]; s.stack = &stack; s.start = .1; s.end = .9; s.launchPosition = .5;
+    s.playback = SampleNeonPlayback::Spectral; s.clock = SampleNeonClock::Free;
+    s.triggerMode = TriggerMode::Gate; s.sourceFormat = SampleNeonSourceFormat::Ambisonic;
+    s.gainDecibels = 0; s.techniqueAttackSeconds = .005f; s.techniqueReleaseSeconds = .01f;
+    s.technique[0] = 0;
+    SampleNeonEvent on; on.kind = SampleNeonEventKind::Trigger; on.slot = 0;
+    on.mode = s3g::controller::reloop_neon::Mode::Sampler; on.value = 1; on.noteId = 42;
+    SampleNeonEvent off = on; off.kind = SampleNeonEventKind::Release;
+    OutputBlock out;
+    const auto render = [&](const SampleNeonEvent* event = nullptr) { engine->render(settings, event, event ? 1 : 0, out.pointers.data(), 32, 64); };
+    for (unsigned mode = 0; mode < 2; ++mode) {
+        s.playback = mode ? SampleNeonPlayback::Wavesets : SampleNeonPlayback::Spectral;
+        s.family[NeonFamily::WavesetEngine] = static_cast<float>(mode);
+        s.family[NeonFamily::OscFrequency] = 220; s.family[NeonFamily::OscPosition] = .5;
+        if (mode) {
+            asset->channelCount = 2;
+            for (unsigned ch = 2; ch < 16; ++ch) asset->channels[ch].clear();
+            settings.outputLayout = SampleNeonOutputLayout::Stereo; s.sourceFormat = SampleNeonSourceFormat::Discrete;
+        }
+        engine->reset(); render(&on);
+        double energy = 0; bool linked = true; unsigned crossings = 0; float last = 0;
+        std::vector<double> costs;
+        for (unsigned block = 0; block < 1000; ++block) {
+            const auto begin = std::chrono::steady_clock::now(); render();
+            costs.push_back(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count());
+            for (unsigned i = 0; i < 64; ++i) {
+                const float a = out.samples[0][i];
+                if (block > 31) { energy += a * a; crossings += a > 0 && last <= 0; }
+                last = a;
+                for (unsigned ch = 0; ch < asset->channelCount; ++ch)
+                    linked &= std::isfinite(out.samples[ch][i]) && std::abs(out.samples[ch][i] - a * (ch % 2 ? -.5f : 1.f)) < .0001f;
+            }
+        }
+        const double hz = crossings * 48000. / (968 * 64);
+        check(energy > 1 && linked, "Spectral/Oscillator sustains beyond source duration and links all channels");
+        check(std::abs(hz - (mode ? 220 : 375)) < 3, "frame synthesis preserves spectral frequency / oscillator tuning");
+        check(engine->voiceCursorCount(0) > 0 && engine->slotPlaybackActive(0), "frame synth publishes active waveform cursor");
+        std::sort(costs.begin(), costs.end());
+        std::cout << (mode ? "Oscillator stereo" : "Spectral 3OA") << " p99 " << costs[990] << " us / 1333 us, pitch " << hz << " Hz\n";
+        render(&off); for (unsigned n = 0; n < 30; ++n) render();
+        check(!engine->slotPlaybackActive(0) && engine->slotPeak(0) == 0, "frame synth HOLD releases to silence");
+        s.sourceMode = NeonSourceMode::Scan; s.stackCycleSeconds = .1f;
+        engine->reset(); render(&on); float minimum = 1, maximum = 0;
+        for (unsigned n = 0; n < 150; ++n) { render(); minimum = std::min(minimum, engine->stackPosition(0)); maximum = std::max(maximum, engine->stackPosition(0)); }
+        check(maximum - minimum > .8f && engine->stackScanActive(0, settings), "frame engine held stack path moves and publishes");
+        s.sourceMode = NeonSourceMode::Primary;
+        s.clock = SampleNeonClock::Host; settings.transportPlaying = false;
+        render(); check(engine->slotPeak(0) == 0, "frame HOST pauses without output");
+        s.clock = SampleNeonClock::Free;
+        engine->killAll(); render(); check(engine->slotPeak(0) == 0, "frame panic clears synthesis tail");
+    }
+    s.playback = SampleNeonPlayback::Spectral; s.launchPosition = .2; s.motionCycleSeconds = .1f;
+    s.family[NeonFamily::SpectralAdvance] = 0; s.family[NeonFamily::SpectralPressure] = 1;
+    engine->reset(); render(&on); for (unsigned n = 0; n < 20; ++n) render();
+    const auto frozen = engine->voiceCursors(0)[0].sourcePositionNormalized;
+    for (unsigned n = 0; n < 20; ++n) render();
+    check(engine->voiceCursors(0)[0].sourcePositionNormalized == frozen, "Spectral zero advance freezes source position");
+    auto pressure = on; pressure.kind = SampleNeonEventKind::Pressure; pressure.value = .5f; pressure.frameOffset = 32;
+    render(&pressure); for (unsigned n = 0; n < 20; ++n) render();
+    check(std::abs(engine->voiceCursors(0)[0].sourcePositionNormalized - frozen) > .05,
+        "Spectral pressure advances source frames without changing sample selection");
+    auto choke = on; choke.kind = SampleNeonEventKind::Choke; choke.noteId = 0; choke.frameOffset = 32;
+    render(&choke);
+    bool stopped = true; for (unsigned n = 32; n < 64; ++n) stopped &= out.samples[0][n] == 0;
+    check(stopped, "Spectral explicit stop is sample accurate");
+    auto dc = constantAsset(.25f, -.125f, 4096);
+    engine->setAsset(0, &dc); s.stack = nullptr; s.start = 0; s.end = 1;
+    render(&on); for (unsigned n = 0; n < 40; ++n) render();
+    check(engine->slotPeak(0) < 1.e-6, "Spectral DC source does not become a synthetic window tone");
+    engine->setAsset(0, asset.get()); s.stack = &stack; s.start = .1; s.end = .9;
+    // Descriptor decisions have deterministic ties and never use an L+R sum.
+    stack.fragmentCount = 3;
+    stack.fragments[0] = {.1f, .3f, .2f, .1f, 0};
+    stack.fragments[1] = {.3f, .5f, .25f, .12f, 0};
+    stack.fragments[2] = {.5f, .9f, .9f, .8f, 1};
+    check(neonChooseMosaic(stack, 0, 1, true, .5f) == 1, "Mosaic similarity follows closest descriptor");
+    check(neonChooseMosaic(stack, 0, 2, true, .5f) == 2, "Mosaic contrast crosses layers");
+    check(neonChooseMosaic(stack, 0, 2, false, .5f) == 1, "Mosaic primary scope excludes other layers");
+    check(neonChooseMosaic(stack, 0, 3, true, 1) == 2 && neonChooseMosaic(stack, 0, 4, true, 1) == 2,
+        "Mosaic energy/brightness targets choose appropriate fragments");
+    const auto d = neonDescribeFragment(stack.layers[0], 0, .1, .9);
+    check(d.energy > .5 && d.brightness < .02, "bounded descriptors recognize a sustained low tone");
+    s.playback = SampleNeonPlayback::SliceSequence; s.technique = {{1, 0, 0, 1}};
+    s.family[NeonFamily::MosaicMode] = 2; s.family[NeonFamily::MosaicScope] = 1;
+    engine->reset(); render(&on);
+    check(engine->stackWaveformLayer(0, settings) == 1, "Mosaic source waveform follows chosen stack layer");
+    bool audible = false;
+    for (unsigned n = 0; n < 100; ++n) { render(); audible |= engine->slotPeak(0) > .01f; }
+    check(audible, "Mosaic fragments reach output through existing slice envelopes");
+    auto cancelling = std::make_shared<SampleAsset>(*asset);
+    for (unsigned i = 0; i < cancelling->frameCount(); ++i) cancelling->channels[1][i] = -cancelling->channels[0][i];
+    check(bool(analyzeNeonWavesets(cancelling)), "Neon cycles survive perfectly cancelling stereo channels");
+    std::fill(cancelling->channels[0].begin(), cancelling->channels[0].end(), 0);
+    check(bool(analyzeNeonWavesets(cancelling)), "Neon cycles use active reference when channel one is silent");
+}
+
+void testSpectralColour()
+{
+    using namespace s3g::sample;
+    using F = NeonFamily;
+    for (double rate : {44100., 48000., 96000.}) {
+        SampleAsset asset; asset.sampleRate = rate; asset.channelCount = 16;
+        for (unsigned ch = 0; ch < 16; ++ch) {
+            auto& data = asset.channels[ch]; data.resize(16384);
+            for (unsigned i = 0; i < 8192; ++i) data[i] = static_cast<float>(
+                (.16 * std::sin(6.283185307179586 * 8.5 * i / 1024)
+                + .025 * std::sin(6.283185307179586 * 48.5 * i / 1024))
+                * (ch == 15 ? 0 : ch % 2 ? -.5 : 1));
+        }
+        auto player = std::make_unique<NeonFramePlayer>();
+        check(player->prepare(), "expanded Spectral prepares outside audio");
+        NeonFamilySettings neutral; neutral[F::SpectralBlur] = 0;
+        std::array<float, 64> positions {}, sourcePositions {}, velocities {};
+        std::array<uint8_t, 64> triggers {};
+        velocities.fill(1);
+        std::array<std::array<float, 64>, 16> output {};
+        std::array<float*, 16> pointers {};
+        for (unsigned ch = 0; ch < 16; ++ch) pointers[ch] = output[ch].data();
+        bool linked = true, bounded = true;
+        const auto render = [&](const NeonFamilySettings& f, unsigned blocks, bool reset, bool changeSource = false, bool changeColour = false) {
+            if (reset) player->reset();
+            std::vector<float> samples; samples.reserve(blocks * 64);
+            for (unsigned block = 0; block < blocks; ++block) {
+                sourcePositions.fill(changeSource && block >= 64 ? .8f : .1f);
+                player->render(nullptr, {&asset, 0, 1, nullptr}, 0, 0, 1,
+                    changeColour && block < 64 ? neutral : f, false, 1, rate, 1, 0, false,
+                    positions.data(), sourcePositions.data(), velocities.data(), triggers.data(), pointers.data(), 64);
+                for (unsigned i = 0; i < 64; ++i) {
+                    samples.push_back(output[0][i]);
+                    for (unsigned ch = 0; ch < 16; ++ch) {
+                        bounded &= std::isfinite(output[ch][i]) && std::abs(output[ch][i]) < 2;
+                        linked &= std::abs(output[ch][i] - output[0][i] * (ch == 15 ? 0 : ch % 2 ? -.5f : 1.f)) < 1.e-5f;
+                    }
+                }
+            }
+            return samples;
+        };
+        const auto magnitude = [](const std::vector<float>& samples, double bin, unsigned first = 8192) {
+            std::complex<double> sum {};
+            for (unsigned i = first; i < samples.size(); ++i)
+                sum += double(samples[i]) * std::polar(1., -6.283185307179586 * bin * i / 1024);
+            return std::abs(sum) / (samples.size() - first);
+        };
+        const auto energy = [](const std::vector<float>& samples, unsigned first = 8192) {
+            double sum = 0; for (unsigned i = first; i < samples.size(); ++i) sum += samples[i] * samples[i];
+            return sum / (samples.size() - first);
+        };
+        const auto original = render(neutral, 256, true);
+        const double ratio = magnitude(original, 8.5) / magnitude(original, 48.5);
+        auto f = neutral; f[F::SpectralFocus] = 1;
+        const auto focused = render(f, 256, true);
+        f[F::SpectralFocus] = -1;
+        const auto flat = render(f, 256, true);
+        check(magnitude(focused, 8.5) / magnitude(focused, 48.5) > ratio * 2
+            && magnitude(flat, 8.5) / magnitude(flat, 48.5) < ratio * .6, "Focus strengthens peaks / flattens quieter partials");
+        check(energy(focused) < energy(original) * 1.1 && energy(focused) > energy(original) * .8,
+            "Focus energy compensation prevents a loudness-only effect");
+        f = neutral; f[F::SpectralTilt] = 6; const auto bright = render(f, 256, true);
+        f[F::SpectralTilt] = -6; const auto dark = render(f, 256, true);
+        check(magnitude(bright, 8.5) / magnitude(bright, 48.5) < ratio * .5
+            && magnitude(dark, 8.5) / magnitude(dark, 48.5) > ratio * 2, "Tilt moves the spectral balance both directions");
+        f = neutral; f[F::SpectralThin] = .9f;
+        const auto thin = render(f, 256, true);
+        check(energy(thin) < energy(original) * .5, "Thin removes deterministic bands");
+        check(thin == render(f, 256, true), "Thin is repeatable across retriggers");
+        f = neutral; f[F::SpectralSmear] = 1;
+        const auto smeared = render(f, 256, true, true);
+        const auto immediate = render(neutral, 256, true, true);
+        check(energy(immediate) < 1.e-12 && energy(smeared) > energy(original) * .1,
+            "Smear retains spectral energy after scanning into silence");
+        check(magnitude(smeared, 8.5) > magnitude(original, 8.5) * .25,
+            "Smear retains off-bin pitch while its target is silent");
+        f[F::SpectralFocus] = -.8f; f[F::SpectralTilt] = 6; f[F::SpectralThin] = 1;
+        const auto live = render(f, 256, true, false, true);
+        check(energy(live) < energy(original) * .5, "live colour changes respond despite long Smear");
+        float jump = 0; for (unsigned i = 1; i < live.size(); ++i) jump = std::max(jump, std::abs(live[i] - live[i - 1]));
+        check(jump < .15f, "hop-smoothed colour changes avoid hard gain steps");
+        check(linked && bounded, "expanded Spectral stays finite and preserves linked 16-channel ratios / silent channels");
+        player->reset(); sourcePositions.fill(.8f);
+        player->render(nullptr, {&asset, 0, 1, nullptr}, 0, 0, 1, f, false, 1, rate, 1, 0, false,
+            positions.data(), sourcePositions.data(), velocities.data(), triggers.data(), pointers.data(), 64);
+        check(std::all_of(output[0].begin(), output[0].end(), [](float x) { return x == 0; }),
+            "reset discards Smear and never lifts a silent source");
+    }
+}
+
+#include "sample_neon_cutups_checks.inc"
+
 int main()
 {
     testProtocolDecode();
@@ -2462,6 +2668,9 @@ int main()
     testSliceEnvelopeAndRouting();
     testSliceSequenceHandoffs();
     testBufferFill();
+    testFramePlaybackAndMosaic();
+    testSpectralColour();
+    testCutupsPlayback();
     if (failures != 0) {
         std::cerr << failures << " Sample Neon checks failed\n";
         return 1;

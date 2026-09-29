@@ -13,30 +13,39 @@ using WaveDisplay = s3g::sample::SampleNeonWaveformDisplay;
 class Editor final : public View {
 public:
     explicit Editor(Plugin& instance)
-        : View(kGuiWidth, kGuiHeight), p(instance)
+        : View(kGuiWidth, kGuiHeight, true), p(instance)
     {
         setWantsFocus(true);
     }
     ~Editor() override { p.fillGuiHeld.store(false); p.pendingStackGuiReleases.store(255); requestProcess(p); }
 
     void onMouseDownEvent(MouseDownEvent& event) override {
+        if (p.resetAllPhase.load()) { event.consumed = true; return; }
         pathDragPoint = -1;
         pathPointLimit = false;
-        // Numeric text fields retain their own copy/paste. Only a pad click
-        // claims keyboard focus for cell operations.
-        if (cellAt(event.mousePosition) >= 0 && getFrame()) getFrame()->setFocusView(this);
+        // Canvas actions claim shortcut focus; native text entry subsequently
+        // takes its own focus and retains its own undo/copy/paste behavior.
+        if (getFrame()) getFrame()->setFocusView(this);
         View::onMouseDownEvent(event);
     }
     void onKeyboardEvent(KeyboardEvent& event) override {
-        if (resetConfirm || !getFrame() || getFrame()->getFocusView() != this || event.type != EventType::KeyDown
+        if (resetConfirm || p.resetAllPhase.load() || !getFrame() || getFrame()->getFocusView() != this || event.type != EventType::KeyDown
             || !(event.modifiers.has(ModifierKey::Control) || event.modifiers.has(ModifierKey::Super))
             || event.modifiers.has(ModifierKey::Alt)) return;
         const auto key = event.character;
         if (key == 'c' || key == 'C') { copyCell(p, p.selectedSlot.load()); event.consumed = true; }
         else if (key == 'v' || key == 'V') { requestPaste(p.selectedSlot.load()); event.consumed = true; }
+        else if (key == 'z' || key == 'Z') {
+            requestHistoryRestore(p, event.modifiers.has(ModifierKey::Shift)); event.consumed = true;
+        } else if (key == 'y' || key == 'Y') { requestHistoryRestore(p, true); event.consumed = true; }
         if (event.consumed) invalid();
     }
     bool pointerDown(MouseDownEvent& event) override {
+        if (!resetConfirm && cutupsPatternVisible() && event.buttonState.isLeft()
+            && foundation::contains(stackPathRect(),event.mousePosition)) {
+            cutPatternDrag = true; cutPatternSourceDrag = event.modifiers.has(ModifierKey::Alt);
+            cutPatternSlot = selectedSlot; editCutPatternAt(event.mousePosition); return true;
+        }
         if (!resetConfirm && stackPathVisible() && foundation::contains(stackPathRect(), event.mousePosition)) {
             const bool remove = event.buttonState.isRight()
                 || (event.buttonState.isLeft() && event.modifiers.has(ModifierKey::Control));
@@ -63,6 +72,10 @@ public:
         return true;
     }
     void pointerMove(MouseMoveEvent& event) override {
+        if (cutPatternDrag) {
+            if (cutPatternSlot != selectedSlot || !cutupsPatternVisible()) { cutPatternDrag = false; return; }
+            editCutPatternAt(event.mousePosition); event.consumed = true; return;
+        }
         if (pathDragPoint < 0) return;
         if (pathDragSlot != selectedSlot || !stackPathVisible()) { pathDragPoint = -1; return; }
         auto f = familySnapshot(); const auto area = stackPathRect();
@@ -71,7 +84,7 @@ public:
             static_cast<float>((event.mousePosition.y - area.top) / area.getHeight()))) storeStackPath(f);
         invalid(); event.consumed = true;
     }
-    void pointerUp(MouseUpEvent&) override { pathDragPoint = -1; }
+    void pointerUp(MouseUpEvent&) override { pathDragPoint = -1; cutPatternDrag = false; }
 
     void service() override
     {
@@ -80,8 +93,9 @@ public:
         serviceLoads(p);
 #endif
         serviceWavesets(p);
+        serviceMosaic(p);
         serviceStorage(p);
-        workspaceTab = std::min<uint8_t>(10u, effectiveEditPage(p));
+        workspaceTab = std::min<uint8_t>(12u, effectiveEditPage(p));
     }
 
     void paint() override
@@ -92,11 +106,13 @@ public:
             std::memory_order_relaxed), s3g::sample::kSampleNeonSlotCount - 1u);
         if (visualSlot != selectedSlot) { visual = {}; visualSlot = selectedSlot; }
         (void)p.playbackVisuals[selectedSlot].read(visual);
-        workspaceTab = std::min<uint8_t>(10u, effectiveEditPage(p));
+        workspaceTab = std::min<uint8_t>(12u, effectiveEditPage(p));
         footerMessage.clear(); footerColor = style.dim;
         paintHeader();
         paintController();
         paintSelectedSlot();
+        text("UNDO: " + historyLabel(p, false) + "    |    REDO: " + historyLabel(p, true),
+            rect(C::statusLeft, C::statusTop - 24, C::statusWidth, 18), style.dim);
         if (!footerMessage.empty()) text(footerMessage,
             rect(C::statusLeft, C::statusTop, C::statusWidth, 18), footerColor);
         if (resetConfirm) {
@@ -104,7 +120,7 @@ public:
             hit(rect(0.0, 0.0, kGuiWidth, kGuiHeight), [] {});
             fill(rect(20.0, 52.0, 1128.0, 62.0), style.strip);
             stroke(rect(20.0, 52.0, 1128.0, 62.0), style.text);
-            text("CLEAR ALL 32 CELLS + CAPTURE? SAVE A SET FIRST TO KEEP THIS WORK.",
+            text("CLEAR ALL 32 CELLS + CAPTURE? UNDO CAN RESTORE THIS DURING THIS SESSION.",
                 rect(32.0, 60.0, 780.0, 20.0), style.text);
             text("Output layout and MIDI setup are kept. Source files on disk are not deleted.",
                 rect(32.0, 85.0, 780.0, 18.0), style.label);
@@ -117,7 +133,7 @@ public:
 
     bool dropped(const std::vector<std::string>& paths, CPoint point) override
     {
-        if (paths.empty() || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotLoop)) return false;
+        if (paths.empty() || p.resetAllPhase.load() || p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotLoop)) return false;
         int target = slotAt(point);
         if (target < 0) target = static_cast<int>(selectedSlot);
         if ((effectiveEditPage(p) == 8u || effectiveEditPage(p) == 0u)
@@ -398,6 +414,10 @@ private:
             [this] { chooseSet(false); });
         button(rect(1040.0, C::titleTop, 108.0, C::titleHeight), "SAVE SET",
             [this] { chooseSet(true); });
+        button(rect(1156.0, C::titleTop, 88.0, C::titleHeight), "UNDO",
+            [this] { requestHistoryRestore(p, false); }, false, historyAvailable(p, false));
+        button(rect(1252.0, C::titleTop, 88.0, C::titleHeight), "REDO",
+            [this] { requestHistoryRestore(p, true); }, false, historyAvailable(p, true));
     }
 
     void selectBank(uint8_t bank) { selectSurfaceBank(p, bank); }
@@ -761,7 +781,8 @@ private:
         }
         if (editable && edit >= viewStart && edit <= viewEnd)
             line(CPoint(xFor(edit), wave.top), CPoint(xFor(edit), wave.bottom), color(0xb27d69), 2.0);
-        if (stackPathVisible()) paintStackPathGraph();
+        if (cutupsPatternVisible()) paintCutupsPattern();
+        else if (stackPathVisible()) paintStackPathGraph();
         else {
             const auto overview = overviewRect();
             if (recording) drawRecordingWave(overview, WaveDisplay::CombinedPeaks);
@@ -770,7 +791,9 @@ private:
                 overview.getWidth() * viewRange, overview.getHeight()), style.value);
         }
         const auto pathPhase = p.stackPathPhases[selectedSlot].load();
-        const std::string cursorStatus = stackPathVisible()
+        const std::string cursorStatus = cutupsPatternVisible()
+            ? pathPhase >= 0 ? format("CUT STEP %02u / %02u",1u+static_cast<unsigned>(std::lround(pathPhase*familyValue(NeonFamily::CutRegions).load())),static_cast<unsigned>(familyValue(NeonFamily::CutRegions).load())) : "CUT PATTERN / CLICK LAYER / ALT: SOURCE"
+            : stackPathVisible()
             ? pathPhase >= 0 ? format("STACK PATH %.1f%%", pathPhase * 100) : "STACK PATH / IDLE"
             : follow ? scanning ? format("BLEND %.0f%%", blend.mix * 100.f) : format("PLAYING %02u", blend.first + 1u)
             : format("CURSOR %.2f%%", edit * 100.);
@@ -793,7 +816,7 @@ private:
         const unsigned choice = playbackChoice();
         text("PLAYBACK", rect(P::left, y + 3.5, P::labelWidth, 18.0), style.label);
         // Display order is independent of stable engine/state identities.
-        constexpr std::array<unsigned, 7> order {0, 6, 1, 2, 4, 5, 3};
+        constexpr std::array<unsigned, 9> order {0, 6, 1, 2, 4, 5, 3, 7, 8};
         std::vector<std::string> names;
         for (auto method : order) names.emplace_back(kPlaybackNames[method]);
         std::vector<bool> available(names.size(), true);
@@ -805,7 +828,7 @@ private:
                 choosePlayback(p, order[index]);
                 // A method change is not a request to leave source/FX/routing.
                 p.editPage.store(page);
-                if (familyPage == 3 && (order[index] == 0 || order[index] == 3)) {
+                if (familyPage == 3 && (order[index] == 0 || order[index] == 3 || order[index] == 8)) {
                     familyPage = 0; p.editPage.store(0);
                 }
                 workspaceTab = effectiveEditPage(p);
@@ -974,7 +997,11 @@ private:
         const clap_id id = !loop && page == 5u ? slotParamId(selectedSlot, kSlotTune)
             : page == 7u && s3g::sample::neonCharacterKnob(fxEffect(),p.fxPair.load(),loop,p.fxParameters[selectedSlot][1][7].load()>=.5f)==12 ? slotParamId(selectedSlot, kSlotMangle) : CLAP_INVALID_ID;
         double defaultValue = 0.0;
-        if (page == 9u) defaultValue = loop ? 0 : .2;
+        if (page == 12u) defaultValue = loop ? host ? 4./7 : (8.-.1)/79.9 : 0;
+        else if (page == 11u) defaultValue = loop ? 0 : .25;
+        else if (page == 6u && familyValue(NeonFamily::WavesetEngine).load() != 0)
+            defaultValue = loop ? 0 : std::log(110. / 20) / std::log(100.);
+        else if (page == 9u) defaultValue = loop ? 0 : .2;
         else if (page == 8u) defaultValue = loop ? 0.0 : host
             ? nearestMotionCycleIndex(ControlDefaults::cycleBeats) / 7.0 : (ControlDefaults::cycleSeconds - 0.05) / 29.95;
         else if (page == 7u) {
@@ -1004,7 +1031,7 @@ private:
     void textureSliderRow(std::atomic<float>& target, const char* label,
         double y, float minimum, float maximum, float defaultValue, const std::string& valueLabel,
         std::function<double(double)> displayValue = {}, std::function<double(double)> storageValue = {}, double left = I::left, double totalWidth = I::width,
-        double shownValue = std::numeric_limits<double>::quiet_NaN())
+        double shownValue = std::numeric_limits<double>::quiet_NaN(), bool integral = false)
     {
         const double trackX = left + 82.0;
         const double trackWidth = totalWidth - 82 - I::valueGap - I::valueWidth;
@@ -1016,8 +1043,13 @@ private:
             rect(trackX, y + 3.0, trackWidth, 8.0), unit, y, 14.0, style);
         text(valueLabel, rect(trackX + trackWidth + I::valueGap, y - 2.0,
                 63.0, 18.0), style.value, kRightText, font);
-        const auto apply = [this, &target, minimum, maximum, slot = selectedSlot](double value) {
+        const auto apply = [this, &target, minimum, maximum, integral, slot = selectedSlot](double value) {
             if (!std::isfinite(value)) return;
+            if (integral) value = std::round(value);
+            for (unsigned n = 0; n < 64; ++n)
+                if (&target == &p.familyControls[slot][neonFamilyIndex(NeonFamily::CutPatternSource)+n]) {
+                    p.familyControls[slot][neonFamilyIndex(NeonFamily::CutSourceOrder)].store(6); break;
+                }
             if (&target == &p.familyControls[slot][neonFamilyIndex(NeonFamily::LanePosition)]) {
                 setLanePosition(p, static_cast<unsigned>(slot), value); return;
             }
@@ -1072,11 +1104,20 @@ private:
     }
 
     template<class L = I> void sourceModeMenu(unsigned row) {
+        if (playbackChoice() == 8u) {
+            familyMenu<L>(NeonFamily::CutFileOrder,"LAYER ORDER",row,
+                {"DOWN","UP","PALINDROME","RANDOM","RANDOM CYCLE","MANUAL","PAIRS","OUTSIDE IN","STAGGER","CENTER OUT"});
+            return;
+        }
         if (playbackChoice() == 6u) { familyMenu<L>(NeonFamily::LaneAuto, "NAVIGATION", row, {"MANUAL", "PATH"}); return; }
+        if (playbackChoice() == 3u && familyValue(NeonFamily::MosaicMode).load() != 0) {
+            inspectorReadout<L>("LAYER SRC", familyValue(NeonFamily::MosaicScope).load() != 0 ? "MOSAIC / STACK" : "MOSAIC / PRIMARY", row);
+            return;
+        }
         const unsigned mode = playbackChoice() == 3u ? 0u : std::min<unsigned>(4u, p.sourceModes[selectedSlot].load());
         const std::vector<std::string> names {"PRIMARY", "SELECTED LAYER", "VELOCITY", "RANDOM / TRIGGER", "STACK SCAN"};
         std::vector<bool> enabled(5u, playbackChoice() != 5u && playbackChoice() != 3u);
-        enabled[0] = true; enabled[4] = playbackChoice() == 1u || playbackChoice() == 2u || playbackChoice() == 4u || playbackChoice() == 5u;
+        enabled[0] = true; enabled[4] = playbackChoice() == 1u || playbackChoice() == 2u || playbackChoice() == 4u || playbackChoice() == 5u || playbackChoice() == 7u;
         inspectorLabel<L>("LAYER SRC", row);
         menu(inspectorMenu<L>(row), names[mode], names, static_cast<int>(mode), [this](int choice) {
             p.sourceModes[selectedSlot].store(static_cast<uint8_t>(choice));
@@ -1093,6 +1134,7 @@ private:
             count ? static_cast<int>(selected) : -1, [this](int choice) { showLayer(p, selectedSlot, static_cast<unsigned>(choice)); }, count != 0u, 4);
     }
 #include "s3g_sample_neon_family_gui.inc"
+#include "s3g_sample_neon_cutups_gui.inc"
 
     unsigned normalizeScope = 0;
     void paintStackSettings() {
@@ -1143,6 +1185,29 @@ private:
     }
 
     void paintRouting() {
+        if (noteEditor.open) {
+            const bool received = p.utilityMapAvailable.load();
+            const bool following = noteEditor.draft.followUtility;
+            inspectorLabel("MAP SOURCE",1);
+            menu(inspectorMenu(1), following ? "FOLLOW UTILITY" : "LOCAL", {"FOLLOW UTILITY","LOCAL"}, following ? 0 : 1,
+                [this](int n) { noteEditor.draft.followUtility = n == 0; noteEditor.error.clear(); });
+            if (received && following) {
+                s3g::controller::neon_midi::NoteMap remote;
+                if (p.utilityNoteMap.read(remote)) { noteEditor.draft.notes=remote.notes; noteEditor.draft.custom=true; }
+            }
+            text(received && following ? "UTILITY MAP RECEIVED" : "MIDI 0-127 / APPLY STOPS PADS",
+                rect(I::left,I::label(2),I::width,18),style.value);
+            noteEditor.paint(*this,I::left,I::label(3),I::width,[this](auto map) {
+                p.noteMap.store(map); p.noteNamesPending.store(true); markStateDirty(p); requestProcess(p);
+            }, !(received && following));
+            // Following can be selected after a local edit even though its
+            // map cells are read-only. The receiving map remains authoritative.
+            if (received && following) button(rect(I::left+(I::width+8)/2,I::label(3)+304,(I::width-8)/2,20),"FOLLOW",[this] {
+                p.noteMap.store(noteEditor.draft); noteEditor.open=false;
+                p.noteNamesPending.store(true); markStateDirty(p); requestProcess(p);
+            });
+            return;
+        }
         menuRow(kMidiReceiveParamId, "MIDI IN", I::menu(2));
         menuRow(slotParamId(selectedSlot, kSlotSourceFormat), "FORMAT", I::menu(3));
         menuRow(slotParamId(selectedSlot, kSlotOutputBus), "OUTPUT", I::menu(4));
@@ -1167,6 +1232,9 @@ private:
         inspectorLabel("VELOCITY", 10);
         menu(inspectorMenu(10), velocity ? "PAD VELOCITY" : "CONSTANT LEVEL", {"PAD VELOCITY", "CONSTANT LEVEL"}, velocity ? 0 : 1,
             [this](int n) { setSlotOption(p, selectedSlot, kSlotVelocityOption, n == 0); });
+        button(inspectorButton(11,0,1),"PAD NOTE MAP",[this] {
+            noteEditor.begin(noteMapSnapshot(p),static_cast<unsigned>(paramValue(p,kBaseNoteParamId)));
+        });
     }
 
     void sliceEnvelopeRows(unsigned first) {
@@ -1381,10 +1449,43 @@ private:
     void paintExtendedPlayback()
     {
         const auto method = playbackChoice();
+        if (method == 8u) { paintCutupsPlayback(); return; }
         if (method == 6u) { paintLanesPlayback(); return; }
+        const bool oscillator = method == 5u && familyValue(NeonFamily::WavesetEngine).load() != 0;
+        if (method == 7u || oscillator) {
+            using F = NeonFamily;
+            if (oscillator) familyMenu<E>(F::WavesetEngine, "ENGINE", 5, {"REARRANGE", "OSCILLATOR"});
+            clockMenu(E::menu(oscillator ? 6 : 5));
+            if (oscillator) {
+                familySlider<E>(F::OscPosition, "CYCLE POS", 7);
+                familySlider<E>(F::OscFrequency, "FREQUENCY", 8, " Hz");
+                familySlider<E>(F::OscScan, "SCAN", 9);
+                familySlider<E>(F::OscGroup, "GROUP", 10, " cycles");
+            } else {
+                textureDoubleSliderRow(p.editPositions[selectedSlot], "POSITION", E::slider(6), 0, 1, 0,
+                    format("%.1f%%", p.editPositions[selectedSlot].load() * 100));
+                familySlider<E>(F::SpectralAdvance, "ADVANCE", 7);
+                familySlider<E>(F::SpectralPressure, "PRESS ADV", 8);
+                familySlider<E>(F::SpectralBlur, "BLUR", 10);
+                familySlider<E>(F::SpectralSmear, "SMEAR", 11, " s");
+                familySlider<E>(F::SpectralFocus, "FOCUS", 12);
+                familySlider<E>(F::SpectralTilt, "TILT/OCT", 13, " dB");
+                familySlider<E>(F::SpectralThin, "THIN", 14);
+            }
+            const unsigned row = oscillator ? 11 : 9;
+            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.motionRates[selectedSlot], "SCAN CYCLE", E::menu(row));
+            else textureSliderRow(p.motionSeconds[selectedSlot], "SCAN CYCLE", E::slider(row), .05f, 30, ControlDefaults::cycleSeconds,
+                format("%.2f s", p.motionSeconds[selectedSlot].load()));
+            const unsigned envelopeRow = oscillator ? 12 : 15;
+            textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(envelopeRow), .05f, 30, ControlDefaults::shotSeconds,
+                format("%.2f s", p.shotSeconds[selectedSlot].load()));
+            techniqueEnvelopeRows(E::slider(envelopeRow + 1));
+            return;
+        }
         auto& values = p.techniqueParameters[selectedSlot][method - 3u];
         const unsigned waveScan = method == 5u && p.sourceModes[selectedSlot].load() == 4u ? 1u : 0u;
-        if (method != 5u || waveScan) clockMenu(E::menu(5));
+        if (method == 5u) familyMenu<E>(NeonFamily::WavesetEngine, "ENGINE", 5, {"REARRANGE", "OSCILLATOR"});
+        if (method != 5u || waveScan) clockMenu(E::menu(method == 5u ? 6 : 5));
         const bool host = p.playbackClocks[selectedSlot].load() != 0u;
         if (method == 3u) {
             const int trigger = static_cast<int>(paramValue(p, slotParamId(selectedSlot, kSlotTriggerMode)));
@@ -1396,14 +1497,21 @@ private:
             else textureSliderRow(values[0], "STEP RATE", E::slider(7), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.1f Hz", 1.0f + values[0].load() * 19.0f),
                 [](double x) { return 1.0 + x * 19.0; }, [](double x) { return (x - 1.0) / 19.0; });
             const std::vector<std::string> orders {"FORWARD", "REVERSE", "RANDOM"};
+            familyMenu<E>(NeonFamily::MosaicMode, "NAVIGATION", 8, {"SEQUENCE", "SIMILAR", "CONTRAST", "ENERGY", "BRIGHTNESS"});
+            if (familyValue(NeonFamily::MosaicMode).load() != 0) {
+                familyMenu<E>(NeonFamily::MosaicScope, "CANDIDATES", 9, {"PRIMARY SLICES", "STACK SLICES"});
+                if (familyValue(NeonFamily::MosaicMode).load() >= 3) familySlider<E>(NeonFamily::MosaicTarget, "TARGET", 12);
+            }
             const int order = static_cast<int>(std::lround(values[1].load() * 2.0f));
-            inspectorLabel<E>("ORDER", 8);
-            menu(inspectorMenu<E>(8), orders[static_cast<unsigned>(order)], orders, order,
-                [this](int choice) { p.techniqueParameters[selectedSlot][0][1].store(choice * 0.5f); markStateDirty(p); requestProcess(p); });
-            textureSliderRow(values[2], "REPEATS", E::slider(9), 0.0f, 1.0f, ControlDefaults::technique[2u], format("%.0f", 1.0 + std::round(values[2].load() * 7.0)),
+            if (familyValue(NeonFamily::MosaicMode).load() == 0) {
+                inspectorLabel<E>("ORDER", 9);
+                menu(inspectorMenu<E>(9), orders[static_cast<unsigned>(order)], orders, order,
+                    [this](int choice) { p.techniqueParameters[selectedSlot][0][1].store(choice * 0.5f); markStateDirty(p); requestProcess(p); });
+            }
+            textureSliderRow(values[2], "REPEATS", E::slider(10), 0.0f, 1.0f, ControlDefaults::technique[2u], format("%.0f", 1.0 + std::round(values[2].load() * 7.0)),
                 [](double x) { return 1.0 + std::round(x * 7.0); }, [](double x) { return (std::round(x) - 1.0) / 7.0; });
-            textureSliderRow(values[3], "CHANCE", E::slider(10), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
-            button(inspectorButton<E>(11), "SLICE ADSR / CHOP", [this] { selectMode(static_cast<uint8_t>(NeonMode::Slicer)); });
+            textureSliderRow(values[3], "CHANCE", E::slider(11), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
+            button(inspectorButton<E>(familyValue(NeonFamily::MosaicMode).load() >= 3 ? 13 : 12), "SLICE ADSR / CHOP", [this] { selectMode(static_cast<uint8_t>(NeonMode::Slicer)); });
         } else if (method == 4u) {
             if (host) beatMenu(p.motionRates[selectedSlot], "DURATION", E::menu(6));
             else textureSliderRow(p.motionSeconds[selectedSlot], "DURATION", E::slider(6), 0.05f, 30.0f, ControlDefaults::cycleSeconds, format("%.2f s", p.motionSeconds[selectedSlot].load()));
@@ -1415,20 +1523,20 @@ private:
             textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", E::slider(8), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
             textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", E::slider(9), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
         } else {
-            textureSliderRow(values[0], "GROUP", E::slider(5u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.0f cycles", 1.0 + std::round(values[0].load() * 31.0)),
+            textureSliderRow(values[0], "GROUP", E::slider(6u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[0u], format("%.0f cycles", 1.0 + std::round(values[0].load() * 31.0)),
                 [](double x) { return 1.0 + std::round(x * 31.0); }, [](double x) { return (std::round(x) - 1.0) / 31.0; });
-            textureSliderRow(values[1], "REPEATS", E::slider(6u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[1u], format("%.0f", 1.0 + std::round(values[1].load() * 15.0)),
+            textureSliderRow(values[1], "REPEATS", E::slider(7u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[1u], format("%.0f", 1.0 + std::round(values[1].load() * 15.0)),
                 [](double x) { return 1.0 + std::round(x * 15.0); }, [](double x) { return (std::round(x) - 1.0) / 15.0; });
             const std::vector<std::string> shapes {"REPEAT", "OMIT", "REPLACE", "ENVELOPE", "MULTIPLY", "AVERAGE", "INTERPOLATE", "FRACTAL", "HARMONIC", "GROUP REVERSE", "CYCLE REVERSE", "TELESCOPE"};
             const auto shape = static_cast<int>(std::lround(values[2].load() * 11.0f));
-            inspectorLabel<E>("SHAPE", 7u + waveScan);
-            menu(inspectorMenu<E>(7u + waveScan), shapes[static_cast<unsigned>(shape)], shapes, shape,
+            inspectorLabel<E>("SHAPE", 8u + waveScan);
+            menu(inspectorMenu<E>(8u + waveScan), shapes[static_cast<unsigned>(shape)], shapes, shape,
                 [this](int choice) { p.techniqueParameters[selectedSlot][2][2].store(choice / 11.0f); markStateDirty(p); requestProcess(p); });
-            textureSliderRow(values[3], "PROCESS", E::slider(8u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
+            textureSliderRow(values[3], "PROCESS", E::slider(9u + waveScan), 0.0f, 1.0f, ControlDefaults::technique[3u], format("%.0f%%", values[3].load() * 100.0f));
             if (waveScan) {
-                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(10), 0.05f, 30.0f, ControlDefaults::shotSeconds, format("%.2f s", p.shotSeconds[selectedSlot].load()));
-                textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", E::slider(11), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
-                textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", E::slider(12), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
+                textureSliderRow(p.shotSeconds[selectedSlot], "SHOT LEN", E::slider(11), 0.05f, 30.0f, ControlDefaults::shotSeconds, format("%.2f s", p.shotSeconds[selectedSlot].load()));
+                textureSliderRow(p.techniqueAttackSeconds[selectedSlot], "ATTACK", E::slider(12), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueAttackSeconds[selectedSlot].load()));
+                textureSliderRow(p.techniqueReleaseSeconds[selectedSlot], "RELEASE", E::slider(13), 0.001f, 10.0f, ControlDefaults::techniqueEnvelope, format("%.3f s", p.techniqueReleaseSeconds[selectedSlot].load()));
             }
             bool ready = false, pending = false;
             const unsigned count = waveScan ? stackCount(p, selectedSlot) : 1u;
@@ -1442,8 +1550,9 @@ private:
     }
 
     void fillHoldButton(CRect bounds) {
-        foundation::drawButton(*context, bounds, p.fillActive.load() ? "FILL / OVERRIDE" : "FILL HOLD", font, p.fillActive.load());
-        drag(bounds, [](CPoint) {}, [this] { p.fillGuiHeld.store(true); requestProcess(p); },
+        const std::string label = p.fillActive.load() ? "FILL / OVERRIDE" : "FILL HOLD";
+        buttonFace(bounds,label,p.fillActive.load(),true,"FILL HOLD");
+        drag(bounds, [](CPoint) {}, [this,bounds] { flashButton(bounds,"FILL HOLD"); p.fillGuiHeld.store(true); requestProcess(p); },
             [this] { p.fillGuiHeld.store(false); requestProcess(p); });
     }
     void fillRepeatMenu(CRect bounds) {
@@ -1491,16 +1600,19 @@ private:
         const unsigned playbackLast = method == 0 ? 9 : method == 1 || method == 2
             ? s3g::sample_neon_gui::FamilyGrid::cutoff(method == 1,
                 static_cast<unsigned>(familyValue(NeonFamily::MotionSound).load()))
-            : E::index(method == 6 ? 19 : method == 5 ? (p.sourceModes[selectedSlot].load() == 4 ? 12 : 8) : method == 4 ? 9 : 11);
-        const unsigned last = view == 0 ? 16 : view == 2 ? 17 : view == 3 ? fxLastRow() : view == 4 ? 10 : playbackLast;
+            : E::index(method == 8 ? 28 : method == 6 ? 19 : method == 7 ? 17 : method == 5
+                ? familyValue(NeonFamily::WavesetEngine).load() != 0 ? 14 : p.sourceModes[selectedSlot].load() == 4 ? 13 : 9
+                : method == 4 ? 9 : familyValue(NeonFamily::MosaicMode).load() >= 3 ? 13 : 12);
+        const unsigned last = view == 0 ? 16 : view == 2 ? 17 : view == 3 ? fxLastRow() : view == 4 ? noteEditor.open ? 16 : 11 : playbackLast;
         panel(rect(kPanelLeft, 42, kPanelWidth, I::row(last) + 18 - 42), "EDIT / " + views[view]);
         inspectorLabel("EDIT VIEW", 0);
         menu(inspectorMenu(0), views[view], views, view, [this](int n) {
+            noteEditor.open = false;
             familyPage = n == 2 ? 3 : 0; familyDetail = 0;
             workspaceTab = n == 0 ? 0 : n == 2 ? 8 : n == 3 ? 7 : n == 4 ? 10 : playbackEditPage(playbackChoice());
             p.editPage.store(workspaceTab);
-        }, true, 1, kCenterText, {true, true, playbackChoice() != 0 && playbackChoice() != 3, true, true});
-        text(statusLabel(), rect(I::left, I::label(1), I::width, 18), style.value, kCenterText);
+        }, true, 1, kCenterText, {true, true, playbackChoice() != 0 && playbackChoice() != 3 && playbackChoice() != 8, true, true});
+        if (view != 4 || !noteEditor.open) text(statusLabel(), rect(I::left, I::label(1), I::width, 18), style.value, kCenterText);
         if (view == 0) paintStackSettings();
         else if (view == 2) paintFamilySettings();
         else if (view == 3) paintFxSettings();
@@ -1685,8 +1797,19 @@ private:
 #endif
     }
 
-    void chooseSet(bool save)
+    void chooseSet(bool save, bool confirmed = false)
     {
+        if (historyBusy(p)) { p.workflowMessage = "FINISH RECORDING / LOADING / EDITING FIRST"; return; }
+        if (!save && !confirmed) {
+            bool hasWork = bool(p.captureAsset) || (p.editHistory && !p.editHistory->undo.empty());
+            for (unsigned pad = 0; pad < 32; ++pad) hasWork |= stackCount(p, pad) != 0;
+            if (hasWork) {
+                openPopup(rect(924, 38, 300, 0),
+                    {"LOAD SET STARTS NEW HISTORY", "SAVE CURRENT SET FIRST IF NEEDED", "CANCEL", "CONTINUE TO LOAD"}, -1,
+                    [this](int choice) { if (choice == 3) chooseSet(false, true); }, 1, {}, 18, {false, false, true, true});
+                return;
+            }
+        }
         foundation::FileDialogOptions options;
         options.save = save;
         options.title = save ? "Save Sample Neon 32 set"
@@ -1709,6 +1832,7 @@ private:
     }
 
     Plugin& p;
+    NeonNoteMapEditor noteEditor;
     std::size_t selectedSlot = 0u;
     uint8_t workspaceTab = 0u;
     std::string fileMessage;

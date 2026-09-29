@@ -51,10 +51,19 @@
             sliderRow(kGlobalMangleParamId,"TRAX MANGLE",M::trax-7,P::left);
             sliderRow(slotParamId(selectedSlot,kSlotGain),"LOOP GAIN",M::loop-7,P::left);
         } else if (page >= 4) {
-            const char* trax[] {"REPEATS","TUNE","REPEATS","FX / P2","CYCLE","SPEED"};
-            const char* loop[] {"STEP RATE","DURATION","CYCLES","FX / P1","EDIT LAYER","LAYER POS"};
+            const char* trax[] {"REPEATS","TUNE","REPEATS","FX / P2","CYCLE","SPEED","","BLUR","REPEATS"};
+            const char* loop[] {"STEP RATE","DURATION","CYCLES","FX / P1","EDIT LAYER","LAYER POS","","POSITION","CUT RATE"};
+            if (page == 6 && familyValue(NeonFamily::WavesetEngine).load() != 0) { trax[2] = "FREQUENCY"; loop[2] = "CYCLE POS"; }
             for (unsigned n=0;n<2;++n) {
                 const double y=n?M::loop:M::trax;
+                if (page == 12 && n && p.playbackClocks[selectedSlot].load()) {
+                    const std::vector<std::string> divisions {"1/1","1/2","1/4","1/8","1/16","1/32","1/8 TRIPLET","1/16 TRIPLET"};
+                    const auto selected = static_cast<int>(familyValue(NeonFamily::CutDivision).load());
+                    text("L DIVISION",rect(P::left,y-9,78,18),style.label);
+                    menu(rect(P::controlLeft,y-12.5,P::controlWidth,25),divisions[selected],divisions,selected,
+                        [this](int choice){setAdvancedKnob(p,true,choice/7.);});
+                    continue;
+                }
                 if (page == 7) {
                     const auto effect = fxEffect();
                     const auto key = s3g::sample::neonCharacterKnob(effect,p.fxPair.load(),n!=0,p.fxParameters[selectedSlot][1][7].load()>=.5f);
@@ -79,7 +88,8 @@
                 text(format("%s %s",n?"L":"T",n?loop[page-4]:trax[page-4]),rect(P::left,y-9,78,18),style.label);
                 const double v=advancedKnobValue(p,n!=0);
                 foundation::drawHorizontalSlider(*context,rect(P::controlLeft,y-4,P::trackWidth,8),v,y-7,14,style);
-                const auto valueText = n && page == 9 ? format("%.2f",1+v*(std::max(1u,stackCount(p,selectedSlot))-1))
+                const auto valueText = page == 12 ? n ? format("%.1f Hz",.1+v*79.9) : format("%.0f",1+v*15)
+                    : n && page == 9 ? format("%.2f",1+v*(std::max(1u,stackCount(p,selectedSlot))-1))
                     : n && page == 8 ? format("%02u",1+static_cast<unsigned>(std::lround(v*31))) : format("%.1f%%",v*100);
                 text(valueText,rect(P::controlLeft+P::trackWidth+8,y-9,63,18),style.value,kRightText);
                 advancedKnobDrag(rect(P::controlLeft-4,y-11.5,P::trackWidth+8,23),P::controlLeft,P::trackWidth,n!=0);
@@ -126,11 +136,12 @@
             else if(stack){const char* tools[]{"SOURCE","SAMPLE","MOTION","GRAINS","ONE SHOT","HOLD","TOGGLE","STOP"};label=tools[pad];}
             else if(capture&&!secondary){const char* tools[]{"RECORD","STOP","AUDITION","DISCARD","BUS -","BUS +","REVIEW","ASSIGN"};label=tools[pad];active=pad==0&&p.captureState.load()==Plugin::CaptureState::Recording;}
             else {label=format("%c%u",'A'+bank,pad+1);active=selectedSlot==cell;}
-            fill(bounds,active?style.buttonActive:loaded?color(0x353535):style.strip);stroke(bounds,active?style.text:style.grid,active?2:1);
-            text(label,rect(bounds.left+2,bounds.top+2,bounds.getWidth()-4,16),enabled?style.text:style.dim,kCenterText);
+            const bool pressed=buttonPressActive(bounds,label);
+            fill(bounds,pressed?color(0xa3a3a3):active?style.buttonActive:loaded?color(0x353535):style.strip);stroke(bounds,active?style.text:style.grid,active?2:1);
+            text(label,rect(bounds.left+2,bounds.top+2,bounds.getWidth()-4,16),pressed?color(0x141414):enabled?style.text:style.dim,kCenterText);
             if(cellPad||layerPad){
                 if(loaded)fill(rect(bounds.left+4,bounds.top+4,4,4),style.value);
-                text(loaded?"AUDIO":"EMPTY",rect(bounds.left+2,bounds.top+17,bounds.getWidth()-4,12),loaded?style.value:style.dim,kCenterText,smallFont);
+                text(loaded?"AUDIO":"EMPTY",rect(bounds.left+2,bounds.top+17,bounds.getWidth()-4,12),pressed?color(0x141414):loaded?style.value:style.dim,kCenterText,smallFont);
                 const int playing=layerPad?p.stackWaveformLayers[selectedSlot].load():-1;
                 const double position=playing==-2?p.stackPositions[selectedSlot].load()*std::max(1u,sources?unsigned(sources->count)-1:1u):playing;
                 const double level=layerPad?playing>=-2&&playing!=-1?std::max(0.,1-std::abs(position-cell)):0:p.slotPeaks[cell].load();
@@ -147,20 +158,21 @@
                 }
             }
             if(!enabled)continue;
-            if(layerPad) drag(bounds,[](CPoint){},[this,pad,cell,slot=selectedSlot]{p.pendingStackGui[pad].store(1+(slot<<5u)+cell);requestProcess(p);},
+            if(layerPad) drag(bounds,[](CPoint){},[this,bounds,label,pad,cell,slot=selectedSlot]{flashButton(bounds,label);p.pendingStackGui[pad].store(1+(slot<<5u)+cell);requestProcess(p);},
                 [this,pad]{p.pendingStackGuiReleases.fetch_or(1u<<pad);requestProcess(p);});
-            else if(fx) drag(bounds,[](CPoint){},[this,pad,slot=selectedSlot]{queueGuiParamGesture(p,slotParamId(slot,kSlotCharacter),pad);p.pendingGuiFx.store((slot<<1u)|1u);requestProcess(p);},
+            else if(fx) drag(bounds,[](CPoint){},[this,bounds,label,pad,slot=selectedSlot]{flashButton(bounds,label);queueGuiParamGesture(p,slotParamId(slot,kSlotCharacter),pad);p.pendingGuiFx.store((slot<<1u)|1u);requestProcess(p);},
                 [this,slot=selectedSlot]{p.pendingGuiFx.store(slot<<1u);requestProcess(p);});
-            else if(cellPad && (!capture||loaded)) drag(bounds,[](CPoint){},[this,cell]{p.selectedSlot.store(cell);auditionSlot(p,cell);},
+            else if(cellPad && (!capture||loaded)) drag(bounds,[](CPoint){},[this,bounds,label,cell]{flashButton(bounds,label);p.selectedSlot.store(cell);auditionSlot(p,cell);},
                 [this,cell]{p.pendingGuiReleases.fetch_or(1u<<cell);requestProcess(p);});
-            else hit(bounds,[this,mode,secondary,pad,cell]{
+            else hit(bounds,[this,bounds,label,mode,secondary,pad,cell]{
+                flashButton(bounds,label);
                 if(mode==NeonMode::Slicer){if(secondary)chopToolAction(p,pad);else auditionSlice(p,selectedSlot,cell);}
                 else if(mode==NeonMode::HotLoop)capturePadAction(p,pad,secondary);
                 else {editToolAction(p,pad);if(pad!=7)auditionEditedSlot(p,selectedSlot);}
             });
         }
         button(rect(P::columnLeft(0,3),M::actions-10,P::columnWidth(3),20),capture?(secondary?"REC TOOLS":"PLAY PADS"):secondary?"PRIMARY":"SECOND",
-            [this,mode,secondary]{selectSurface(p,mode,secondary?0:1);},secondary);
+            [this,mode,secondary]{selectSurface(p,mode,secondary?0:1);},secondary,true,"PAD TOOL LAYER");
         button(rect(P::columnLeft(1,3),M::actions-10,P::columnWidth(3),20),"KILL",[this]{p.killRequested.store(true);p.captureAudition.store(false);requestProcess(p);});
         button(rect(P::columnLeft(2,3),M::actions-10,P::columnWidth(3),20),"RESUME",[this]{p.pendingStackResume.fetch_or(1u<<selectedSlot);requestProcess(p);},false,stack);
         fillHoldButton(rect(P::columnLeft(0,2),M::fill-10,P::columnWidth(2),20));

@@ -4,6 +4,7 @@
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/note-ports.h>
+#include <clap/ext/note-name.h>
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/tail.h>
@@ -93,6 +94,26 @@
 @implementation S3GSmokeKeyWindow
 - (BOOL)isKeyWindow { return YES; }
 @end
+
+// Numeric canvas fields are real platform text controls. A hidden smoke host
+// need not steal keyboard activation to set their text and test focus-loss
+// commit through the next actual mouse click.
+static NSTextField* canvasNumericField(NSView* root) {
+    NSMutableArray* views=[NSMutableArray arrayWithObject:root];
+    for (NSUInteger i=0;i<[views count];++i) {
+        NSView* view=[views objectAtIndex:i];
+        if ([view isKindOfClass:[NSTextField class]] && [(NSTextField*)view isEditable]) {
+            return static_cast<NSTextField*>(view);
+        }
+        [views addObjectsFromArray:[view subviews]];
+    }
+    return nil;
+}
+static bool setCanvasNumericText(NSView* root, NSString* text) {
+    auto* field=canvasNumericField(root);
+    if (!field) return false;
+    [field setStringValue:text]; return true;
+}
 
 // VSTGUI asks its window for the drop position instead of NSDraggingInfo.
 // Keep synthetic drops inside the test window without moving the user's mouse.
@@ -3706,11 +3727,11 @@ int main(int argc, char** argv)
             [document displayIfNeeded];
         }
         NSPanel* parameterSurfacePanel = nil;
-        auto mouseEvent = [&](NSEventType type, NSPoint documentPoint, NSInteger clickCount = 1) {
+        auto mouseEvent = [&](NSEventType type, NSPoint documentPoint, NSInteger clickCount = 1, NSEventModifierFlags modifiers = 0) {
             return [NSEvent
                 mouseEventWithType:type
                 location:[document convertPoint:documentPoint toView:nil]
-                modifierFlags:0
+                modifierFlags:modifiers
                 timestamp:0.0
                 windowNumber:0
                 context:nil
@@ -3758,8 +3779,8 @@ int main(int argc, char** argv)
             params->flush(plugin, nullptr, &captured.events);
             ok = ok && params->get_value(plugin, 4u, &value) && value == 0.;
             redraw();
-            const auto footerPixels = [&](double x, double width) {
-                NSData* pdf = [document dataWithPDFInsideRect:NSMakeRect(x * scale, 300 * scale, width * scale, 20 * scale)];
+            const auto regionPixels = [&](double x, double y, double width, double height) {
+                NSData* pdf = [document dataWithPDFInsideRect:NSMakeRect(x * scale, y * scale, width * scale, height * scale)];
                 NSImage* render = [[NSImage alloc] initWithData:pdf];
                 NSBitmapImageRep* bitmap = [NSBitmapImageRep imageRepWithData:[render TIFFRepresentation]];
                 std::vector<uint8_t> result;
@@ -3767,6 +3788,17 @@ int main(int argc, char** argv)
                     [bitmap bitmapData] + [bitmap bytesPerRow] * [bitmap pixelsHigh]);
                 [render release]; return result;
             };
+            const auto footerPixels = [&](double x, double width) { return regionPixels(x,300,width,20); };
+            failureStage = "Utility Neon MIDI momentary button press feedback";
+            const auto idleRelease = regionPixels(490,12,114,20);
+            clickAt(540,22);
+            const auto pressedRelease = regionPixels(490,12,114,20);
+            ok = !idleRelease.empty() && pressedRelease != idleRelease && ok;
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.24]];
+            redraw();
+            ok = regionPixels(490,12,114,20) == idleRelease && ok;
+            params->flush(plugin,nullptr,&captured.events);
+            if (!ok) std::cerr << "Utility button flash did not appear/clear\n";
             const auto beforeHit = footerPixels(16, 152);
             std::vector<uint8_t> inactivePressure;
             const bool velocityActive = plugin->activate(plugin, 48000., 1u, 64u);
@@ -3897,6 +3929,51 @@ int main(int argc, char** argv)
             ok = params->get_value(plugin, 1u, &value) && value == firstBank && ok;
             setSingleParamEvent(viewUnit, 8u, 0.);
             params->flush(plugin, &viewUnit.events, nullptr); redraw();
+            failureStage = "Utility Neon MIDI custom note grid / apply / defaults";
+            const auto* mapState=static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin,CLAP_EXT_STATE));
+            const auto saveMap=[&] { MemoryPluginState result; clap_ostream_t stream {&result,stateWriteWhole};
+                ok=mapState->save(plugin,&stream)&&ok; return result; };
+            auto beforeMap=saveMap();
+            NSWindow* mapWindow=[[S3GSmokeKeyWindow alloc] initWithContentRect:[parent bounds]
+                styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+            [mapWindow setReleasedWhenClosed:NO];[mapWindow setContentView:parent];
+            auto* sharedEditor=static_cast<NSTextView*>([mapWindow fieldEditor:YES forObject:nil]);
+            NSDictionary* originalSelection=[[sharedEditor selectedTextAttributes] copy];
+            clickAt(420,22); clickAt(100,113); // A1 numeric cell
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
+            auto* mapField=canvasNumericField(parent);
+            [mapField selectText:nil];
+            auto* activeEditor=static_cast<NSTextView*>([mapField currentEditor]);
+            const auto grayMatches=[](NSColor* colour,double expected) {
+                auto* rgb=[colour colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+                return rgb && std::abs([rgb redComponent]-expected)<.005
+                    && std::abs([rgb greenComponent]-expected)<.005 && std::abs([rgb blueComponent]-expected)<.005;
+            };
+            ok=activeEditor && grayMatches([activeEditor selectedTextAttributes][NSBackgroundColorAttributeName],69./255.)
+                && grayMatches([activeEditor selectedTextAttributes][NSForegroundColorAttributeName],227./255.) && ok;
+            if(!ok) std::cerr << "Utility note selection styling / native edit focus failed\n";
+            if(folder && folder[0]) {
+                NSData* render=[document dataWithPDFInsideRect:[document bounds]];
+                ok=render && [render writeToFile:[[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.note-selection.pdf"] atomically:YES]&&ok;
+            }
+            ok=setCanvasNumericText(parent,@"12")&&ok;
+            clickAt(450,340); // FROM A1: draft now 12..43
+            ok=[[sharedEditor selectedTextAttributes] isEqualToDictionary:originalSelection]&&ok;
+            [originalSelection release];
+            ok=saveMap().bytes==beforeMap.bytes&&ok;
+            if(folder && folder[0]) {
+                NSData* render=[document dataWithPDFInsideRect:[document bounds]];
+                ok=render && [render writeToFile:[[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.note-map.pdf"] atomically:YES]&&ok;
+            }
+            clickAt(450,396);
+            auto customMap=saveMap();
+            ok=customMap.bytes.size()==52 && customMap.bytes[4]==3
+                && customMap.bytes[20]==12 && customMap.bytes[51]==43 && ok;
+            clickAt(420,22);clickAt(120,340);clickAt(450,396); // DEFAULT, APPLY
+            ok=saveMap().bytes==beforeMap.bytes&&ok;
+            [parent removeFromSuperview];[mapWindow close];[mapWindow release];
             hostContext.deferParamFlush = false;
             hostContext.paramFlushRequested = false;
         }
@@ -4026,7 +4103,7 @@ int main(int argc, char** argv)
                 selectWorkspace(0); encoderAssignment(editing);
             };
             const auto choosePlaybackView = [&](unsigned method) {
-                constexpr unsigned display[] {0,2,3,6,4,5,1};
+                constexpr unsigned display[] {0,2,3,6,4,5,1,7,8};
                 padChoice(1, display[method]);
                 playbackMethod = method;
                 clickAt(I::left, inspectorY(1)); // Dismiss a disabled method item.
@@ -4282,8 +4359,9 @@ int main(int argc, char** argv)
                 }
             }
             if (!ok) std::cerr << "Neon failed before Reset / capture\n";
-            // Reset is explicit, cancelable, and safe even during capture.
-            failureStage = "Sample Neon reset confirmation and recording abort";
+            // Reset is explicit/cancelable. Recording must finish first so
+            // the completed take can be included in its undo checkpoint.
+            failureStage = "Sample Neon reset confirmation and recording guard";
             MemoryPluginState beforeReset;
             clap_ostream_t saveBeforeReset { &beforeReset, stateWriteWhole };
             ok = state->save(plugin, &saveBeforeReset) && ok;
@@ -4364,7 +4442,7 @@ int main(int argc, char** argv)
                 clickAt(1079.0, inspectorY(3)); // Discard this test review, not any source cell.
                 plugin->on_main_thread(plugin);
                 redraw();
-                if (ok) failureStage = "Sample Neon reset confirmation and recording abort";
+                if (ok) failureStage = "Sample Neon reset confirmation and recording guard";
                 clickAt(77.0, W::actionCenter); // RESAMPLE Record.
                 block.in_events = &input;
                 ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
@@ -4376,8 +4454,21 @@ int main(int argc, char** argv)
                 ok = beginningTakePixels != overviewPixels() && ok;
                 captureNeonPage(@"sample-neon.recording-live.pdf");
                 clickAt(P::controlLeft+P::trackWidth*.73, M::master); // Queue a master edit without an output consumer.
+                if (!ok) std::cerr << "Neon failed before recording guard\n";
                 clickAt(698.0, 24.0);
                 clickAt(1062.0, 82.0); // Confirm clear.
+                plugin->on_main_thread(plugin);
+                // A recording cannot be silently discarded by Reset All.
+                const auto recordingGuard = savedState();
+                ok = recordingGuard.bytes.size() >= pathOffset + 2048u
+                    && recordingGuard.bytes[pathOffset] != 0u && ok;
+                if (!ok) std::cerr << "Neon failed recording guard bytes=" << recordingGuard.bytes.size() << '\n';
+                redraw();
+                clickAt(1079.0, inspectorY(2)); // Stop and finalize before reset.
+                ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
+                plugin->on_main_thread(plugin); redraw();
+                const auto recoverableReset = savedState();
+                clickAt(698.0, 24.0); clickAt(1062.0, 82.0);
                 plugin->on_main_thread(plugin);
                 ok = plugin->process(plugin, &block) != CLAP_PROCESS_ERROR && ok;
                 plugin->on_main_thread(plugin); // Clear after audio acknowledges.
@@ -4403,6 +4494,24 @@ int main(int argc, char** argv)
                 ok = params->get_value(plugin, 1012u, &defaultBus) && defaultBus == 1.0 && ok;
                 ok = params->get_value(plugin, 2u, &defaultMaster) && defaultMaster == -6.0 && ok;
                 ok = [[NSFileManager defaultManager] fileExistsAtPath:fixturePath] && ok;
+                if (!ok) std::cerr << "Neon failed clearing: bytes=" << cleared.bytes.size() << " expected=" << fixture.bytes.size()
+                    << " gain=" << defaultGain << " bus=" << defaultBus << " master=" << defaultMaster << '\n';
+                redraw(); // Audio acknowledgment enables the persistent Undo action.
+                clickAt(1198.0, 24.0);
+                plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                const auto resetUndone = savedState();
+                ok = resetUndone.bytes == recoverableReset.bytes && ok;
+                if (resetUndone.bytes != recoverableReset.bytes) {
+                    size_t mismatch = 0;
+                    while (mismatch < std::min(resetUndone.bytes.size(), recoverableReset.bytes.size())
+                        && resetUndone.bytes[mismatch] == recoverableReset.bytes[mismatch]) ++mismatch;
+                    std::cerr << "Neon reset undo mismatch at=" << mismatch << " sizes=" << resetUndone.bytes.size()
+                        << ',' << recoverableReset.bytes.size() << '\n';
+                }
+                clickAt(1292.0, 24.0);
+                plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                ok = savedState().bytes == cleared.bytes && ok;
+                if (!ok) std::cerr << "Neon recording guard/reset/undo/redo state mismatch\n";
                 plugin->stop_processing(plugin);
                 block.out_events = nullptr;
             }
@@ -4471,8 +4580,8 @@ int main(int argc, char** argv)
                         [document keyDown:[NSEvent keyEventWithType:NSEventTypeKeyDown
                             location:NSZeroPoint modifierFlags:modifier timestamp:0.0
                             windowNumber:0 context:nil characters:text charactersIgnoringModifiers:text
-                            isARepeat:NO keyCode:[text isEqualToString:@"c"] ? 8u : 9u]];
-                        params->flush(plugin, nullptr, nullptr); redraw();
+                            isARepeat:NO keyCode:[text isEqualToString:@"c"] ? 8u : [text isEqualToString:@"z"] ? 6u : [text isEqualToString:@"y"] ? 16u : 9u]];
+                        params->flush(plugin, nullptr, nullptr); plugin->on_main_thread(plugin); redraw();
                     };
                     const auto rightClick = [&](double x, double y) {
                         // Cocoa's synthetic mouse factory reports buttonNumber
@@ -4519,9 +4628,25 @@ int main(int argc, char** argv)
                     key(@"c", NSEventModifierFlagControl); // Physical Ctrl-C, not only Cmd-C.
                     clickAt(M::pageCenter(1), M::banks); // Bank B.
                     clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5); // Empty B1.
+                    const auto beforeBankPaste = savedState();
                     key(@"v", NSEventModifierFlagControl);
                     auto bankCopy = savedState();
                     ok = sameCell(source, 1u, bankCopy, 8u) && bankCopy.bytes.size() == source.bytes.size() && ok;
+                    // Persistent header actions and both native/cross-platform
+                    // shortcuts restore the whole pad without selecting A2.
+                    clickAt(1198.0, 24.0); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == beforeBankPaste.bytes && ok;
+                    clickAt(1292.0, 24.0); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == bankCopy.bytes && ok;
+                    key(@"z", NSEventModifierFlagCommand);
+                    ok = savedState().bytes == beforeBankPaste.bytes && ok;
+                    key(@"z", NSEventModifierFlagCommand | NSEventModifierFlagShift);
+                    ok = savedState().bytes == bankCopy.bytes && ok;
+                    key(@"z", NSEventModifierFlagControl);
+                    ok = savedState().bytes == beforeBankPaste.bytes && ok;
+                    key(@"y", NSEventModifierFlagControl);
+                    ok = savedState().bytes == bankCopy.bytes && ok;
+                    captureNeonPage(@"sample-neon.undo-redo.pdf");
                     if (!ok) std::cerr << "Neon Ctrl clipboard failed attack=" << attack << " release=" << release
                         << " source/playback=" << unsigned(source.bytes[textureOffset + 1u])
                         << " target/playback=" << unsigned(bankCopy.bytes[textureOffset + 8u]) << '\n';
@@ -5168,9 +5293,9 @@ int main(int argc, char** argv)
                     playback(method);
                     if (method == 3u) inspectorChoice(5u,0u);
                     const size_t technique = modernOffset + (24u + (method - 3u) * 4u) * sizeof(float);
-                    floatRow(method == 3u ? 7u : 5u,technique,0.35);
-                    floatRow(method == 3u ? 9u : 6u,technique + (method == 3u ? 2u : 1u) * sizeof(float),0.0);
-                    floatRow(method == 3u ? 10u : 8u,technique + 3u * sizeof(float),1.0);
+                    floatRow(method == 3u ? 7u : 6u,technique,0.35);
+                    floatRow(method == 3u ? 10u : 7u,technique + (method == 3u ? 2u : 1u) * sizeof(float),0.0);
+                    floatRow(method == 3u ? 11u : 9u,technique + 3u * sizeof(float),1.0);
                     fieldReset(P::controlLeft+P::trackWidth*.73, M::loop,technique,0.35);
                     fieldReset(P::controlLeft+P::trackWidth*.73, M::trax,technique + (method == 3u ? 2u : 1u) * sizeof(float),0.0);
                 }
@@ -5241,10 +5366,10 @@ int main(int argc, char** argv)
                     const auto sound = savedState();
                     const unsigned index = s3g::sample::neonFamilyIndex(key);
                     if (sound.bytes[4] < 16u) return double(s3g::sample::neonFamilyDef(index).initial);
-                    const unsigned count = sound.bytes[4] >= 20 ? s3g::sample::kNeonFamilyCount
+                    const unsigned count = sound.bytes[4] >= 25 ? s3g::sample::kNeonFamilyCount : sound.bytes[4] >= 23 ? s3g::sample::kNeonFamilyV23Count : sound.bytes[4] >= 22 ? s3g::sample::kNeonFamilyV22Count : sound.bytes[4] >= 20 ? s3g::sample::kNeonFamilyV21Count
                         : sound.bytes[4] >= 18 ? s3g::sample::kNeonFamilyV19Count : s3g::sample::kNeonFamilyV17Count;
                     if (index >= count) return double(s3g::sample::neonFamilyDef(index).initial);
-                    const auto offset = sound.bytes.size() - (sound.bytes[4] >= 19 ? 12u : 0u) - 32u * count * sizeof(float)
+                    const auto offset = sound.bytes.size() - (sound.bytes[4] >= 24 ? 34u : 0u) - (sound.bytes[4] >= 21 ? fxExtraBytes : 0u) - (sound.bytes[4] >= 19 ? 12u : 0u) - 32u * count * sizeof(float)
                         + (pad * count + index) * sizeof(float);
                     float value; std::memcpy(&value, sound.bytes.data() + offset, sizeof(value)); return double(value);
                 };
@@ -5292,10 +5417,10 @@ int main(int argc, char** argv)
                 const auto pathSnapshot = [&] {
                     s3g::sample::NeonFamilySettings f;
                     const auto sound = savedState();
-                    const unsigned count = sound.bytes[4] >= 20 ? s3g::sample::kNeonFamilyCount
+                    const unsigned count = sound.bytes[4] >= 25 ? s3g::sample::kNeonFamilyCount : sound.bytes[4] >= 23 ? s3g::sample::kNeonFamilyV23Count : sound.bytes[4] >= 22 ? s3g::sample::kNeonFamilyV22Count : sound.bytes[4] >= 20 ? s3g::sample::kNeonFamilyV21Count
                         : sound.bytes[4] >= 18 ? s3g::sample::kNeonFamilyV19Count : s3g::sample::kNeonFamilyV17Count;
                     if (sound.bytes[4] >= 17u) std::memcpy(f.values.data(), sound.bytes.data()
-                        + sound.bytes.size() - (sound.bytes[4] >= 19 ? 12u : 0u) - 32u * count * sizeof(float), count * sizeof(float));
+                        + sound.bytes.size() - (sound.bytes[4] >= 24 ? 34u : 0u) - (sound.bytes[4] >= 21 ? fxExtraBytes : 0u) - (sound.bytes[4] >= 19 ? 12u : 0u) - 32u * count * sizeof(float), count * sizeof(float));
                     else ok = false;
                     return f;
                 };
@@ -5750,7 +5875,7 @@ int main(int argc, char** argv)
                 failureStage = "Sample Neon proportional slice ADSR and protected routing controls";
                 clickAt(I::left+80,inspectorY(14)); // Exit the persistent Fill toolbox.
                 selectPlay(true); playback(3);
-                clickAt(I::left+80,inspectorY(11)); // Sequence's direct CHOP/envelope shortcut.
+                clickAt(I::left+80,inspectorY(12)); // Sequence's direct CHOP/envelope shortcut.
                 playbackInspector = false;
                 clickAt(110,W::actionCenter); clickAt(110,131); // Equal slicing.
                 clickAt(239,W::actionCenter); clickAt(310,95); // Two slices.
@@ -5779,7 +5904,97 @@ int main(int argc, char** argv)
                 clap_istream_t routeRestore {&routeSaved,stateReadWhole};
                 ok = state->load(plugin,&routeRestore) && savedState().bytes==routeSaved.bytes && ok;
                 if(!ok)std::cerr << "Slice ADSR / Routing GUI regression\n";
+                failureStage = "Sample Neon Spectral, Mosaic and Oscillator controls";
+                playback(7); inspectorChoice(5,0);
+                familyReset(10,F::SpectralBlur); familyReset(7,F::SpectralAdvance); familyReset(8,F::SpectralPressure);
+                familyReset(11,F::SpectralSmear); familyReset(12,F::SpectralFocus);
+                familyReset(13,F::SpectralTilt); familyReset(14,F::SpectralThin);
+                checkReset(P::controlLeft+P::trackWidth*.73,M::trax,.25,[&] { return familyRead(F::SpectralBlur); });
+                fieldReset(P::controlLeft+P::trackWidth*.73,M::loop,positionOffset,0,true);
+                clickAt(sliderX, inspectorY(12));
+                auto spectralColour = savedState(); spectralColour.offset = 0;
+                clap_istream_t spectralRestore {&spectralColour, stateReadWhole};
+                ok = spectralColour.bytes[4] == 23 && familyRead(F::SpectralFocus) != 0
+                    && state->load(plugin, &spectralRestore) && savedState().bytes == spectralColour.bytes && ok;
+                padChoice(2,4);
+                ok = savedState().bytes[textureOffset] == 128 && savedState().bytes[fixture.bytes.size()+3] == 4 && ok;
+                captureNeonPage(@"sample-neon.spectral.pdf");
+                familyReset(12,F::SpectralFocus);
+                playback(3); inspectorChoice(8,3); inspectorChoice(9,1);
+                familyReset(12,F::MosaicTarget);
+                ok = familyRead(F::MosaicMode)==3 && familyRead(F::MosaicScope)==1 && ok;
+                captureNeonPage(@"sample-neon.mosaic.pdf");
+                playback(5); inspectorChoice(5,1);
+                familyReset(7,F::OscPosition); familyReset(8,F::OscFrequency); familyReset(9,F::OscScan);
+                familyReset(10,F::OscGroup);
+                checkReset(P::controlLeft+P::trackWidth*.73,M::trax,110,[&] { return familyRead(F::OscFrequency); });
+                checkReset(P::controlLeft+P::trackWidth*.73,M::loop,0,[&] { return familyRead(F::OscPosition); });
+                captureNeonPage(@"sample-neon.oscillator.pdf");
+                auto engines = savedState(); engines.offset = 0;
+                clap_istream_t engineRestore {&engines,stateReadWhole};
+                ok = engines.bytes[4] == 22 && state->load(plugin,&engineRestore) && savedState().bytes == engines.bytes && ok;
+                if (!ok) std::cerr << "Neon new playback controls/recall failed\n";
+                failureStage = "Sample Neon local note grid / apply / default / recall";
+                NSWindow* mapWindow=[[S3GSmokeKeyWindow alloc] initWithContentRect:[parent bounds]
+                    styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+                [mapWindow setReleasedWhenClosed:NO];[mapWindow setContentView:parent];
+                inspectorChoice(0,4);clickAt(I::left+100,I::row(11));
+                // Numeric entry is handled by the native field inside VSTGUI.
+                clickAt(I::left+35,I::label(3)+31);
+                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.02]];
+                ok=setCanvasNumericText(parent,@"0")&&ok;
+                clickAt(I::left+200,I::label(3)+258); // FROM A1, all 32
+                const auto* names=static_cast<const clap_plugin_note_name_t*>(plugin->get_extension(plugin,CLAP_EXT_NOTE_NAME));
+                clap_note_name_t name {};
+                ok=names && names->get(plugin,0,&name) && name.key==36 && ok; // draft only
+                captureNeonPage(@"sample-neon.note-map.pdf");
+                clickAt(I::left+200,I::label(3)+314);
+                auto mapped=savedState();mapped.offset=0;
+                ok=mapped.bytes[4]==24 && names->get(plugin,0,&name) && name.key==0
+                    && names->get(plugin,31,&name) && name.key==31 && ok;
+                clap_istream_t mapRestore {&mapped,stateReadWhole};
+                ok=state->load(plugin,&mapRestore) && savedState().bytes==mapped.bytes && ok;
+                clickAt(I::left+100,I::row(11));clickAt(I::left+50,I::label(3)+258); // DEFAULT
+                clickAt(I::left+200,I::label(3)+314);
+                ok=names->get(plugin,0,&name) && name.key==36 && savedState().bytes[4]==22 && ok;
+                [parent removeFromSuperview];[mapWindow close];[mapWindow release];
+                failureStage = "Sample Neon Cutups controls / manual pattern / v25 recall";
+                selectPlay(true); playback(8);
+                ok = savedState().bytes[4]==25 && savedState().bytes[textureOffset]==2 && ok;
+                inspectorChoice(5,0);
+                for (const auto& control : std::initializer_list<std::pair<unsigned,F>> {
+                    {6,F::CutRate},{8,F::CutRegions},{10,F::CutRepeat},{11,F::CutGate},
+                    {12,F::CutJoin},{13,F::CutSwing},{14,F::CutTimeVariation},{15,F::CutReverse},
+                    {16,F::CutPitchVariation},{17,F::CutLevelVariation},{21,F::CutAttack},
+                    {22,F::CutRelease},{23,F::CutSeed}}) familyReset(control.first,control.second);
+                checkReset(P::controlLeft+P::trackWidth*.73,M::trax,1,[&]{return familyRead(F::CutRepeat);});
+                checkReset(P::controlLeft+P::trackWidth*.73,M::loop,8,[&]{return familyRead(F::CutRate);});
+                inspectorChoice(5,1); inspectorChoice(6,7);
+                ok = familyRead(F::CutDivision)==7 && ok;
+                inspectorChoice(7,1); inspectorChoice(9,5); inspectorChoice(19,2); inspectorChoice(20,3);
+                ok = familyRead(F::CutRegionMode)==1 && familyRead(F::CutSourceOrder)==5
+                    && familyRead(F::CutVoiceMode)==2 && familyRead(F::CutPolyPath)==3 && ok;
+                const double cutX=W::pathLeft+W::pathWidth*.2, cutY=W::pathTop+W::pathHeight*.9;
+                clickAt(cutX,cutY);
+                ok = familyRead(F::CutFileOrder)==5 && ok;
+                [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,NSMakePoint(cutX*scale,cutY*scale),1,NSEventModifierFlagOption)];
+                [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,NSMakePoint(cutX*scale,cutY*scale))];
+                redraw();
+                ok = familyRead(F::CutSourceOrder)==6 && ok;
+                captureNeonPage(@"sample-neon.cutups.pdf");
+                auto cuts=savedState(); cuts.offset=0; clap_istream_t restoreCuts {&cuts,stateReadWhole};
+                ok = state->load(plugin,&restoreCuts) && savedState().bytes==cuts.bytes && ok;
+                if (!ok) std::cerr << "Cutups native controls/pattern/recall failed\n";
             }
+            failureStage = "Sample Neon momentary button press feedback";
+            const auto killPixels = [&] { return regionPixels(P::columnLeft(1,3),M::actions-10,P::columnWidth(3),20); };
+            const auto idleKill = killPixels();
+            clickAt(P::columnLeft(1,3)+P::columnWidth(3)*.5,M::actions);
+            ok = !idleKill.empty() && killPixels() != idleKill && ok;
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.24]];
+            redraw();
+            ok = killPixels() == idleKill && ok;
+            if (!ok) std::cerr << "Neon button flash did not appear/clear (or earlier GUI failure)\n";
             if (!ok) std::cerr << "Neon GUI audible=" << audible << " format=" << format << " bus=" << bus << '\n';
             std::remove([fixturePath fileSystemRepresentation]);
         }

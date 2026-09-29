@@ -56,20 +56,62 @@ enum class NeonFamily : unsigned {
     LanePosition = PathValue + 32u, LaneAuto, LaneRate, LaneSlew, LaneJoin,
     SliceAttack, SliceDecay, SliceSustain, SliceRelease,
     RoutingMode, RoutingWidth, RoutingTraversal, GrainStereoLink,
-    Count
+    SpectralBlur, SpectralAdvance, SpectralPressure,
+    MosaicMode, MosaicScope, MosaicTarget,
+    WavesetEngine, OscPosition, OscFrequency, OscScan, OscGroup,
+    SpectralSmear, SpectralFocus, SpectralTilt, SpectralThin,
+    CutDivision, CutRate, CutRegions, CutRegionMode, CutRepeat, CutFileOrder, CutSourceOrder,
+    CutSwing, CutTimeVariation, CutGate, CutJoin, CutReverse, CutPitchVariation,
+    CutLevelVariation, CutTempoSync, CutSeed, CutVoiceMode, CutPolyPath,
+    CutAllocation, CutAttack, CutRelease,
+    CutPatternLane, // 64 stack-layer addresses (0..31), then 64 source positions
+    CutPatternSource = CutPatternLane + 64u,
+    Count = CutPatternSource + 64u
 };
 constexpr unsigned neonFamilyIndex(NeonFamily key) noexcept { return static_cast<unsigned>(key); }
 constexpr unsigned kNeonFamilyCount = neonFamilyIndex(NeonFamily::Count);
 constexpr unsigned kNeonFamilyV17Count = neonFamilyIndex(NeonFamily::LanePosition);
 constexpr unsigned kNeonFamilyV19Count = neonFamilyIndex(NeonFamily::SliceAttack);
+constexpr unsigned kNeonFamilyV21Count = neonFamilyIndex(NeonFamily::SpectralBlur);
+constexpr unsigned kNeonFamilyV22Count = neonFamilyIndex(NeonFamily::SpectralSmear);
+constexpr unsigned kNeonFamilyV23Count = neonFamilyIndex(NeonFamily::CutDivision);
 struct NeonFamilyDef { float minimum, maximum, initial; bool stepped = false; };
 inline NeonFamilyDef neonFamilyDef(unsigned i) noexcept
 {
     using F = NeonFamily;
+    if (i >= neonFamilyIndex(F::CutPatternSource)) return {0, 1, (i-neonFamilyIndex(F::CutPatternSource))/64.f};
+    if (i >= neonFamilyIndex(F::CutPatternLane)) return {0, 31, float((i-neonFamilyIndex(F::CutPatternLane))%32), true};
     if (i >= neonFamilyIndex(F::PathValue) && i < kNeonFamilyV17Count) return {0, 1, neonStackShapeValue(NeonStackShape::Triangle,
         neonStackShapeTime(NeonStackShape::Triangle, 32, i - neonFamilyIndex(F::PathValue)))};
     if (i >= neonFamilyIndex(F::PathTime) && i < neonFamilyIndex(F::PathValue)) return {0, 1, neonStackShapeTime(NeonStackShape::Triangle, 32, i - neonFamilyIndex(F::PathTime))};
     switch (static_cast<F>(i)) {
+    case F::CutDivision: return {0,7,4,true};
+    case F::CutRate: return {.1f,80,8};
+    case F::CutRegions: return {1,64,16,true};
+    case F::CutRegionMode: return {0,1,0,true};
+    case F::CutRepeat: return {1,16,1,true};
+    case F::CutFileOrder: return {0,9,4,true};
+    case F::CutSourceOrder: return {0,6,1,true};
+    case F::CutSwing: return {0,.75f,0};
+    case F::CutGate: return {.05f,1,1};
+    case F::CutJoin: return {0,100,5};
+    case F::CutPitchVariation: return {0,24,0};
+    case F::CutTempoSync: return {0,1,1,true};
+    case F::CutSeed: return {1,65535,1,true};
+    case F::CutVoiceMode: case F::CutAllocation: return {0,2,0,true};
+    case F::CutPolyPath: return {0,3,0,true};
+    case F::CutAttack: return {0,2,.003f};
+    case F::CutRelease: return {0,2,.02f};
+    case F::SpectralBlur: return {0, 1, .25f};
+    case F::SpectralPressure: return {0, 1, 1};
+    case F::SpectralSmear: return {0, 4, 0}; // seconds; zero retains the original Blur response
+    case F::SpectralFocus: return {-1, 1, 0};
+    case F::SpectralTilt: return {-6, 6, 0}; // dB/octave, pivot at 1 kHz
+    case F::MosaicMode: return {0, 4, 0, true};
+    case F::MosaicScope: case F::WavesetEngine: return {0, 1, 0, true};
+    case F::MosaicTarget: return {0, 1, .5f};
+    case F::OscFrequency: return {20, 2000, 110};
+    case F::OscGroup: return {1, 32, 1, true};
     case F::SliceAttack: return {0, 1, .005f};
     case F::SliceSustain: return {0, 1, 1};
     case F::SliceRelease: return {0, 1, .02f};

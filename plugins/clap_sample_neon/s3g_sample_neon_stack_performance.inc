@@ -2,7 +2,7 @@
 // No file publication, allocation, edit-layer changes or saved path mutation.
 bool stackPlayable(const Plugin& p, unsigned slot) {
     const auto method = playbackIndex(p, slot);
-    return method != 3u && (method != 5u || p.sourceModes[slot].load() == 4u);
+    return method != 3u && method != 8u && (method != 5u || p.sourceModes[slot].load() == 4u);
 }
 void queueStackManual(Plugin& p, unsigned slot, double position) {
     p.pendingStackManual[slot].store(1u + static_cast<uint32_t>(std::lround(std::clamp(position, 0.0, 1.0) * 1000000)));

@@ -2,6 +2,7 @@
 
 #include "s3g_reloop_neon.h"
 #include "s3g_neon_midi_bridge.h"
+#include "s3g_neon_note_map.h"
 
 #include <array>
 #include <cstdint>
@@ -64,6 +65,10 @@ public:
         channel = std::min<uint8_t>(channel, 15u);
         if (channel != channel_) padInput_.clear();
         channel_ = channel;
+    }
+    void setNotes(const PadNotes& notes) noexcept {
+        if (notes != notes_) padInput_.clear();
+        notes_ = notes; customNotes_ = true;
     }
 
     // Hold addresses are latched on press: changes of bank, mapping, page or
@@ -134,7 +139,7 @@ public:
 
         if (!release(held, time, sink)) return {};
         const auto cell = static_cast<uint8_t>(bank_ * 8u + action.pad);
-        const auto note = static_cast<uint8_t>(base_ + cell);
+        const auto note = customNotes_ ? notes_[cell] : static_cast<uint8_t>(base_ + cell);
         if (sink(time, neon::MidiMessage {
                 static_cast<uint8_t>(0x90u | channel_), note, action.value })) {
             held = {true, false, note, channel_, cell};
@@ -163,6 +168,8 @@ private:
     neon::PerformanceState surface_ {};
     neon::PadInputDecoder padInput_ {};
     std::array<Held, 8u> held_ {};
+    PadNotes notes_ = sequentialNotes();
+    bool customNotes_ = false;
     uint8_t bank_ = 0u, base_ = 36u, channel_ = 0u;
 };
 

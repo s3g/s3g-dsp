@@ -4,7 +4,7 @@ namespace foundation = s3g::portable_gui::foundation;
 
 class Editor final : public View {
 public:
-    explicit Editor(Plugin& instance) : View(kGuiWidth, kGuiHeight), p(instance) {}
+    explicit Editor(Plugin& instance) : View(kGuiWidth, kGuiHeight, true), p(instance) {}
     void change(clap_id id, double value) {
         using namespace s3g::clap_gui;
         const std::array<ParamEvent, 3u> edit {{
@@ -24,6 +24,18 @@ public:
     void paint() override {
         foundation::drawPluginTitle(*context, kName, rect(16, 12, 370, 20), titleFont);
         button(rect(490, 12, 114, 20), "RELEASE HELD", [this] { change(kPanic, 1.); });
+        s3g::controller::neon_midi::NoteMap map; p.noteMap.read(map);
+        button(rect(372, 12, 110, 20), "PAD NOTE MAP", [this, map] {
+            noteEditor.begin(map, static_cast<unsigned>(getValue(p,kBase)));
+        }, noteEditor.open);
+        if (noteEditor.open) {
+            panel(rect(16,46,588,386), "PAD NOTE MAP / MIDI 0-127");
+            noteEditor.paint(*this,32,82,556,[this](auto value) {
+                p.noteMap.store(value); p.panicRequested.store(true); ::notify(p);
+                if (p.host && p.host->request_process) p.host->request_process(p.host);
+            });
+            return;
+        }
         panel(rect(16, 46, 588, 76), "NOTE ROUTING");
         const auto unit = static_cast<unsigned>(getValue(p, kUnit));
         const auto bankId = unit ? kBank2 : kBank;
@@ -37,8 +49,8 @@ public:
         text("BASE NOTE", rect(232, 82, 68, 20), style.label);
         const auto baseBox = rect(304, 84.5, 56, 15);
         fill(baseBox, style.cell);
-        text(format("%u", base), baseBox, style.value, kCenterText);
-        number(baseBox, base, [this](double v) { change(kBase, std::round(std::clamp(v, 0., 96.))); });
+        text(map.custom ? "CUSTOM" : format("%u", base), baseBox, style.value, kCenterText);
+        number(baseBox, base, [this](double v) { change(kBase, std::round(std::clamp(v, 0., 96.))); }, !map.custom);
         text("OUT CH", rect(392, 82, 54, 20), style.label);
         std::vector<std::string> channels;
         for (int ch = 1; ch <= 16; ++ch) channels.push_back(format("CH %02d", ch));
@@ -58,7 +70,7 @@ public:
             fill(bounds, active ? style.buttonActive : style.cell);
             stroke(bounds, active ? style.accent : color(0x3a3a3a));
             text(format("%c%u", 'A' + bank, pad + 1u), rect(bounds.left + 10, bounds.top + 7, 45, 18), style.text);
-            text(format("%u", base + cell), rect(bounds.left + 66, bounds.top + 7, 62, 18), style.value, kRightText);
+            text(format("%u", map.resolved(base)[cell]), rect(bounds.left + 66, bounds.top + 7, 62, 18), style.value, kRightText);
             text(active ? "HELD" : "NOTE", rect(bounds.left + 10, bounds.top + 31, 118, 14), style.dim, kLeftText, smallFont);
         }
         line({16, 293}, {604, 293}, color(0x3a3a3a));
@@ -75,7 +87,7 @@ public:
         text(rejected ? format("HOST REJECTED %u EVENTS", rejected)
             : p.usb.errors.load() ? format("USB DROPS / ERR %u", p.usb.errors.load()) : "SAMPLE LAYER 1 ONLY",
             rect(332, 300, 206, 20), style.dim, kCenterText);
-        text("v0.2.1", rect(552, 300, 52, 20), style.dim, kRightText);
+        text("v0.3.1", rect(552, 300, 52, 20), style.dim, kRightText);
         text("SHIFT + SAMPLER: VELOCITY ON / OFF", rect(16, 322, 480, 16), style.label);
         panel(rect(16, 346, 588, 86), "CONTROLLERS");
         text("INPUT", rect(32, 377, 54, 20), style.label);
@@ -92,7 +104,14 @@ public:
         button(rect(488, 403, 100, 18), "RELEARN USB", [this] { p.usb.assignmentRequest.store(2); ::notify(p); });
     }
 private:
+#if defined(__APPLE__)
+    CTextEdit* makeNumericTextEdit(CRect bounds, const char* text) override {
+        return noteEditor.open ? s3g::portable_gui::makeReadableNumericTextEdit(bounds,this,1,text)
+            : View::makeNumericTextEdit(bounds,text);
+    }
+#endif
     Plugin& p;
+    NeonNoteMapEditor noteEditor;
 };
 } // namespace neon_midi_gui
 s3g::portable_gui::foundation::ContentView* makePortableCanvas(Plugin& p) {

@@ -114,6 +114,9 @@ endif()
 add_executable(s3g_sample_neon_smoke
   tests/sample_neon_smoke.cpp)
 target_link_libraries(s3g_sample_neon_smoke PRIVATE s3g_dsp)
+if(APPLE)
+  target_link_libraries(s3g_sample_neon_smoke PRIVATE "-framework Accelerate")
+endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_sample_neon_smoke PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
@@ -1530,6 +1533,11 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
 
   if(S3G_BUILD_SAMPLE_NEON_PREVIEW AND APPLE)
+    add_executable(s3g_sample_neon_history_smoke tests/sample_neon_history_smoke.mm)
+    target_include_directories(s3g_sample_neon_history_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_compile_options(s3g_sample_neon_history_smoke PRIVATE -fobjc-arc)
+    target_link_libraries(s3g_sample_neon_history_smoke PRIVATE s3g_dsp Threads::Threads
+      "-framework Cocoa" "-framework AVFoundation" "-framework Accelerate" "-framework CoreMIDI")
     add_executable(s3g_sample_neon_clap_smoke
       tests/sample_neon_clap_smoke.cpp)
     target_include_directories(s3g_sample_neon_clap_smoke PRIVATE
@@ -2227,6 +2235,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       LABELS "non_nim;sample;clap;gui" TIMEOUT 120)
   endif()
   if(S3G_BUILD_SAMPLE_NEON_PREVIEW AND BUILD_TESTING AND APPLE)
+    add_test(NAME s3g_sample_neon_history_smoke COMMAND s3g_sample_neon_history_smoke)
+    set_tests_properties(s3g_sample_neon_history_smoke PROPERTIES LABELS "non_nim;sample;controller;clap;smoke" TIMEOUT 120)
     add_test(NAME s3g_sample_neon_clap_smoke
       COMMAND $<TARGET_FILE:s3g_sample_neon_clap_smoke>
         $<TARGET_FILE:s3g_sample_neon_clap>)

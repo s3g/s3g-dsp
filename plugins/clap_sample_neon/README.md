@@ -1,9 +1,97 @@
 # Sample Neon 32
 
 `s3g Sample Neon 32` is a 32-slot Sample-family instrument designed around the
-factory MIDI map of the Reloop Neon. Version 0.34.2 exposes one CLAP instrument,
+factory MIDI map of the Reloop Neon. Version 0.39.0 exposes one CLAP instrument,
 `s3g Sample Neon 32`, with a fixed 32-channel output port. The default Stereo layout
 mixes cells onto channels 1–2; unused channels remain silent.
+
+For the current workflow and control reference, see the
+[Sample Neon 32 user guide](../../docs/sample-neon.html). The notes below also
+retain the implementation history of earlier versions.
+
+GUI buttons and mini-pads briefly flash light gray when pressed (180 ms), then
+return to their normal active/loaded/playback indication. This is visual
+acknowledgment only; MIDI mapping, held gestures and saved state are unchanged.
+
+## Destructive-edit history (0.39)
+
+Persistent header **UNDO / REDO** buttons and a lower action-name readout protect
+file loads, layer addition/removal, cell paste, normalization, slice assignment,
+recorded takes, capture crop/discard/assignment, and Reset All. A multi-pad slice
+assignment or stack normalization is one step. Cmd/Ctrl-Z undoes; Shift-Z with
+the same modifier or Ctrl-Y redoes. Native text fields keep text-editing undo.
+
+Each affected pad is restored as a complete audio/settings checkpoint, so later
+knob/marker changes on that pad are restored too. Unaffected pads and global
+MIDI/output/controller connections stay intact. Knob/menu/marker edits are not
+individually journaled. Undo stops voices/fill/audition without retriggering.
+Finish recording/loading first. New destructive edits clear Redo.
+
+History holds at most 32 edits / 512 MiB unique PCM references (shared, not
+copied), evicting oldest steps as needed; this is not a total plug-in RAM cap.
+Oversized individual snapshots reject the edit before mutation. Restores also
+respect the active storage budget. Journal management/restoration is on the
+main thread, behind the audio callback's reset acknowledgment gate.
+
+History survives editor close/reopen and activation, but is not serialized.
+Successful project/set recall clears it; failed/cancelled recall does not.
+Load Set explicitly warns that it starts new history. Save Set retains history
+and remains the durable checkpoint. Stable CLAP/parameter IDs, state format and
+full VSTGUI editor remain unchanged.
+
+## Cutups playback (0.38)
+
+`CUTUPS` uses the actual Sample Cutups scheduler/readers/joins and output
+allocator, specialized for a pad's entire 1–32-layer stack. Standalone Cutups
+retains its four-lane specialization. Loaded-layer order adapts to 1, 2, 3 or
+more sources; empty manual addresses resolve to the nearest loaded layer.
+
+- Layer Order replaces Layer Source for this method. Down/Up, Palindrome,
+  Random/Random Cycle, Pairs, Outside In, Center Out, Stagger and Manual retain
+  Cutups behavior. Stagger visits successive four-layer groups above four.
+- Playback exposes Free 0.1–80 Hz / Host Tempo divisions, Equal/Transient,
+  shared Steps/Regions 1–64, Repeat 1–16, source order, Gate, Join, Swing,
+  time/reverse/pitch/level variation, Tempo Sync, Seed, Poly/Mono/Legato and
+  the original four Poly Path relationships.
+- Source analysis runs off audio; each layer keeps its own trim and BPM.
+  Layer BPM edits the selected edit layer (20–400 BPM). Tempo Sync is
+  varispeed and changes pitch, exactly as in Cutups. Host Tempo derives rate
+  from BPM and is not gated by transport play/stop.
+- Hold releases the matching voice; One Shot completes one pattern including
+  repeats; Toggle stops the pad on its next press. No separate Shot Length.
+  Attack/Release are Cutups' whole-note envelope; Join is per cut.
+- The fixed overview strip becomes the cut-pattern graph (no waveform resize).
+  Click/drag writes manual layer addresses; Option/Alt edits source position.
+  Step/Layer/Source controls provide precise editing even in a 32-layer stack.
+  Cursors and Follow Stack use actual rendered layers; Stack Lanes remains
+  available. STACK position/path performance does not override Cutups ordering.
+- Preserve Field is coherent across all ACN/SN3D channels. Discrete Distribute
+  uses Neon's bus/width/traversal and Cutups' per-note/cut/pattern allocation.
+- EDIT encoders: LOOP = cut rate/division, TRAX = Step Repeat, LOOP push =
+  audition. Existing Perform gain/Mangle assignments remain unchanged.
+
+Cutups' standalone root-key transposition/factory presets are not imported:
+Neon MIDI notes address pads, shared Tune sets pitch, and pad copy/paste/set
+storage retain the whole method. Analysis uses Cutups' default 1 ms preroll;
+the CHOP preroll/markers remain a separate editing process. State v25 stores
+the new controls/pattern; older states retain their previous playback meaning.
+
+## Custom pad-note maps (0.37)
+
+`ROUTING → PAD NOTE MAP` opens a shared 32-cell numeric editor: A–D columns,
+0–127 unique MIDI notes, Copy/Paste List, Default and From A1 sequential fill.
+Paste order is A1–A8, B1–B8, C1–C8, D1–D8. Apply commits the complete draft;
+Cancel discards it. Applying a changed map stops sounding pads.
+
+Use Utility Neon MIDI 0.3's title-row `PAD NOTE MAP` in a Utility → Tracker →
+Neon chain. Neon's `FOLLOW UTILITY` receives its map over a private v3 SysEx
+envelope before new performance notes, independent of LED ownership. Choose
+`LOCAL` to opt out. Notes Only suppresses all map/control envelopes. Maps save
+in project/set state; the received map is retained as a standalone fallback.
+Copying pads and Reset All preserve the instrument-wide map. Existing Tracker
+patterns are not transposed. Custom maps ignore Base Note; Default restores it.
+State v24 appends 34 map bytes to the v23 layout only when needed. Old states,
+CLAP IDs, parameter IDs and the VSTGUI editor remain intact.
 
 ## Optional second USB NEON (0.30)
 
@@ -171,7 +259,7 @@ Character selection, FX Amount and Pressure live only on Character FX. Physical 
 secondary tools and contextual EDIT encoder shortcuts retain their meanings.
 
 Playback menu display order is **Sample, Lanes, Motion, Grains, Stretch,
-Wavesets, Slice Sequence**. Stored engine identities are unchanged. Choosing
+Wavesets, Slice Sequence, Spectral**. Stored engine identities are unchanged. Choosing
 an engine updates the sound but preserves the current editing task. Stack Path
 returns to Source / Stack if the new method cannot traverse layers. Choosing
 an Edit View never selects a different playback engine.
@@ -881,7 +969,8 @@ the same crop. It uses identical integer-frame bounds across all channels,
 resets the retained take to 0–100%, resets zoom, and auditions the result.
 Already assigned cells retain their original immutable audio. Secondary target
 pads and the Review action also audition the capture. Cropping is destructive
-for the current review, so save a set first if the untrimmed take is needed.
+for the current review; Undo restores its original audio within this session's
+history limits. Save a set for durable recovery of the untrimmed take.
 
 The recorder preserves the bus width and order, including all 16 ACN/SN3D
 channels. It records internal audio only, not REAPER inputs or external effects.
@@ -892,19 +981,19 @@ run on the main thread, not the audio callback.
 ## Starting over
 
 **RESET ALL** in the header opens a confirmation with **CANCEL / CLEAR ALL**.
-Confirming stops playback/recording, clears all 32 cells and the review take,
+Stop recording first. Confirming stops playback, clears all 32 cells and the review take,
 and resets sound parameters, slice maps, stages and editing positions. The
 output layout, base MIDI note, receive channel and Neon ownership are retained.
-Imported files are never deleted. Save a set before clearing if you want to
-recover the work. Reset waits for the audio callback to stop before clearing
+Imported files are never deleted. Undo restores the work within this session's
+history limits; save a set for durable recovery. Reset waits for the audio callback to stop before clearing
 assets, and invalidates pending file loads so cleared cells cannot refill later.
 
 ## One playback technique per cell
 
 The **PLAYBACK** menu in the right toolbox is the authority. Its choices are
-**Sample**, **Lanes**, **Motion**, **Grains**, **Stretch**, **Wavesets**, and **Slice Sequence**;
+**Sample**, **Lanes**, **Motion**, **Grains**, **Stretch**, **Wavesets**, **Slice Sequence**, **Spectral**, and **Cutups**;
 choosing one commits to it and replaces the previous technique. EDIT pads 2–4
-remain fast Sample/Motion/Grains shortcuts; the menu exposes all seven.
+remain fast Sample/Motion/Grains shortcuts; the menu exposes all nine.
 **EDIT VIEW → Source / Stack** (or secondary pad 1) changes only what is being
 edited, never the active technique.
 
@@ -934,6 +1023,81 @@ edited, never the active technique.
   Free/Host, Shot Length and gesture envelopes. Both are disabled for
   Ambisonics. Analysis runs on the file worker; silent/DC sources may lack
   usable cycles. It supports discrete mono/stereo/quad/octo channel order.
+
+## Spectral, Mosaic and cycle oscillator (0.35)
+
+- **Spectral** is phase-continuous, 1024-point FFT resynthesis, not a grain
+  repeat. POSITION selects the analysed moment within the trimmed source.
+  ADVANCE at zero freezes it; raising Advance traverses source frames, with
+  SCAN CYCLE setting the full-speed duration. PRESS ADV adds pad pressure to
+  Advance, capped at full speed. BLUR smooths the joint spectral energy
+  envelope and slows spectral changes; high Blur softens detail and level.
+  The FFT window introduces a short attack build-up (about 21 ms at 48 kHz).
+  LOOP edits Position; TRAX edits Blur in EDIT encoder mode. Shift gives fine
+  adjustments. Primary, selected, velocity, random/trigger and Stack Scan
+  remain available. Stack Scan blends neighbouring layers at the same source
+  position. All source channels share frame positions, bin gains and phase
+  rotations; ACN/SN3D remains channel-linked. No independent-channel phase
+  randomisation or decoding is performed.
+- **Slice Sequence → NAVIGATION** now includes **Similar**, **Contrast**,
+  **Energy** and **Brightness**. These are Mosaic navigation choices inside
+  the existing slice sequencer, not a second sequencer. CANDIDATES selects the
+  primary layer's authored slices or authored slices throughout this pad's
+  stack. An unsliced layer contributes one whole trimmed region. Energy and
+  Brightness use TARGET; Similar/Contrast compare against the preceding
+  fragment. Ties are deterministic; immediate repeats are avoided when another
+  candidate exists, while REPEATS explicitly holds a selection. STEP, CHANCE,
+  the per-slice proportional ADSR and protected handoff fades still apply.
+  The waveform follows the chosen layer; the selected edit layer is unchanged.
+  Descriptors are bounded channel-energy/adjacent-difference estimates prepared
+  with the source snapshot, not full-file perceptual analysis on the audio thread.
+- **Wavesets → ENGINE → Oscillator** turns the selected cycle GROUP into a
+  sustained, band-limited wavetable. CYCLE POS selects its source group; SCAN
+  moves through groups over SCAN CYCLE. FREQUENCY tunes the whole group and
+  the common pad Tune transposes it. A multi-cycle group can therefore have
+  prominent harmonics above that fundamental. LOOP edits Cycle Position;
+  TRAX edits Frequency logarithmically. It retains Primary/Stack Scan and
+  the stack breakpoint path, with shared cycle boundaries across channels.
+  Like Rearrange, it is discrete-only; silence/DC may have no usable cycles.
+  Cycle changes crossfade tables. Rearrange retains its original controls.
+
+Spectral and Oscillator share Free/Host clock, Attack/Release, Hold/Toggle and
+explicit Shot Length. In Host mode, transport pause freezes advancement and
+silences output; Free mode runs without transport. Tracker notes still address
+pad cells: oscillator pitch is a per-pad setting, not a remapped MIDI note.
+Normal routing, Character FX, resampling and Fill Hold remain downstream.
+New controls use append-only state version 22 when needed; older states keep
+their existing field widths, sound controls and CLAP/parameter identities.
+There is no Resonator engine in this version.
+
+### Spectral colour (0.36)
+
+In **Edit View → Playback**, Spectral now groups source navigation first,
+spectral shaping next, and pad duration/envelopes last. The waveform stays its
+existing size; row spacing and double-click default resets are unchanged.
+
+- **SMEAR** (0–4 seconds) retains the previous spectral frame as the source or
+  stack changes. It is a spectral response time, not pad Release or an echo.
+  Zero retains the original Blur response. A stationary frozen frame will not
+  demonstrate Smear: use Advance, pressure, Position or Stack Scan to hear it.
+- **FOCUS** (−1 to +1) flattens quieter spectral detail towards the peaks at
+  negative values, or emphasizes dominant peaks at positive values. Joint
+  energy compensation keeps it from being merely a volume control; boosts
+  are bounded and silence stays silent.
+- **TILT/OCT** (−6 to +6 dB/octave) darkens or brightens around 1 kHz. The spectral
+  gain is bounded to −24/+12 dB. It does not move partial frequencies or change
+  pad tuning; allow output headroom for positive gain.
+- **THIN** (0–1) progressively removes deterministic three-bin bands for
+  hollow, sparse textures. It does not randomize each trigger or channel.
+  High settings may remove most or all of a narrow-band source.
+
+Colour changes are hop-smoothed independently of Smear, so held-pad edits
+remain responsive. All four controls are per-pad and share gains/phase handling
+across source channels, including ACN/SN3D; they never mix spatial components.
+The EDIT encoders remain LOOP = Position and TRAX = Blur (Shift = fine).
+New controls default to zero and only require state version 23 when changed;
+version 22 retains its exact stored width and default sound. Copy/paste, reset,
+project recall and stored pad stacks include the new controls.
 
 Motion and Grains each use the cell's **CLOCK** menu:
 

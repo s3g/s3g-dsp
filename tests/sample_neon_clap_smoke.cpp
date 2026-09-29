@@ -10,6 +10,8 @@
 #include "../dsp/s3g_sample_neon_family.h"
 #include "../dsp/s3g_sample_neon_character.h"
 #include "../dsp/s3g_neon_midi_bridge.h"
+#include "../dsp/s3g_neon_note_map.h"
+#include <clap/ext/note-name.h>
 
 #include <dlfcn.h>
 
@@ -981,6 +983,56 @@ int main(int argc, char** argv)
     }
     change(7u,oldReceive);change(1015u,oldTrigger);change(1006u,oldRelease);
     instrument->reset(instrument);
+    // Custom maps replace subtraction-based routing for both CLAP and MIDI,
+    // including keys 0/127 and live map changes before a note in the same block.
+    {
+        auto mapped = sequentialNotes(); mapped[0]=0; mapped[1]=127;
+        auto mapPacket=encodeNoteMap(mapped);
+        clap_event_midi_sysex_t mapEvent {};
+        mapEvent.header={sizeof(mapEvent),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI_SYSEX,0};
+        mapEvent.buffer=mapPacket.data();mapEvent.size=static_cast<uint32_t>(mapPacket.size());
+        change(7,1);change(1015,1);change(1006,0);
+        standard.header.type=CLAP_EVENT_NOTE_ON;standard.key=0;standard.channel=0;
+        channelNotes.headers={&mapEvent.header,&standard.header};
+        ok=expect(processStereo(instrument,channelNotes,output,left,right) && maximumMagnitude(left)>.001f,
+            "Custom map must apply before a CLAP note in the same block")&&ok;
+        const auto* names=static_cast<const clap_plugin_note_name_t*>(instrument->get_extension(instrument,CLAP_EXT_NOTE_NAME));
+        clap_note_name_t name {};
+        ok=expect(names && names->get(instrument,0,&name) && name.key==0
+            && names->get(instrument,1,&name) && name.key==127,"Custom pad names must expose actual keys")&&ok;
+        instrument->reset(instrument);
+        ok=expect(send(0x90,0,64) && maximumMagnitude(left)>.001f,"Custom raw MIDI key 0 failed")&&ok;
+        send(0x80,0,0);for(unsigned n=0;n<8;++n) send(0x80,126,0);
+        ok=expect(maximumMagnitude(left)==0,"Custom raw MIDI release failed")&&ok;
+        instrument->reset(instrument);
+        ok=expect(send(0x90,36,100) && maximumMagnitude(left)==0,"Old default address still triggers custom pad")&&ok;
+        StateBuffer mappedState;
+        ok=expect(state->save(instrument,&mappedState.output) && mappedState.bytes[4]==24,
+            "Custom map did not extend saved state to v24")&&ok;
+        for(unsigned n=0;n<34;++n) {
+            StateBuffer truncated;truncated.bytes=mappedState.bytes;truncated.bytes.resize(truncated.bytes.size()-1-n);
+            ok=expect(!state->load(instrument,&truncated.input),"Truncated note-map tail accepted")&&ok;
+        }
+        StateBuffer badMap;badMap.bytes=mappedState.bytes;badMap.bytes.back()=0;
+        ok=expect(!state->load(instrument,&badMap.input),"Duplicate pad map accepted from state")&&ok;
+        StateBuffer unchangedMap;
+        ok=expect(state->save(instrument,&unchangedMap.output) && unchangedMap.bytes==mappedState.bytes,
+            "Invalid map restore changed the current set")&&ok;
+        // Malformed wire data must not replace the working map.
+        mapPacket[9]=0;channelNotes.headers={&mapEvent.header};
+        processStereo(instrument,channelNotes,output,left,right);
+        ok=expect(names->get(instrument,1,&name) && name.key==127,"Malformed MIDI map changed note names")&&ok;
+        // Restore defaults under a held finger, then re-use the pad's new key.
+        send(0x90,0,100);
+        mapPacket=encodeNoteMap(sequentialNotes());
+        processStereo(instrument,channelNotes,output,left,right);
+        send(0x90,36,100);send(0x80,0,0);
+        ok=expect(maximumMagnitude(left)>.001f,"Stale release after map change killed the new address")&&ok;
+        send(0x80,36,0);for(unsigned n=0;n<8;++n) send(0x80,126,0);
+        ok=expect(maximumMagnitude(left)==0,"New address stuck after a map change")&&ok;
+        change(7u,oldReceive);change(1015u,oldTrigger);change(1006u,oldRelease);
+        instrument->reset(instrument);
+    }
     // Compare the actual instrument output for ordinary velocity with the
     // hardware's separate CC + fixed-127 note sequence across host blocks.
     for (uint8_t key : {0u, 0x10u}) { // Both physical shortcuts into PLAY.
@@ -1734,7 +1786,7 @@ int main(int argc, char** argv)
                 f[NeonFamily::RoutingMode]=float(pad%2); f[NeonFamily::RoutingWidth]=float((pad+1)%2);
                 f[NeonFamily::RoutingTraversal]=float(pad%5); f[NeonFamily::GrainStereoLink]=1;
                 const auto* bytes=reinterpret_cast<const uint8_t*>(f.values.data());
-                routing.bytes.insert(routing.bytes.end(),bytes,bytes+sizeof(f.values));
+                routing.bytes.insert(routing.bytes.end(),bytes,bytes+kNeonFamilyV21Count*sizeof(float));
             }
             const std::array<float,3> defaultFill {{2,2,.5f}};
             const auto* defaultFillBytes=reinterpret_cast<const uint8_t*>(defaultFill.data());
@@ -1915,6 +1967,79 @@ int main(int argc, char** argv)
                 ok = expect(maximumMagnitude(laneOutput[0])<1e-8,"last USB-unit fill release restores silent live output") && ok;
                 bridge.packet=encodeBridge({BridgeKind::Sync,0,36,0,{},0}); fillBlock(bridge);
                 stacked->stop_processing(stacked);
+            }
+            for (unsigned variant = 0; variant < 5; ++variant) {
+                StateBuffer modernPlayback; modernPlayback.bytes = savedStack.bytes; modernPlayback.bytes[4] = variant == 4 ? 25 : variant == 3 ? 23 : 22;
+                modernPlayback.bytes[textureOffset] = variant == 4 ? 2 : variant == 1 ? 32 : variant == 2 ? 8 : 128;
+                modernPlayback.bytes[textureOffset + kTextureStateBytes + kTransientStateBytes] = 0;
+                modernPlayback.bytes[expectedStateBytes + 2u] = 0;
+                modernPlayback.bytes[expectedStateBytes + 3u] = variant == 2 ? 0 : 4;
+                setStateParameter(modernPlayback, 7u + 15u, 1); // HOLD
+                if (variant == 1) setStateParameter(modernPlayback, 7u + 16u, 0); // discrete source
+                for (unsigned pad = 0; pad < 32; ++pad) {
+                    NeonFamilySettings f;
+                    f[NeonFamily::SpectralBlur] = .7f; f[NeonFamily::SpectralAdvance] = .25f;
+                    f[NeonFamily::MosaicMode] = 2; f[NeonFamily::MosaicScope] = 1;
+                    f[NeonFamily::WavesetEngine] = 1; f[NeonFamily::OscFrequency] = 220;
+                    if (variant == 3) {
+                        f[NeonFamily::SpectralSmear] = 1.25f; f[NeonFamily::SpectralFocus] = -.4f;
+                        f[NeonFamily::SpectralTilt] = 3; f[NeonFamily::SpectralThin] = .7f;
+                    }
+                    if (variant == 4) {
+                        f[NeonFamily::CutRegions]=32; f[NeonFamily::CutRate]=80;
+                        f[NeonFamily::CutRepeat]=2; f[NeonFamily::CutFileOrder]=0;
+                        f.values[neonFamilyIndex(NeonFamily::CutPatternLane)+63]=31;
+                        f.values[neonFamilyIndex(NeonFamily::CutPatternSource)+63]=.75f;
+                    }
+                    const auto* bytes = reinterpret_cast<const uint8_t*>(f.values.data());
+                    modernPlayback.bytes.insert(modernPlayback.bytes.end(), bytes,
+                        bytes + (variant == 4 ? kNeonFamilyCount : variant == 3 ? kNeonFamilyV23Count : kNeonFamilyV22Count) * sizeof(float));
+                }
+                modernPlayback.bytes.insert(modernPlayback.bytes.end(), defaultFillBytes, defaultFillBytes + sizeof(defaultFill));
+                for (unsigned pad = 0; pad < 32; ++pad) for (unsigned effect = 0; effect < 8; ++effect) {
+                    const auto values = neonCharacterDefaults(effect);
+                    const auto* bytes = reinterpret_cast<const uint8_t*>(values.data() + 3);
+                    modernPlayback.bytes.insert(modernPlayback.bytes.end(), bytes, bytes + (values.size() - 3) * sizeof(float));
+                }
+                if (variant == 4) {
+                    modernPlayback.bytes.push_back(0); modernPlayback.bytes.push_back(1);
+                    for (unsigned n=0;n<32;++n) modernPlayback.bytes.push_back(static_cast<uint8_t>(36+n));
+                }
+                ok = expect(stackState->load(stacked, &modernPlayback.input), "v22/v23/v25 playback loads") && ok;
+                StateBuffer recalled;
+                ok = expect(stackState->save(stacked, &recalled.output) && recalled.bytes == modernPlayback.bytes,
+                    "v22/v23/v25 preserves controls, sources and Character banks byte-identically") && ok;
+                StateBuffer bad; bad.bytes = modernPlayback.bytes;
+                const float invalid = 2001;
+                std::memcpy(bad.bytes.data() + savedStack.bytes.size() + neonFamilyIndex(NeonFamily::OscFrequency) * sizeof(float), &invalid, sizeof(float));
+                ok = expect(!stackState->load(stacked, &bad.input), "v22 invalid engine values reject atomically") && ok;
+                if (variant == 3) for (auto key : {NeonFamily::SpectralSmear, NeonFamily::SpectralFocus,
+                        NeonFamily::SpectralTilt, NeonFamily::SpectralThin}) {
+                    StateBuffer invalidColour; invalidColour.bytes = modernPlayback.bytes;
+                    const float value = neonFamilyDef(neonFamilyIndex(key)).maximum + 1;
+                    std::memcpy(invalidColour.bytes.data() + savedStack.bytes.size() + neonFamilyIndex(key) * sizeof(float), &value, sizeof(float));
+                    ok = expect(!stackState->load(stacked, &invalidColour.input), "v23 rejects out-of-range spectral colour") && ok;
+                    StateBuffer unchanged;
+                    ok = expect(stackState->save(stacked, &unchanged.output) && unchanged.bytes == modernPlayback.bytes,
+                        "invalid v23 load leaves all pad controls intact") && ok;
+                }
+                MidiInput gesture; OutputEvents feedback; std::array<std::vector<float>, 32> output;
+                const bool running = active && stacked->start_processing(stacked);
+                ok = expect(running, "v22 engine starts") && ok;
+                float mosaicPeak = 0; bool mosaicLinked = true;
+                for (unsigned block = 0; running && block < 400; ++block) {
+                    ok = processChannels(stacked, gesture, feedback, output) && ok;
+                    gesture.list.size = [](const clap_input_events_t*) -> uint32_t { return 0; };
+                    for (const auto& channel : output) for (float value : channel) ok = std::isfinite(value) && ok;
+                    if (variant == 2 || variant == 4) {
+                        mosaicPeak = std::max(mosaicPeak, maximumMagnitude(output[0]));
+                        for (unsigned ch = 1; ch < 16; ++ch) for (unsigned i = 0; i < output[0].size(); ++i)
+                            mosaicLinked &= std::abs(output[ch][i] - output[0][i] * (ch + 1)) < 1.e-5f;
+                    }
+                }
+                if (variant == 2 || variant == 4) ok = expect(mosaicPeak > .002f && mosaicLinked,
+                    "recalled Mosaic/Cutups plays stack audio and preserves ACN channels") && ok;
+                if (running) stacked->stop_processing(stacked);
             }
             savedStack.cursor = 0;
             ok = expect(stackState->load(stacked, &savedStack.input), "legacy family defaults restore") && ok;

@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Neon 32 - s3g-dsp</title>
+    <meta name="description" content="User guide for Sample Neon 32: 32 sample pads, layered stacks, nine playback methods, spectral shaping, chopping, resampling, undo/redo, multichannel routing, and Reloop NEON control with Tracker.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="plugin-index.html">Plugins</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Sample Neon 32</h1>
+
+        <p><code>s3g Sample Neon 32</code> is a performance sampler with 32 pad cells, up to 32 sample layers per cell, and nine playback methods. Chop recordings into pads or layer stacks, move through those layers, reshape the sound, and resample the result. It works with the on-screen controls, sequenced MIDI notes, or one or two Reloop NEON controllers without replacement firmware.</p>
+
+        <p>This guide covers version <code>0.39.0</code>, including destructive-edit undo/redo, Cutups playback, custom pad-note maps and Spectral colour controls. One instrument handles stereo, discrete multichannel and <code>ACN/SN3D</code> Ambisonic sources. Its CLAP output is always 32 channels; the default Stereo layout mixes onto channels 1–2 and leaves the rest silent.</p>
+
+        <h2 id="workflow">Workflow</h2>
+
+        <ol>
+          <li>Insert <code>s3g Sample Neon 32</code> on an instrument track. Start with the header's <code>STEREO</code> layout; for wider output, match the host track width to the selected layout.</li>
+          <li>Establish monitoring on channels 1–2 before playing. Route wider output buses to the intended speakers or fold-down; Ambisonic output needs a matching decoder.</li>
+          <li>Select cell A1 in <code>PLAY</code>. Drop a supported audio file on its pad, or choose <code>EDIT VIEW → SOURCE / STACK → LOAD</code>. Use <code>AUDITION PAD</code> to check the sound.</li>
+          <li>Choose <code>EDIT LAYER</code> in the waveform-view menu to edit its Start/End and cursor. Keep <code>ZERO CROSS</code> on initially.</li>
+          <li>Choose one <code>PLAYBACK</code> method in the persistent PAD toolbox, then open <code>EDIT VIEW → PLAYBACK</code> for its controls. Changing the edit view does not change the sound engine.</li>
+          <li>For a sustained texture, start with <code>HOLD</code> and <code>FREE / PAD</code> clock. Use Attack/Release for the whole gesture; choose <code>ONE SHOT</code> and Shot Length for a timed gesture.</li>
+          <li>Add sources with <code>ADD LAYER</code>, or use <code>CHOP</code> to distribute slices into pads or one pad's stack. Layer Src determines which layer sounds; Edit Layer determines which one you edit.</li>
+          <li>Use <code>CHARACTER FX</code> for post-playback processing. Open <code>RESAMPLE</code> to capture an internal output bus, crop the take, and assign it to an empty cell.</li>
+          <li>Choose <code>PROJECT</code>, <code>LINK</code> or <code>EMBED</code> storage, then save the host project or a reusable <code>.s3gneon</code> set. For a hardware/Tracker setup, follow the <a href="#tracker">MIDI chain</a> below.</li>
+        </ol>
+
+        <h2 id="organization">Pads, Layers and Workspaces</h2>
+
+        <p>The sound path is <code>pad stack → one playback method → Character FX → output bus → master</code>. Layer navigation moves between recordings inside one cell; source navigation moves through time within those recordings. Neither silently mixes adjacent cells.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>What it determines</th></tr></thead>
+          <tbody>
+            <tr><td>Selected cell</td><td>The pad addressed by the PAD toolbox, source editor and contextual controls. Banks A–D contain eight cells each.</td></tr>
+            <tr><td>Edit Layer</td><td>The source targeted by loading, trim, slice construction and layer editing. Layer 1 is the primary.</td></tr>
+            <tr><td>Layer Src / Navigation</td><td>Which layer or blend the playback method reads. This can differ from Edit Layer.</td></tr>
+            <tr><td>Play Layer readout</td><td>What is actually sounding, including a blend, held layer, manual override or isolated edit-layer audition.</td></tr>
+            <tr><td>Playback</td><td>The cell's single active sound engine. Opening another toolbox does not select another engine.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>PLAY</code> includes performance and editing. Its Edit View menu contains <code>SOURCE / STACK</code>, <code>PLAYBACK</code>, <code>STACK PATH</code>, <code>CHARACTER FX</code> and <code>ROUTING</code>. <code>CHOP</code> constructs and auditions slices of the selected source. <code>RESAMPLE</code> records and edits a take. <code>STACK</code> switches the miniature controller to layer performance inside PLAY; it is not another instrument or playback engine.</p>
+
+        <p>The persistent PAD toolbox retains Playback, Layer Src/Navigation, Edit Layer, Trigger, Gain, Tune, Audition Pad and Stop Pad across these workspaces. It always addresses the selected pad, not the resample review. Audition Pad follows the pad's playback and source choices; <code>AUDITION EDIT LAYER</code> isolates the edit target where supported.</p>
+
+        <h2 id="sources">Loading, Editing and Copying Sources</h2>
+
+        <p>Load mono, stereo, quad or octo discrete audio, or 4/9/16-channel ACN/SN3D audio. Each cell holds up to 32 layers with the same channel count. <code>LOAD</code> replaces the selected layer; <code>ADD LAYER</code> appends one. Dropping multiple files in the stack editor appends layers. <code>REMOVE</code> removes the layer from the instrument, not its file on disk.</p>
+
+        <p>Trim, slice markers and source-editing settings belong to each layer. Playback, gesture envelopes, Gain, Tune, Character FX, source format and output route belong to the whole pad. Source edits do not switch its playback method.</p>
+
+        <h3 id="normalize">Normalize</h3>
+
+        <p><code>SOURCE / STACK → NORMALIZE</code> offers <code>EDIT LAYER</code>, <code>STACK / EACH LAYER</code> and <code>STACK / KEEP BALANCE</code>. Apply targets −1 dBFS: Each Layer normalizes every loaded layer independently; Keep Balance applies one gain to the entire stack, preserving relative levels. The latter is useful for velocity layers.</p>
+
+        <p>Normalization processes complete source samples, not only their trim windows. Every channel of a source receives the same positive gain. It is peak normalization, not loudness matching or an Ambisonic normalization conversion. The pad stops on commit; original files and copies in other cells are unchanged. Generated audio follows the chosen storage policy.</p>
+
+        <h3 id="copy">Copy and Paste</h3>
+
+        <p>Focus a PLAY cell pad, then use <code>Ctrl-C / Ctrl-V</code> or <code>Cmd-C / Cmd-V</code> on macOS. Right-click offers Copy Cell and Paste Cell; Control-click also works on Mac. Change banks before pasting to copy across A–D. Replacing a populated destination requires confirmation.</p>
+
+        <p>A copy includes the entire stack, trims, slices, playback, envelopes, FX and routing. Later edits are independent, and pasting does not automatically audition. The clipboard belongs to this plug-in instance and is not saved with the project; it survives Reset All. Focused text fields retain normal text copy/paste.</p>
+
+        <h3 id="undo">Undo and Redo</h3>
+
+        <p>The header's <code>UNDO / REDO</code> buttons are available on every page. The lower status area names the next action in each direction. With the plug-in canvas focused, use <code>Cmd-Z</code> on Mac or <code>Ctrl-Z</code> to undo; add Shift to redo, or use <code>Ctrl-Y</code>. Focused text fields keep their own text-editing shortcuts.</p>
+
+        <p>History covers successful file loads/replacements, Add/Remove Layer, Paste Cell, normalization, committed slices to pads or a stack, recorded takes, capture cropping/discard/assignment, and Reset All. A multi-pad slice assignment or whole-stack normalization is one step. Undo restores the affected pad's complete pre-edit audio and settings, including trims, slices, layers, playback and FX; subsequent setting changes on that pad are also rolled back to that checkpoint. Unaffected pads and global MIDI/controller connections are retained. Ordinary slider/menu changes and marker editing are not separate history steps.</p>
+
+        <p>Undo/redo stops sounding pads, fill and audition before restoring; it never retriggers notes or restarts recording. Finish recording or pending file loads first. A new destructive edit clears Redo. History is session-local: it survives closing/reopening the editor, but is not saved in projects or sets. Successfully loading a project/set starts fresh history; cancelled or failed loads do not. Save a set for durable recovery.</p>
+
+        <p>The journal keeps up to 32 edits and 512 MiB of unique referenced PCM across Undo and Redo, sharing unchanged audio. Older steps are dropped when needed. An individual snapshot above that budget is refused before editing. This is a history budget, not a limit on total plug-in memory. Restores must also fit the current embedded-audio storage limit.</p>
+
+        <h2 id="waveform">Waveform and Zero Crossings</h2>
+
+        <p>The waveform remains the same size when switching playback methods or toolboxes. Its view menu separates playback observation from source editing:</p>
+
+        <table class="readout-table">
+          <thead><tr><th>View</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Follow Stack</td><td>Follows the sounding layer in Primary, Selected, Velocity and Random modes, and fades between layers during Stack Scan. Following does not change Edit Layer. The followed playback display is read-only.</td></tr>
+            <tr><td>Edit Layer</td><td>Shows a fixed editable source for cursor and trim work. Playback cursors appear when they belong to that source.</td></tr>
+            <tr><td>Stack Lanes</td><td>Shows up to eight stack rows at a time, following the active region of a larger stack. Layer levels and read heads show playback; this is a read-only, combined-peaks display.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>WAVE → ALL CHANNELS</code> is the default: one aligned row per source channel. <code>CHANNEL 1 / ACN 0</code> isolates the first channel visually. <code>COMBINED PEAKS</code> displays the min/max envelope across all channels, not a sum; opposite-polarity channels do not cancel. These views never solo, downmix or otherwise change the audio. The small overview always uses combined peaks.</p>
+
+        <p>Scroll vertically to zoom 1×–32× around the pointer. Shift-scroll or horizontal trackpad movement pans. Motion overlays its source field and cursors; Grains shows actual grain windows and read progress. Follow Stack and Edit Layer use vertical playback lines. CHOP and RESAMPLE keep their own fixed source/review views. View preferences and zoom are local to the instance, not saved sound settings.</p>
+
+        <p><code>ZERO CROSS</code> searches near trim and slice boundaries, within approximately ±5 ms. A crossing shared by all channels is preferred. Otherwise it chooses a low-energy common boundary using the worst channel first, so channel cancellation cannot disguise a bad cut. Channels are never shifted independently. Disable snapping for exact manual placement; re-enabling it resolves the current boundaries. Difficult or DC-offset material may have no shared crossing, so the best local choice is not a guarantee of a click-free loop.</p>
+
+        <h2 id="playback">Playback Methods and Gesture Length</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Method</th><th>Use and principal controls</th></tr></thead>
+          <tbody>
+            <tr><td>Sample</td><td>Ordinary trimmed playback, direction, repeat and proportional sample envelope. With Repeat off, a one-shot ends with its sample window.</td></tr>
+            <tr><td>Lanes</td><td>Continuous reading while navigating the stack with Layer Pos or a breakpoint Path. Speed controls reading; Layer Slew and Crossfade/Jump control transitions.</td></tr>
+            <tr><td>Motion</td><td>Moving source windows with trajectory, Locus, Field, Travel and Jitter; optional Packets/Motor articulation and segment-event models.</td></tr>
+            <tr><td>Grains</td><td>Overlapping source windows with Size, Density/Interval, Spray, pitch spread, reverse probability, window shaping and grain processes.</td></tr>
+            <tr><td>Stretch</td><td>Textured granular stretching. Duration determines traversal time independently of Tune; Forward/Reverse determines traversal direction. One Shot traverses once; Hold/Toggle wrap.</td></tr>
+            <tr><td>Wavesets</td><td>Rearrange zero-crossing cycle groups, or use Oscillator to sustain a band-limited cycle-group wavetable. Discrete sources only.</td></tr>
+            <tr><td>Slice Sequence</td><td>Sequence authored CHOP regions, or use Mosaic navigation to choose regions by similarity, contrast, energy or brightness.</td></tr>
+            <tr><td>Spectral</td><td>Freeze or scan analysed spectral frames, with linked-channel resynthesis, Blur, Smear, Focus, Tilt and Thin.</td></tr>
+            <tr><td>Cutups</td><td>Clocked cut patterns across the entire pad stack, using the Sample Cutups engine with up to 32 layers, 64 steps/regions, repeats, joins and seeded variation.</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>HOLD</code> responds to pad/note release; <code>TOGGLE</code> continues until the next press. Generated methods with <code>SHOT LEN</code> use it for One Shot duration, not the file or grain length. Shot Length and gesture fades are captured at the strike: retrigger after changing them. Attack/Release shape the whole gesture and are separate from grain windows and per-slice ADSR. Stop Pad and KILL are explicit stops; FX can otherwise have tails.</p>
+
+        <p><code>FREE / PAD</code> runs independently of transport. <code>HOST TRANSPORT</code> uses the host clock and exposes beat choices where applicable; use Free when a held texture should continue with transport stopped. Motion packet, motor and event rates remain Hz. Stretch uses Duration rather than a competing Shot Length; primary Wavesets Rearrange follows its source, while scanning Wavesets and Oscillator expose gesture timing.</p>
+
+        <h3 id="cutups">Cutups</h3>
+
+        <p><code>CUTUPS</code> uses the actual <a href="sample-cutups.html">Sample Cutups</a> playback engine, adapted from four files to all loaded layers in the selected pad. It works with one layer, two or three, or a full 32-layer stack. <code>LAYER ORDER</code> replaces Layer Source: Down, Up, Palindrome, Random, Random Cycle, Pairs, Outside In, Center Out, Stagger or Manual. Random Cycle visits each loaded layer before reshuffling; Stagger extends its original four-layer figure through successive groups. Pattern length is independent of layer count: use at least as many steps as layers when a Down/Up pattern must visit every layer.</p>
+
+        <p><code>EDIT / PLAYBACK</code> contains the original cut controls: Free rate (0.1–80 Hz) or Host Tempo divisions, Equal/Transient regions, shared Steps/Regions (1–64), Source Order, Step Repeat (1–16), Gate, Join, Swing, timing variation, reverse chance, pitch and level variation, Seed, Poly/Mono/Legato, Poly Path and Attack/Release. The original cut scheduler, seeded random stream and equal-power join processing are shared with Cutups. One Shot finishes one complete pattern including repeats; Hold releases at note-off and Toggle stops on the next pad press. There is no competing Shot Length.</p>
+
+        <p>Each layer keeps its own trim and source BPM. <code>LAYER BPM</code> edits the currently selected Edit Layer. Tempo Sync multiplies reading speed by host BPM / layer BPM and therefore changes pitch. Cutups' <code>HOST TEMPO</code> follows BPM even with transport stopped; it differs from the transport-gated clocks of Motion and Grains. Transient analysis uses the original default 1 ms preroll and runs off the audio thread. CHOP markers/preroll remain separate; Cutups does not consume the authored slice map.</p>
+
+        <p>The fixed strip below the waveform becomes a Cut Pattern graph. Click/drag chooses layer addresses and switches Layer Order to Manual. Option/Alt-click or drag writes a source position and switches Source Order to Manual. Edit Step, Step Layer and Step Source provide precise entry for dense stacks. Empty manual addresses resolve to the nearest loaded layer. The playing cursors and Follow Stack/Stack Lanes views follow the actual rendered layer; Stack Scan, Stack Path and held STACK-position overrides do not compete with Cutups' ordering.</p>
+
+        <p>Preserve Field keeps multichannel and ACN/SN3D channels coherent. For discrete Distribute routing, choose allocation per Note, Cut or Pattern within the pad's selected output bus. In EDIT encoder mode, LOOP changes rate/division and TRAX changes repeats; LOOP push auditions. Neon notes still select pads rather than transposing Cutups keyboard voices, and shared Tune controls pitch. Standalone Cutups factory presets are not imported.</p>
+
+        <h3 id="motion-grains">Motion and Grains</h3>
+
+        <p>Motion's Basic Path offers Forward, Reverse, Bounce and Wander; additional trajectories are Hover, Mirror, Zigzag and Moving Loop. <code>SOUND</code> chooses Continuous, Packets or Motor. Packet Rate/Duty set the inner pulse; Motor adds an outer Rate, Shape and Symmetry. Join Window sets source-window length. <code>EVENT MODEL</code> chooses Smooth, Freeze, Iterate, Doublets or Bounce, with rate, repeats, source step and variation controls.</p>
+
+        <p>Grains' <code>GRAIN SRC</code> selects Freeze, Scan, Cloud or Slice. Scan moves within the source; Cloud chooses positions; Slice uses equal regions, not the authored CHOP markers. Density/Interval sets emission timing and Size sets an individual grain window—not cloud duration. Window choices include Legacy, Parzen, Sine, Hann, Triangle and Gaussian, with skew, size/level variation and timing scatter. Processes include Ordinary, Sorter, Stutter, Shrink and Doublets; Amount and Regions shape their behavior.</p>
+
+        <p>These are Neon-specific integrations of <a href="sample-motion.html">Motion</a>, <a href="sample-grains.html">Grains</a> and <a href="sample-lanes.html">Lanes</a>, not complete copies of those instruments. There is one generated gesture per pad, and dense or long overlapping windows can exhaust the per-pad voice pool. Standalone keyboard mono/legato modes and independent per-layer Lanes transports are not imported.</p>
+
+        <h3 id="wavesets">Wavesets: Rearrange and Oscillator</h3>
+
+        <p><code>ENGINE → REARRANGE</code> uses Group, Repeats, Shape and Process to repeat, omit, replace, interpolate or reverse cycle groups. <code>OSCILLATOR</code> instead sustains a cycle GROUP selected by CYCLE POS; FREQUENCY sets its tuning and SCAN moves through source groups over SCAN CYCLE. Pad Tune additionally transposes it. A multi-cycle group can have prominent harmonics above the nominal fundamental. Oscillator is not a chromatic keyboard remap: MIDI notes still address pad cells.</p>
+
+        <p>Both engines offer Primary or Stack Scan and remain disabled for ACN/SN3D. Cycle analysis is prepared outside the audio callback. Silent/DC sources may have no usable cycles; no sound in that case is not evidence that a pad is empty.</p>
+
+        <h2 id="spectral">Spectral Playback</h2>
+
+        <p>Spectral uses phase-continuous 1024-point FFT resynthesis, not repeated grains. Begin with Hold and Free clock, select a moment with Position, and audition the pad. Advance at zero freezes the source position; Pressure Advance can still move it while a pad is pressed. Set both to zero for a fully stationary read. The analysis window introduces a short build-up, about 21 ms at 48 kHz.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Position</td><td>The analysed moment within the trimmed source.</td></tr>
+            <tr><td>Advance / Press Adv</td><td>Continuous scan speed plus pressure-driven advance, capped at full speed.</td></tr>
+            <tr><td>Scan Cycle</td><td>Full-speed traversal duration, in Free seconds or Host beats.</td></tr>
+            <tr><td>Blur</td><td>Softens the joint spectral energy envelope and slows changes; higher values can soften level as well as detail.</td></tr>
+            <tr><td>Smear, 0–4 s</td><td>Retains earlier spectral energy as the source or stack changes. This is response time, not an echo or pad Release. A stationary frozen frame does not demonstrate it; move Position, Advance or the stack.</td></tr>
+            <tr><td>Focus, −1…+1</td><td>Negative values flatten spectral contrast; positive values emphasize dominant peaks. Bounded joint-energy compensation limits loudness-only changes.</td></tr>
+            <tr><td>Tilt/Oct, −6…+6 dB</td><td>Darkens or brightens around 1 kHz, with spectral gain bounded to −24/+12 dB. Leave output headroom; this does not retune partials.</td></tr>
+            <tr><td>Thin, 0…1</td><td>Progressively removes stable three-bin bands for hollow, sparse textures. It does not choose a new random mask per strike or channel. High settings can remove nearly all of a narrow-band source.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Colour changes are smoothed separately from Smear so live edits remain responsive. Primary, Selected Layer, Velocity, Random / Trigger and Stack Scan are available. All channels share analysis positions, bin gains and phase handling; there is no independent-channel randomization or Ambisonic decoding. EDIT encoders remain LOOP = Position and TRAX = Blur, with Shift for fine adjustment.</p>
+
+        <h2 id="layers">Layer Selection, Lanes and Stack Paths</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Layer Src</th><th>Selection</th></tr></thead>
+          <tbody>
+            <tr><td>Primary</td><td>Layer 1, regardless of Edit Layer.</td></tr>
+            <tr><td>Selected Layer</td><td>The layer chosen for editing.</td></tr>
+            <tr><td>Velocity</td><td>Equal velocity bands across the loaded stack, ordered quiet to loud.</td></tr>
+            <tr><td>Random / Trigger</td><td>One layer chosen per strike, retained for that gesture.</td></tr>
+            <tr><td>Stack Scan</td><td>Continuous traversal for Motion, Grains, Stretch, Wavesets or Spectral. It requires at least two layers and a running pad.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Unavailable choices are disabled. Sample does not continuously scan layers; Wavesets exposes Primary/Stack Scan. Lanes replaces Layer Src with <code>NAVIGATION → MANUAL / PATH</code>. Slice Sequence uses the primary layer's markers in Sequence mode; Mosaic's Candidates menu can instead use the stack's slices.</p>
+
+        <p>Lanes is the direct layer-navigation method: one continuous read head keeps moving while <code>LAYER POS</code> or Previous/Next Layer changes the source. Crossfade blends neighboring layers; Jump selects the nearest. Layer Slew smooths transitions. Layers share normalized progress, using the primary/first loaded trim as the timing reference, so different-length layers can play at different effective rates. Speed/Tune are rate changes, not transparent time stretching. Loop Join smooths wrapping loops.</p>
+
+        <p><code>STACK PATH</code> controls movement between layers, independently of movement within each source. Shape choices are Manual, Ramp Up, Ramp Down, Triangle, Sine, Square and Wander. Every shape uses the visible breakpoints; choosing a named shape regenerates them. Layer 1 is at the top, matching Stack Lanes. The moving dot and guide show path phase; a hollow dot indicates a held STACK override.</p>
+
+        <p>Click a point or empty graph space to switch to Manual without clearing the curve. Click empty space to add a point, drag to change time/layer position, and right-click or Control-click to remove an interior point. Endpoint times stay fixed, but their heights are editable. Use 2–32 points; named shapes enforce their minimum counts. Phase offsets the cycle and Curve bends interpolation. Grains can advance by Time or Grain Events. A breakpoint's Point Layer edits that node, not the current playing layer.</p>
+
+        <p>Hardware STACK pads temporarily steer an active compatible gesture to the held layer. STACK performance is unavailable for Slice Sequence and primary-only Wavesets; Wavesets needs Stack Scan. A manual LOOP movement latches an override; LOOP push or <code>RESUME</code> returns to saved navigation. Selecting Layer Src/Navigation also clears the latched override. A physically held layer retains momentary priority until released. Moving Lanes' Layer Pos takes Manual control. These overrides do not rewrite the saved breakpoint path.</p>
+
+        <h2 id="chop">Chop and Slice Sequence</h2>
+
+        <p>CHOP works on the selected pad's edit layer. Live Markers, Transients, Equal and Beat Grid construct up to 32 slices; banks A–D address slices 1–8, 9–16, 17–24 and 25–32. Pads audition slices directly. Transient Pre-roll moves detections earlier by 0–50 ms before zero-crossing snapping. Returning it to zero restores the detections; turn Zero Cross off when an exact offset matters.</p>
+
+        <p>Assign commits new cropped audio, not merely trim references to the full source. Each new slice has its own fitted waveform, 0–100% trim and one region until re-chopped. All channels share the same cut. Choose the destination explicitly:</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Destination</th><th>Assignment</th></tr></thead>
+          <tbody>
+            <tr><td>Pad Cells / Start Pad</td><td>Places slices into consecutive cells, crossing banks but never wrapping beyond D8.</td></tr>
+            <tr><td>One Pad / Layer Stack / Target Pad</td><td>Places the slices as layers inside one destination cell.</td></tr>
+            <tr><td>Auto / Empty</td><td>Finds available empty destinations, skipping occupied cells.</td></tr>
+            <tr><td>Source cell / Replace</td><td>Explicitly replaces the source stack. Pad distribution puts the first slice in the source cell; layer distribution replaces it with the slice stack.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The Assign buttons and <code>ALL &gt;</code> readout show the planned destinations. Other occupied cells cannot be overwritten; insufficient room disables Assign All. Source replacement changes the plug-in's audio, not the original disk file. New pad slices start as forward one-shots, retaining source shaping and routing rather than automatically becoming a sequence.</p>
+
+        <p><code>SLICE SEQUENCE</code> plays regions inside the pad, not neighboring pad cells. <code>NAVIGATION → SEQUENCE</code> uses the primary layer's markers with Forward, Reverse or Random order. Mosaic alternatives are Similar, Contrast, Energy and Brightness. <code>CANDIDATES</code> chooses Primary Slices or Stack Slices; unsliced layers contribute their whole trimmed region. Similar/Contrast compare with the preceding fragment; Energy/Brightness use Target. Repeats and Chance still apply.</p>
+
+        <p><code>CHOP → SLICE AMP / PROPORTIONAL</code> sets slice Attack, Decay, Sustain and Release. ADR scale to slice length; Slice Sequence additionally fits them to the step duration. Totals above 100% scale together. Envelopes latch at each hit, and sequence handoffs use short complementary crossfades even with zero Attack/Release. This reduces splice artifacts without filling intentional gaps or lengthening short slices.</p>
+
+        <h2 id="effects">Character FX</h2>
+
+        <p>Each pad runs one Character processor after playback. Switching effects recalls that pad's saved bank for the selected effect; it is not an eight-effect chain. <code>MIX</code> blends dry/wet, Pressure and global Mangle add to it, and <code>OUT</code> trims the result. Reverse belongs to playback and Hold/Toggle to Trigger, not Character.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Effect / secondary pad</th><th>Controls</th><th>ACN/SN3D</th></tr></thead>
+          <tbody>
+            <tr><td>Filter / 1</td><td>Low/High/Band Pass or centre-neutral DJ; Sweep, Resonance, envelope Depth/Release.</td><td>Available</td></tr>
+            <tr><td>Echo / 2</td><td>Digital, Tape, Multi Tap or Reverse; Time/Division, Feedback, Damping, Diffusion, Duck and Glide.</td><td>Except Tape</td></tr>
+            <tr><td>Space / 3</td><td>Room, Plate or Diffuse; Size, Decay, Pre Delay and Damping.</td><td>Available</td></tr>
+            <tr><td>Shift / 4</td><td>Detune, Octave or Dual; Pitch, Detune, Window and Balance.</td><td>Available</td></tr>
+            <tr><td>Vowel / 5</td><td>AH/EH/EE/OH/OO morph, Throat, Resonance and envelope Depth.</td><td>Available</td></tr>
+            <tr><td>Punch / 6</td><td>Linked parallel compression/transient shaping: Press, Snap, Recovery and Body.</td><td>Available</td></tr>
+            <tr><td>Drive / 7</td><td>Eight Macro Shred circuits; Drive, Shred, Feedback, Color, React, Tune and Body.</td><td>Disabled</td></tr>
+            <tr><td>Crush / 8</td><td>Quantization, rate hold and drive; Bits, Rate, Jitter, Drive and optional Tone filtering.</td><td>Disabled</td></tr>
+          </tbody>
+        </table>
+
+        <p>Echo's Free/Beats times share a two-second limit; <code>MAX</code> indicates a capped beat time. Shift is a post-playback delay pitch effect, not source Tune or Stretch. For ACN/SN3D, the available effects use linked detection/timing; nonlinear Drive, Crush and Tape feedback are disabled. Selecting Ambisonic format clears unsafe choices.</p>
+
+        <p>On the FX page, choose <code>ENCODER PAIR</code> or push TRAX to move between pairs. LOOP/TRAX edit the named controls; LOOP push auditions. <code>RESET THIS EFFECT</code> resets its settings and Out, keeping Mix, Pressure, playback and other effect banks.</p>
+
+        <h2 id="routing">Output Layout and Multichannel Sources</h2>
+
+        <p>The header chooses the global layout. <code>EDIT VIEW → ROUTING</code> chooses each pad's source Format and output Bus. Four-channel files default to discrete quad; explicitly choose ACN/SN3D for 1OA. Newly loaded 9/16-channel files default to ACN/SN3D, but channel count cannot verify encoding. Convert FuMa, N3D or other conventions before loading; Neon does not reorder, encode or decode them.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Layout</th><th>Channels per bus</th><th>Available buses</th></tr></thead>
+          <tbody>
+            <tr><td>Stereo</td><td>2</td><td>1</td></tr>
+            <tr><td>Stereo Stems</td><td>2</td><td>16</td></tr>
+            <tr><td>Quad</td><td>4</td><td>8</td></tr>
+            <tr><td>Octo</td><td>8</td><td>4</td></tr>
+            <tr><td>1OA ACN/SN3D</td><td>4</td><td>8</td></tr>
+            <tr><td>2OA ACN/SN3D</td><td>9</td><td>3; channels 28–32 unused</td></tr>
+            <tr><td>3OA ACN/SN3D</td><td>16</td><td>2</td></tr>
+          </tbody>
+        </table>
+
+        <p><code>PRESERVE FIELD</code> retains channel order. A discrete source may occupy a wider discrete bus with unused channels silent; Ambisonic sources require an exact order match. Incompatible format/width/bus combinations are silent and flagged. There is no automatic downmix or bus wrap. Spatial sources disable ordinary stereo pan. Route discrete outputs to the intended speakers or a <a href="monitoring-fold-down.html">monitoring fold-down</a>; follow Ambisonic output with a matching <a href="ambisonic-decoders.html">decoder</a>.</p>
+
+        <p><code>DISTRIBUTE</code> explicitly folds discrete events to a Mono or Stereo object and allocates them within the selected bus. Traversal choices are Sequential, Reverse, Palindrome, Random and Random Cycle. Window/grain/slice events allocate individually; continuous Lanes, Wavesets and Spectral allocate per gesture. Quad/Octo provide room for multiple destinations. Changing routing stops existing voices.</p>
+
+        <p>Grains' Stereo Link can unlock position/pitch spray and reverse decisions for discrete stereo. Wider sources remain linked. ACN/SN3D forces Preserve Field and linked reads; distribution never implicitly encodes an Ambisonic field. Shared trim, slice boundaries, envelopes and source movement keep components aligned.</p>
+
+        <h2 id="resample">Resample</h2>
+
+        <ol>
+          <li>Open RESAMPLE and select the internal source bus. Recording is after pad processing and master gain, including Fill Hold, but excludes REAPER inputs and downstream external FX.</li>
+          <li>Choose Record, then use the miniature NEON's <code>PLAY PADS</code> layer to perform loaded cells while recording. A bus-mismatch warning does not reroute those cells automatically.</li>
+          <li>Stop and audition the completed take. Waveforms and a write cursor are drawn during recording; channel views also apply to captures.</li>
+          <li>Set Start/End and use <code>CROP TO SELECTION / DISCARD OUTSIDE</code> to keep only the desired audio. This destructively crops the current review, resets its trim/zoom and auditions the result.</li>
+          <li>Choose an empty Target and Assign Capture to Cell. Playing loaded pads does not change this target. Discard the review before starting another take; already assigned cells remain intact.</li>
+        </ol>
+
+        <p>On either RESAMPLE pad layer, <code>Shift + pad 1 (REC)</code> toggles recording. A completed review is protected until explicitly discarded. <code>Shift + primary pad 7</code> crops to selection. Review audition uses bus 1 of a matching layout and is excluded from recording.</p>
+
+        <p>Captures preserve the selected bus's channel count/order, including 16-channel 3OA. The limit is 30 seconds or 1,440,000 frames, whichever is shorter—15 seconds at 96 kHz. Changing global output layout stops a take. Stop recording before saving; save a set before cropping if the untrimmed take is needed. Previously assigned cells retain their original audio.</p>
+
+        <h2 id="hardware">NEON Pages, Encoders and LEDs</h2>
+
+        <p>On macOS, one Sample Neon instance should have <code>NEON OWNER</code> enabled for direct LED feedback. Do not add a MIDI hardware send back to NEON: feedback addresses overlap controller messages and duplicate routes can create false presses or loops. The plugin still needs an input route, either host MIDI or the Utility's direct-USB mode. Hardware colours distinguish editing pages; the software interface remains grayscale.</p>
+
+        <p>For one controller without Tracker, route its native MIDI directly to Sample Neon on all controller channels and enable track monitoring; Utility is optional. Use the Utility chain below when you need bank-aware notes for Tracker or independent identities for two USB controllers.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Hardware / GUI page</th><th>Primary pads</th><th>Secondary pads, left to right</th></tr></thead>
+          <tbody>
+            <tr><td>Sampler / Play</td><td>Perform cells in bank A–D.</td><td>Filter, Echo, Space, Shift, Vowel, Punch, Drive, Crush.</td></tr>
+            <tr><td>Slicer / Chop</td><td>Audition slices in the current slice bank.</td><td>Add, Delete, Audition, Zero Cross, Equal, Transients, Assign One, Assign All.</td></tr>
+            <tr><td>Hot Cue / Stack</td><td>Audition/hold stack layers; banks address layers 1–32, not other cells.</td><td>Source, Sample, Motion, Grains, One Shot, Hold, Toggle, Stop. On Character FX, select its eight effects instead.</td></tr>
+            <tr><td>Hot Loop / Resample</td><td>Record, Stop, Audition, Discard, Bus −, Bus +, Review, Assign.</td><td>Perform loaded cells; empty pads choose capture targets.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Shift is an alternate/fine modifier, not the secondary-page switch. Use the controller's secondary mode messages or the GUI's <code>SECOND / PRIMARY</code> button; RESAMPLE labels it <code>PLAY PADS / REC TOOLS</code>. Sample, slice and layer banks are remembered separately. Shift + STACK pad selects Edit Layer without playing. Held-pad releases remain attached to their original gesture across page/bank changes.</p>
+
+        <p><code>ENCODERS → PERFORM</code> maps LOOP to cell gain and TRAX to global Mangle. <code>EDIT</code> follows the current Edit View without changing the primary performance pads or MIDI notes. Bank changes preserve this choice. The miniature sliders mirror these assignments rather than introducing duplicate parameters.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Context</th><th>LOOP</th><th>TRAX</th></tr></thead>
+          <tbody>
+            <tr><td>Source / Stack source editing</td><td>Cursor; push sets Start, Shift-push sets End.</td><td>Zoom; push resets, Shift-push focuses trim.</td></tr>
+            <tr><td>Chop</td><td>Cursor; push adds a marker, Shift-push deletes.</td><td>Zoom; push resets, Shift-push focuses slice.</td></tr>
+            <tr><td>Stack performance</td><td>Layer position; push resumes saved navigation.</td><td>Layer transition slew.</td></tr>
+            <tr><td>Stack Path editing</td><td>Edit Layer selection; push auditions that layer.</td><td>Stack cycle, in seconds or beats.</td></tr>
+            <tr><td>Lanes playback</td><td>Layer Pos; push auditions.</td><td>Speed.</td></tr>
+            <tr><td>Cutups playback</td><td>Cut rate or Host division; push auditions.</td><td>Step Repeat.</td></tr>
+            <tr><td>Motion playback</td><td>Scan offset; push auditions.</td><td>Cycle, in seconds or beats.</td></tr>
+            <tr><td>Grains playback</td><td>Grain size; push auditions.</td><td>Density or host interval.</td></tr>
+            <tr><td>Slice Sequence playback</td><td>Step rate; push auditions.</td><td>Repeats.</td></tr>
+            <tr><td>Stretch playback</td><td>Duration; push auditions.</td><td>Tune.</td></tr>
+            <tr><td>Wavesets Rearrange / Oscillator</td><td>Group cycles / Cycle Pos; push auditions.</td><td>Repeats / Frequency.</td></tr>
+            <tr><td>Spectral playback</td><td>Position; push auditions.</td><td>Blur.</td></tr>
+            <tr><td>Character FX</td><td>First named control; push auditions.</td><td>Second named control; push advances Encoder Pair.</td></tr>
+            <tr><td>Resample review</td><td>Cursor; push sets Start, Shift-push sets End.</td><td>Zoom; push resets.</td></tr>
+          </tbody>
+        </table>
+
+        <p>Shift gives fine continuous adjustments. Double-click any software slider to restore its declared default. Numeric readouts support precise entry where editable. The hardware's five small status icons retain the physical order <code>One Shot / Toggle / Hold / Loop / Sync</code>; Loop is fourth. Mode + pad cycles trigger behavior. For Sample, Repeat/Slip + pad toggles repeat and Sync + pad toggles tempo sync. Generated methods use their own clock/sustain controls. Unshifted Censor reverses new direct-sample gestures while held.</p>
+
+        <p>Primary cell LEDs show loaded audio in red, last played in yellow and currently sounding in white; empty pads are dark. STACK and secondary tools use distinct palettes. GUI pads separately show AUDIO, EMPTY, LOADING or OFFLINE, selection, and playback activity. A selection outline alone does not indicate loaded audio.</p>
+        <p>GUI buttons and mini-pads briefly flash light gray on a recognized press, then return to their normal state. This acknowledgment is separate from ongoing playback and selection indicators.</p>
+
+        <h3 id="fill">Buffer Fill Hold</h3>
+
+        <p>Hold <code>Shift + the top-right Mode/Censor button</code>, or the GUI's <code>FILL HOLD</code>. It captures recent heard output and temporarily replaces all buses with a deconstructed repeat. Pads and sequencing continue underneath; release crossfades back to their current position. With no recorded history, output stays dry.</p>
+
+        <p><code>FILL SET</code> provides Grab (lookback), Repeat and Breakup. Grab is used on the next press; Repeat/Breakup work live. While held, LOOP controls Repeat and TRAX controls Breakup. Increasing Breakup adds reordered/reversed fragments, ratchets and gaps. All channels share the same read/gate decisions. Resample captures the fill result. <code>RELEASE FILL</code> and KILL provide escape controls. Buffer contents and held state are transient, not saved audio.</p>
+
+        <h2 id="tracker">Utility Neon MIDI and Tracker</h2>
+
+        <p>Factory SAMPLE pads use raw notes 0–7 in every bank. <code>s3g Utility Neon MIDI</code> translates these into bank-aware musical notes while keeping page buttons, encoders and other controls separate. For one controller on macOS, put the following in the normal track FX chain:</p>
+
+        <ol>
+          <li><code>s3g Utility Neon MIDI</code>: Input <code>HOST MIDI</code>, Control Route <code>TRACKER + SAMPLE NEON</code>, Base Note <code>36</code>, Output Channel <code>1</code>. Select the physical NEON as the track input on all native channels, and enable monitoring/record-arm as required by REAPER.</li>
+          <li><a href="s3g-tracker.html">s3g Tracker</a>: use the updated MIDI-through recorder (0.4.1 or newer); set participating lanes, including the recording destination, to <code>CH01</code>.</li>
+          <li><code>s3g Sample Neon 32</code>: Base Note <code>36</code>, <code>EDIT VIEW → ROUTING → MIDI IN → CH 1</code>, and <code>NEON OWNER</code> enabled on this instance only.</li>
+        </ol>
+
+        <p>Do not remap input channels before Utility, add a parallel raw-NEON route, or return MIDI to the hardware. Keep the physical controller on primary SAMPLER to record pad notes; choosing EDIT encoders in the GUI does not leave that performance page. CHOP/STACK auditions and editing controls are not recorded as Tracker notes or automation. Tracker REC OFF monitors without writing; live Q/MT recording needs running transport.</p>
+
+        <table class="readout-table">
+          <thead><tr><th>Bank</th><th>Cells</th><th>Default MIDI notes</th></tr></thead>
+          <tbody>
+            <tr><td>A</td><td>A1–A8</td><td>36–43</td></tr>
+            <tr><td>B</td><td>B1–B8</td><td>44–51</td></tr>
+            <tr><td>C</td><td>C1–C8</td><td>52–59</td></tr>
+            <tr><td>D</td><td>D1–D8</td><td>60–67</td></tr>
+          </tbody>
+        </table>
+
+        <p>Ordinary sequencer/keyboard notes address these cells regardless of the visible editing page. Base Note moves the default sequential map; MIDI In accepts Omni or channels 1–16 across all cells. An explicit MIDI In channel gives musical notes priority over overlapping factory controller addresses. The channel filter does not block Utility's private hardware-control messages. Utility owns the performance bank in this chain: use hardware/Utility bank buttons; changing Sample Neon's GUI bank is not a return connection to Utility.</p>
+
+        <h3 id="pad-note-map">Custom Pad Notes</h3>
+
+        <p>From Sample Neon 0.37 and Utility Neon MIDI 0.3, choose <code>ROUTING → PAD NOTE MAP</code> in Neon, or <code>PAD NOTE MAP</code> in Utility's title row. The four columns show banks A–D, with pads 1–8 down each column. Click a number to enter a MIDI note from 0 to 127. All 32 notes must be unique; octave names are deliberately avoided because hosts label them differently.</p>
+
+        <ul>
+          <li><code>PASTE LIST</code> accepts 32 numbers separated by spaces, commas, tabs or line breaks, in A1–A8, B1–B8, C1–C8, D1–D8 order. <code>COPY LIST</code> exports that same order for another instance.</li>
+          <li><code>FROM A1</code> fills consecutive notes starting at the draft A1 value (0–96). <code>DEFAULT</code> returns to Base Note plus the cell index, normally 36–67. A custom map uses absolute note numbers and ignores Base Note.</li>
+          <li>Edits remain a draft until <code>APPLY</code>; <code>CANCEL</code> leaves the working map alone. Applying a changed map stops sounding pads/releases held Utility notes, so do this between phrases.</li>
+        </ul>
+
+        <p>In the Utility → Tracker → Neon chain, enter the map once in <strong>Utility</strong> and keep Neon's <code>MAP SOURCE</code> on <code>FOLLOW UTILITY</code> (the default). Utility sends the complete map downstream before performance notes; Tracker forwards it without recording it as pattern data. Neon's received grid is read-only. Choose <code>LOCAL</code> and Apply if the instrument should deliberately ignore incoming maps. This is one-way synchronization, not an upstream connection from Neon to Utility.</p>
+
+        <p>Both maps are saved in project/plugin state. Neon saves the received map as its fallback when recalled without Utility; connecting Utility again takes precedence in Follow mode. <code>NOTES ONLY</code> still emits the chosen musical notes but omits map synchronization, so use Copy/Paste List to match another instrument manually. The map is global to all banks and both USB controllers, not part of a pad's audio: copying pads, distributing slices, and Reset All retain it. Changing a map does not rewrite notes already recorded in Tracker.</p>
+
+        <p><code>Shift + Sampler</code> toggles hardware velocity sensitivity. Off still sends notes, with fixed velocity 127. Utility pairs the NEON's separate velocity message with the strike and displays NOTE, VEL, AT and VOL; VOL is velocity divided by 127. Sample Neon's <code>ROUTING → VELOCITY → PAD VELOCITY</code> enables dynamic loudness. Aftertouch is separate: the control bridge carries it to Neon, but Tracker does not write it into the pattern.</p>
+
+        <p><code>NOTES ONLY</code> is for another instrument or a note-only recording route. It deliberately drops Neon controls, page/bank feedback synchronization and aftertouch forwarding. It does not convert aftertouch to ordinary MIDI pressure for another instrument. Utility is not a general keyboard MIDI-thru; route a keyboard separately after it. The advanced playback/path/FX settings are saved with Neon but are not all host-automation parameters.</p>
+
+        <h3 id="two-controllers">Two USB Controllers</h3>
+
+        <p>Use Utility Neon MIDI 0.2.1 or newer with both controllers connected by USB and the Smart Link cable removed. Choose <code>USB TWO NEONS</code> and retain the same downstream chain. USB mode opens the inputs directly and ignores duplicate host raw input. Unit 1 starts on A and unit 2 on B for sixteen immediately accessible pads; either can choose any bank. Do not merge two raw inputs and expect independent bank identity.</p>
+
+        <p>Each controller keeps its own bank/page, selected cell, modifiers and LED destination. The editor follows the latest press or encoder; both controllers share samples, effects, recorder and Fill Hold. Utility's View selects the displayed unit, Swap USB exchanges assignments, and Relearn USB forgets them. Save the project after assignment. A single controller remains supported; direct USB identity/LED handling is macOS-specific.</p>
+
+        <h2 id="storage">Storage, Sets and Reset</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Storage</th><th>Where audio lives</th></tr></thead>
+          <tbody>
+            <tr><td>Project — default</td><td>Collects file-backed and generated pad audio into the saved REAPER project's <code>s3g Samples</code> media directory. Project-relative references are recalled; use REAPER's copy-media option with Save As.</td></tr>
+            <tr><td>Link</td><td>References original files. Keep their paths available; generated/pathless audio still needs an embedded payload.</td></tr>
+            <tr><td>Embed</td><td>Stores decoded audio in host plug-in state or a <code>.s3gneon</code> set—not in the installed plug-in binary.</td></tr>
+          </tbody>
+        </table>
+
+        <p>The header's policy applies to every pad layer. Project collection needs a saved REAPER project and project-media access; until then collection is pending and imported sources remain linked. Pathless audio and the unassigned resample review remain embedded for safety. Shared PCM is stored once, with a 256 MiB unique embedded-audio limit. Large embedded sets can make saves and host undo snapshots expensive. Missing files can be replaced through Load.</p>
+
+        <p><code>LOAD SET / SAVE SET</code> recall complete sounds, stacks and settings. Load Set warns before replacing current work and starts a new undo history on success; it is not itself undoable. Saving keeps the current history. A set saved in Link/Project mode is not automatically a self-contained sample archive; use Embed when its size is suitable, or carry the referenced media. See the shared <a href="sample-instruments.html#state">storage guide</a>.</p>
+
+        <p><code>RESET ALL</code> requires confirmation; stop recording first. It stops playback, clears all cells and the review take, and resets sound/editing settings, while retaining output layout, Base Note, MIDI receive channel and Neon ownership. Imported files are never deleted. Undo can restore it within this session's history limits; save a set for recovery after closing the project.</p>
+
+        <p>Compatibility note: the Character redesign in 0.34 preserves older sources/playback/routing but resets pre-0.34 Character banks and Mangle. Save a separate project copy before migration. The 0.36 Spectral additions default to neutral; sets using new controls require a version that understands them. New state does not make older binaries forward-compatible.</p>
+
+        <h2 id="troubleshooting">Troubleshooting</h2>
+
+        <table class="readout-table">
+          <thead><tr><th>Symptom</th><th>Check</th></tr></thead>
+          <tbody>
+            <tr><td>A loaded pad is silent</td><td>Format, global layout, bus, host channel routing and MIDI In; also Host transport, source availability and extreme Thin/FX settings. Wavesets needs usable cycles.</td></tr>
+            <tr><td>Stack Scan does not move</td><td>At least two layers, compatible playback, Stack Scan/Path selected, a running gesture and a running Host clock or Free mode. Release held layers and use Resume to clear a manual override.</td></tr>
+            <tr><td>The waveform shows another layer</td><td>Follow Stack shows what is playing, not necessarily Edit Layer. Choose Edit Layer for fixed source editing.</td></tr>
+            <tr><td>Grains stops after a short time</td><td>One Shot uses Shot Length. Use Hold/Toggle for sustained playback; Grain Size does not set the gesture length.</td></tr>
+            <tr><td>Tracker records nothing or only maximum velocity</td><td>Primary SAMPLER page, Utility → Tracker → Neon order, matching channels, Tracker recording/transport, and the hardware Shift + Sampler velocity toggle.</td></tr>
+            <tr><td>Buttons seem to press themselves or LEDs disagree</td><td>Remove hardware MIDI returns and duplicate raw-input routes; enable only one Neon LED owner. In a Utility chain, choose banks on hardware/Utility.</td></tr>
+            <tr><td>The recorder misses a pad</td><td>Capture Source must match the pad's output bus. The recorder does not automatically reroute it or record downstream REAPER FX.</td></tr>
+          </tbody>
+        </table>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="sample-kit.html"><span>Previous</span>Sample Kit</a>
+          <a class="page-nav-link next" href="sample-doubles.html"><span>Next</span>Sample Doubles</a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-kit.html">Sample Kit</a>
+          <a href="sample-neon.html">Sample Neon 32</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-lanes.html">Sample Lanes</a>
+          <a href="sample-grains.html">Sample Grains</a>
+          <a href="sample-cutups.html">Sample Cutups</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
+          <a href="sample-rings.html">Sample Rings</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#workflow">Workflow</a>
+          <a href="#organization">Pads and Workspaces</a>
+          <a href="#sources">Sources and Copying</a>
+          <a href="#normalize">Normalize</a>
+          <a href="#copy">Copy and Paste</a>
+          <a href="#undo">Undo and Redo</a>
+          <a href="#waveform">Waveform and Zero Crossings</a>
+          <a href="#playback">Playback and Gestures</a>
+          <a href="#cutups">Cutups</a>
+          <a href="#motion-grains">Motion and Grains</a>
+          <a href="#wavesets">Wavesets</a>
+          <a href="#spectral">Spectral</a>
+          <a href="#layers">Layers and Stack Paths</a>
+          <a href="#chop">Chop and Slice Sequence</a>
+          <a href="#effects">Character FX</a>
+          <a href="#routing">Multichannel Routing</a>
+          <a href="#resample">Resample</a>
+          <a href="#hardware">NEON Hardware</a>
+          <a href="#fill">Fill Hold</a>
+          <a href="#tracker">Utility and Tracker</a>
+          <a href="#pad-note-map">Custom Pad Notes</a>
+          <a href="#two-controllers">Two Controllers</a>
+          <a href="#storage">Storage and Reset</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

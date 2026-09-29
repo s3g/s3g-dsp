@@ -2,6 +2,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/note-ports.h>
+#include <clap/ext/note-name.h>
 #include "s3g_neon_midi.h"
 #include "s3g_neon_midi_stream.h"
 #if defined(S3G_TEST_TRACKER_RECORDER)
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -413,6 +415,8 @@ void testDualUtility(const char* path, const char* trackerPath, const char* neon
     unsigned pressureCount = 0;
     for (unsigned n = 0; n < out.count; ++n) if (out.events[n].type == CLAP_EVENT_MIDI_SYSEX) {
         const auto& e = out.events[n]; nm::BridgeMessage b;
+        nm::PadNotes map;
+        if (nm::decodeNoteMap(e.sysex.buffer,e.sysex.size,map)) { check(map == nm::sequentialNotes(),"shared default map on dual route"); continue; }
         check(nm::decodeBridge(e.sysex.buffer, e.sysex.size, b) && b.addressed, "dual route uses addressed envelopes");
         if (b.kind == nm::BridgeKind::Pressure) {
             ++pressureCount;
@@ -525,8 +529,8 @@ void testChain(Module& utility, const char* trackerPath, const char* neonPath) {
         if (translated.events[i].type == CLAP_EVENT_MIDI_SYSEX)
             check(through.events[i].type == CLAP_EVENT_MIDI_SYSEX
                 && through.events[i].sysex.header.time == translated.events[i].sysex.header.time
-                && through.events[i].sysex.size == 15u
-                && !std::memcmp(through.events[i].bytes.data(), translated.events[i].bytes.data(), 15u), "transparent control envelope");
+                && through.events[i].sysex.size == translated.events[i].sysex.size
+                && !std::memcmp(through.events[i].bytes.data(), translated.events[i].bytes.data(), through.events[i].sysex.size), "transparent control and note-map envelopes");
     for (uint8_t velocity : {1u, 3u, 32u, 64u, 96u, 127u}) {
         raw.clear(); translated.clear(); through.clear(); result.clear();
         raw.midi(7, 0xb7, 1, velocity); raw.midi(8, 0x97, 1, 127); raw.midi(12, 0xa7, 1, 90);
@@ -612,6 +616,112 @@ void testChain(Module& utility, const char* trackerPath, const char* neonPath) {
         check(pressures == 1u, "bank switch lost or duplicated held pressure");
     }
 }
+void testNoteMap(const char* path, const char* trackerPath, const char* neonPath) {
+    auto notes = nm::sequentialNotes();
+    notes[0] = 0; notes[8] = 127; notes[31] = 12;
+    check(nm::validNotes(notes) && nm::padForNote(notes,0)==0 && nm::padForNote(notes,127)==8
+        && nm::padForNote(notes,12)==31 && nm::padForNote(notes,36)<0,"noncontiguous map and endpoints");
+    nm::PadNotes parsed;
+    std::string list;
+    for (auto key : notes) list += std::to_string(key) + ",\t\n";
+    check(nm::parseNotes(list,parsed) && parsed==notes,"bank-major clipboard list accepts comma/space/newline");
+    for (auto invalid : {list+"1",std::string("-1,")+list,std::string("999999999999,"),std::string("1 1"),std::string("1.5")})
+        check(!nm::parseNotes(invalid,parsed) && parsed==notes,"invalid clipboard list is transactional");
+    auto packet=nm::encodeNoteMap(notes);
+    check(nm::decodeNoteMap(packet.data(),packet.size(),parsed) && parsed==notes,"map wire roundtrip");
+    for (unsigned n=0;n<packet.size();++n) check(!nm::decodeNoteMap(packet.data(),n,parsed),"truncated map rejected");
+    packet[9]=packet[8]; check(!nm::decodeNoteMap(packet.data(),packet.size(),parsed),"duplicate wire note rejected");
+    packet=nm::encodeNoteMap(notes);packet[8]=128;check(!nm::decodeNoteMap(packet.data(),packet.size(),parsed),"non-7bit note rejected");
+    nm::PublishedNoteMap published;nm::NoteMap snapshot;snapshot.custom=true;snapshot.notes=notes;
+    published.store(snapshot);nm::NoteMap read;
+    check(published.read(read) && read.custom && read.notes==notes,"published map roundtrip");
+
+    Module utility(path);
+    const auto* state=static_cast<const clap_plugin_state_t*>(utility.plugin->get_extension(utility.plugin,CLAP_EXT_STATE));
+    State original;check(state->save(utility.plugin,&original.out),"save default note map");
+    State custom;custom.data=original.data;custom.data[4]=3;
+    custom.data.insert(custom.data.end(),notes.begin(),notes.end());
+    check(state->load(utility.plugin,&custom.in),"load v3 custom note map");
+    State saved;check(state->save(utility.plugin,&saved.out) && saved.data==custom.data,"custom map recall stable");
+    for (size_t size=20;size<custom.data.size();++size) {
+        State shortState;shortState.data.assign(custom.data.begin(),custom.data.begin()+size);
+        check(!state->load(utility.plugin,&shortState.in),"truncated custom map rejected");
+    }
+    State duplicate;duplicate.data=custom.data;duplicate.data[21]=duplicate.data[20];
+    check(!state->load(utility.plugin,&duplicate.in),"duplicate custom state rejected");
+    State unchanged;check(state->save(utility.plugin,&unchanged.out) && unchanged.data==custom.data,"invalid custom restores transactional");
+    utility.activate();
+    std::unique_ptr<Module> tracker,neon;
+    std::array<std::array<float,256>,32> samples {};
+    std::array<float*,32> channels {};for(unsigned c=0;c<32;++c) channels[c]=samples[c].data();
+    clap_audio_buffer_t audio {};audio.channel_count=32;audio.data32=channels.data();
+    if (trackerPath && neonPath) {
+        tracker=std::make_unique<Module>(trackerPath);neon=std::make_unique<Module>(neonPath);
+        tracker->activate();neon->set(5,0);neon->set(7,1);neon->activate();
+    }
+    List in,out,through,result;
+    auto chain=[&] {
+        out.clear();through.clear();result.clear();utility.run(in,out);
+        if (tracker) { tracker->run(out,through);neon->run(through,result,false,&audio); }
+    };
+    for(unsigned bank=0;bank<4;++bank) {
+        utility.set(1,bank);in.clear();
+        for(unsigned pad=0;pad<8;++pad) {
+            in.midi(pad*4,0xb7,pad,17+pad);in.midi(pad*4+1,0x97,pad,127);in.midi(pad*4+2,0x87,pad,0);
+        }
+        chain(); const auto emitted=out.notes();
+        check(emitted.size()==16,"custom map emits all eight pads per bank");
+        for(unsigned pad=0;pad<8;++pad) check(emitted[pad*2].data[1]==notes[bank*8+pad]
+            && emitted[pad*2].data[2]==17+pad && emitted[pad*2+1].data[1]==notes[bank*8+pad],"custom keys retain velocity and releases");
+        bool received=false;
+        for(unsigned i=0;i<out.count;++i) if(out.events[i].type==CLAP_EVENT_MIDI_SYSEX
+            && nm::decodeNoteMap(out.events[i].bytes.data(),out.events[i].sysex.size,parsed)) {
+                check(parsed==notes,"shared custom map contains all banks");received=true;
+            }
+        check(received,"custom map sent before performance");
+        if (neon) {
+            const auto* names=static_cast<const clap_plugin_note_name_t*>(neon->plugin->get_extension(neon->plugin,CLAP_EXT_NOTE_NAME));
+            for(unsigned cell=0;cell<32;++cell) { clap_note_name_t name {};check(names && names->get(neon->plugin,cell,&name)
+                && name.key==notes[cell],"Tracker passes shared map with Neon ownership off"); }
+        }
+    }
+    // Saving Neon captures a standalone fallback, without needing Utility at recall.
+    if(neon) {
+        const auto* ns=static_cast<const clap_plugin_state_t*>(neon->plugin->get_extension(neon->plugin,CLAP_EXT_STATE));
+        State received;check(ns->save(neon->plugin,&received.out),"save received map in Neon");
+        Module recalled(neonPath);const auto* rs=static_cast<const clap_plugin_state_t*>(recalled.plugin->get_extension(recalled.plugin,CLAP_EXT_STATE));
+        check(rs->load(recalled.plugin,&received.in),"recall received map without Utility");
+        const auto* names=static_cast<const clap_plugin_note_name_t*>(recalled.plugin->get_extension(recalled.plugin,CLAP_EXT_NOTE_NAME));
+        for(unsigned cell=0;cell<32;++cell) { clap_note_name_t name {};check(names->get(recalled.plugin,cell,&name)
+            && name.key==notes[cell],"standalone fallback retains custom keys"); }
+        // Explicit local mode must survive a later upstream map and project recall.
+        received.cursor=0;received.data[received.data.size()-33]=0;
+        check(rs->load(recalled.plugin,&received.in),"restore local-only map source");
+        recalled.activate();List localIn,localOut;
+        const auto defaults=nm::encodeNoteMap(nm::sequentialNotes());
+        clap_event_midi_sysex_t envelope {};
+        envelope.header={sizeof(envelope),0,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI_SYSEX,0};
+        envelope.buffer=defaults.data();envelope.size=static_cast<uint32_t>(defaults.size());
+        check(List::push(&localIn.out,&envelope.header),"local map input");
+        recalled.run(localIn,localOut,false,&audio);
+        clap_note_name_t localName {};
+        check(names->get(recalled.plugin,0,&localName) && localName.key==0,"local map ignores received defaults");
+        State localSaved;check(rs->save(recalled.plugin,&localSaved.out) && localSaved.data==received.data,
+            "local map setting and custom keys survive unchanged");
+    }
+    utility.set(1,0);in.clear();in.midi(0,0x97,0,61);chain();
+    // Restore under a held finger: release must still use key zero, not 36.
+    original.cursor=0;check(state->load(utility.plugin,&original.in),"restore default map under hold");
+    in.clear();chain();check(out.notes().size()==1 && out.notes()[0].data[0]==0x80 && out.notes()[0].data[1]==0,"map apply releases original key");
+    in.clear();in.midi(0,0x87,0,0);chain();check(out.notes().empty(),"late physical release does not author another note");
+    utility.set(4,0);in.clear();in.midi(0,0x97,0,70);in.midi(1,0x87,0,0);chain();
+    check(out.count==2 && out.notes()[0].data[1]==36,"Notes Only suppresses map envelopes too");
+    utility.set(4,1);in.clear();out.clear();out.limit=0;in.midi(0,0x97,0,70);utility.run(in,out);
+    check(out.count==0,"map rejection blocks new mapped note");
+    in.clear();chain();check(out.notes().empty(),"rejected note never becomes a held release");
+    in.clear();in.midi(2,0x97,0,71);in.midi(3,0x87,0,0);chain();
+    check(out.notes().size()==2,"mapping retries recover after host backpressure");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -622,6 +732,7 @@ int main(int argc, char** argv) {
     testAddressedBridge();
     testFillShortcutRoute(argv[1]);
     testDualUtility(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);
+    testNoteMap(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);
     std::printf("NEON MIDI: %u checks passed\n", checks);
     return 0;
 }

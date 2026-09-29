@@ -3,7 +3,7 @@
 unsigned stackCount(const Plugin& p, std::size_t slot) {
     unsigned count = 0u;
     for (unsigned n = 0u; n < 32u; ++n)
-        if (p.sources[slot][n].asset || !p.sources[slot][n].path.empty()) count = n + 1u;
+        if (p.sources[slot][n].asset || !p.sources[slot][n].path.empty() || p.pendingSourceLoads[slot][n]) count = n + 1u;
     return count;
 }
 const SampleAsset* renderBase(const s3g::sample::NeonStack* stack) noexcept {
@@ -22,6 +22,15 @@ void saveLayerEdit(Plugin& p, std::size_t slot) {
     for (unsigned n = 0u; n < 33u; ++n) s.slices.boundaries[n] = p.sliceBoundaries[slot][n].load();
     s.analysis = p.slotAnalyses[slot];
 }
+template<class Source> void appendMosaicFragments(s3g::sample::NeonStack& stack, const Source& source, unsigned layer) {
+    if (!source.asset) return;
+    const auto slices = source.slices.valid() ? source.slices : s3g::sample::equalSampleNeonSliceLayout(1);
+    for (unsigned slice = 0; slice < slices.sliceCount; ++slice) {
+        const double a = source.start + (source.end - source.start) * slices.boundaries[slice];
+        const double b = source.start + (source.end - source.start) * slices.boundaries[slice + 1];
+        stack.fragments[stack.fragmentCount++] = s3g::sample::neonDescribeFragment(stack.layers[layer], layer, a, b);
+    }
+}
 void publishStack(Plugin& p, std::size_t slot) {
     auto snapshot = std::make_shared<s3g::sample::NeonStack>();
     snapshot->count = static_cast<uint8_t>(stackCount(p, slot));
@@ -32,6 +41,9 @@ void publishStack(Plugin& p, std::size_t slot) {
         if (source.wavesets && source.wavesets->asset != source.asset) source.wavesets.reset();
         snapshot->layers[n] = {source.asset.get(), source.start, source.end};
         snapshot->layers[n].wavesets = source.wavesets && source.wavesets->asset == source.asset ? source.wavesets.get() : nullptr;
+        snapshot->cutupsMetadata[n] = source.analysis;
+        snapshot->sourceBpms[n] = static_cast<float>(source.bpm);
+        appendMosaicFragments(*snapshot, source, n);
         if (snapshot->layers[n].wavesets
             && std::find(p.retainedWavesets.begin(), p.retainedWavesets.end(), source.wavesets) == p.retainedWavesets.end())
             p.retainedWavesets.push_back(source.wavesets);
@@ -43,6 +55,18 @@ void publishStack(Plugin& p, std::size_t slot) {
     const auto& primary = p.sources[slot][0];
     p.controlWavesets[slot] = primary.wavesets && primary.wavesets->asset == primary.asset ? primary.wavesets : nullptr;
     p.publishedWavesets[slot].store(p.controlWavesets[slot].get(), std::memory_order_release);
+}
+void serviceMosaic(Plugin& p) {
+    if (p.resetAllPhase.load()) return;
+    for (unsigned slot = 0; slot < 32; ++slot) {
+        if (p.textureOptions[slot].load() != kSequenceOption || p.familyControls[slot][neonFamilyIndex(NeonFamily::MosaicMode)].load() == 0) continue;
+        const auto& source = p.sources[slot][p.selectedLayers[slot].load()];
+        bool changed = source.start != paramValue(p, slotParamId(slot, kSlotStart))
+            || source.end != paramValue(p, slotParamId(slot, kSlotEnd)) || source.slices.sliceCount != p.sliceCounts[slot].load();
+        for (unsigned n = 0; n <= p.sliceCounts[slot].load(); ++n)
+            changed |= source.slices.boundaries[n] != p.sliceBoundaries[slot][n].load();
+        if (changed) { saveLayerEdit(p, slot); publishStack(p, slot); }
+    }
 }
 void showLayer(Plugin& p, std::size_t slot, unsigned layer, bool savePrevious = true) {
     if (slot >= 32u || layer >= 32u) return;
@@ -70,6 +94,7 @@ void showLayer(Plugin& p, std::size_t slot, unsigned layer, bool savePrevious = 
     if (p.hostParams && p.hostParams->rescan) p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
 }
 void invalidateLayerLoads(Plugin& p, std::size_t slot) {
+    p.pendingSourceLoads[slot].fill(false);
 #if defined(S3G_SAMPLE_FILE_WORKER)
     ++p.loadGenerations[slot];
     for (unsigned n = 0u; n < 32u; ++n) {
@@ -85,6 +110,9 @@ void removeLayer(Plugin& p, std::size_t slot) {
     saveLayerEdit(p, slot);
     const unsigned layer = p.selectedLayers[slot].load(), count = stackCount(p, slot);
     if (!count) return;
+    NeonHistoryEdit edit(p, "REMOVE " + std::string(1, static_cast<char>('A' + slot / 8))
+        + std::to_string(slot % 8 + 1) + " L" + std::to_string(layer + 1), 1u << slot);
+    if (!edit) return;
     invalidateLayerLoads(p, slot);
     for (auto& registration : p.registrations[slot]) registration.clear();
     for (unsigned n = layer; n + 1u < count; ++n) p.sources[slot][n] = std::move(p.sources[slot][n + 1u]);
@@ -92,6 +120,7 @@ void removeLayer(Plugin& p, std::size_t slot) {
     showLayer(p, slot, std::min(layer, count > 1u ? count - 2u : 0u), false);
     p.pendingCellStops.fetch_or(1u << slot);
     p.workflowMessage = "LAYER REMOVED; FILES ON DISK KEPT";
+    edit.commit();
 }
 bool layerWidthCompatible(const Plugin& p, std::size_t slot, unsigned layer, const SampleAsset& asset) {
     for (unsigned n = 0u; n < 32u; ++n)

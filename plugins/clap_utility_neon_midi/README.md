@@ -1,6 +1,6 @@
 # s3g Utility Neon MIDI
 
-Version 0.2.1. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
+Version 0.3.1. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
 audio processing, hardware MIDI output or second LED owner. Uses the same
 factory-message decoder as Sample Neon 32. Utility-family Fira Code/grayscale
 editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
@@ -9,11 +9,11 @@ editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
 
 Place these **in this order in the normal track FX chain**:
 
-1. **s3g Utility Neon MIDI 0.2.1** — Control Route `TRACKER + SAMPLE NEON`,
+1. **s3g Utility Neon MIDI 0.3.1** — Control Route `TRACKER + SAMPLE NEON`,
    Base Note `36`, Output Channel `1`.
 2. **s3g Tracker 0.4.1 or newer** — participating lanes, including the recording
    destination, on `CH01`.
-3. **s3g Sample Neon 32 0.29.0 or newer** — Base Note `36`, Standard MIDI Receive
+3. **s3g Sample Neon 32 0.37.0 or newer** — Follow Utility map, Standard MIDI Receive
    `1`, and `NEON OWNER: ON` in this one instrument instance.
 
 Choose the physical NEON as the track's MIDI input, on all its native channels;
@@ -53,9 +53,38 @@ Sample Neon route; they do not become Tracker notes or recorded automation.
 ## Controls and recording are separate
 
 The factory SAMPLE pads send the same raw channel-8 notes 0–7 in every bank.
-The adapter remembers bank buttons and emits `base + bank*8 + pad` instead.
+The adapter remembers bank buttons and emits `base + bank*8 + pad` by default,
+or the corresponding cell's custom note when a map is applied.
 Velocity and sample offsets are retained. Releases latch the original note
 and channel even if bank, page, SHIFT or mapping changes under a held finger.
+
+### Custom pad notes (0.3)
+
+On macOS, 0.3.1 keeps VSTGUI and gives the pad-note numeric fields charcoal
+selection highlighting with light text. Styling is scoped to that active field;
+the host window's shared text editor is restored when entry ends.
+Buttons also flash light gray for 180 ms on a recognized press, then return to
+their normal active/inactive appearance. Disabled buttons do not respond.
+
+Open **PAD NOTE MAP** in the title row. Edit all 32 MIDI addresses in the A–D
+grid, or Paste List with 32 unique integers (0–127) in A1–A8, B1–B8, C1–C8,
+D1–D8 order. Commas, whitespace and line breaks are accepted. Copy List exports
+the same format; From A1 fills consecutive notes starting at A1 (0–96).
+Default restores Base Note mapping. Apply commits the draft and releases held
+notes; Cancel leaves the current map unchanged. Custom maps ignore Base Note.
+
+In `TRACKER + SAMPLE NEON`, Utility sends a validated private v3 map envelope
+before performance notes. Tracker forwards it; Neon 0.37's default Follow
+Utility mode adopts it. Enter the map only in Utility for this chain. There
+is no reverse connection from Neon to Utility. Both USB units share the same
+32-cell map, while retaining independent banks. Velocity, held-note releases
+and private aftertouch retain their existing behavior.
+
+Notes Only uses the custom musical keys but sends no map or control envelopes.
+Copy/Paste List can match a local Neon map manually. The map is saved in Utility
+state (v3 with 32 notes appended to v2); default maps still save as v2. Old v1/v2
+states retain their original behavior. Remapping never changes already-recorded
+Tracker patterns. See the [Neon guide](../../docs/sample-neon.html#pad-note-map).
 
 ### Hardware velocity
 

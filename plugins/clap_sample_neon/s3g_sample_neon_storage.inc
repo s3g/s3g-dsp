@@ -134,7 +134,7 @@ bool readStackState(const clap_istream_t* stream, StackState& state) {
             if (s.asset) {
                 if (channels && channels != s.asset->channelCount) return false;
                 channels = s.asset->channelCount;
-                s.analysis = s3g::sample::analyzeCutupsAsset(*s.asset, 32u, 5.0, 1000u, 20.0);
+                s.analysis = s3g::sample::analyzeCutupsAsset(*s.asset, 64u, 5.0, 1000u, 20.0);
             }
             // A rejected multi-file import may leave an empty interior layer.
             // Only the final counted layer must actually have audio/a locator.

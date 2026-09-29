@@ -1,6 +1,7 @@
 #include "s3g_sample_neon.h"
 #include "s3g_sample_neon_fill.h"
 #include "s3g_neon_midi_bridge.h"
+#include "s3g_neon_note_map.h"
 #include "s3g_sample_neon_edit.h"
 #include "s3g_sample_cutups_analysis.h"
 #include "../common/s3g_clap_gui_param_queue.h"
@@ -14,6 +15,7 @@
 #if defined(S3G_ENABLE_VSTGUI_SAMPLE_NEON_GUI)
 #include "../common/s3g_clap_vstgui.h"
 #include "../common/s3g_vstgui_canvas.h"
+#include "../common/s3g_neon_note_map_editor.h"
 #endif
 
 #include <clap/clap.h>
@@ -69,6 +71,9 @@ using s3g::sample::NeonStackShape;
 using s3g::sample::neonSetStackShape;
 using s3g::sample::neonLegacyStackShape;
 using s3g::sample::kNeonFamilyCount;
+using s3g::sample::kNeonFamilyV21Count;
+using s3g::sample::kNeonFamilyV22Count;
+using s3g::sample::kNeonFamilyV23Count;
 using s3g::sample::kNeonFamilyV17Count;
 using s3g::sample::kNeonFamilyV19Count;
 using s3g::sample::neonFamilyIndex;
@@ -91,7 +96,7 @@ using s3g::sample::SampleNeonOutputLayout;
 using s3g::sample::TriggerMode;
 
 constexpr uint32_t kStateMagic = 0x4e533353u; // "S3SN"
-constexpr uint32_t kStateVersion = 21u;
+constexpr uint32_t kStateVersion = 25u;
 constexpr std::size_t kMaximumPathBytes = 2048u;
 constexpr std::size_t kSliceModeStateBytes =
     s3g::sample::kSampleNeonSlotCount
@@ -110,14 +115,16 @@ constexpr uint8_t kSequenceOption = 1u << 3u;
 constexpr uint8_t kStretchOption = 1u << 4u;
 constexpr uint8_t kWavesetsOption = 1u << 5u;
 constexpr uint8_t kLanesOption = 1u << 6u;
-constexpr std::array<uint8_t, 7u> kPlaybackOptions {{0u, kMotionOption, kGrainsOption, kSequenceOption, kStretchOption, kWavesetsOption, kLanesOption}};
-constexpr std::array<const char*, 7u> kPlaybackNames {{"SAMPLE", "MOTION", "GRAINS", "SLICE SEQUENCE", "STRETCH", "WAVESETS", "LANES"}};
+constexpr uint8_t kSpectralOption = 1u << 7u;
+constexpr uint8_t kCutupsOption = 1u << 1u; // retired mix bit; only interpreted this way in v25+
+constexpr std::array<uint8_t, 9u> kPlaybackOptions {{0u, kMotionOption, kGrainsOption, kSequenceOption, kStretchOption, kWavesetsOption, kLanesOption, kSpectralOption, kCutupsOption}};
+constexpr std::array<const char*, 9u> kPlaybackNames {{"SAMPLE", "MOTION", "GRAINS", "SLICE SEQUENCE", "STRETCH", "WAVESETS", "LANES", "SPECTRAL", "CUTUPS"}};
 
 constexpr uint8_t normalizedStageOptions(uint8_t options) noexcept
 {
     // Older sets may combine stages. Commit to Grains first, then Motion;
     // adjacent-cell mixing is intentionally retired.
-    return (options & kLanesOption) ? kLanesOption
+    return options == kCutupsOption ? kCutupsOption : (options & kSpectralOption) ? kSpectralOption : (options & kLanesOption) ? kLanesOption
         : (options & kWavesetsOption) ? kWavesetsOption
         : (options & kStretchOption) ? kStretchOption
         : (options & kSequenceOption) ? kSequenceOption
@@ -603,6 +610,7 @@ struct LoadResult {
 #endif
 
 struct CellClipboard;
+struct NeonEditHistory;
 struct Plugin {
     StorageMode storageMode = StorageMode::Project;
     std::array<std::array<LayerSource, 32u>, 32u> sources {};
@@ -636,6 +644,13 @@ struct Plugin {
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
     const clap_host_state_t* hostState = nullptr;
+    const clap_host_note_name_t* hostNoteNames = nullptr;
+    std::atomic<bool> noteNamesPending {false};
+    s3g::controller::neon_midi::PublishedNoteMap noteMap, utilityNoteMap;
+    std::atomic<bool> utilityMapAvailable {false};
+    s3g::controller::neon_midi::NoteMap audioLocalMap, audioUtilityMap;
+    s3g::controller::neon_midi::PadNotes audioNotes = s3g::controller::neon_midi::sequentialNotes();
+    std::array<std::array<uint8_t,128>,16> musicalHeld {}; // slot + 1, keyed by channel/note
     std::atomic<bool> stateDirtyPending { false };
     uint32_t outputChannels = s3g::sample::kSampleNeonOutputChannels;
     double sampleRate = 48000.0;
@@ -709,6 +724,9 @@ struct Plugin {
     std::atomic<bool> processing { false };
     std::atomic<uint8_t> editPage { 0u }, cellBank { 0u }, chopBank { 0u };
     std::shared_ptr<CellClipboard> cellClipboard;
+    std::shared_ptr<NeonEditHistory> editHistory;
+    std::atomic<bool> historyRestorePending {false};
+    std::array<std::array<bool, 32>, 32> pendingSourceLoads {}; // main thread only
     std::string workflowMessage;
     struct HeldPad {
         bool active = false;
@@ -948,6 +966,20 @@ double paramValue(const Plugin& instance, clap_id id) noexcept
     return instance.parameters[index].load(std::memory_order_acquire);
 }
 
+s3g::controller::neon_midi::NoteMap noteMapSnapshot(const Plugin& instance) noexcept {
+    s3g::controller::neon_midi::NoteMap map;
+    instance.noteMap.read(map);
+    if (map.followUtility && instance.utilityMapAvailable.load()) {
+        s3g::controller::neon_midi::NoteMap received;
+        if (instance.utilityNoteMap.read(received)) {
+            map.notes = received.notes;
+            map.custom = map.notes != s3g::controller::neon_midi::sequentialNotes(
+                static_cast<unsigned>(paramValue(instance,kBaseNoteParamId)));
+        }
+    }
+    return map;
+}
+
 void markStateDirty(Plugin& instance) noexcept
 {
     // Hardware and bridged controls run on the audio thread. CLAP's state
@@ -993,6 +1025,9 @@ void setParam(Plugin& instance, clap_id id, double value,
     if (instance.parameters[index].load(std::memory_order_acquire) == value) return;
     instance.parameters[index].store(value,
         std::memory_order_release);
+    if (id == kBaseNoteParamId && !instance.noteNamesPending.exchange(true)
+        && instance.host && instance.host->request_callback)
+        instance.host->request_callback(instance.host);
     if (id >= kSlotParamBase) {
         const auto offset = (id - kSlotParamBase) % kSlotParamStride;
         if (offset == kSlotStart || offset == kSlotEnd || offset == kSlotZeroCross)
@@ -1270,6 +1305,20 @@ std::string sampleDisplayName(const std::string& path)
 
 void saveLayerEdit(Plugin& p, std::size_t slot);
 void publishStack(Plugin& p, std::size_t slot);
+struct NeonHistoryEntry;
+class NeonHistoryEdit {
+public:
+    NeonHistoryEdit(Plugin&, std::string, uint32_t pads, bool capture = false, bool reset = false);
+    explicit operator bool() const noexcept { return bool(entry); }
+    void commit();
+    void defer();
+private:
+    Plugin& p;
+    std::shared_ptr<NeonHistoryEntry> entry;
+};
+void clearEditHistory(Plugin&);
+void commitDeferredHistory(Plugin&);
+void applyHistoryRestore(Plugin&);
 bool publishAsset(Plugin& instance, std::size_t slot,
     std::shared_ptr<const SampleAsset> asset, std::string path, bool dirty)
 {
@@ -1394,7 +1443,7 @@ void loaderMain(Plugin* instance)
         try {
             if (request.wavesetsOnly) {
                 result.asset = request.asset;
-                result.wavesets = s3g::sample::analyzeWavesets(request.asset);
+                result.wavesets = s3g::sample::analyzeNeonWavesets(request.asset);
             } else if (request.collectOnly) {
                 result.asset = request.asset;
                 struct TemporaryExport {
@@ -1426,7 +1475,7 @@ void loaderMain(Plugin* instance)
             else if (result.asset)
                 result.analysis = s3g::sample::analyzeCutupsAsset(
                     *result.asset,
-                    static_cast<uint32_t>(s3g::sample::kSampleNeonSliceCount),
+                    static_cast<uint32_t>(s3g::sample::kMaximumCutupsRegions),
                     5.0, 1000u, 20.0);
         } catch (...) {
             if (request.wavesetsOnly) result.asset = request.asset;
@@ -1474,10 +1523,11 @@ void queueSampleLoad(Plugin& instance, std::size_t slot, std::string path,
     request.slot = static_cast<uint8_t>(slot);
     request.dirty = dirty;
     request.path = std::move(path);
+    instance.pendingSourceLoads[slot][layer] = true;
     {
         std::lock_guard<std::mutex> lock(instance.statusMutex);
-        if (!instance.sources[slot][layer].asset) instance.sources[slot][layer].path = request.path;
-        if (!instance.sources[slot][layer].asset && layer == instance.selectedLayers[slot].load())
+        if (!dirty && !instance.sources[slot][layer].asset) instance.sources[slot][layer].path = request.path;
+        if (!dirty && !instance.sources[slot][layer].asset && layer == instance.selectedLayers[slot].load())
             instance.samplePaths[slot] = request.path;
         instance.statuses[slot] = "DECODING...";
     }
@@ -1495,6 +1545,7 @@ void queueSampleLoad(Plugin& instance, std::size_t slot, std::string path,
 
 void serviceLoads(Plugin& instance)
 {
+    if (instance.resetAllPhase.load()) return;
     std::deque<LoadResult> results;
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -1531,6 +1582,7 @@ void serviceLoads(Plugin& instance)
             } else instance.workflowMessage = "PROJECT COLLECTION PENDING: " + result.error;
             continue;
         }
+        instance.pendingSourceLoads[slot][result.layer] = false;
         if (!result.asset) {
             std::lock_guard<std::mutex> lock(instance.statusMutex);
             instance.statuses[slot] = result.error.empty()
@@ -1539,7 +1591,6 @@ void serviceLoads(Plugin& instance)
         }
         if (!layerWidthCompatible(instance, slot, result.layer, *result.asset)) {
             instance.workflowMessage = "STACK LAYERS MUST HAVE THE SAME CHANNEL COUNT; SOURCE KEPT";
-            if (!source.asset) source.path.clear();
             continue;
         }
         if (instance.storageMode == StorageMode::Embed
@@ -1547,12 +1598,17 @@ void serviceLoads(Plugin& instance)
             instance.workflowMessage = "EMBED EXCEEDS 256 MiB; SOURCE KEPT";
             continue;
         }
+        NeonHistoryEdit edit(instance, "LOAD " + std::string(1, static_cast<char>('A' + slot / 8))
+            + std::to_string(slot % 8 + 1) + " L" + std::to_string(result.layer + 1),
+            result.dirty ? (1u << slot) : 0u);
+        if (result.dirty && !edit) continue;
         if (result.layer != instance.selectedLayers[slot].load()) {
             instance.retainedAssets.push_back(result.asset);
             source.asset = result.asset; source.path = result.path; source.relative = false;
             source.analysis = result.analysis;
             if (result.dirty) { source.start = 0.0; source.end = 1.0; source.slices = s3g::sample::equalSampleNeonSliceLayout(1u); }
             publishStack(instance, slot); markStateDirty(instance); requestProcess(instance);
+            if (result.dirty) edit.commit();
             continue;
         }
         {
@@ -1581,6 +1637,7 @@ void serviceLoads(Plugin& instance)
         if (result.dirty && (mode == SampleNeonChopMode::Transient
             || mode == SampleNeonChopMode::BeatGrid))
             regenerateChopLayout(instance, slot, false);
+        if (result.dirty) edit.commit();
     }
 }
 #endif
@@ -2174,7 +2231,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         legacy = legacy && stackCount(instance, pad) <= 1u && instance.selectedLayers[pad].load() == 0u
             && instance.sourceModes[pad].load() == 0u && instance.stackPaths[pad].load() == 2u
             && instance.stackSeconds[pad].load() == 4.0f && instance.stackBeats[pad].load() == 8.0f;
-    bool extended = false, lanes = false, routingEnvelope = false;
+    bool extended = false, lanes = false, routingEnvelope = false, frameExtended = false, spectralExtended = false, cutupsExtended = false;
     bool characterExtended = paramValue(instance,kGlobalMangleParamId) != 0;
     for (unsigned pad = 0; pad < 32; ++pad) {
         characterExtended |= paramValue(instance,slotParamId(pad,kSlotMangle)) != 0;
@@ -2190,17 +2247,30 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         lanes |= normalizedStageOptions(instance.textureOptions[pad].load()) == kLanesOption;
         for (unsigned i = kNeonFamilyV17Count; i < kNeonFamilyV19Count; ++i)
             lanes |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
-        for (unsigned i = kNeonFamilyV19Count; i < kNeonFamilyCount; ++i)
+        for (unsigned i = kNeonFamilyV19Count; i < kNeonFamilyV21Count; ++i)
             routingEnvelope |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
+        frameExtended |= normalizedStageOptions(instance.textureOptions[pad].load()) == kSpectralOption;
+        for (unsigned i = kNeonFamilyV21Count; i < kNeonFamilyV22Count; ++i)
+            frameExtended |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
+        for (unsigned i = kNeonFamilyV22Count; i < kNeonFamilyV23Count; ++i)
+            spectralExtended |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
+        cutupsExtended |= normalizedStageOptions(instance.textureOptions[pad].load()) == kCutupsOption;
+        for (unsigned i = kNeonFamilyV23Count; i < kNeonFamilyCount; ++i)
+            cutupsExtended |= instance.familyControls[pad][i].load() != legacyFamily.values[i];
     }
+    const auto noteMap = noteMapSnapshot(instance);
+    const bool mapExtended = cutupsExtended || noteMap.custom || !noteMap.followUtility;
+    spectralExtended |= mapExtended;
     const std::array<float, 3> fill {{instance.fillBuffer.load(), instance.fillRepeat.load(), instance.fillBreakup.load()}};
     const bool fillExtended = fill != std::array<float, 3>{{2, 2, .5f}};
+    frameExtended |= spectralExtended;
+    characterExtended |= frameExtended;
     routingEnvelope |= characterExtended;
     lanes |= fillExtended || routingEnvelope;
     extended |= lanes;
     legacy &= !extended;
     StateHeader header;
-    header.version = characterExtended ? 21u : routingEnvelope ? 20u : fillExtended ? 19u : lanes ? 18u : extended ? 17u : legacy ? 14u : 15u;
+    header.version = cutupsExtended ? 25u : mapExtended ? 24u : spectralExtended ? 23u : frameExtended ? 22u : characterExtended ? 21u : routingEnvelope ? 20u : fillExtended ? 19u : lanes ? 18u : extended ? 17u : legacy ? 14u : 15u;
     if (!s3g::clap_state::writeAll(stream, &header, sizeof(header)))
         return false;
     std::array<double, kStoredParamCount> values {};
@@ -2436,7 +2506,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
         std::array<float, kNeonFamilyCount> controls {};
         for (unsigned i = 0; i < controls.size(); ++i) controls[i] = pad[i].load();
         if (!s3g::clap_state::writeAll(stream, controls.data(), sizeof(float)
-            * (routingEnvelope ? kNeonFamilyCount : lanes ? kNeonFamilyV19Count : kNeonFamilyV17Count))) return false;
+            * (cutupsExtended ? kNeonFamilyCount : spectralExtended ? kNeonFamilyV23Count : frameExtended ? kNeonFamilyV22Count : routingEnvelope ? kNeonFamilyV21Count : lanes ? kNeonFamilyV19Count : kNeonFamilyV17Count))) return false;
     }
     if ((fillExtended || routingEnvelope) && !writeArray(fill)) return false;
     if (characterExtended) {
@@ -2445,6 +2515,10 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
             for (unsigned n = 0; n < extra.size(); ++n) extra[n] = effect[n+3].load();
             if (!writeArray(extra)) return false;
         }
+    }
+    if (mapExtended) {
+        const std::array<uint8_t,2> flags {{uint8_t(noteMap.custom),uint8_t(noteMap.followUtility)}};
+        if (!writeArray(flags) || !writeArray(noteMap.resolved(static_cast<unsigned>(paramValue(instance,kBaseNoteParamId))))) return false;
     }
     return true;
 }
@@ -2456,7 +2530,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     StateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic
-        || (header.version != kStateVersion && header.version != 20u && header.version != 19u && header.version != 18u && header.version != 17u && header.version != 16u && header.version != 15u && header.version != 14u && header.version != 13u && header.version != 12u && header.version != 11u && header.version != 10u)
+        || (header.version != kStateVersion && header.version != 24u && header.version != 23u && header.version != 22u && header.version != 21u && header.version != 20u && header.version != 19u && header.version != 18u && header.version != 17u && header.version != 16u && header.version != 15u && header.version != 14u && header.version != 13u && header.version != 12u && header.version != 11u && header.version != 10u)
         || header.parameterCount != kStoredParamCount
         || header.pathBytes != kMaximumPathBytes) return false;
     std::array<double, kStoredParamCount> values {};
@@ -2629,7 +2703,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     std::array<NeonFamilySettings, 32u> family;
     if (header.version >= 16u) for (auto& pad : family)
         if (!s3g::clap_state::readAll(stream, pad.values.data(), sizeof(float)
-            * (header.version >= 20u ? kNeonFamilyCount : header.version >= 18u ? kNeonFamilyV19Count : kNeonFamilyV17Count)) || !pad.valid()) return false;
+            * (header.version >= 25u ? kNeonFamilyCount : header.version >= 23u ? kNeonFamilyV23Count : header.version >= 22u ? kNeonFamilyV22Count : header.version >= 20u ? kNeonFamilyV21Count : header.version >= 18u ? kNeonFamilyV19Count : kNeonFamilyV17Count)) || !pad.valid()) return false;
     if (header.version <= 16u) for (unsigned pad = 0; pad < 32; ++pad) {
         // v16 index zero was PRESET/BREAKPOINTS, not a shape enum. Preserve
         // authored points verbatim; materialize old analytic paths otherwise.
@@ -2657,8 +2731,15 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         values[kGlobalMangleParamId-kOutputLayoutParamId] = 0;
         for (unsigned pad = 0; pad < 32; ++pad) values[kGlobalParamCount+pad*kSlotParameterCount+kSlotMangle] = 0;
     }
+    s3g::controller::neon_midi::NoteMap noteMap;
+    if (header.version >= 24) {
+        std::array<uint8_t,2> flags {};
+        if (!readArray(flags) || flags[0] > 1 || flags[1] > 1 || !readArray(noteMap.notes)
+            || !s3g::controller::neon_midi::validNotes(noteMap.notes)) return false;
+        noteMap.custom = flags[0]; noteMap.followUtility = flags[1];
+    }
     // An active take owns its buffers until Stop; reject restore atomically.
-    if (instance.captureState.load() == Plugin::CaptureState::Recording
+    if (instance.resetAllPhase.load() || instance.captureState.load() == Plugin::CaptureState::Recording
         || instance.captureState.load() == Plugin::CaptureState::Ready) return false;
     // Embedded slices are sources in their own right, including after recall.
     // Rebuild their transient analysis before changing the current set.
@@ -2666,8 +2747,13 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     try {
         for (std::size_t slot = 0u; slot < embeddedAnalyses.size(); ++slot)
             if (embedded[slot]) embeddedAnalyses[slot] = s3g::sample::analyzeCutupsAsset(
-                *embedded[slot], 32u, 5.0, 1000u, 20.0);
+                *embedded[slot], 64u, 5.0, 1000u, 20.0);
     } catch (...) { return false; }
+    clearEditHistory(instance); // Valid project/set recall starts a new local journal.
+    instance.noteMap.store(noteMap);
+    instance.utilityMapAvailable.store(false);
+    instance.noteNamesPending.store(true);
+    if (instance.host && instance.host->request_callback) instance.host->request_callback(instance.host);
     if (header.version < 13u) values[kGlobalMangleParamId - kOutputLayoutParamId] = 0.0;
     for (std::size_t index = 0u; index < values.size(); ++index) {
         std::size_t stored = 0u;
@@ -2726,7 +2812,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         instance.grainIntervals[slot].store(std::clamp(grainIntervals[slot], 0.03125f, 4.0f));
         instance.parameters[kGlobalParamCount + slot * kSlotParameterCount + kSlotMute].store(0.0);
         instance.parameters[kGlobalParamCount + slot * kSlotParameterCount + kSlotSolo].store(0.0);
-        uint8_t stageOptions = normalizedStageOptions(header.version >= 18u ? textures[slot] : textures[slot] & ~kLanesOption);
+        uint8_t stageOptions = normalizedStageOptions((header.version >= 18u ? textures[slot] : textures[slot] & ~kLanesOption)
+            & (header.version >= 22u ? 255u : 127u) & (header.version >= 25u ? 255u : ~kCutupsOption));
         if (paramValue(instance, slotParamId(slot, kSlotSourceFormat)) >= 0.5) {
             if (stageOptions == kWavesetsOption) stageOptions = 0u;
             if (paramValue(instance, slotParamId(slot, kSlotCharacter)) >= 6.0) {
@@ -2960,8 +3047,7 @@ bool noteNameGet(const clap_plugin_t* plugin, uint32_t index,
     *info = {};
     info->port = 0;
     info->channel = -1;
-    info->key = static_cast<int16_t>(std::lround(paramValue(*self(plugin),
-        kBaseNoteParamId)) + index);
+    info->key = noteMapSnapshot(*self(plugin)).resolved(static_cast<unsigned>(paramValue(*self(plugin),kBaseNoteParamId)))[index];
     std::snprintf(info->name, sizeof(info->name), "BANK %c PAD %u",
         static_cast<char>('A' + index / 8u), index % 8u + 1u);
     return true;
@@ -3071,8 +3157,10 @@ void handleEncoder(Plugin& instance, const NeonAction& action,
         } else {
             const auto page = effectiveEditPage(instance);
             double step = action.shifted ? 0.001 : 0.01;
+            if (page == 12u) step = !loop ? 1./15. : instance.playbackClocks[selectedSlot].load() ? 1./7. : (action.shifted ? .1 : 1.)/79.9;
             if ((page == 4u && !loop) || (loop && instance.playbackClocks[selectedSlot].load() && (page == 4u || page == 5u))) step = 1.0 / 7.0;
-            if (page == 6u) step = loop ? 1.0 / 31.0 : 1.0 / 15.0;
+            if (page == 6u && instance.familyControls[selectedSlot][neonFamilyIndex(NeonFamily::WavesetEngine)].load() == 0)
+                step = loop ? 1.0 / 31.0 : 1.0 / 15.0;
             if (page == 8u && loop) step = 1.0 / 31.0;
             if (page == 8u && !loop && instance.playbackClocks[selectedSlot].load()) step = 1.0 / 7.0;
             if (page == 9u) {
@@ -3232,6 +3320,22 @@ std::size_t collectEvents(Plugin& instance,
         };
     };
 
+    const auto syncNotes = [&](uint32_t time) {
+        instance.noteMap.read(instance.audioLocalMap);
+        const auto next = instance.audioLocalMap.followUtility && instance.utilityMapAvailable.load()
+            ? instance.audioUtilityMap.notes : instance.audioLocalMap.resolved(static_cast<unsigned>(paramValue(instance,kBaseNoteParamId)));
+        if (next == instance.audioNotes) return true;
+        if (count + 32 > instance.blockEvents.size()) return false;
+        // Commit at the event's sample offset, before notes using the new map.
+        // Do not use killRequested here: it would discard this entire block.
+        for (uint8_t pad=0;pad<32;++pad) append(time,SampleNeonEventKind::Choke,0,pad,NeonMode::Sampler,0,0);
+        instance.musicalHeld = {};
+        instance.audioNotes = next;
+        instance.noteNamesPending.store(true); markStateDirty(instance);
+        return true;
+    };
+    syncNotes(0);
+
     const auto fx = instance.pendingGuiFx.exchange(UINT32_MAX);
     if (fx != UINT32_MAX)
         append(0u, SampleNeonEventKind::Pressure, 0u, static_cast<uint8_t>(fx >> 1u),
@@ -3291,8 +3395,6 @@ std::size_t collectEvents(Plugin& instance,
         return count;
     }
 
-    const uint32_t baseNote = static_cast<uint32_t>(std::lround(
-        paramValue(instance, kBaseNoteParamId)));
     const bool neonActive = paramValue(instance, kNeonActiveParamId) >= 0.5;
     if (!neonActive) for (unsigned u=0;u<2;++u) releaseSurface(instance,u,0,count);
     const uint32_t inputCount = input->size(input);
@@ -3306,6 +3408,14 @@ std::size_t collectEvents(Plugin& instance,
         if (header->type == CLAP_EVENT_MIDI_SYSEX
             && header->size >= sizeof(clap_event_midi_sysex_t)) {
             const auto* sysex = reinterpret_cast<const clap_event_midi_sysex_t*>(header);
+            s3g::controller::neon_midi::PadNotes notes;
+            if (sysex->port_index == 0 && s3g::controller::neon_midi::decodeNoteMap(sysex->buffer,sysex->size,notes)) {
+                instance.audioUtilityMap.notes = notes; instance.audioUtilityMap.custom = true;
+                instance.utilityNoteMap.store(instance.audioUtilityMap);
+                instance.utilityMapAvailable.store(true);
+                syncNotes(header->time);
+                continue;
+            }
             s3g::controller::neon_midi::BridgeMessage message;
             if (sysex->port_index != 0u
                 || !s3g::controller::neon_midi::decodeBridge(sysex->buffer, sysex->size, message)) continue;
@@ -3399,25 +3509,25 @@ std::size_t collectEvents(Plugin& instance,
             const auto* event = reinterpret_cast<
                 const clap_event_param_value_t*>(header);
             setParam(instance, event->param_id, event->value);
+            syncNotes(header->time);
             continue;
         }
         // Read after parameter events so an automated channel change applies
         // to the subsequent notes in this same host block.
         const int receiveChannel = static_cast<int>(std::lround(paramValue(instance, kMidiReceiveParamId)));
+        if (!syncNotes(header->time)) continue;
         if ((header->type == CLAP_EVENT_NOTE_ON
                 || header->type == CLAP_EVENT_NOTE_OFF
                 || header->type == CLAP_EVENT_NOTE_CHOKE)
             && header->size >= sizeof(clap_event_note_t)) {
             const auto* event = reinterpret_cast<const clap_event_note_t*>(
                 header);
-            if (event->key < static_cast<int16_t>(baseNote)
-                || event->key >= static_cast<int16_t>(baseNote
-                    + s3g::sample::kSampleNeonSlotCount)
+            const int mapped = s3g::controller::neon_midi::padForNote(instance.audioNotes,event->key);
+            if (mapped < 0
                 || event->port_index != 0 || event->channel < 0 || event->channel > 15
                 || (receiveChannel != 0
                     && receiveChannel != event->channel + 1)) continue;
-            const uint8_t slot = static_cast<uint8_t>(
-                event->key - static_cast<int16_t>(baseNote));
+            const uint8_t slot = static_cast<uint8_t>(mapped);
             const auto kind = header->type == CLAP_EVENT_NOTE_ON
                 ? SampleNeonEventKind::Trigger
                 : header->type == CLAP_EVENT_NOTE_OFF
@@ -3434,18 +3544,16 @@ std::size_t collectEvents(Plugin& instance,
             && header->size >= sizeof(clap_event_note_expression_t)) {
             const auto* event = reinterpret_cast<
                 const clap_event_note_expression_t*>(header);
+            const int mapped = s3g::controller::neon_midi::padForNote(instance.audioNotes,event->key);
             if (event->expression_id == CLAP_NOTE_EXPRESSION_PRESSURE
                 && (event->port_index == 0 || event->port_index == -1)
                 && event->channel >= -1 && event->channel <= 15
                 && (receiveChannel == 0 || event->channel == -1 || receiveChannel == event->channel + 1)
-                && event->key >= static_cast<int16_t>(baseNote)
-                && event->key < static_cast<int16_t>(baseNote
-                    + s3g::sample::kSampleNeonSlotCount)) {
+                && mapped >= 0) {
                 append(header->time, SampleNeonEventKind::Pressure,
                     static_cast<uint64_t>(event->note_id < 0
                         ? event->key : event->note_id),
-                    static_cast<uint8_t>(event->key
-                        - static_cast<int16_t>(baseNote)),
+                    static_cast<uint8_t>(mapped),
                     NeonMode::Sampler, 0u,
                     static_cast<float>(event->value));
             }
@@ -3473,7 +3581,7 @@ std::size_t collectEvents(Plugin& instance,
         const bool selectedMusic = !bridgedControl && receiveChannel != 0
             && receiveChannel == (event->data[0] & 0x0fu) + 1
             && (midiCommand == 0x80u || midiCommand == 0x90u || midiCommand == 0xa0u)
-            && event->data[1] >= baseNote && event->data[1] < baseNote + s3g::sample::kSampleNeonSlotCount;
+            && s3g::controller::neon_midi::padForNote(instance.audioNotes,event->data[1]) >= 0;
         if (neonActive && !selectedMusic) {
             if (!bridgedControl && !instance.addressedSurfaces.load()) focusSurface(instance, 0u);
             if (s3g::controller::reloop_neon::isStatusLedMessage({event->data[0], event->data[1], event->data[2]})) continue;
@@ -3655,18 +3763,22 @@ std::size_t collectEvents(Plugin& instance,
         if (receiveChannel != 0 && receiveChannel != channel + 1) continue;
         const uint8_t command = static_cast<uint8_t>(status & 0xf0u);
         const uint8_t key = event->data[1u];
-        if (key < baseNote
-            || key >= baseNote + s3g::sample::kSampleNeonSlotCount)
-            continue;
-        const uint8_t slot = static_cast<uint8_t>(key - baseNote);
-        if (command == 0x90u && event->data[2u] != 0u)
+        if (key > 127 || event->data[2] > 127) continue;
+        const int mapped = s3g::controller::neon_midi::padForNote(instance.audioNotes,key);
+        auto& held = instance.musicalHeld[channel][key];
+        const bool press = command == 0x90u && event->data[2u] != 0u;
+        if (press || command == 0xa0u ? mapped < 0 : !held) continue;
+        const uint8_t slot = press || command == 0xa0u ? static_cast<uint8_t>(mapped) : static_cast<uint8_t>(held-1);
+        if (press) {
             append(header->time, SampleNeonEventKind::Trigger,
                 0x60000000u + slot, slot, NeonMode::Sampler, 0u,
                 static_cast<float>(event->data[2u]) / 127.0f);
-        else if (command == 0x80u || command == 0x90u)
+            held = slot+1;
+        } else if (command == 0x80u || command == 0x90u) {
             append(header->time, SampleNeonEventKind::Release,
                 0x60000000u + slot, slot, NeonMode::Sampler, 0u, 0.0f);
-        else if (command == 0xa0u)
+            held = 0;
+        } else if (command == 0xa0u)
             append(header->time, SampleNeonEventKind::Pressure,
                 0x60000000u + slot, slot, NeonMode::Sampler, 0u,
                 static_cast<float>(event->data[2u]) / 127.0f);
@@ -3850,6 +3962,8 @@ bool pluginInit(const clap_plugin_t* plugin)
             instance.host->get_extension(instance.host, CLAP_EXT_PARAMS));
         instance.hostState = static_cast<const clap_host_state_t*>(
             instance.host->get_extension(instance.host, CLAP_EXT_STATE));
+        instance.hostNoteNames = static_cast<const clap_host_note_name_t*>(
+            instance.host->get_extension(instance.host, CLAP_EXT_NOTE_NAME));
     }
 #if defined(S3G_SAMPLE_FILE_WORKER)
     if (!startLoader(instance)) return false;
@@ -3983,6 +4097,7 @@ void pluginStopProcessing(const clap_plugin_t* plugin)
 void pluginReset(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
+    instance.musicalHeld = {};
     instance.engine.reset();
     for (auto& visual : instance.playbackVisuals) visual.clear();
     resetFill(instance);
@@ -4068,6 +4183,7 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
     instance.neonPadInput.advance(process->frames_count);
     instance.surfaces[1u-instance.surfaceUnit].decoder.advance(process->frames_count);
     if (instance.killRequested.exchange(false, std::memory_order_acq_rel)) {
+        instance.musicalHeld = {};
         instance.engine.killAll();
         instance.capturePreview.killAll();
         resetFill(instance);
@@ -4210,6 +4326,8 @@ clap_process_status pluginProcess(const clap_plugin_t* plugin,
 void pluginOnMainThread(const clap_plugin_t* plugin)
 {
     auto& instance = *self(plugin);
+    if (instance.noteNamesPending.exchange(false) && instance.hostNoteNames && instance.hostNoteNames->changed)
+        instance.hostNoteNames->changed(instance.host);
     if (instance.stateDirtyPending.exchange(false, std::memory_order_acq_rel)
         && instance.hostState && instance.hostState->mark_dirty)
         instance.hostState->mark_dirty(instance.host);
@@ -4220,6 +4338,7 @@ void pluginOnMainThread(const clap_plugin_t* plugin)
     (void)plugin;
 #endif
     serviceWavesets(*self(plugin));
+    serviceMosaic(instance);
     serviceStorage(instance);
 }
 
@@ -4269,7 +4388,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Neon 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.34.2",
+    "", "", "0.39.0",
     "Channel-linked Neon sampler: stereo, quad, octo and ACN/SN3D ambisonics, with 32 output channels.",
     multichannelFeatures,
 };

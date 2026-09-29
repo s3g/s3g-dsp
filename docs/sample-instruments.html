@@ -45,6 +45,7 @@
           <tbody>
             <tr><td><a href="sample-player.html">Sample Player</a></td><td>Chromatic one-shots and forward, reverse, wrapping, or ping-pong loops from one file.</td><td>Stereo or 16-channel</td></tr>
             <tr><td><a href="sample-kit.html">Sample Kit</a></td><td>Sixteen mono/stereo pads with shared-source chopping, alternate hits, sound shaping, choke groups, a mixer, character effects, and pair routing.</td><td>2–32 channels</td></tr>
+            <tr><td><a href="sample-neon.html">Sample Neon 32</a></td><td>Thirty-two performance pads with 32-layer stacks, eight playback methods, chopping, internal resampling, and one/two NEON controller integration with Tracker.</td><td>32-channel port; stereo, quad, octo or 1OA–3OA ACN/SN3D buses</td></tr>
             <tr><td><a href="sample-doubles.html">Sample Doubles</a></td><td>Two independently positioned copies of one source, with offset timing and performance crossfading.</td><td>Stereo</td></tr>
             <tr><td><a href="sample-wavesets.html">Sample Wavesets</a></td><td>Chromatic playback of zero-crossing groups, with ordered or distributed triggering.</td><td>Stereo or 32-channel</td></tr>
             <tr><td><a href="sample-motion.html">Sample Motion</a></td><td>Bounded source trajectories combined with continuous or retriggered segment events.</td><td>Stereo or 32-channel</td></tr>
@@ -73,7 +74,7 @@
 
         <p><code>LINK</code> keeps state small but requires the original path to remain valid. <code>EMBED</code> is portable, but decoded audio can be much larger than the source file and may enlarge host undo snapshots; prefer <code>PROJECT</code> for routine work. Missing paths remain available for later relinking. Generated Slicer material can be written as project media, while live captures remain embedded.</p>
 
-        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, Rings, and <a href="processor-ambi-grain.html#sample-storage">Processor Ambi Grain</a> use this three-mode policy. Sample Circulator is the exception: it always embeds its two stereo loops, with a capacity of approximately 32 seconds per loop.</p>
+        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, Rings, <a href="sample-neon.html#storage">Sample Neon 32</a>, and <a href="processor-ambi-grain.html#sample-storage">Processor Ambi Grain</a> use this three-mode policy. Sample Circulator is the exception: it always embeds its two stereo loops, with a capacity of approximately 32 seconds per loop.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="processor-errant.html">
@@ -93,6 +94,7 @@
           <a href="sample-instruments.html">Overview</a>
           <a href="sample-player.html">Sample Player</a>
           <a href="sample-kit.html">Sample Kit</a>
+          <a href="sample-neon.html">Sample Neon 32</a>
           <a href="sample-doubles.html">Sample Doubles</a>
           <a href="sample-wavesets.html">Sample Wavesets</a>
           <a href="sample-motion.html">Sample Motion</a>

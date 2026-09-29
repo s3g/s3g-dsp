@@ -6,6 +6,9 @@ if(S3G_VSTGUI_AVAILABLE)
   s3g_enable_vstgui_gui(s3g_utility_neon_midi_clap
     "${CMAKE_CURRENT_SOURCE_DIR}/s3g_utility_neon_midi_vstgui.inc"
     S3G_ENABLE_VSTGUI_CANVAS_GUI)
+  if(APPLE)
+    target_sources(s3g_utility_neon_midi_clap PRIVATE ../common/s3g_vstgui_readable_text_edit.mm)
+  endif()
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(s3g_utility_neon_midi_clap PRIVATE
@@ -19,8 +22,8 @@ if(APPLE)
     BUNDLE TRUE BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.utility-neon-midi"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Utility Neon MIDI"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.2.1"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.1")
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.3.1"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.3.1")
 elseif(WIN32)
   set_target_properties(s3g_utility_neon_midi_clap PROPERTIES SUFFIX ".clap")
 endif()

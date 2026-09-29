@@ -57,6 +57,7 @@ struct CellClipboard {
     S3G_NEON_CELL_FIELDS(S3G_CELL_DECLARE)
 #undef S3G_CELL_DECLARE
 };
+#include "s3g_sample_neon_history.inc"
 bool copyCell(Plugin& p, std::size_t slot) {
     if (slot >= 32u || p.resetAllPhase.load()) return false;
     try {
@@ -88,6 +89,9 @@ bool pasteCell(Plugin& p, std::size_t slot) {
     for (const auto& layer : copy->sources)
         if (p.storageMode == StorageMode::Embed || layer.path.empty()) stackBudget.add(layer.asset.get());
     if (stackBudget.samples > kMaximumEmbeddedSamples) { p.workflowMessage = "SET AUDIO LIMIT REACHED; NOTHING REPLACED"; return false; }
+    NeonHistoryEdit edit(p, "PASTE " + std::string(1, static_cast<char>('A' + slot / 8))
+        + std::to_string(slot % 8 + 1), 1u << slot);
+    if (!edit) return false;
     try {
         auto analysis = copy->analysis;
         std::string path = copy->path;
@@ -114,7 +118,7 @@ bool pasteCell(Plugin& p, std::size_t slot) {
             queueGuiParamGesture(p, slotParamId(slot, static_cast<SlotParamOffset>(n)), copy->parameters[n]);
         p.workflowMessage = "CELL PASTED; SOURCE KEPT / EDITS ARE INDEPENDENT";
         if (p.hostParams && p.hostParams->rescan) p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
-        markStateDirty(p); requestProcess(p); return true;
+        edit.commit(); markStateDirty(p); requestProcess(p); return true;
     } catch (...) { p.workflowMessage = "PASTE FAILED"; return false; }
 }
 #undef S3G_NEON_CELL_FIELDS
@@ -128,7 +132,7 @@ bool fxAllowed(const Plugin& p, std::size_t slot, unsigned effect) noexcept {
     return effect < 8u && (paramValue(p, slotParamId(slot, kSlotSourceFormat)) < 0.5
         || s3g::sample::sampleNeonFxAmbisonicSafe(static_cast<SampleNeonMangleCharacter>(effect)));
 }
-uint8_t playbackEditPage(unsigned method) noexcept { return static_cast<uint8_t>(method == 6u ? 9u : method + 1u); }
+uint8_t playbackEditPage(unsigned method) noexcept { return static_cast<uint8_t>(method == 8u ? 12u : method == 7u ? 11u : method == 6u ? 9u : method + 1u); }
 uint8_t effectiveEditPage(const Plugin& p) noexcept {
     const auto page = p.editPage.load();
     if (page == 0u || page == 7u || page == 8u || page == 10u) return page;
@@ -168,6 +172,14 @@ void setLanePosition(Plugin& p, unsigned slot, double position) {
 }
 double advancedKnobValue(Plugin& p, bool loop) noexcept {
     const auto slot = p.selectedSlot.load(), page = effectiveEditPage(p);
+    if (page == 12u) return loop ? p.playbackClocks[slot].load()
+        ? p.familyControls[slot][neonFamilyIndex(NeonFamily::CutDivision)].load()/7.
+        : (p.familyControls[slot][neonFamilyIndex(NeonFamily::CutRate)].load()-.1)/79.9
+        : (p.familyControls[slot][neonFamilyIndex(NeonFamily::CutRepeat)].load()-1)/15.;
+    if (page == 11u) return loop ? p.editPositions[slot].load() : p.familyControls[slot][neonFamilyIndex(NeonFamily::SpectralBlur)].load();
+    if (page == 6u && p.familyControls[slot][neonFamilyIndex(NeonFamily::WavesetEngine)].load() != 0)
+        return loop ? p.familyControls[slot][neonFamilyIndex(NeonFamily::OscPosition)].load()
+            : std::log(p.familyControls[slot][neonFamilyIndex(NeonFamily::OscFrequency)].load() / 20.) / std::log(100.);
     if (page == 9u) return loop ? p.familyControls[slot][neonFamilyIndex(NeonFamily::LaneAuto)].load() != 0
         ? p.stackPositions[slot].load() : p.familyControls[slot][neonFamilyIndex(NeonFamily::LanePosition)].load()
         : (p.familyControls[slot][neonFamilyIndex(NeonFamily::LaneRate)].load() - .25) / 3.75;
@@ -191,7 +203,18 @@ double advancedKnobValue(Plugin& p, bool loop) noexcept {
 void setAdvancedKnob(Plugin& p, bool loop, double value) noexcept {
     value = std::clamp(value, 0.0, 1.0);
     const auto slot = p.selectedSlot.load(), page = effectiveEditPage(p);
-    if (page == 9u) {
+    if (page == 12u) {
+        const auto key = loop ? p.playbackClocks[slot].load() ? NeonFamily::CutDivision : NeonFamily::CutRate : NeonFamily::CutRepeat;
+        const auto d = neonFamilyDef(neonFamilyIndex(key));
+        const float v = static_cast<float>(d.minimum+value*(d.maximum-d.minimum));
+        p.familyControls[slot][neonFamilyIndex(key)].store(d.stepped ? std::round(v) : v);
+    } else if (page == 11u) {
+        if (loop) p.editPositions[slot].store(value);
+        else p.familyControls[slot][neonFamilyIndex(NeonFamily::SpectralBlur)].store(static_cast<float>(value));
+    } else if (page == 6u && p.familyControls[slot][neonFamilyIndex(NeonFamily::WavesetEngine)].load() != 0) {
+        p.familyControls[slot][neonFamilyIndex(loop ? NeonFamily::OscPosition : NeonFamily::OscFrequency)].store(
+            static_cast<float>(loop ? value : 20 * std::pow(100., value)));
+    } else if (page == 9u) {
         p.familyControls[slot][neonFamilyIndex(loop ? NeonFamily::LanePosition : NeonFamily::LaneRate)].store(
             static_cast<float>(loop ? value : .25 + value * 3.75));
         if (loop) setLanePosition(p, slot, value);
@@ -378,7 +401,7 @@ void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t sele
             const auto slice = all ? index : std::min<std::size_t>(selected, layout.sliceCount - 1u);
             samples[index] = std::make_shared<SampleAsset>(
                 s3g::sample::sampleNeonCrop(*asset, edges[slice], edges[slice + 1u]));
-            analyses[index] = s3g::sample::analyzeCutupsAsset(*samples[index], 32u, 5.0, 1000u, 20.0);
+            analyses[index] = s3g::sample::analyzeCutupsAsset(*samples[index], 64u, 5.0, 1000u, 20.0);
         }
         std::lock_guard<std::mutex> lock(p.statusMutex);
         p.retainedAssets.reserve(p.retainedAssets.size() + required);
@@ -387,6 +410,11 @@ void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t sele
         return;
     }
     // Snapshot parameters before replacing source with slice 1.
+    uint32_t editedPads = 0;
+    for (unsigned n = 0; n < plan.count; ++n) editedPads |= 1u << destinations[n];
+    NeonHistoryEdit edit(p, std::string(stackDestination ? "SLICES TO STACK " : "SLICES TO PADS ")
+        + chopDestinationSummary(plan), editedPads);
+    if (!edit) return;
     const double zeroCross = paramValue(p, slotParamId(source, kSlotZeroCross));
     std::array<double, kSlotParameterCount> sourceParameters {};
     std::array<s3g::sample::NeonCharacterValues, 8u> sourceFx {};
@@ -453,6 +481,7 @@ void mapChopToBanks(Plugin& p, std::size_t source, bool all = true, uint8_t sele
         p.visibleSlice.store(0u); p.chopBank.store(0u);
         p.visibleBank.store(0u);
     }
+    edit.commit();
     markStateDirty(p);
     if (p.hostParams && p.hostParams->rescan) p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
 }
@@ -487,7 +516,7 @@ void stopSoundForReset(Plugin& p) noexcept
     p.pendingSliceAudition.store(UINT32_MAX); p.pendingPerformanceAudition.store(UINT32_MAX);
     p.pendingLayerAuditions.store(0u); p.pendingLayerSelection.store(UINT32_MAX);
     p.captureCommand.store(0); p.captureAudition.store(false);
-    p.captureState.store(Plugin::CaptureState::Empty);
+    if (!p.historyRestorePending.load()) p.captureState.store(Plugin::CaptureState::Empty);
     p.killRequested.store(false);
     p.resetAllPhase.store(2u, std::memory_order_release);
 }
@@ -495,6 +524,7 @@ void stopSoundForReset(Plugin& p) noexcept
 void clearAllSound(Plugin& p)
 {
     if (p.resetAllPhase.load(std::memory_order_acquire) != 2u) return;
+    if (p.historyRestorePending.load()) { applyHistoryRestore(p); return; }
     // Audio acknowledged silence before we touch assets. Imported files are
     // unlinked only; no filesystem deletion occurs. Keep host/controller setup.
     if (p.guiParamConsumer.test_and_set(std::memory_order_acquire)) {
@@ -548,6 +578,7 @@ void clearAllSound(Plugin& p)
     p.surfaceFeedbackDirty = {{true, true}};
     p.activeVoices.store(0u); p.outputPeak.store(0.0f);
     p.workflowMessage = "ALL CELLS + CAPTURE CLEARED; OUTPUT / MIDI KEPT";
+    commitDeferredHistory(p);
     p.sendNeonInitialization.store(true); p.ledFeedbackDirty.store(true);
     p.resetAllPhase.store(0u, std::memory_order_release);
     if (p.hostParams && p.hostParams->rescan) p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
@@ -560,6 +591,9 @@ void cropCapture(Plugin& p)
     const auto total = p.captureAsset->frameCount();
     const auto start = std::min(total - 1u, static_cast<uint32_t>(std::llround(p.captureStart.load() * total)));
     const auto end = std::clamp(static_cast<uint32_t>(std::llround(p.captureEnd.load() * total)), start + 1u, total);
+    if (!start && end == total) { p.workflowMessage = "TAKE ALREADY FULL LENGTH; NOTHING CHANGED"; return; }
+    NeonHistoryEdit edit(p, "CROP TAKE", 0, true);
+    if (!edit) return;
     try {
         auto cropped = std::make_shared<SampleAsset>(s3g::sample::sampleNeonCrop(*p.captureAsset, start, end));
         std::lock_guard<std::mutex> lock(p.statusMutex);
@@ -570,6 +604,7 @@ void cropCapture(Plugin& p)
         p.publishedCapture.store(p.captureAsset.get(), std::memory_order_release);
         p.captureAudition.store(true);
         p.workflowMessage = "CROPPED TO SELECTION; OUTSIDE AUDIO DISCARDED FROM TAKE";
+        edit.commit();
         markStateDirty(p); requestProcess(p);
     } catch (...) { p.workflowMessage = "CROP FAILED; ORIGINAL TAKE KEPT"; }
 }
@@ -593,6 +628,8 @@ void normalizeCell(Plugin& p, uint8_t slot, unsigned scope, unsigned editLayer)
     }
     if (!changed) { p.workflowMessage = "NO CHANGE / SILENT, EMPTY OR AT -1 dBFS"; return; }
     if (stackBudget.samples > kMaximumEmbeddedSamples) { p.workflowMessage = "SET AUDIO LIMIT REACHED; STACK KEPT"; return; }
+    NeonHistoryEdit edit(p, std::string(scope ? "NORMALIZE STACK " : "NORMALIZE LAYER ") + chopPadName(slot), 1u << slot);
+    if (!edit) return;
     try {
         saveLayerEdit(p, slot);
         auto sources = p.sources[slot];
@@ -602,12 +639,15 @@ void normalizeCell(Plugin& p, uint8_t slot, unsigned scope, unsigned editLayer)
             auto& source = sources[n];
             if (gains[n] > 0.0 && std::abs(gains[n] - 1.0) >= 1.0e-6) {
                 source.asset = std::make_shared<SampleAsset>(s3g::sample::sampleNeonNormalize(*inputs[n], gains[n]));
-                source.analysis = s3g::sample::analyzeCutupsAsset(*source.asset, 32u, 5.0, 1000u, 20.0);
+                source.analysis = s3g::sample::analyzeCutupsAsset(*source.asset, 64u, 5.0, 1000u, 20.0);
                 source.path.clear(); source.relative = false; source.wavesets.reset();
                 source.waveAnalysisAttempted = nullptr; source.waveAnalysisPending = false;
             }
             snapshot->layers[n] = {source.asset.get(), source.start, source.end};
             snapshot->layers[n].wavesets = source.wavesets.get();
+            snapshot->cutupsMetadata[n] = source.analysis;
+            snapshot->sourceBpms[n] = static_cast<float>(source.bpm);
+            appendMosaicFragments(*snapshot, source, n);
         }
         snapshot->primarySliceCount = sources[0].slices.sliceCount;
         snapshot->primarySlices = sources[0].slices.boundaries;
@@ -643,6 +683,7 @@ void normalizeCell(Plugin& p, uint8_t slot, unsigned scope, unsigned editLayer)
         p.workflowMessage = std::move(message); p.ledFeedbackDirty.store(true);
         }
         // Trim, slices, playback, gain, FX and routing are intentionally kept.
+        edit.commit();
         markStateDirty(p); requestProcess(p);
     } catch (...) { p.workflowMessage = "NORMALIZE FAILED; STACK KEPT"; }
 }
@@ -658,6 +699,10 @@ void serviceWorkflow(Plugin& p)
         if (p.recorder.count() > 0u) {
             try {
                 auto asset = std::make_shared<SampleAsset>(p.recorder.finish());
+                NeonHistoryEdit edit(p, "RECORD TAKE", 0, true);
+                if (!edit) { p.captureState.store(Plugin::CaptureState::Empty); return; }
+                p.retainedAssets.reserve(p.retainedAssets.size() + 1);
+                {
                 std::lock_guard<std::mutex> lock(p.statusMutex);
                 p.captureAsset = asset;
                 p.retainedAssets.push_back(asset);
@@ -667,11 +712,13 @@ void serviceWorkflow(Plugin& p)
                 p.captureLayout.store(static_cast<uint8_t>(p.recordingLayout));
                 p.captureState.store(Plugin::CaptureState::Review, std::memory_order_release);
                 p.workflowMessage = "CAPTURE READY: REVIEW, THEN ASSIGN AN EMPTY CELL";
+                }
+                setCaptureTrim(p, false, 0.0); setCaptureTrim(p, true, 1.0);
+                edit.commit();
             } catch (...) {
                 p.captureState.store(Plugin::CaptureState::Empty);
                 p.workflowMessage = "CAPTURE COULD NOT BE ALLOCATED";
             }
-            setCaptureTrim(p, false, 0.0); setCaptureTrim(p, true, 1.0);
             markStateDirty(p);
         } else p.captureState.store(Plugin::CaptureState::Empty);
     }
@@ -692,23 +739,32 @@ void serviceWorkflow(Plugin& p)
     case WorkflowCommand::Normalize: normalizeCell(p, slot, 0u, slice); break;
     case WorkflowCommand::NormalizeStack: normalizeCell(p, slot, 1u, 0u); break;
     case WorkflowCommand::NormalizeStackBalanced: normalizeCell(p, slot, 2u, 0u); break;
-    case WorkflowCommand::ResetAll:
+    case WorkflowCommand::ResetAll: {
+        NeonHistoryEdit edit(p, "RESET ALL", UINT32_MAX, true, true);
+        if (!edit) break;
+        edit.defer();
         p.resetAllPhase.store(1u);
         if (!p.processing.load()) { stopSoundForReset(p); clearAllSound(p); }
         else requestProcess(p);
         break;
+    }
     case WorkflowCommand::Equal: setChopMode(p, slot, static_cast<uint8_t>(SampleNeonChopMode::Equal)); break;
     case WorkflowCommand::Transients: setChopMode(p, slot, static_cast<uint8_t>(SampleNeonChopMode::Transient)); break;
-    case WorkflowCommand::DiscardCapture:
+    case WorkflowCommand::DiscardCapture: {
         if (p.captureState.load() == Plugin::CaptureState::Recording) break;
+        if (!p.captureAsset) break;
+        NeonHistoryEdit edit(p, "DISCARD TAKE", 0, true);
+        if (!edit) break;
         p.publishedCapture.store(nullptr);
         p.captureAsset.reset();
         p.captureState.store(Plugin::CaptureState::Empty);
         p.captureFrames.store(0u); p.captureStart.store(0.0); p.captureEnd.store(1.0);
         p.captureCursor.store(0.0); p.capturePlayhead.store(-1.0f);
         p.workflowMessage = "CAPTURE DISCARDED";
+        edit.commit();
         markStateDirty(p);
         break;
+    }
     case WorkflowCommand::AssignCapture: {
         const auto target = p.captureTarget.load();
         if (!p.captureAsset || p.captureState.load() != Plugin::CaptureState::Review) break;
@@ -716,6 +772,8 @@ void serviceWorkflow(Plugin& p)
             p.workflowMessage = "SELECT AN EMPTY CAPTURE TARGET; NOTHING REPLACED";
             break;
         }
+        NeonHistoryEdit edit(p, "ASSIGN TAKE " + chopPadName(target), 1u << target);
+        if (!edit) break;
         clearSample(p, target);
         for (clap_id offset = 0u; offset < kSlotParameterCount; ++offset)
             setParam(p, slotParamId(target, static_cast<SlotParamOffset>(offset)), kSlotParamDefs[offset].defaultValue);
@@ -741,6 +799,7 @@ void serviceWorkflow(Plugin& p)
         p.selectedSlot.store(target);
         p.cellBank.store(target / 8u);
         p.workflowMessage = "CAPTURE ASSIGNED / READY TO PLAY";
+        edit.commit();
         if (p.hostParams && p.hostParams->rescan) p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
         markStateDirty(p);
         break;

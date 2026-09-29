@@ -14,6 +14,7 @@
 namespace s3g::sample {
 
 constexpr std::size_t kSampleCutupsLaneCount = 4u;
+constexpr std::size_t kMaximumCutupsLanes = 32u;
 constexpr std::size_t kMaximumCutupsRegions = 64u;
 constexpr std::size_t kMaximumCutupsPatternSteps = kMaximumCutupsRegions;
 constexpr std::size_t kMaximumCutupsVoices = 16u;
@@ -138,20 +139,20 @@ struct CutPatternStep {
     uint8_t lane = 0u;
     float source = 0.0f;
 
-    bool valid() const noexcept
+    bool valid(unsigned laneCount = kSampleCutupsLaneCount) const noexcept
     {
-        return lane < kSampleCutupsLaneCount && std::isfinite(source)
+        return lane < laneCount && std::isfinite(source)
             && source >= 0.0f && source <= 1.0f;
     }
 };
 
 inline std::array<CutPatternStep, kMaximumCutupsPatternSteps>
-defaultCutupsPattern() noexcept
+defaultCutupsPattern(unsigned laneCount = kSampleCutupsLaneCount) noexcept
 {
     std::array<CutPatternStep, kMaximumCutupsPatternSteps> result {};
     for (std::size_t index = 0u; index < result.size(); ++index) {
         result[index].lane = static_cast<uint8_t>(
-            index % kSampleCutupsLaneCount);
+            index % std::clamp(laneCount, 1u, static_cast<unsigned>(kMaximumCutupsLanes)));
         result[index].source = static_cast<float>(index)
             / static_cast<float>(result.size());
     }
@@ -162,7 +163,7 @@ inline uint32_t cutupsFileOrderIndex(CutFileOrder order, uint32_t step,
     uint32_t count, uint32_t seed) noexcept
 {
     count = std::min<uint32_t>(count,
-        static_cast<uint32_t>(kSampleCutupsLaneCount));
+        static_cast<uint32_t>(kMaximumCutupsLanes));
     if (count <= 1u) return 0u;
     const uint32_t position = step % count;
     switch (order) {
@@ -181,7 +182,8 @@ inline uint32_t cutupsFileOrderIndex(CutFileOrder order, uint32_t step,
         return state % count;
     }
     case CutFileOrder::RandomCycle: {
-        std::array<uint8_t, kSampleCutupsLaneCount> bag {{ 0u, 1u, 2u, 3u }};
+        std::array<uint8_t, kMaximumCutupsLanes> bag {};
+        for (uint32_t n = 0; n < count; ++n) bag[n] = static_cast<uint8_t>(n);
         uint32_t state = seed ^ (step / count + 1u) * 0x85ebca6bu;
         for (uint32_t remaining = count; remaining > 1u; --remaining) {
             state ^= state << 13u;
@@ -211,7 +213,8 @@ inline uint32_t cutupsFileOrderIndex(CutFileOrder order, uint32_t step,
         constexpr std::array<uint8_t, 8u> pattern {{
             0u, 2u, 1u, 3u, 1u, 0u, 3u, 2u,
         }};
-        return pattern[step % pattern.size()] % count;
+        const uint32_t group = count > 4 ? (step / 8u) * 4u : 0u;
+        return (group + pattern[step % pattern.size()]) % count;
     }
     case CutFileOrder::Manual:
     case CutFileOrder::Down:
@@ -230,7 +233,7 @@ inline uint32_t cutupsFileOrderPeriod(CutFileOrder order, uint32_t count,
     case CutFileOrder::Pairs:
         return count * 2u;
     case CutFileOrder::Stagger:
-        return 8u;
+        return count > 4 ? 8u * ((count + 3u) / 4u) : 8u;
     case CutFileOrder::Manual:
     case CutFileOrder::Random:
         return std::max(1u, manualLength);
@@ -272,7 +275,9 @@ inline uint32_t cutupsRelatedFileOrderStep(CutPolyPathMode mode,
     }
 }
 
-struct SampleCutupsSettings {
+template<std::size_t LaneCount = kSampleCutupsLaneCount>
+struct BasicSampleCutupsSettings {
+    static_assert(LaneCount > 0 && LaneCount <= kMaximumCutupsLanes);
     CutClockBasis clockBasis = CutClockBasis::Host;
     CutDivision division = CutDivision::Sixteenth;
     CutRegionMode regionMode = CutRegionMode::Equal;
@@ -305,17 +310,25 @@ struct SampleCutupsSettings {
     float pan = 0.0f;
     float velocitySensitivity = 1.0f;
     bool tempoSync = true;
-    std::array<float, kSampleCutupsLaneCount> laneBpm {{
-        120.0f, 120.0f, 120.0f, 120.0f,
-    }};
+    std::array<float, LaneCount> laneBpm = [] { std::array<float, LaneCount> v {}; v.fill(120); return v; }();
     uint32_t seed = 1u;
     uint32_t activeOutputChannels = 32u;
     s3g::routing::VoiceOutputRouting outputRouting {};
     std::array<CutPatternStep, kMaximumCutupsPatternSteps> manualPattern
-        = defaultCutupsPattern();
+        = defaultCutupsPattern(LaneCount);
+    // Optional per-source edit windows for embedded hosts such as Neon.
+    // Disabled by default: standalone Cutups retains its shared Start/End.
+    bool useLaneWindows = false;
+    std::array<double, LaneCount> laneStarts {};
+    std::array<double, LaneCount> laneEnds = [] { std::array<double, LaneCount> v {}; v.fill(1); return v; }();
+    double sourceStart(uint8_t lane) const noexcept { return useLaneWindows ? laneStarts[lane] : start; }
+    double sourceEnd(uint8_t lane) const noexcept { return useLaneWindows ? laneEnds[lane] : end; }
 
     bool valid() const noexcept
     {
+        if (useLaneWindows) for (unsigned n = 0; n < LaneCount; ++n)
+            if (!std::isfinite(laneStarts[n]) || !std::isfinite(laneEnds[n])
+                || laneStarts[n] < 0 || laneStarts[n] >= laneEnds[n] || laneEnds[n] > 1) return false;
         return static_cast<uint8_t>(clockBasis)
                 <= static_cast<uint8_t>(CutClockBasis::Host)
             && static_cast<uint8_t>(division)
@@ -378,18 +391,19 @@ struct SampleCutupsSettings {
             && outputRouting.valid()
             && std::all_of(manualPattern.begin(),
                 manualPattern.begin() + patternLength,
-                [](const CutPatternStep& step) { return step.valid(); });
+                [](const CutPatternStep& step) { return step.valid(LaneCount); });
     }
 };
 
-struct SampleCutupsVoiceCursor {
+using SampleCutupsSettings = BasicSampleCutupsSettings<>;
+
+template<std::size_t LaneCount = kSampleCutupsLaneCount>
+struct BasicSampleCutupsVoiceCursor {
     float sourcePositionNormalized = -1.0f;
     float lanePositionNormalized = 0.0f;
     float pathPhase = 0.0f;
-    std::array<float, kSampleCutupsLaneCount> laneSourcePositions {{
-        -1.0f, -1.0f, -1.0f, -1.0f,
-    }};
-    std::array<float, kSampleCutupsLaneCount> laneWeights {};
+    std::array<float, LaneCount> laneSourcePositions = [] { std::array<float, LaneCount> v {}; v.fill(-1); return v; }();
+    std::array<float, LaneCount> laneWeights {};
     uint8_t lane = 0u;
     uint8_t region = 0u;
     uint8_t patternStep = 0u;
@@ -397,9 +411,17 @@ struct SampleCutupsVoiceCursor {
     uint8_t outputFirstChannel = 0u;
     uint8_t outputChannelCount = 0u;
     uint64_t identity = 0u;
+    uint8_t currentPatternStep = 0u;
+    bool reverse = false;
+    float level = 0;
 };
 
-class SampleCutupsEngine {
+using SampleCutupsVoiceCursor = BasicSampleCutupsVoiceCursor<>;
+
+template<std::size_t LaneCount = kSampleCutupsLaneCount>
+class BasicSampleCutupsEngine {
+    using SampleCutupsSettings = BasicSampleCutupsSettings<LaneCount>;
+    using SampleCutupsVoiceCursor = BasicSampleCutupsVoiceCursor<LaneCount>;
 public:
     bool prepare(double outputSampleRate,
         uint32_t outputChannelCount = 2u) noexcept
@@ -443,7 +465,7 @@ public:
     }
 
     bool setAssets(const std::array<const SampleAsset*,
-        kSampleCutupsLaneCount>& assets) noexcept
+        LaneCount>& assets) noexcept
     {
         for (const auto* asset : assets)
             if (asset && !asset->valid()) return false;
@@ -557,6 +579,7 @@ private:
         bool forward = true;
         uint8_t lane = 0u;
         uint8_t region = 0u;
+        uint8_t patternStep = 0u;
         double position = 0.0;
         double increment = 0.0;
         uint32_t ageFrames = 0u;
@@ -624,7 +647,7 @@ private:
     }
 
     uint32_t loadedLanes(std::array<uint8_t,
-        kSampleCutupsLaneCount>& result) const noexcept
+        LaneCount>& result) const noexcept
     {
         uint32_t count = 0u;
         for (uint8_t lane = 0u; lane < assets_.size(); ++lane)
@@ -643,7 +666,7 @@ private:
     uint8_t chooseLane(Voice& voice,
         const SampleCutupsSettings& settings) noexcept
     {
-        std::array<uint8_t, kSampleCutupsLaneCount> lanes {};
+        std::array<uint8_t, LaneCount> lanes {};
         const uint32_t count = loadedLanes(lanes);
         if (count == 0u) return 0u;
         const uint32_t period = cutupsFileOrderPeriod(settings.fileOrder,
@@ -685,7 +708,7 @@ private:
         const auto& regions = metadata_[lane]->transientRegions;
         for (uint32_t index = 0u; index < regions.count; ++index) {
             const double value = regions.starts[index];
-            if (value >= settings.start && value < settings.end) ++count;
+            if (value >= settings.sourceStart(lane) && value < settings.sourceEnd(lane)) ++count;
         }
         return std::max(1u, std::min(count, settings.regionCount));
     }
@@ -699,14 +722,14 @@ private:
             uint32_t found = 0u;
             for (uint32_t index = 0u; index < regions.count; ++index) {
                 const double value = regions.starts[index];
-                if (value < settings.start || value >= settings.end)
+                if (value < settings.sourceStart(lane) || value >= settings.sourceEnd(lane))
                     continue;
                 if (found == ordinal) return value;
                 ++found;
                 if (found >= count) break;
             }
         }
-        return settings.start + (settings.end - settings.start)
+        return settings.sourceStart(lane) + (settings.sourceEnd(lane) - settings.sourceStart(lane))
             * static_cast<double>(ordinal % std::max(1u, count))
             / static_cast<double>(std::max(1u, count));
     }
@@ -742,8 +765,8 @@ private:
         }
         case CutSourceOrder::Timeline:
             return std::min(count - 1u, static_cast<uint32_t>(
-                std::clamp((voice.timelinePosition - settings.start)
-                        / (settings.end - settings.start), 0.0, 0.999999)
+                std::clamp((voice.timelinePosition - settings.sourceStart(lane))
+                        / (settings.sourceEnd(lane) - settings.sourceStart(lane)), 0.0, 0.999999)
                     * static_cast<double>(count)));
         case CutSourceOrder::Forward:
         default:
@@ -826,7 +849,7 @@ private:
         double position = regionPosition(lane, region, regionCount, settings);
         if (settings.sourceOrder == CutSourceOrder::Timeline)
             position = std::clamp(voice.timelinePosition,
-                settings.start, std::nextafter(settings.end, settings.start));
+                settings.sourceStart(lane), std::nextafter(settings.sourceEnd(lane), settings.sourceStart(lane)));
 
         const double interval = intervalFrames(voice, settings,
             hostTempoBpm);
@@ -842,6 +865,7 @@ private:
         Reader reader;
         reader.active = true;
         reader.lane = lane;
+        reader.patternStep = static_cast<uint8_t>(completedStep);
         reader.region = static_cast<uint8_t>(std::min<uint32_t>(
             region, std::numeric_limits<uint8_t>::max()));
         reader.position = position;
@@ -941,9 +965,10 @@ private:
         if (!reader.active) return;
         reader.position += reader.forward ? reader.increment
             : -reader.increment;
-        const double width = settings.end - settings.start;
-        while (reader.position >= settings.end) reader.position -= width;
-        while (reader.position < settings.start) reader.position += width;
+        const double start = settings.sourceStart(reader.lane), end = settings.sourceEnd(reader.lane);
+        const double width = end - start;
+        while (reader.position >= end) reader.position -= width;
+        while (reader.position < start) reader.position += width;
         ++reader.ageFrames;
         if (reader.retirementFrames > 0u) {
             ++reader.retirementFrame;
@@ -1193,7 +1218,7 @@ private:
             cursor.sourcePositionNormalized = static_cast<float>(
                 voice.current.position);
             cursor.lanePositionNormalized = static_cast<float>(
-                voice.current.lane) / 3.0f;
+                voice.current.lane) / static_cast<float>(std::max<std::size_t>(1, LaneCount - 1));
             cursor.pathPhase = static_cast<float>(voice.patternStep)
                 / static_cast<float>(std::max(1u, patternLength));
             cursor.laneSourcePositions.fill(-1.0f);
@@ -1206,6 +1231,9 @@ private:
             cursor.patternStep = static_cast<uint8_t>(voice.patternStep);
             cursor.key = voice.key;
             cursor.identity = voice.noteId;
+            cursor.currentPatternStep = voice.current.patternStep;
+            cursor.reverse = !voice.current.forward;
+            cursor.level = voice.envelope * voice.velocityGain * voice.current.gain * readerEnvelope(voice.current);
             cursor.outputFirstChannel = voice.current.output.firstChannel;
             cursor.outputChannelCount = voice.current.output.channelCount;
         }
@@ -1214,8 +1242,8 @@ private:
     double outputSampleRate_ = 48000.0;
     uint32_t outputChannelCount_ = 2u;
     bool prepared_ = false;
-    std::array<const SampleAsset*, kSampleCutupsLaneCount> assets_ {};
-    std::array<const CutupsLaneMetadata*, kSampleCutupsLaneCount> metadata_ {};
+    std::array<const SampleAsset*, LaneCount> assets_ {};
+    std::array<const CutupsLaneMetadata*, LaneCount> metadata_ {};
     std::array<Voice, kMaximumCutupsVoices> voices_ {};
     std::array<SampleCutupsVoiceCursor, kMaximumCutupsVoices> cursors_ {};
     uint32_t cursorCount_ = 0u;
@@ -1224,5 +1252,7 @@ private:
     s3g::routing::TriggerOutputAllocator<32u> allocator_ {};
     uint32_t allocatorSeed_ = 0u;
 };
+
+using SampleCutupsEngine = BasicSampleCutupsEngine<>;
 
 } // namespace s3g::sample

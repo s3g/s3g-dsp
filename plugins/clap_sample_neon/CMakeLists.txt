@@ -33,14 +33,15 @@ if(APPLE)
   target_link_libraries(s3g_sample_neon_clap PRIVATE
     "-framework Cocoa"
     "-framework AVFoundation"
+    "-framework Accelerate"
     "-framework CoreMIDI")
   set_target_properties(s3g_sample_neon_clap PROPERTIES
     BUNDLE TRUE
     BUNDLE_EXTENSION "clap"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.s3g.s3g-dsp.sample-neon"
     MACOSX_BUNDLE_BUNDLE_NAME "s3g Sample Neon 32"
-    MACOSX_BUNDLE_BUNDLE_VERSION "0.34.2"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.34.2")
+    MACOSX_BUNDLE_BUNDLE_VERSION "0.39.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.39.0")
   add_custom_command(TARGET s3g_sample_neon_clap POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E touch
       "$<TARGET_BUNDLE_DIR:s3g_sample_neon_clap>"
