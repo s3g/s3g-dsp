@@ -128,13 +128,16 @@
             const auto* sources=p.publishedStacks[selectedSlot].load();
             const bool layerPad=stack&&!secondary;
             const bool cellPad=mode==NeonMode::Sampler&&!secondary || capture&&secondary;
-            const bool loaded=layerPad?sources&&cell<sources->count&&sources->layers[cell].asset:cellPad&&p.publishedAssets[cell].load();
+            const bool loaded=layerPad?sources&&cell<sources->count&&sources->layers[cell].asset:cellPad&&renderBase(p.publishedStacks[cell].load());
             bool enabled=true,active=false;std::string label;
             if(layerPad){label=format("L%02u",cell+1);enabled=loaded&&stackPlayable(p,selectedSlot);active=cell==p.selectedLayers[selectedSlot].load();}
             else if(fx){label=upper(characterName(pad));enabled=fxAllowed(p,selectedSlot,pad);active=paramValue(p,slotParamId(selectedSlot,kSlotCharacter))==pad;}
             else if(mode==NeonMode::Slicer){const char* tools[]{"ADD","DELETE","AUDITION","ZERO","EQUAL","TRANS","ASSIGN 1","ASSIGN ALL"};label=secondary?tools[pad]:format("SL %02u",cell+1);enabled=bool(asset(selectedSlot))&&(secondary||cell<sliceCount(p,selectedSlot));active=!secondary&&cell==p.visibleSlice.load();}
             else if(stack){const char* tools[]{"SOURCE","SAMPLE","MOTION","GRAINS","ONE SHOT","HOLD","TOGGLE","STOP"};label=tools[pad];}
-            else if(capture&&!secondary){const char* tools[]{"RECORD","STOP","AUDITION","DISCARD","BUS -","BUS +","REVIEW","ASSIGN"};label=tools[pad];active=pad==0&&p.captureState.load()==Plugin::CaptureState::Recording;}
+            else if(capture&&!secondary){const char* tools[]{"RECORD","STOP","AUDITION","DISCARD","BUS -","BUS +","REVIEW","ASSIGN"};label=tools[pad];active=pad==0&&p.captureState.load()==Plugin::CaptureState::Recording;
+                if (pad==0&&active) label="REC ON";
+                if (pad==3&&savedCaptureValid(p)) label="DELETE";
+                if (pad==7&&captureRunning(p)&&p.captureToStack.load()) label="TAKE";}
             else {label=format("%c%u",'A'+bank,pad+1);active=selectedSlot==cell;}
             const bool pressed=buttonPressActive(bounds,label);
             fill(bounds,pressed?color(0xa3a3a3):active?style.buttonActive:loaded?color(0x353535):style.strip);stroke(bounds,active?style.text:style.grid,active?2:1);

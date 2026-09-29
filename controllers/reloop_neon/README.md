@@ -146,6 +146,18 @@ selection algorithm, routing matrix and capture limits.
 
 The miniature pads explicitly distinguish **AUDIO**, **EMPTY**, **LOADING** and
 **OFFLINE**; bank buttons show how many of their eight cells contain audio.
+With Sample Neon 0.40.6 / Utility 0.3.2, choosing PLAY, CHOP, STACK or RESAMPLE
+sets the software mode and primary/secondary layer across all banks on that
+unit. Banks never select a page, and stale hardware pad addresses cannot
+override the chosen page. USB automatic page recalls are filtered; host MIDI
+also filters the exact same-time bank + mode-on/off triplet. Two USB controllers
+keep independent modes/banks. On Mac, NEON OWNER sends mode commands in separate
+packets with 20 ms quiet intervals on its output worker, not the audio thread.
+An isolated paced-write test confirmed primary HOT CUE bank recalls and pad
+addresses on A/B; all-mode/layer and two-unit plugin acceptance remains a live
+hardware check. Earlier bulk output in 0.40.4 did not pass that acceptance.
+Ordinary bank changes and settling retries do not repeatedly send mode commands.
+OWNER off/shutdown clears pads without selecting a bank or performance mode.
 Primary hardware cell pads use **red = loaded**, **yellow = last played in that bank**,
 **white = active**, **off = empty/offline**. Selecting a cell for editing does not
 change last-played history. Active generators stay lit through quiet grain gaps

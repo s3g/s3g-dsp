@@ -21,9 +21,18 @@ inline double neonCursorSource(const VoiceCursor& cursor, double phase) noexcept
     return cursor.sourceStartNormalized + travel
         * (cursor.sourceEndNormalized - cursor.sourceStartNormalized);
 }
-inline unsigned neonLaneViewFirst(unsigned count, float position) noexcept {
-    const unsigned center = static_cast<unsigned>(std::lround(
-        std::clamp(position, 0.f, 1.f) * (std::max(1u, count) - 1u)));
-    return std::min(count > 8 ? count - 8 : 0u, center > 3 ? center - 3 : 0u);
+struct NeonLaneViewLayout {
+    unsigned rows = 0;
+    double pitch = 0, height = 0;
+    double top(unsigned layer) const noexcept { return layer * pitch; }
+};
+inline NeonLaneViewLayout neonLaneViewLayout(unsigned count, double height) noexcept {
+    const auto rows = std::min(32u, count);
+    if (!rows || !std::isfinite(height) || height <= 0) return {};
+    const double pitch = height / rows;
+    // Keep a readable 14px row at 32 layers in the fixed 510px waveform.
+    // Geometry never depends on playback position: no scrolling or paging.
+    const double gap = std::min(rows > 16 ? 1.0 : 3.0, pitch * .1);
+    return {rows, pitch, pitch - gap};
 }
 }

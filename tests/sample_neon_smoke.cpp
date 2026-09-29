@@ -1,8 +1,11 @@
 #include "s3g_reloop_neon.h"
 #include "s3g_sample_neon.h"
+#include "s3g_sample_neon_poly.h"
+#include "s3g_neon_note_routing.h"
 #include "s3g_sample_neon_fill.h"
 #include "s3g_sample_neon_edit.h"
 #include "../plugins/clap_sample_neon/s3g_sample_neon_layout.h"
+#include "../plugins/clap_sample_neon/s3g_sample_neon_labels.h"
 #include "../plugins/clap_sample_neon/s3g_sample_neon_visual_state.h"
 
 #include <array>
@@ -12,6 +15,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <string_view>
 
 namespace {
 
@@ -63,6 +67,35 @@ struct OutputBlock {
             pointers[channel] = samples[channel].data();
     }
 };
+
+void testDisplayVocabulary()
+{
+    using s3g::sample_neon_gui::Labels;
+    using s3g::sample::NeonSourceMode;
+    using s3g::sample::NeonStackShape;
+    using View = std::string_view;
+    check(View(Labels::stackPath) == "STACK PATH"
+        && View(Labels::layerSources[static_cast<unsigned>(NeonSourceMode::Scan)]) == Labels::stackPath
+        && View(Labels::lanesNavigation[1]) == Labels::stackPath
+        && View(Labels::editViews[2]) == Labels::stackPath,
+        "Layer source, Lanes navigation and edit view must use the same Stack Path name");
+    check(View(Labels::layerSources[static_cast<unsigned>(NeonSourceMode::Selected)]) == Labels::editLayer
+        && View(Labels::layerSources[0]) == "PRIMARY LAYER"
+        && View(Labels::layerSources[2]) == "VELOCITY"
+        && View(Labels::layerSources[3]) == "RANDOM / TRIGGER",
+        "Display vocabulary must preserve the saved layer-source menu order");
+    check(View(Labels::lanesNavigation[0]) == "MANUAL"
+        && View(s3g::sample::kNeonStackShapeNames[static_cast<unsigned>(NeonStackShape::Manual)]) == "CUSTOM",
+        "Manual layer control must remain distinct from a custom breakpoint shape");
+    check(View(Labels::sourcePath) != Labels::stackPath
+        && View(Labels::sourceCycle) != Labels::stackCycle,
+        "Within-source movement must remain distinct from between-layer movement");
+    // Existing 10 px monospaced labels: no row/column or font-size changes.
+    for (const char* label : {Labels::stackPath, Labels::stackCycle, Labels::sourcePath,
+            Labels::sourceCycle, Labels::editLayer, Labels::pitchSpray, Labels::reverseChance})
+        check(View(label).size() * 6.2 <= s3g::sample_neon_gui::InspectorLayout::labelWidth,
+            "Standardized label no longer fits the existing toolbox label width");
+}
 
 void testProtocolDecode()
 {
@@ -166,15 +199,16 @@ void testLedDiffs()
     LedDiffEncoder encoder;
     const std::size_t first = encoder.encode(frame, messages.data(),
         messages.size());
-    check(first == kFullLedFrameMessages + kBankCount
+    check(first == kFullLedFrameMessages + kBankCount + (kBankCount - 1u)
             && messages[0u] == MidiMessage { 0x93u, 0x0du, 127u }
             && messages[1u] == MidiMessage { 0x94u, 0x0du, 127u }
             && messages[2u] == MidiMessage { 0x95u, 0x0du, 127u }
             && messages[3u] == MidiMessage { 0x96u, 0x0du, 127u }
-            && messages[4u] == MidiMessage { 0x93u, 0x05u, 127u }
-            && messages[12u] == MidiMessage { 0x93u, 0x00u, 127u }
-            && messages[13u] == MidiMessage { 0x97u, 0x00u, 96u }
-            && messages[14u] == MidiMessage { 0x9bu, 0x20u, 127u }
+            && messages[4u] == MidiMessage { 0x94u, 0x05u, 127u }
+            && messages[7u] == MidiMessage { 0x93u, 0x05u, 127u }
+            && messages[15u] == MidiMessage { 0x93u, 0x00u, 127u }
+            && messages[16u] == MidiMessage { 0x97u, 0x00u, 96u }
+            && messages[17u] == MidiMessage { 0x9bu, 0x20u, 127u }
             && messages[first - 1u]
                 == MidiMessage { 0x9bu, 0x47u, 64u },
         "initial LED frame was not fully encoded");
@@ -190,11 +224,12 @@ void testLedDiffs()
     frame.layer = Layer::Second;
     const std::size_t switched = encoder.encode(frame, messages.data(),
         messages.size());
-    check(switched == kFullLedFrameMessages + kPadsPerBank
+    check(switched == kFullLedFrameMessages + kPadsPerBank + (kBankCount - 1u)
             && messages[0u] == MidiMessage { 0x97u, 0x00u, 0u }
-            && messages[8u] == MidiMessage { 0x93u, 0x0au, 127u }
-            && messages[16u] == MidiMessage { 0x93u, 0x01u, 127u }
-            && messages[17u] == MidiMessage { 0x97u, 0x68u, 96u },
+            && messages[8u] == MidiMessage { 0x94u, 0x0au, 127u }
+            && messages[11u] == MidiMessage { 0x93u, 0x0au, 127u }
+            && messages[19u] == MidiMessage { 0x93u, 0x01u, 127u }
+            && messages[20u] == MidiMessage { 0x97u, 0x68u, 96u },
         "mode/layer LED switch did not retarget the large pads");
     check(enableFourDecksSysEx()
             == std::array<uint8_t, 4u> {{ 0xf0u, 0x0au, 0x00u, 0xf7u }},
@@ -248,8 +283,10 @@ void testLedDiffs()
         check(retry == kPadsPerBank * kLedValuesPerPad,
             "Pad settling retry changed the hardware mode");
         const auto dark = encoder.encode(frame, messages.data(), messages.size(), true, false, false);
-        check(dark == kFullLedFrameMessages && messages[8u] == bankLedMessage(bank, Mode::Sampler),
-            "Relinquishing LED ownership sent sampler-mode commands");
+        check(dark == kPadsPerBank * kLedValuesPerPad,
+            "Relinquishing LED ownership must only clear pads, not bank/mode commands");
+        for (std::size_t i = 0u; i < dark; ++i)
+            check(messages[i].status >= 0x97u, "Owner OFF must not select a hardware bank or mode");
         frame.mode = Mode::HotCue;
         const auto editing = encoder.encode(frame, messages.data(), messages.size());
         for (std::size_t i = 0u; i < editing; ++i)
@@ -310,6 +347,46 @@ void testLedDiffs()
         }
     }
 
+    // Every mode AND secondary tool layer follows across A-D. Unit encoders
+    // are independent; ordinary bank moves and settling retries stay quiet.
+    for (unsigned previous=0;previous<8;++previous) for (unsigned page=0;page<8;++page) {
+        LedDiffEncoder unit, otherUnit;
+        LedFrame desired; desired.mode=static_cast<Mode>(previous%4);
+        desired.layer=previous<4 ? Layer::First : Layer::Second;
+        unit.encode(desired,messages.data(),messages.size());
+        otherUnit.encode(desired,messages.data(),messages.size());
+        const auto otherFrame=desired;
+        desired.mode=static_cast<Mode>(page%4); desired.layer=page<4 ? Layer::First : Layer::Second;
+        desired.bank=3;
+        const auto n=unit.encode(desired,messages.data(),messages.size());
+        unsigned updated=0; bool bankRestored=false;
+        for (std::size_t i=0;i<n;++i) {
+            const auto m=messages[i];
+            if (m.status>=0x93 && m.status<=0x96 && m.data1>=5 && m.data1<=12 && m.data2==127) {
+                check(!bankRestored && m==modeLedMessage(m.status-0x93,desired.mode,desired.layer),
+                    "All remembered deck pages receive the chosen mode/layer before bank restore");
+                updated|=1u<<(m.status-0x93);
+            }
+            if (m==bankLedMessage(desired.bank,desired.mode,127,desired.layer)) bankRestored=true;
+        }
+        check(updated==(previous==page ? 0u : 15u) && bankRestored && n<=kMaximumLedMessages,
+            "Every performance-page transition updates all four decks within bounded MIDI output");
+        check(otherUnit.encode(otherFrame,messages.data(),messages.size())==0,
+            "Changing one USB controller leaves the other unit context untouched");
+        for (uint8_t bank=0;bank<4;++bank) {
+            desired.bank=bank;
+            const auto count=unit.encode(desired,messages.data(),messages.size());
+            for (std::size_t i=0;i<count;++i) {
+                const auto m=messages[i];
+                check(!(m.status>=0x93 && m.status<=0x96 && m.data1>=5 && m.data1<=13),
+                    "Bank move does not reinitialize any performance mode");
+            }
+            check(unit.encode(desired,messages.data(),messages.size(),false,true)==48,
+                "All-mode settling retry only repaints pads");
+            check(unit.encode(desired,messages.data(),messages.size())==0,"All modes settle without a MIDI heartbeat");
+        }
+    }
+
     LedRefreshRetries retries;
     check(!retries.update(frame, 0u) && !retries.update(frame, 49u)
         && retries.update(frame, 50u) && !retries.update(frame, 149u)
@@ -324,6 +401,114 @@ void testLedDiffs()
     check(isStatusLedMessage({0x9bu, 0x24u, 127u}) && isStatusLedMessage({0x8bu, 0x47u, 0u})
         && !isStatusLedMessage({0x97u, 0x01u, 48u}) && !isStatusLedMessage({0x90u, 0x24u, 127u}),
         "LED-only guard consumed ordinary pads/notes or missed status lamps");
+}
+
+void testLedPacketPacing()
+{
+    using namespace s3g::controller::reloop_neon;
+    std::array<MidiMessage, kMaximumLedMessages> messages {};
+    // Virtual time: the regression never sleeps or opens a physical MIDI port.
+    const auto verify = [&](std::size_t count, bool expectModes) {
+        unsigned now = 0u, lastSend = 0u, modeCount = 0u, batches = 0u;
+        bool previousMode = false;
+        std::size_t delivered = 0u;
+        const bool ok = sendLedFeedback(messages.data(), count,
+            [&](const MidiMessage* batch, std::size_t size) {
+                check(size > 0u && size <= kMaximumLedMessages,
+                    "LED packet is empty or exceeds its bounded transport");
+                const bool mode = isModeFeedback(batch[0]);
+                if (mode) {
+                    ++modeCount;
+                    check(size == 1u, "Mode command was buried in a bulk LED packet");
+                }
+                if (mode || previousMode)
+                    check(now - lastSend >= kModeFeedbackGapMs,
+                        "Mode command lost its leading/trailing quiet interval");
+                for (std::size_t i = 0u; i < size; ++i) {
+                    check(isModeFeedback(batch[i]) == mode,
+                        "Pad/bank packet contains a stateful mode command");
+                    check(delivered < count && batch[i] == messages[delivered],
+                        "Pacing reordered, duplicated or changed a MIDI message");
+                    ++delivered;
+                }
+                ++batches; lastSend = now; previousMode = mode;
+                return true;
+            }, [&](unsigned milliseconds) {
+                check(milliseconds == 20u, "Mode gap differs from the hardware-tested 20 ms");
+                now += milliseconds;
+                return true;
+            });
+        check(ok && delivered == count && (modeCount != 0u) == expectModes,
+            "Paced LED transport did not preserve the complete frame");
+        if (previousMode)
+            check(now - lastSend >= kModeFeedbackGapMs,
+                "Terminal mode command was not protected from the next frame");
+        if (!expectModes)
+            check(now == 0u && batches == (count ? 1u : 0u),
+                "Ordinary bank/pad updates acquired unnecessary waits or fragmentation");
+    };
+
+    for (unsigned previous = 0u; previous < 8u; ++previous) {
+        for (unsigned page = 0u; page < 8u; ++page) {
+            LedDiffEncoder encoder;
+            LedFrame frame;
+            frame.mode = static_cast<Mode>(previous % 4u);
+            frame.layer = previous < 4u ? Layer::First : Layer::Second;
+            verify(encoder.encode(frame, messages.data(), messages.size()), true);
+            frame.bank = 3u;
+            frame.mode = static_cast<Mode>(page % 4u);
+            frame.layer = page < 4u ? Layer::First : Layer::Second;
+            verify(encoder.encode(frame, messages.data(), messages.size()), previous != page);
+            for (uint8_t bank = 0u; bank < kBankCount; ++bank) {
+                frame.bank = bank;
+                verify(encoder.encode(frame, messages.data(), messages.size()), false);
+                verify(encoder.encode(frame, messages.data(), messages.size(), false, true), false);
+                verify(encoder.encode(frame, messages.data(), messages.size()), false);
+            }
+            for (auto& pad : frame.pads) pad = {};
+            const auto dark = encoder.encode(frame, messages.data(), messages.size(), true, false, false);
+            verify(dark, false);
+            for (std::size_t i = 0u; i < dark; ++i)
+                check(messages[i].status >= 0x97u, "Owner OFF emitted a bank or mode write");
+            verify(encoder.encode(frame, messages.data(), messages.size(), true), true);
+        }
+    }
+
+    // Worst-case separation: terminal modes, ordinary batches on either side,
+    // and maximum-size packets preserve the same timing/order invariants.
+    messages.fill(modeLedMessage(0u, Mode::HotCue, Layer::First));
+    verify(messages.size(), true);
+    verify(1u, true);
+    messages.fill(padLedMessage(0u, 0u, 127u));
+    verify(messages.size(), false);
+    messages[1u] = modeLedMessage(1u, Mode::Slicer, Layer::Second);
+    messages[3u] = samplerModeTrigger(2u);
+    verify(5u, true);
+
+    // Every transport/wait failure stops immediately, rather than sending the
+    // remainder and committing a misleading successful frame to the cache.
+    unsigned operations = 0u;
+    const auto run = [&](unsigned failAt) {
+        operations = 0u;
+        return sendLedFeedback(messages.data(), 5u,
+            [&](const MidiMessage*, std::size_t) { return operations++ != failAt; },
+            [&](unsigned) { return operations++ != failAt; });
+    };
+    check(run(100u), "Fake LED transport unexpectedly failed");
+    const auto totalOperations = operations;
+    for (unsigned failAt = 0u; failAt < totalOperations; ++failAt)
+        check(!run(failAt) && operations == failAt + 1u,
+            "LED transport continued after a failed send/wait");
+
+    unsigned calls = 0u;
+    const auto send = [&](const MidiMessage*, std::size_t) { ++calls; return true; };
+    const auto pause = [&](unsigned) { ++calls; return true; };
+    check(sendLedFeedback(nullptr, 0u, send, pause) && calls == 0u,
+        "Empty LED frame must be a successful no-op");
+    check(!sendLedFeedback(nullptr, 1u, send, pause) && calls == 0u,
+        "Null nonempty LED frame reached the transport");
+    check(!sendLedFeedback(messages.data(), messages.size() + 1u, send, pause) && calls == 0u,
+        "Oversized LED frame reached the transport");
 }
 
 void testThirtyTwoSlotRouting()
@@ -2117,10 +2302,15 @@ void testPlaybackVisuals() {
     VoiceCursor adsr; adsr.attack=.1f; adsr.decay=.2f; adsr.sustain=.4f; adsr.release=.2f;
     check(std::abs(neonCursorEnvelope(adsr,.05f)-.5f)<.00001f
         && std::abs(neonCursorEnvelope(adsr,.9f)-.2f)<.00001f,"legacy ADSR contour retains attack and release");
-    for (unsigned count : {1u,4u,8u,16u,32u}) for (float position : {0.f,.5f,1.f}) {
-        const auto begin=neonLaneViewFirst(count,position);
-        check(begin+std::min(8u,count)<=count,"lane view stays bounded through layer 32");
+    for (unsigned count=1;count<=32;++count) {
+        const auto layout=neonLaneViewLayout(count,510);
+        check(layout.rows==count && layout.height>=14,"all stack lanes fit at readable height through layer 32");
+        check(layout.top(0)==0 && layout.top(count-1)+layout.height<=510,"first and last lanes stay inside waveform");
+        for (unsigned layer=1;layer<count;++layer)
+            check(layout.top(layer)>layout.top(layer-1)+layout.height,"lane rows never overlap");
     }
+    check(neonLaneViewLayout(0,510).rows==0 && neonLaneViewLayout(32,0).rows==0,
+        "empty lane layout safely handles no rows or height");
     NeonVisualPublication publication; NeonVisualSnapshot snapshot;
     publication.publish(engine->voiceCursors(0),engine->voiceCursorCount(0));
     check(publication.read(snapshot) && snapshot.count>0 && snapshot.cursors[0].reverse
@@ -2635,12 +2825,16 @@ void testSpectralColour()
 }
 
 #include "sample_neon_cutups_checks.inc"
+#include "sample_neon_poly_checks.inc"
 
 int main()
 {
+    testDisplayVocabulary();
+    testNotePolyphony();
     testProtocolDecode();
     testPadVelocityPairing();
     testLedDiffs();
+    testLedPacketPacing();
     testThirtyTwoSlotRouting();
     testPerformanceWindowsAndPressure();
     testV07V08PerformanceModel();

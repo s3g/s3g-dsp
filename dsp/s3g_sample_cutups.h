@@ -95,6 +95,7 @@ struct CutupsRenderEvent {
     uint8_t key = 60u;
     float velocity = 1.0f;
     uint8_t midiChannel = 0u;
+    uint8_t polyPathIndexOverride = 255u; // optional outer voice pool; ordinary Cutups chooses its own
 };
 
 struct CutRegionTable {
@@ -314,6 +315,7 @@ struct BasicSampleCutupsSettings {
     uint32_t seed = 1u;
     uint32_t activeOutputChannels = 32u;
     s3g::routing::VoiceOutputRouting outputRouting {};
+    s3g::routing::TriggerOutputAllocator<32u>* externalOutputAllocator = nullptr;
     std::array<CutPatternStep, kMaximumCutupsPatternSteps> manualPattern
         = defaultCutupsPattern(LaneCount);
     // Optional per-source edit windows for embedded hosts such as Neon.
@@ -808,7 +810,8 @@ private:
     s3g::routing::VoiceOutputAssignment allocateOutput(
         const SampleCutupsSettings& settings) noexcept
     {
-        return allocator_.next(std::min(settings.activeOutputChannels,
+        auto& allocator = settings.externalOutputAllocator ? *settings.externalOutputAllocator : allocator_;
+        return allocator.next(std::min(settings.activeOutputChannels,
             outputChannelCount_), settings.outputRouting);
     }
 
@@ -1157,7 +1160,7 @@ private:
             for (auto& active : voices_) active = {};
         }
         const uint8_t polyPathIndex = settings.voiceMode == VoiceMode::Poly
-            ? nextPolyPathIndex() : 0u;
+            ? event.polyPathIndexOverride < 32u ? event.polyPathIndexOverride : nextPolyPathIndex() : 0u;
         voice = allocateVoice();
         *voice = {};
         voice->active = true;

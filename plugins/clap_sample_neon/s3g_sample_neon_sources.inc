@@ -32,6 +32,11 @@ template<class Source> void appendMosaicFragments(s3g::sample::NeonStack& stack,
     }
 }
 void publishStack(Plugin& p, std::size_t slot) {
+    uint32_t occupied = 0;
+    for (unsigned n = 0; n < 32; ++n)
+        if (p.sources[slot][n].asset || !p.sources[slot][n].path.empty() || p.pendingSourceLoads[slot][n]) occupied |= 1u << n;
+    p.captureOccupied[slot].store(occupied, std::memory_order_release);
+    refreshCaptureBudget(p);
     auto snapshot = std::make_shared<s3g::sample::NeonStack>();
     snapshot->count = static_cast<uint8_t>(stackCount(p, slot));
     for (unsigned n = 0u; n < snapshot->count; ++n) {
@@ -141,10 +146,14 @@ bool fitsEmbeddedBudget(const Plugin& p, unsigned replacePad = 32u, unsigned rep
     return samples <= 64u * 1024u * 1024u;
 }
 void chooseStorage(Plugin& p, StorageMode mode) {
+    if (p.captureState.load() == Plugin::CaptureState::Recording || p.captureReady.load()) {
+        p.workflowMessage = "STOP / FINISH RECORDING BEFORE CHANGING STORAGE"; return;
+    }
     if (mode == StorageMode::Embed && !fitsEmbeddedBudget(p)) {
         p.workflowMessage = "EMBED EXCEEDS 256 MiB; STORAGE UNCHANGED"; return;
     }
     p.storageMode = mode; p.nextCollection = {};
+    refreshCaptureBudget(p);
     if (mode != StorageMode::Project)
         for (auto& pad : p.registrations) for (auto& r : pad) r.clear();
     markStateDirty(p);

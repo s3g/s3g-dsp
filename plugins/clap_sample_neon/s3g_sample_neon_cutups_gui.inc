@@ -82,11 +82,17 @@
         familySlider<E>(F::CutJoin,"JOIN",12," ms");
         familySlider<E>(F::CutSwing,"SWING",13);
         familySlider<E>(F::CutTimeVariation,"TIME VAR",14);
-        familySlider<E>(F::CutReverse,"REVERSE",15);
+        familySlider<E>(F::CutReverse,Labels::reverseChance,15);
         familySlider<E>(F::CutPitchVariation,"PITCH VAR",16," st");
         familySlider<E>(F::CutLevelVariation,"LEVEL VAR",17);
         familyMenu<E>(F::CutTempoSync,"TEMPO SYNC",18,{"OFF","VARISPEED"});
-        familyMenu<E>(F::CutVoiceMode,"VOICES",19,{"POLY","MONO","LEGATO"});
+        bool noteVoices = p.noteVoiceModes[selectedSlot].load() != 0;
+        for (const auto& route : p.channelTargets) noteVoices |= route.load() == selectedSlot+1;
+        for (const auto& target : p.keyboardTargets) noteVoices |= target.load() == selectedSlot;
+        if (noteVoices) {
+            inspectorLabel<E>("VOICES",19);
+            button(inspectorMenu<E>(19),"NOTES / VOICES",[this] { workspaceTab=10; p.editPage.store(10); routingNotes=true; });
+        } else familyMenu<E>(F::CutVoiceMode,"PAD VOICES",19,{"POLY","MONO","LEGATO"});
         familyMenu<E>(F::CutPolyPath,"POLY PATH",20,{"TOGETHER","STEP OFFSET","QUARTER SPREAD","MIRROR PAIRS"});
         for (unsigned n=0;n<2;++n) {
             const auto key = n ? F::CutRelease : F::CutAttack;

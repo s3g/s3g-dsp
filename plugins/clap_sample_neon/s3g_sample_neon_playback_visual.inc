@@ -64,17 +64,16 @@
             if (c.layer<count && c.sourceAsset==p.sources[selectedSlot][c.layer].asset.get())
                 weights[c.layer]=std::min(1.f,weights[c.layer]+c.level);
         }
-        const unsigned first=s3g::sample::neonLaneViewFirst(count,p.stackPositions[selectedSlot].load());
-        const unsigned rows=std::min(8u,count);
+        const auto layout=s3g::sample::neonLaneViewLayout(count,wave.getHeight());
         fill(wave,color(0x111414));
-        for (unsigned rowIndex=0;rowIndex<rows;++rowIndex) {
-            const unsigned layer=first+rowIndex;
+        for (unsigned layer=0;layer<layout.rows;++layer) {
             const auto& source=p.sources[selectedSlot][layer];
             const bool selected=layer==p.selectedLayers[selectedSlot].load();
             const double lo=selected ? paramValue(p,slotParamId(selectedSlot,kSlotStart)) : source.start;
             const double hi=selected ? paramValue(p,slotParamId(selectedSlot,kSlotEnd)) : source.end;
             const double range=std::max(1.e-9,hi-lo);
-            const auto row=rect(wave.left,wave.top+rowIndex*wave.getHeight()/rows,wave.getWidth(),wave.getHeight()/rows-3);
+            const auto row=rect(wave.left,wave.top+layout.top(layer),wave.getWidth(),layout.height);
+            context->saveGlobalState(); context->setClipRect(row);
             auto shade=visualColor(0xb6bcbc,static_cast<uint8_t>(75+150*std::clamp(weights[layer],0.f,1.f)));
             drawWaveTrace(row,source.asset.get(),shade,true,lo+range*viewStart,lo+range*viewEnd);
             for (unsigned n=0;n<visual.count;++n) {
@@ -87,9 +86,11 @@
                 if (playbackChoice()==2u) drawGrainHead(row,c,lo,range,viewStart,viewEnd-viewStart);
                 else playbackDot(row,x,c.level,c.reverse);
             }
-            fill(rect(row.left+3,row.top+2,116,14),color(0x111414));
+            const double labelTop=row.getHeight()<18 ? row.getCenter().y-7 : row.top+1;
+            fill(rect(row.left+3,labelTop,116,14),color(0x111414));
             text(format("L%02u / %s",layer+1,source.asset ? format("%.0f%%",weights[layer]*100).c_str() : "EMPTY"),
-                rect(row.left+6,row.top+1,110,14),style.value,kLeftText,smallFont);
+                rect(row.left+6,labelTop,110,14),style.value,kLeftText,smallFont);
             if (weights[layer]>.01f) fill(rect(row.left+1,row.top+1,2,row.getHeight()-2),style.value);
+            context->restoreGlobalState();
         }
     }

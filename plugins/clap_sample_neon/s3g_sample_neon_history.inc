@@ -22,6 +22,7 @@ struct NeonHistoryCapture {
     double start = 0, end = 1, cursor = 0;
     uint8_t layout = 0, bus = 0, target = 255;
     bool zeroCross = true;
+    uint8_t savedPad = 255, savedLayer = 255;
 };
 struct NeonHistoryImage {
     uint32_t pads = 0;
@@ -62,6 +63,7 @@ NeonHistoryImage snapshotHistory(Plugin& p, uint32_t pads, bool capture, bool re
         if (pads & (1u << slot)) image.cells[slot] = snapshotHistoryCell(p, slot);
     if (capture) image.take = {p.captureAsset, p.captureStart.load(), p.captureEnd.load(),
         p.captureCursor.load(), p.captureLayout.load(), p.captureBus.load(), p.captureTarget.load(), p.captureZeroCross.load()};
+    if (capture && savedCaptureValid(p)) { image.take.savedPad = p.captureSavedPad; image.take.savedLayer = p.captureSavedLayer; }
     if (reset) {
         image.soundGlobals = {{paramValue(p, kMasterGainParamId), paramValue(p, kGlobalMangleParamId), paramValue(p, kTempoSyncParamId)}};
         image.fill = {{p.fillBuffer.load(), p.fillRepeat.load(), p.fillBreakup.load()}};
@@ -104,11 +106,18 @@ void commitHistoryEntry(Plugin& p, std::shared_ptr<NeonHistoryEntry> entry) {
         || historyFootprint(history, history.undo) > kNeonHistoryAudioBytes)
         history.undo.erase(history.undo.begin());
 }
-NeonHistoryEdit::NeonHistoryEdit(Plugin& plugin, std::string label, uint32_t pads, bool capture, bool reset)
+NeonHistoryEdit::NeonHistoryEdit(Plugin& plugin, std::string label, uint32_t pads, bool capture, bool reset, bool recordingCommit)
     : p(plugin) {
     if ((!pads && !capture && !reset) || p.resetAllPhase.load()) return;
-    if ((capture || reset) && (p.captureState.load() == Plugin::CaptureState::Recording
-        || p.captureCommand.load() != 0)) { p.workflowMessage = "STOP RECORDING BEFORE EDITING THE TAKE"; return; }
+    if (!recordingCommit && pads && (p.captureState.load() == Plugin::CaptureState::Recording || p.captureReady.load())) {
+        p.workflowMessage = "STOP / FINISH RECORDING BEFORE DESTRUCTIVE SOURCE EDITS"; return;
+    }
+    if (!recordingCommit && (capture || reset) && (p.captureState.load() == Plugin::CaptureState::Recording
+        || p.captureCommand.load() != 0 || p.captureReady.load())) { p.workflowMessage = "STOP / FINISH RECORDING BEFORE EDITING THE TAKE"; return; }
+    const unsigned recordingPad = p.captureRecordingPad.load();
+    if (!recordingCommit && recordingPad < 32 && (pads & (1u << recordingPad))) {
+        p.workflowMessage = "STOP STACK RECORDING BEFORE REPLACING ITS SOURCES"; return;
+    }
     try {
         if (!p.editHistory) p.editHistory = std::make_shared<NeonEditHistory>();
         auto next = std::make_shared<NeonHistoryEntry>(); next->label = std::move(label);
@@ -128,7 +137,7 @@ void clearEditHistory(Plugin& p) {
     p.editHistory.reset(); p.historyRestorePending.store(false);
 }
 bool historyBusy(const Plugin& p) {
-    if (p.resetAllPhase.load() || p.pendingEditCommand.load() || p.captureCommand.load()
+    if (p.resetAllPhase.load() || p.pendingEditCommand.load() || p.captureCommand.load() || p.captureReady.load()
         || p.captureState.load() == Plugin::CaptureState::Recording
         || p.captureState.load() == Plugin::CaptureState::Ready) return true;
     for (const auto& pad : p.pendingSourceLoads) for (bool pending : pad) if (pending) return true;
@@ -220,6 +229,9 @@ void applyHistoryRestore(Plugin& p) {
         invalidateLayerLoads(p, slot);
         for (auto& registration : p.registrations[slot]) registration.clear();
         p.sources[slot] = std::move(cell.sources);
+        uint32_t occupied = 0;
+        for (unsigned n = 0; n < 32; ++n) if (p.sources[slot][n].asset || !p.sources[slot][n].path.empty()) occupied |= 1u << n;
+        p.captureOccupied[slot].store(occupied);
         for (unsigned n = 0; n < kSlotParameterCount; ++n)
             p.parameters[kGlobalParamCount + slot * kSlotParameterCount + n].store(cell.parameters[n]);
 #define S3G_HISTORY_WRITE(field) writeCellValue(p.field[slot], cell.field);
@@ -241,6 +253,7 @@ void applyHistoryRestore(Plugin& p) {
     }
     if (image.capture) {
         const auto& take = image.take; p.captureAsset = take.asset;
+        rememberSavedCapture(p, take.savedPad, take.savedLayer);
         if (take.asset) p.retainedAssets.push_back(take.asset);
         p.publishedCapture.store(take.asset.get(), std::memory_order_release);
         p.captureStart.store(take.start); p.captureEnd.store(take.end); p.captureCursor.store(take.cursor);
@@ -274,6 +287,7 @@ void applyHistoryRestore(Plugin& p) {
         trim.erase(trim.begin());
     }
     history.restore.reset(); p.historyRestorePending.store(false);
+    refreshCaptureBudget(p);
     p.resetAllPhase.store(0, std::memory_order_release);
     if (p.hostParams && p.hostParams->rescan) p.hostParams->rescan(p.host, CLAP_PARAM_RESCAN_VALUES);
     markStateDirty(p); requestProcess(p);

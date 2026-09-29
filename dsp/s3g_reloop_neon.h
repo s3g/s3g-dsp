@@ -17,7 +17,7 @@ constexpr uint8_t kLedValuesPerPad = 1u + kLedSegmentsPerPad;
 constexpr std::size_t kFullLedFrameMessages = 2u * kBankCount + 1u
     + static_cast<std::size_t>(kPadsPerBank) * kLedValuesPerPad;
 constexpr std::size_t kMaximumLedMessages =
-    kFullLedFrameMessages + kPadsPerBank + kBankCount;
+    kFullLedFrameMessages + kPadsPerBank + kBankCount + (kBankCount - 1u);
 
 enum class Mode : uint8_t {
     Sampler = 0u,
@@ -339,6 +339,21 @@ constexpr Action decode(MidiMessage message) noexcept
     return {};
 }
 
+// The explicit mode button / editor page is authoritative across all banks.
+// Firmware can continue emitting a bank's old page addresses after a bank
+// recall. Keep the physical pad, SHIFT and measured value, never its old page
+// or deck. Call AFTER decoding velocity so pairing still uses the raw address.
+constexpr Action onSelectedPage(Action action, Mode mode, Layer layer) noexcept
+{
+    if (action.type == ActionType::Pad || action.type == ActionType::PadPressure
+        || action.type == ActionType::PadVelocity) {
+        action.mode = mode;
+        action.layer = layer;
+        action.bank = 0xffu;
+    }
+    return action;
+}
+
 // Factory velocity is a CC immediately BEFORE a fixed-127 pad note, not
 // aftertouch. Pair by physical pad AND full channel/address so another deck,
 // page or SHIFT address cannot borrow it. Used by both the MIDI Utility and
@@ -538,6 +553,37 @@ constexpr MidiMessage samplerModeTrigger(uint8_t bank) noexcept
         0x0du, 127u};
 }
 
+constexpr bool isModeFeedback(MidiMessage message) noexcept
+{
+    return message.status >= 0x93u && message.status <= 0x96u
+        && message.data1 >= 0x05u && message.data1 <= 0x0du;
+}
+
+// Physical NEON check: isolated HOT CUE writes, 20 ms apart, survived bank
+// recall and produced HOT CUE pad notes on A/B. Do not bury these stateful
+// commands in a large LED packet. Keep a 20 ms quiet interval on either side;
+// ordinary bank/pad-only updates remain batched. Worker-thread transport only:
+// the caller supplies the wait and send operations, never the audio callback.
+constexpr unsigned kModeFeedbackGapMs = 20u;
+template<class Send, class Pause>
+bool sendLedFeedback(const MidiMessage* messages, std::size_t count,
+    Send&& send, Pause&& pause)
+{
+    if (count > kMaximumLedMessages || (!messages && count)) return false;
+    bool previousMode = false;
+    for (std::size_t first = 0u; first < count;) {
+        const bool mode = isModeFeedback(messages[first]);
+        std::size_t end = first + 1u;
+        if (!mode) while (end < count && !isModeFeedback(messages[end])) ++end;
+        if ((mode || previousMode) && !pause(kModeFeedbackGapMs)) return false;
+        if (!send(messages + first, end - first)) return false;
+        previousMode = mode;
+        first = end;
+    }
+    // Protect a terminal mode command from the next frame/initialization.
+    return !previousMode || pause(kModeFeedbackGapMs);
+}
+
 // The large RGB performance pads use their playable note addresses for MIDI
 // feedback. The 9B/20-47 range below controls only the five small indicators
 // beneath each pad.
@@ -604,7 +650,7 @@ class LedDiffEncoder {
 public:
     std::size_t encode(const LedFrame& frame, MidiMessage* output,
         std::size_t capacity, bool force = false, bool refreshPads = false,
-        bool restoreSamplerMode = true) noexcept
+        bool restoreBankModes = true) noexcept
     {
         if (!output || capacity == 0u) return 0u;
         std::size_t count = 0u;
@@ -626,16 +672,23 @@ public:
                 if (!(old == next) && !append(old)) return count;
             }
         }
-        if (force || !initialized_ || contextChanged) {
-            if (restoreSamplerMode && frame.mode == Mode::Sampler
+        if (restoreBankModes && (force || !initialized_ || contextChanged)) {
+            if (frame.mode == Mode::Sampler
                 && frame.layer == Layer::First && (force || pageChanged)) {
                 for (uint8_t bank = 0u; bank < kBankCount; ++bank)
                     if (!append(samplerModeTrigger(bank))) return count;
             }
             // Ordinary bank changes must not reinitialize the decks or
             // reassert their mode lamps. That can leave the old bank lit.
-            if ((force || pageChanged)
-                && !append(modeLedMessage(frame.bank, frame.mode, frame.layer))) return count;
+            if (force || pageChanged) {
+                // All four hardware decks remember their page independently.
+                // Set the chosen mode/layer on the inactive decks as well,
+                // then the selected deck last. This is scoped to this physical
+                // unit; a second USB controller keeps its own page and bank.
+                for (uint8_t bank = 0u; bank < kBankCount; ++bank)
+                    if (bank != frame.bank && !append(modeLedMessage(bank, frame.mode, frame.layer))) return count;
+                if (!append(modeLedMessage(frame.bank, frame.mode, frame.layer))) return count;
+            }
             const auto selectedBank = bankLedMessage(frame.bank, frame.mode, 127u, frame.layer);
             for (uint8_t bank = 0u; bank < kBankCount; ++bank) {
                 for (uint8_t address = 0u; address < 2u; ++address) {

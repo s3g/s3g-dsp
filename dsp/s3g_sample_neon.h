@@ -248,6 +248,9 @@ struct SampleNeonEvent {
     bool selectedSource = false;
     uint8_t sourceLayer = 255u; // explicit audition without changing the edit layer
     bool resumeNavigation = false; // explicit source/manual choice exits an isolated layer audition
+    // Address (slot) and musical pitch are deliberately independent. Factory
+    // pad triggers leave key at 255 and retain the pad's existing tuning.
+    uint8_t key = 255u;
 };
 
 struct SampleNeonSlotSettings {
@@ -271,6 +274,12 @@ struct SampleNeonSlotSettings {
     float velocitySensitivity = 1.0f;
     TriggerMode triggerMode = TriggerMode::Auto;
     RetriggerMode retriggerMode = RetriggerMode::Restart;
+    uint8_t noteVoiceMode = 0u; // 0 original pad behavior, 1 Mono, 2 Poly, 3 Legato
+    uint8_t noteVoiceLimit = 8u;
+    uint8_t rootNote = 60u;
+    s3g::routing::TriggerOutputAllocator<16u>* noteRoutingAllocator = nullptr;
+    s3g::routing::TriggerOutputAllocator<32u>* noteCutRoutingAllocator = nullptr;
+    uint8_t noteVoiceOrdinal = 255u;
     SampleNeonMangleCharacter character =
         SampleNeonMangleCharacter::Filter;
     float mangle = 0.0f;
@@ -373,7 +382,7 @@ struct SampleNeonSettings {
 
 class SampleNeonEngine {
 public:
-    bool prepare(double sampleRate, uint32_t maximumFrames)
+    bool prepare(double sampleRate, uint32_t maximumFrames, bool prepareEffects = true)
     {
         if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)
             || maximumFrames == 0u) return false;
@@ -392,7 +401,7 @@ public:
             return false;
         }
         for (std::size_t slot = 0u; slot < players_.size(); ++slot) {
-            if (!players_[slot].prepare(sampleRate, kMaximumAudioChannels) || !effects_[slot].prepare(sampleRate)) {
+            if (!players_[slot].prepare(sampleRate, kMaximumAudioChannels) || (prepareEffects && !effects_[slot].prepare(sampleRate))) {
                 unprepare();
                 return false;
             }
@@ -634,10 +643,21 @@ public:
             || cutups_[slot].activeVoiceCount() != 0u || grainEmitters_[slot].active);
     }
 
+    // Voice-pool adapter: reset only one prepared renderer, never allocate in
+    // process(). The ordinary engine API and its original pad behavior remain.
+    void resetVoice(std::size_t slot) noexcept {
+        if (slot >= players_.size()) return;
+        players_[slot].killAll(); resetSlotProcessing(slot);
+        stackPathPhases_[slot] = -1.f;
+        routeSignatures_[slot] = 0;
+    }
+    using VoiceSink = void (*)(void*, unsigned, float* const*, unsigned, uint32_t);
+
     void render(const SampleNeonSettings& settings,
         const SampleNeonEvent* events, std::size_t eventCount,
         float* const* outputs, uint32_t outputChannelCount,
-        uint32_t frameCount) noexcept
+        uint32_t frameCount, VoiceSink sink = nullptr, void* context = nullptr,
+        uint32_t activeMask = UINT32_MAX) noexcept
     {
         if (!outputs || (outputChannelCount != 2u
                 && outputChannelCount != kSampleNeonOutputChannels)) return;
@@ -663,6 +683,7 @@ public:
         outputPeak_ = 0.0f;
 
         for (std::size_t slot = 0u; slot < players_.size(); ++slot) {
+            if (!(activeMask & (uint32_t(1) << slot))) continue;
             const auto& routeControl = settings.slots[slot];
             const unsigned routeSignature = 1u + static_cast<unsigned>(routeControl.sourceFormat)
                 + (static_cast<unsigned>(settings.outputLayout) << 2u)
@@ -812,6 +833,10 @@ public:
             for (uint32_t channel = 0u; channel < processedChannels; ++channel)
                 for (uint32_t frame = 0u; frame < frameCount; ++frame)
                     channels[channel][frame] *= techniqueEnvelope_[frame];
+            if (sink) {
+                sink(context, static_cast<unsigned>(slot), channels.data(), processedChannels, frameCount);
+                continue; // Sum note voices BEFORE the pad's character effects.
+            }
             // Explicit Stop and choke groups silence tails at their event
             // frame. Internal sequence note changes leave effect tails alive.
             uint32_t fxFrame = 0u;
@@ -862,7 +887,8 @@ private:
         s3g::routing::VoiceOutputRouting routing;
         routing.width = static_cast<s3g::routing::OutputVoiceWidth>(control.family[NeonFamily::RoutingWidth]);
         routing.traversal = static_cast<s3g::routing::OutputTraversal>(control.family[NeonFamily::RoutingTraversal]);
-        const auto assignment = allocators_[slot].next(sampleNeonBusWidth(settings.outputLayout), routing);
+        auto& allocator = control.noteRoutingAllocator ? *control.noteRoutingAllocator : allocators_[slot];
+        const auto assignment = allocator.next(sampleNeonBusWidth(settings.outputLayout), routing);
         return {assignment.channelCount, assignment.firstChannel, assignment.secondChannel, 0xffu};
     }
     // Continuous Lanes/Wavesets are one object per pad gesture. Event-based

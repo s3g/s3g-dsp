@@ -6,6 +6,7 @@
 
 #include "s3g_neon_midi.h"
 #include "../common/s3g_neon_usb_input.h"
+#include "../common/s3g_neon_bank_recall.h"
 #include "../common/s3g_clap_gui_param_queue.h"
 #include "../common/s3g_clap_state_stream.h"
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
@@ -29,27 +30,31 @@ namespace neon = s3g::controller::reloop_neon;
 constexpr uint32_t kGuiWidth = 620u, kGuiHeight = 444u;
 constexpr clap_id kBank = 1u, kBase = 2u, kChannel = 3u, kRoute = 4u, kPanic = 5u;
 constexpr clap_id kInput = 6u, kBank2 = 7u, kUnit = 8u;
+constexpr clap_id kRole = 9u, kFirstKey = 10u, kRole2 = 11u, kFirstKey2 = 12u, kChannel2 = 13u;
 constexpr const char* kId = "org.s3g.s3g-dsp.utility-neon-midi";
 constexpr const char* kName = "s3g Utility Neon MIDI";
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_NOTE_EFFECT, CLAP_PLUGIN_FEATURE_UTILITY, nullptr};
 const clap_plugin_descriptor_t descriptor {
-    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.3.1",
+    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.4.0",
     "Bank-aware Reloop NEON performance notes for Tracker and MIDI instruments.", features,
 };
 
 struct ParamDef { const char* name; double min, max, initial; };
-constexpr std::array<ParamDef, 8u> defs {{
+constexpr std::array<ParamDef, 13u> defs {{
     {"Bank", 0., 3., 0.}, {"Base Note", 0., 96., 36.},
     {"Output Channel", 1., 16., 1.}, {"Control Route", 0., 1., 1.},
     {"Release Held Notes", 0., 1., 0.},
     {"Input", 0., 3., 0.}, {"Unit 2 Bank", 0., 3., 1.}, {"Monitor Unit", 0., 1., 0.},
+    {"Unit 1 Pad Role", 0., 1., 0.}, {"Unit 1 First Key", 0., 96., 48.},
+    {"Unit 2 Pad Role", 0., 1., 0.}, {"Unit 2 First Key", 0., 96., 48.},
+    {"Unit 2 Output Channel", 0., 16., 0.},
 }};
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
     const clap_host_state_t* hostState = nullptr;
-    std::array<std::atomic<double>, 8u> values {{0., 36., 1., 1., 0., 0., 1., 0.}};
+    std::array<std::atomic<double>, 13u> values {{0., 36., 1., 1., 0., 0., 1., 0., 0., 48., 0., 48., 0.}};
     std::atomic<bool> panicRequested {false}, notifyRequested {false};
     s3g::clap_gui::ParamEventQueue<256u> guiParamEvents;
     std::array<s3g::controller::neon_midi::Mapper, 2> mapper;
@@ -69,6 +74,8 @@ struct Plugin {
     double sampleRate = 48000.;
     bool wasPlaying = false;
     std::array<bool, 2> bridgeDirty {{true, true}};
+    std::array<bool,2> keyboardDirty {{false,false}};
+    std::array<std::array<uint8_t,3>,2> keyboardSettings {{{0,48,0},{0,48,0}}};
     std::array<std::array<uint8_t, 4u>, 2> bridgeSettings {{{255u, 255u, 255u, 255u}, {255u, 255u, 255u, 255u}}};
     std::array<s3g::controller::neon_midi::AddressedBridgePacket, 8192u> bridgePackets {};
     uint32_t bridgeCount = 0u;
@@ -94,7 +101,7 @@ void notify(Plugin& p) {
         p.host->request_callback(p.host);
 }
 bool setValue(Plugin& p, clap_id id, double value) {
-    if (id < kBank || id > kUnit || !std::isfinite(value)) return false;
+    if (id < kBank || id > kChannel2 || !std::isfinite(value)) return false;
     const auto& def = defs[id - 1u];
     value = std::round(std::clamp(value, def.min, def.max));
     if (id == kPanic) {
@@ -103,7 +110,7 @@ bool setValue(Plugin& p, clap_id id, double value) {
     return true;
 }
 double getValue(const Plugin& p, clap_id id) {
-    return id >= kBank && id <= kUnit ? p.values[id - 1u].load() : 0.;
+    return id >= kBank && id <= kChannel2 ? p.values[id - 1u].load() : 0.;
 }
 void clearAftertouch(Plugin& p) {
     const auto last = p.lastHit[p.unit].load();
@@ -121,7 +128,11 @@ void syncMapping(Plugin& p) {
         mapper.setBank(static_cast<uint8_t>(getValue(p, p.unit ? kBank2 : kBank)));
         mapper.setBaseNote(static_cast<uint8_t>(getValue(p, kBase)));
         mapper.setNotes(p.mappedNotes);
-        mapper.setChannel(static_cast<uint8_t>(getValue(p, kChannel) - 1.));
+        const auto second = p.unit ? getValue(p,kChannel2) : 0.;
+        mapper.setChannel(static_cast<uint8_t>((second > 0 ? second : getValue(p,kChannel)) - 1.));
+        mapper.setKeyboard(getValue(p,p.unit ? kRole2 : kRole) > .5, static_cast<uint8_t>(getValue(p,p.unit ? kFirstKey2 : kFirstKey)));
+        const std::array<uint8_t,3> keyboard {{uint8_t(mapper.keyboard()),mapper.firstKey(),mapper.channel()}};
+        if (keyboard != p.keyboardSettings[p.unit]) { p.keyboardSettings[p.unit] = keyboard; p.keyboardDirty[p.unit] = true; }
         if (panic) { mapper.panic(); clearAftertouch(p); if (p.inputMode) p.disconnectPending[p.unit] = true; }
         const std::array<uint8_t, 4u> settings {{mapper.bank(), mapper.baseNote(),
             mapper.channel(), static_cast<uint8_t>(getValue(p, kRoute))}};
@@ -175,8 +186,12 @@ void syncBridge(Plugin& p, const clap_output_events_t* out, uint32_t time) {
         p.disconnectPending[p.unit] = false; p.bridgeDirty[p.unit] = true;
     }
     if (p.unit && p.inputMode != 1 && p.inputMode != 3) return;
-    if (p.bridgeDirty[p.unit] && pushBridge(p, out, time, s3g::controller::neon_midi::BridgeKind::Sync))
+    if (p.bridgeDirty[p.unit] && pushBridge(p, out, time, s3g::controller::neon_midi::BridgeKind::Sync)) {
         p.bridgeDirty[p.unit] = false;
+        p.keyboardDirty[p.unit] |= p.mapper[p.unit].keyboard();
+    }
+    if (p.keyboardDirty[p.unit] && pushBridge(p,out,time,s3g::controller::neon_midi::BridgeKind::KeyboardSetup,
+        {0,uint8_t(p.mapper[p.unit].keyboard()),p.mapper[p.unit].firstKey()})) p.keyboardDirty[p.unit] = false;
 }
 void serviceGui(Plugin& p, const clap_output_events_t* out) {
     s3g::clap_gui::serviceParamEvents(p.guiParamEvents, out,
@@ -227,6 +242,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
             p.lastHit[p.unit].store((static_cast<uint32_t>(message.data1) << 8u) | message.data2);
             p.lastHitChannel[p.unit] = message.status & 0x0fu;
             p.lastHitCell[p.unit] = 255u;
+        } else if ((message.status & 0xf0u) == 0xa0u && ((p.lastHit[p.unit].load() >> 8u) & 127u) == message.data1) {
+            p.lastHit[p.unit].store((p.lastHit[p.unit].load() & 0xffffu) | (uint32_t(message.data2) << 16));
         } else if ((message.status & 0xf0u) == 0x80u
             && ((p.lastHit[p.unit].load() >> 8u) & 0x7fu) == message.data1
             && p.lastHitChannel[p.unit] == (message.status & 0x0fu)) {
@@ -288,7 +305,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
     s3g::controller::neon_midi::UsbInput::Event usbEvent;
     const auto now = p.usb.clock();
     const double framesPerTick = p.sampleRate / p.usb.ticksPerSecond();
-    auto hostEvent = [&](const clap_event_header_t* header) {
+    auto hostEvent = [&](const clap_event_header_t* header, uint32_t index) {
             if (!header || header->space_id != CLAP_CORE_EVENT_SPACE_ID || header->time >= block->frames_count) return;
             if (header->type == CLAP_EVENT_PARAM_VALUE) {
                 applyEvent(p, header);
@@ -300,7 +317,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
                 if (p.mapDirty) pushNoteMap(p, out, header->time);
             } else if (header->type == CLAP_EVENT_MIDI && header->size >= sizeof(clap_event_midi_t)) {
                 const auto* event = reinterpret_cast<const clap_event_midi_t*>(header);
-                if (inputMode < 2 && event->port_index < (inputMode == 1 ? 2u : 1u))
+                if (inputMode < 2 && event->port_index < (inputMode == 1 ? 2u : 1u)
+                    && !s3g::controller::neon_midi::isBankPageRecall(in, index))
                     rawInput(event->port_index, {event->data[0], event->data[1], event->data[2]}, header->time);
             }
     };
@@ -316,11 +334,11 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
         while (i < n) {
             const auto* header = in->get(in, i);
             if (header && header->time > time) break;
-            hostEvent(header); ++i;
+            hostEvent(header, i); ++i;
         }
         rawInput(usbEvent.unit, usbEvent.midi, time); previousTime = time;
     }
-    while (i < n) hostEvent(in->get(in, i++));
+    while (i < n) { hostEvent(in->get(in, i), i); ++i; }
     bool awake = inputMode >= 2 || getValue(p, kInput) != inputMode || (p.mapDirty && getValue(p,kRoute) >= .5);
     for (p.unit = 0; p.unit < 2; ++p.unit) {
         auto& mapper = p.mapper[p.unit]; mapper.advance(block->frames_count);
@@ -346,22 +364,24 @@ bool paramInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
     return true;
 }
 bool paramValue(const clap_plugin_t* plugin, clap_id id, double* value) {
-    if (!value || id < kBank || id > kUnit) return false;
+    if (!value || id < kBank || id > kChannel2) return false;
     *value = getValue(*self(plugin), id); return true;
 }
 bool valueText(const clap_plugin_t*, clap_id id, double value, char* text, uint32_t capacity) {
-    if (!text || !capacity || id < kBank || id > kUnit || !std::isfinite(value)) return false;
+    if (!text || !capacity || id < kBank || id > kChannel2 || !std::isfinite(value)) return false;
     const int v = static_cast<int>(std::round(std::clamp(value, defs[id - 1u].min, defs[id - 1u].max)));
     if (id == kBank || id == kBank2) std::snprintf(text, capacity, "%c", 'A' + v);
     else if (id == kInput) { const char* modes[] = {"Host MIDI", "Host Dual Ports", "USB One NEON", "USB Two NEONs"}; std::snprintf(text, capacity, "%s", modes[v]); }
     else if (id == kUnit) std::snprintf(text, capacity, "Unit %d", v+1);
+    else if (id == kRole || id == kRole2) std::snprintf(text, capacity, "%s",v ? "Keyboard" : "Pad Cells");
+    else if (id == kChannel2 && v == 0) std::snprintf(text,capacity,"Follow Unit 1");
     else if (id == kRoute) std::snprintf(text, capacity, "%s", v ? "Tracker + Sample Neon" : "Notes Only");
     else if (id == kPanic) std::snprintf(text, capacity, "%s", v ? "Release" : "Ready");
     else std::snprintf(text, capacity, "%d", v);
     return true;
 }
 bool textValue(const clap_plugin_t*, clap_id id, const char* text, double* value) {
-    if (!text || !value || id < kBank || id > kUnit) return false;
+    if (!text || !value || id < kBank || id > kChannel2) return false;
     if ((id == kBank || id == kBank2) && text[0] && !text[1]
         && ((text[0] >= 'A' && text[0] <= 'D') || (text[0] >= 'a' && text[0] <= 'd'))) {
         *value = (text[0] >= 'a' ? text[0] - 'a' : text[0] - 'A'); return true;
@@ -372,7 +392,7 @@ bool textValue(const clap_plugin_t*, clap_id id, const char* text, double* value
     if (id == kRoute && (!std::strcmp(text, "Tracker + Sample Neon") || !std::strcmp(text, "Notes Only"))) {
         *value = !std::strcmp(text, "Tracker + Sample Neon") ? 1. : 0.; return true;
     }
-    if (id == kInput || id == kUnit) for (int n = 0; n <= defs[id-1].max; ++n) {
+    if (id == kInput || id == kUnit || id == kRole || id == kRole2 || id == kChannel2) for (int n = 0; n <= defs[id-1].max; ++n) {
         char formatted[64] {}; valueText(nullptr, id, n, formatted, sizeof(formatted));
         if (!std::strcmp(text, formatted)) { *value = n; return true; }
     }
@@ -406,13 +426,22 @@ bool saveState(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
     for (unsigned u = 0; u < 2; ++u) for (unsigned n = 0; n < 4; ++n)
         data[12u+u*4u+n] = static_cast<uint8_t>(static_cast<uint32_t>(p.usb.source[u].load()) >> (8u*n));
     if (map.custom) data[4] = 3;
+    std::array<uint8_t,5> keyboard {};
+    bool extended = false;
+    for (unsigned n = 0; n < keyboard.size(); ++n) {
+        keyboard[n] = static_cast<uint8_t>(getValue(p,kRole+n)); extended |= keyboard[n] != defs[kRole-1+n].initial;
+    }
+    if (extended) data[4] = 4;
+    const uint8_t custom = map.custom;
     return s3g::clap_state::writeAll(stream, data.data(), data.size())
-        && (!map.custom || s3g::clap_state::writeAll(stream, map.notes.data(), map.notes.size()));
+        && (!extended || s3g::clap_state::writeAll(stream,&custom,1))
+        && (!map.custom || s3g::clap_state::writeAll(stream, map.notes.data(), map.notes.size()))
+        && (!extended || s3g::clap_state::writeAll(stream,keyboard.data(),keyboard.size()));
 }
 bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
     std::array<uint8_t, 20u> data {};
     if (!s3g::clap_state::readAll(stream, data.data(), 9u)
-        || std::memcmp(data.data(), "NMID", 4u) || (data[4] != 1u && data[4] != 2u && data[4] != 3u)
+        || std::memcmp(data.data(), "NMID", 4u) || (data[4] != 1u && data[4] != 2u && data[4] != 3u && data[4] != 4u)
         || data[5] > 3u || data[6] > 96u || data[7] < 1u || data[7] > 16u || data[8] > 1u) return false;
     if (data[4] >= 2u && (!s3g::clap_state::readAll(stream, data.data()+9u, 11u)
         || data[9] > 3u || data[10] > 3u || data[11] > 1u)) return false;
@@ -425,9 +454,20 @@ bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
     if (sources[0] && sources[0] == sources[1]) return false;
     s3g::controller::neon_midi::NoteMap map;
     map.custom = data[4] == 3;
+    if (data[4] == 4) {
+        uint8_t custom = 0;
+        if (!s3g::clap_state::readAll(stream,&custom,1) || custom > 1) return false;
+        map.custom = custom;
+    }
     if (map.custom && (!s3g::clap_state::readAll(stream,map.notes.data(),map.notes.size())
         || !s3g::controller::neon_midi::validNotes(map.notes))) return false;
+    std::array<uint8_t,5> keyboard {{0,48,0,48,0}};
+    if (data[4] == 4) {
+        if (!s3g::clap_state::readAll(stream,keyboard.data(),keyboard.size())) return false;
+        for (unsigned n = 0; n < keyboard.size(); ++n) if (keyboard[n] > defs[kRole-1+n].max) return false;
+    }
     auto& p = *self(plugin);
+    for (unsigned n = 0; n < keyboard.size(); ++n) p.values[kRole-1+n].store(keyboard[n]);
     p.noteMap.store(map);
     for (uint32_t i = 0u; i < 4u; ++i) p.values[i].store(data[5u + i]);
     p.values[kInput-1].store(data[9]); p.values[kBank2-1].store(data[10]); p.values[kUnit-1].store(data[11]);

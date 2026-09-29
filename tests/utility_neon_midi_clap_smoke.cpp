@@ -142,11 +142,11 @@ struct State {
 };
 
 void testUtility(Module& p) {
-    check(p.params && p.params->count(p.plugin) == 8u, "stable controls plus optional dual input/bank/view");
+    check(p.params && p.params->count(p.plugin) == 13u, "stable controls plus independent keyboard roles/channels");
     auto* ports = static_cast<const clap_plugin_note_ports_t*>(p.plugin->get_extension(p.plugin, CLAP_EXT_NOTE_PORTS));
     check(ports && ports->count(p.plugin, true) == 2u && ports->count(p.plugin, false) == 1u, "two addressable host inputs, one merged musical output");
     check(!p.plugin->get_extension(p.plugin, CLAP_EXT_AUDIO_PORTS), "MIDI only");
-    for (uint32_t i = 0u; i < 8u; ++i) {
+    for (uint32_t i = 0u; i < 13u; ++i) {
         clap_param_info_t info {}; char text[128] {}; double value = -1.;
         check(p.params->get_info(p.plugin, i, &info), "parameter info");
         check(p.params->value_to_text(p.plugin, info.id, info.default_value, text, sizeof(text))
@@ -250,8 +250,13 @@ void testUtility(Module& p) {
     p.set(2u, 36.); p.set(3u, 1.);
     in.clear(); out.clear();
     for (uint8_t key : {uint8_t{8}, uint8_t{16}, uint8_t{24}, uint8_t{32}, uint8_t{96}, uint8_t{120}}) {
+        // Editing pages are selected by buttons, never inferred from pad notes.
+        const auto a = s3g::controller::reloop_neon::decode({0x97,key,100});
+        const auto page = s3g::controller::reloop_neon::modeLedMessage(0,a.mode,a.layer);
+        in.midi(0,page.status,page.data1,127);
         in.midi(0, 0x97, key, 100); in.midi(1, 0x87, key, 0);
     }
+    in.midi(2,0x93,5,127);
     in.midi(2, 0x96, 0x0d, 127); in.midi(3, 0x97, 0, 100); in.midi(4, 0x87, 0, 0);
     in.midi(5, 0x86, 0x0d, 0); in.midi(6, 0x9b, 0x20, 127); in.midi(7, 0x90, 36, 100);
     p.run(in, out); check(out.count == 0u, "tools, shift, modifiers, lamps and unrelated MIDI are not recorded");
@@ -315,6 +320,93 @@ void testUtility(Module& p) {
     State unchangedDual; check(state->save(p.plugin,&unchangedDual.out) && unchangedDual.data==assignments.data,"invalid dual restores are transactional");
     legacy.cursor=0; check(state->load(p.plugin,&legacy.in),"return to legacy after dual restore");
     p.set(1u, 0.); p.set(2u, 36.); p.set(3u, 1.); p.set(4u, 1.);
+}
+
+void testKeyboard(const char* path) {
+    auto unit = std::make_unique<Module>(path); auto& p = *unit;
+    p.set(4,0); p.set(6,1); p.set(11,1); p.set(12,48); p.set(13,2); p.activate();
+    List in,out; in.midi(0,0x97,0,63,0); in.midi(1,0x97,0,97,1); p.run(in,out);
+    auto notes=out.notes();
+    check(notes.size()==2 && notes[0].data[0]==0x90 && notes[0].data[1]==36 && notes[0].data[2]==63
+        && notes[1].data[0]==0x91 && notes[1].data[1]==56 && notes[1].data[2]==97,
+        "unit 1 cells and unit 2 bank-B keyboard notes/velocity use independent channels");
+    p.set(11,0); // Changing the role must not reinterpret an already-held key's pressure.
+    in.clear();out.clear();in.midi(0,0xa7,0,51,1);p.run(in,out);notes=out.notes();
+    check(notes.size()==1 && notes[0].data[0]==0xa1 && notes[0].data[1]==56 && notes[0].data[2]==51,
+        "Keyboard aftertouch retains pitched note/channel");
+    p.set(11,1);
+    p.set(7,3);p.set(12,60);p.set(13,4);
+    in.clear();out.clear();in.midi(0,0x87,0,0,1);p.run(in,out);notes=out.notes();
+    check(notes.size()==1 && notes[0].data[0]==0x81 && notes[0].data[1]==56,
+        "held keyboard release retains old bank, first note and channel");
+    in.clear();out.clear();in.midi(0,0x9a,2,127,1);p.run(in,out);notes=out.notes();
+    check(notes.size()==1 && notes[0].data[0]==0x93 && notes[0].data[1]==86,
+        "new Keyboard press uses new range/channel");
+    const auto* state=static_cast<const clap_plugin_state_t*>(p.plugin->get_extension(p.plugin,CLAP_EXT_STATE));
+    State saved;check(state->save(p.plugin,&saved.out)&&saved.data[4]==4,"keyboard uses extended state");
+    auto recalled=std::make_unique<Module>(path);
+    const auto* restore=static_cast<const clap_plugin_state_t*>(recalled->plugin->get_extension(recalled->plugin,CLAP_EXT_STATE));
+    check(restore->load(recalled->plugin,&saved.in)&&recalled->value(11)==1&&recalled->value(12)==60&&recalled->value(13)==4,
+        "independent roles, first keys and channel survive recall");
+    State roundtrip;check(restore->save(recalled->plugin,&roundtrip.out)&&roundtrip.data==saved.data,"keyboard state byte roundtrip");
+    State invalid;invalid.data=saved.data;invalid.data.back()=17;
+    check(!restore->load(recalled->plugin,&invalid.in)&&recalled->value(13)==4,"invalid channel recall is transactional");
+    p.set(4,1);in.clear();out.clear();p.run(in,out);
+    bool setup=false;
+    for (unsigned i=0;i<out.count;++i) if(out.events[i].type==CLAP_EVENT_MIDI_SYSEX) {
+        nm::BridgeMessage message;
+        if(nm::decodeBridge(out.events[i].sysex.buffer,out.events[i].sysex.size,message))
+            setup|=message.kind==nm::BridgeKind::KeyboardSetup&&message.unit==1&&message.channel==3&&message.midi.data1==1&&message.midi.data2==60;
+    }
+    check(setup,"Keyboard role/range follows addressed control bridge without creating musical notes");
+}
+
+void testBankModeInvariant(const char* path) {
+    namespace neon = s3g::controller::reloop_neon;
+    Module p(path); p.activate(); p.set(6,1); p.set(4,1);
+    List in,out;
+    for (unsigned unit=0;unit<2;++unit) for (unsigned page=0;page<8;++page) {
+        const auto desired = neon::modeLedMessage(0,static_cast<neon::Mode>(page%4),
+            page<4 ? neon::Layer::First : neon::Layer::Second);
+        in.clear();out.clear();in.midi(0,desired.status,desired.data1,127,unit);p.run(in,out);
+        for (unsigned bank=0;bank<4;++bank) for (unsigned stale=0;stale<8;++stale) {
+            const auto recalled = neon::modeLedMessage(bank,static_cast<neon::Mode>(stale%4),
+                stale<4 ? neon::Layer::First : neon::Layer::Second);
+            const auto pad = neon::padSurfaceMessage(bank,static_cast<neon::Mode>(stale%4),
+                stale<4 ? neon::Layer::First : neon::Layer::Second,0,127);
+            in.clear();out.clear();
+            // Exact captured bank + remembered mode-on/off packet, flattened by a host.
+            in.midi(0,0x93+bank,1,127,unit);
+            in.midi(0,recalled.status,recalled.data1,127,unit);
+            in.midi(0,recalled.status,recalled.data1,0,unit);
+            in.midi(1,0xb0|(pad.status&15),pad.data1,37,unit);
+            in.midi(2,pad.status,pad.data1,127,unit);
+            in.midi(3,0xa0|(pad.status&15),pad.data1,83,unit);
+            in.midi(4,pad.status-0x10,pad.data1,0,unit);
+            p.run(in,out);const auto notes=out.notes();
+            check(notes.size()==(page==0 ? 2u : 0u),"bank recall and stale pads cannot change selected performance page/layer");
+            if (page==0) check(notes[0].data[1]==36+bank*8 && notes[0].data[2]==37
+                && notes[1].data[1]==notes[0].data[1],"stale deck addresses retain current bank, measured velocity and release");
+            unsigned modes=0;
+            for(unsigned n=0;n<out.count;++n) {
+                const auto& e=out.events[n];nm::BridgeMessage b;
+                if(e.type==CLAP_EVENT_MIDI_SYSEX && nm::decodeBridge(e.sysex.buffer,e.sysex.size,b)
+                    && b.kind==nm::BridgeKind::Control)
+                    modes+=neon::decode(b.midi).type==neon::ActionType::SelectMode;
+            }
+            check(modes==0,"automatic bank page recall never reaches downstream Sample Neon");
+        }
+    }
+    // A real mode press immediately following the bank packet is still intentional.
+    in.clear();out.clear();
+    in.midi(0,0x94,1,127);in.midi(0,0x94,7,127);in.midi(0,0x94,7,0);
+    in.midi(1,0x94,5,127);in.midi(2,0x94,0,127);
+    in.midi(3,0x98,0x10,91);in.midi(4,0x88,0x10,0);
+    p.run(in,out);check(out.notes().size()==2 && out.notes()[0].data[1]==44,
+        "explicit mode selection after recall remains effective without timing lockout");
+    // The other USB/host port keeps its own selected page.
+    in.clear();out.clear();in.midi(0,0x97,0,91,1);in.midi(1,0x87,0,0,1);p.run(in,out);
+    check(out.notes().empty(),"one controller's PLAY button cannot change the other controller's secondary RESAMPLE mode");
 }
 
 void testAddressedBridge() {
@@ -730,6 +822,8 @@ int main(int argc, char** argv) {
     testUtility(*utility);
     if (argc == 4) testChain(*utility, argv[2], argv[3]);
     testAddressedBridge();
+    testBankModeInvariant(argv[1]);
+    testKeyboard(argv[1]);
     testFillShortcutRoute(argv[1]);
     testDualUtility(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);
     testNoteMap(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);

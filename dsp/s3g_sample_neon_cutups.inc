@@ -19,6 +19,8 @@
         s.reverseChance = f[F::CutReverse]; s.pitchVariationSemitones = f[F::CutPitchVariation];
         s.levelVariation = f[F::CutLevelVariation]; s.tempoSync = f[F::CutTempoSync] != 0;
         s.seed = static_cast<unsigned>(f[F::CutSeed]); s.voiceMode = static_cast<VoiceMode>(f[F::CutVoiceMode]);
+        if (c.noteVoiceOrdinal < 32) s.voiceMode = VoiceMode::Poly;
+        s.externalOutputAllocator = c.noteCutRoutingAllocator;
         s.polyPathMode = static_cast<CutPolyPathMode>(f[F::CutPolyPath]);
         s.allocationCadence = static_cast<CutAllocationCadence>(f[F::CutAllocation]);
         s.attackSeconds = f[F::CutAttack]; s.releaseSeconds = f[F::CutRelease];
@@ -73,7 +75,7 @@
             if (waveActive_[slot]) events[total++] = {at-begin,
                 event.kind == SampleNeonEventKind::Trigger ? CutupsEventKind::NoteOn
                     : event.kind == SampleNeonEventKind::Release ? CutupsEventKind::NoteOff : CutupsEventKind::StopAll,
-                c.triggerMode == TriggerMode::Toggle ? 0u : event.noteId, 60u, event.value, 0u};
+                c.triggerMode == TriggerMode::Toggle ? 0u : event.noteId, 60u, event.value, 0u, c.noteVoiceOrdinal};
         }
         renderTo(frames);
         waveCursorCounts_[slot] = waveActive_[slot] ? engine.voiceCursorCount() : 0;

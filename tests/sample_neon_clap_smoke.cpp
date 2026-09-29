@@ -11,6 +11,7 @@
 #include "../dsp/s3g_sample_neon_character.h"
 #include "../dsp/s3g_neon_midi_bridge.h"
 #include "../dsp/s3g_neon_note_map.h"
+#include "../dsp/s3g_reloop_neon.h"
 #include <clap/ext/note-name.h>
 
 #include <dlfcn.h>
@@ -116,7 +117,7 @@ struct StateBuffer {
 };
 
 struct MidiInput {
-    std::array<clap_event_midi_t, 2u> events {};
+    std::array<clap_event_midi_t, 4u> events {};
     clap_input_events_t list {};
 
     MidiInput()
@@ -127,7 +128,7 @@ struct MidiInput {
         events[0u].header.type = CLAP_EVENT_MIDI;
         events[0u].port_index = 0u;
         events[0u].data[0u] = 0x93u;
-        events[0u].data[1u] = 0x00u;
+        events[0u].data[1u] = 0x05u; // Explicit PLAY before the performance pad.
         events[0u].data[2u] = 0x7fu;
         events[1u].header.size = sizeof(clap_event_midi_t);
         events[1u].header.time = 1u;
@@ -145,6 +146,26 @@ struct MidiInput {
             return index < self->events.size()
                 ? &self->events[index].header : nullptr;
         };
+    }
+
+    // These DSP fixtures perform deliberately chosen page-specific actions.
+    // Model an explicit mode-button press when entering that page; pad notes
+    // alone no longer select it. Raw stale-address regressions bypass this
+    // helper (history smoke / Utility chain). No extra audio block is added.
+    void performanceGesture(uint8_t status, uint8_t note, uint8_t velocity, int& page) {
+        namespace neon=s3g::controller::reloop_neon;
+        const auto a=neon::decode({status,note,velocity});
+        const int next=static_cast<int>(a.mode)+4*static_cast<int>(a.layer);
+        bool select=((a.type==neon::ActionType::Pad && a.pressed)
+            || a.type==neon::ActionType::PadVelocity) && next!=page;
+        if(select || (a.type==neon::ActionType::SelectMode && a.pressed)) page=next;
+        events[0].data[0]=status;events[0].data[1]=note;events[0].data[2]=velocity;
+        if(select) {
+            events[1]=events[0];
+            const auto mode=neon::modeLedMessage(0,a.mode,a.layer);
+            events[0].data[0]=mode.status;events[0].data[1]=mode.data1;events[0].data[2]=mode.data2;
+            list.size=[](const clap_input_events_t*)->uint32_t{return 2;};
+        } else list.size=[](const clap_input_events_t*)->uint32_t{return 1;};
     }
 };
 
@@ -353,7 +374,8 @@ float maximumMagnitude(const std::vector<float>& values)
 
 template<class Input>
 bool processChannels(const clap_plugin_t* plugin, Input& input,
-    OutputEvents& output, std::array<std::vector<float>, 32u>& channels)
+    OutputEvents& output, std::array<std::vector<float>, 32u>& channels,
+    clap_audio_buffer_t* trackInput = nullptr)
 {
     constexpr uint32_t frames = 64u;
     std::array<float*, 32u> pointers {};
@@ -370,6 +392,8 @@ bool processChannels(const clap_plugin_t* plugin, Input& input,
     process.out_events = &output.list;
     process.audio_outputs = &audio;
     process.audio_outputs_count = 1u;
+    process.audio_inputs = trackInput;
+    process.audio_inputs_count = trackInput ? 1u : 0u;
     if (!std::getenv("S3G_NEON_ALLOCATION_PROBE"))
         return plugin->process(plugin, &process) != CLAP_PROCESS_ERROR;
     static const auto beginProbe = reinterpret_cast<void (*)()>(dlsym(RTLD_DEFAULT, "s3g_rt_alloc_probe_begin"));
@@ -467,7 +491,7 @@ int main(int argc, char** argv)
         instrument->get_extension(instrument, CLAP_EXT_GUI)) : nullptr;
     clap_audio_port_info_t port {};
     ok = expect(ports && notes && names && params && state && gui
-            && ports->count(instrument, true) == 0u
+            && ports->count(instrument, true) == 1u
             && ports->count(instrument, false) == 1u
             && ports->get(instrument, 0u, false, &port)
             && port.channel_count == 32u
@@ -809,6 +833,7 @@ int main(int argc, char** argv)
         "CHOP LOOP encoder did not move the edit cursor") && ok;
 
     MidiInput midi;
+    midi.events[0].data[1]=0x05; // Explicit PLAY after testing the CHOP cursor.
     OutputEvents output;
     std::vector<float> left;
     std::vector<float> right;
@@ -831,12 +856,10 @@ int main(int argc, char** argv)
         "Neon LED output did not respect its platform-specific routing")
         && ok;
 
+    int fixturePage=0;
     const auto send = [&](uint8_t status, uint8_t note, uint8_t velocity = 127u) {
         MidiInput input;
-        input.list.size = [](const clap_input_events_t*) { return 1u; };
-        input.events[0u].data[0u] = status;
-        input.events[0u].data[1u] = note;
-        input.events[0u].data[2u] = velocity;
+        input.performanceGesture(status,note,velocity,fixturePage);
         return processStereo(instrument, input, output, left, right);
     };
     const auto change = [&](clap_id id, double value) {
@@ -1156,6 +1179,11 @@ int main(int argc, char** argv)
     recordAndPlay.events[0u].data[0u] = 0x97u;
     recordAndPlay.events[0u].data[1u] = 0x38u; // SHIFT + primary pad 1 starts REC.
     recordAndPlay.events[1u].data[1u] = 0x78u; // RESAMPLE secondary plays loaded A1.
+    // Primary Record is already selected; switch explicitly before performing.
+    recordAndPlay.events[2]=recordAndPlay.events[1];
+    recordAndPlay.events[1].data[0]=0x93;recordAndPlay.events[1].data[1]=0x0c;
+    recordAndPlay.events[1].header.time=0;
+    recordAndPlay.list.size=[](const clap_input_events_t*)->uint32_t{return 3;};
     ok = expect(processStereo(instrument, recordAndPlay, output, left, right),
         "record-and-perform block failed") && ok;
     for (unsigned block = 0u; block < 3u; ++block) send(0x90u, 127u, 0u);
@@ -1510,16 +1538,16 @@ int main(int argc, char** argv)
                 }
         }
         if (audible && test == 4u) {
+            int mcPage=-1;
             const auto mcSend = [&](uint8_t note) {
                 MidiInput input;
-                input.list.size = [](const clap_input_events_t*) { return 1u; };
-                input.events[0u].data[0u] = 0x97u;
-                input.events[0u].data[1u] = note;
+                input.performanceGesture(0x97,note,127,mcPage);
                 return processChannels(multichannel, input, output, renderedChannels);
             };
             multichannel->reset(multichannel);
             mcSend(0x1du); // Capture bus 2 = channels 17-32 for 3OA.
             processChannels(multichannel, recordAndPlay, output, renderedChannels);
+            mcPage=7; // recordAndPlay explicitly ends on secondary RESAMPLE.
             mcSend(0x19u);
             multichannel->on_main_thread(multichannel);
             StateBuffer recorded;
@@ -1540,9 +1568,8 @@ int main(int argc, char** argv)
         }
         if (audible) {
             MidiInput assignAll;
-            assignAll.list.size = [](const clap_input_events_t*) { return 1u; };
-            assignAll.events[0u].data[0u] = 0x97u;
-            assignAll.events[0u].data[1u] = 0x6fu; // Keep source; A2-A4 become standalone samples.
+            int assignPage=-1;
+            assignAll.performanceGesture(0x97,0x6f,127,assignPage); // Keep source; A2-A4 become standalone samples.
             processChannels(multichannel, assignAll, output, renderedChannels);
             multichannel->on_main_thread(multichannel);
             StateBuffer chops;
@@ -1577,7 +1604,8 @@ int main(int argc, char** argv)
             std::fill_n(chops.bytes.data() + pathOffset, kPathBytes, 0u);
             ok = expect(multiState->load(multichannel, &chops.input), "MC slices failed to reload without the original source") && ok;
             multichannel->reset(multichannel);
-            assignAll.events[0u].data[1u] = 0x01u; // A2 ordinary PLAY.
+            assignPage=-1;
+            assignAll.performanceGesture(0x97,0x01,127,assignPage); // A2 ordinary PLAY.
             ok = expect(processChannels(multichannel, assignAll, output, renderedChannels)
                 && maximumMagnitude(renderedChannels[first + channels - 1u]) > 0.001f,
                 "MC committed slice failed to play after source-free recall") && ok;
@@ -1590,11 +1618,12 @@ int main(int argc, char** argv)
                 const std::array<double, 3u> halves {{ 0.0, 0.5, 1.0 }};
                 std::memcpy(rechop.bytes.data() + boundaryOffset + 33u * sizeof(double), halves.data(), sizeof(halves));
                 ok = expect(multiState->load(multichannel, &rechop.input), "re-chop fixture failed to load") && ok;
-                assignAll.events[0u].data[1u] = 0x01u; // Select A2 in PLAY after restore.
+                assignPage=-1;
+                assignAll.performanceGesture(0x97,0x01,127,assignPage); // Select A2 in PLAY after restore.
                 processChannels(multichannel, assignAll, output, renderedChannels);
-                assignAll.events[0u].data[1u] = 0x09u; // CHOP slice 2.
+                assignAll.performanceGesture(0x97,0x09,127,assignPage); // CHOP slice 2.
                 processChannels(multichannel, assignAll, output, renderedChannels);
-                assignAll.events[0u].data[1u] = 0x6eu; // Assign One to now-empty A1.
+                assignAll.performanceGesture(0x97,0x6e,127,assignPage); // Assign One to now-empty A1.
                 processChannels(multichannel, assignAll, output, renderedChannels);
                 multichannel->on_main_thread(multichannel);
                 StateBuffer resliced;
@@ -1864,9 +1893,9 @@ int main(int argc, char** argv)
                 for (unsigned n=0;n<64;++n) for (unsigned ch=1;ch<16;++ch)
                     ok = expect(std::abs(laneOutput[ch][n]-laneOutput[0][n]*(ch+1)) < 1e-4,"Fill ACN linkage") && ok;
             };
+            int fillPage=-1;
             const auto control = [&](uint8_t status,uint8_t key,uint8_t value) {
-                fillMidi.list.size = [](const clap_input_events_t*) { return 1u; };
-                fillMidi.events[0].data[0]=status; fillMidi.events[0].data[1]=key; fillMidi.events[0].data[2]=value;
+                fillMidi.performanceGesture(status,key,value,fillPage);
                 fillBlock(fillMidi);
             };
             if (filling) {
@@ -2040,6 +2069,8 @@ int main(int argc, char** argv)
                 if (variant == 2 || variant == 4) ok = expect(mosaicPeak > .002f && mosaicLinked,
                     "recalled Mosaic/Cutups plays stack audio and preserves ACN channels") && ok;
                 if (running) stacked->stop_processing(stacked);
+#include "sample_neon_capture_clap_checks.inc"
+#include "sample_neon_poly_clap_checks.inc"
             }
             savedStack.cursor = 0;
             ok = expect(stackState->load(stacked, &savedStack.input), "legacy family defaults restore") && ok;

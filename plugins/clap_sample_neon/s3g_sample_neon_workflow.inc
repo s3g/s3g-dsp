@@ -2,7 +2,7 @@
 // are separate from bounded controller/audio commands.
 enum class WorkflowCommand : uint8_t {
     MapSlice = 1u, MapAll, DiscardCapture, AssignCapture, Equal, Transients,
-    CropCapture, MapAllReplace, ResetAll, Normalize, NormalizeStack, NormalizeStackBalanced,
+    CropCapture, MapAllReplace, ResetAll, Normalize, NormalizeStack, NormalizeStackBalanced, CropLayer, ClearCaptureReview,
 };
 constexpr uint64_t kMaximumEmbeddedSamples = 64u * 1024u * 1024u;
 void initializeSoundDefaults(Plugin* instance);
@@ -23,6 +23,17 @@ struct NeonAudioBudget {
         }
     }
 };
+void refreshCaptureBudget(Plugin& p) {
+    NeonAudioBudget budget;
+    bool pending = false;
+    for (unsigned pad = 0; pad < 32; ++pad) {
+        budget.pad(p, pad);
+        for (bool load : p.pendingSourceLoads[pad]) pending |= load;
+    }
+    budget.add(p.captureAsset.get());
+    p.captureAvailableSamples.store(kMaximumEmbeddedSamples - std::min(kMaximumEmbeddedSamples, budget.samples));
+    p.captureLoadsPending.store(pending);
+}
 
 // Main-thread clipboard: immutable PCM is shared, all editable state is copied.
 // This inventory includes hidden legacy fields so a cell is a complete snapshot.
@@ -35,7 +46,8 @@ struct NeonAudioBudget {
     X(techniqueAttackSeconds) X(techniqueReleaseSeconds) X(grainIntervals) X(fxParameters) X(techniqueParameters) \
     X(motionRates) X(motionLoci) X(motionFields) X(lanePositions) X(laneMotionDepths) \
     X(grainDensities) X(grainSizes) X(grainPositions) X(grainSprays) X(grainPitchSprays) X(grainReverseChances) \
-    X(selectedLayers) X(sourceModes) X(stackPaths) X(stackSeconds) X(stackBeats) X(familyControls)
+    X(selectedLayers) X(sourceModes) X(stackPaths) X(stackSeconds) X(stackBeats) X(familyControls) \
+    X(noteVoiceModes) X(noteVoiceLimits) X(rootNotes)
 template<class T> T readCellValue(const std::atomic<T>& value) { return value.load(); }
 template<class T, std::size_t N> auto readCellValue(const std::array<T, N>& value) {
     std::array<decltype(readCellValue(value[0])), N> result;
@@ -57,16 +69,44 @@ struct CellClipboard {
     S3G_NEON_CELL_FIELDS(S3G_CELL_DECLARE)
 #undef S3G_CELL_DECLARE
 };
+uint64_t captureLayerGeneration(const Plugin& p, unsigned pad, unsigned layer) noexcept {
+#if defined(S3G_SAMPLE_FILE_WORKER)
+    return p.layerGenerations[pad][layer];
+#else
+    (void)p; (void)pad; (void)layer; return 0;
+#endif
+}
+bool savedCaptureValid(const Plugin& p) noexcept {
+    const unsigned pad = p.captureSavedPad, layer = p.captureSavedLayer;
+    return pad < 32 && layer < 32 && p.captureAsset && !p.pendingSourceLoads[pad][layer]
+        && p.sources[pad][layer].asset == p.captureAsset
+        && captureLayerGeneration(p, pad, layer) == p.captureSavedGeneration;
+}
+void forgetSavedCapture(Plugin& p) noexcept {
+    p.captureSavedPad = p.captureSavedLayer = 255; p.captureSavedGeneration = 0;
+}
+void rememberSavedCapture(Plugin& p, unsigned pad, unsigned layer) noexcept {
+    forgetSavedCapture(p);
+    if (pad < 32 && layer < 32 && p.captureAsset && p.sources[pad][layer].asset == p.captureAsset) {
+        p.captureSavedPad = static_cast<uint8_t>(pad); p.captureSavedLayer = static_cast<uint8_t>(layer);
+        p.captureSavedGeneration = captureLayerGeneration(p, pad, layer);
+    }
+}
+
 #include "s3g_sample_neon_history.inc"
 bool copyCell(Plugin& p, std::size_t slot) {
     if (slot >= 32u || p.resetAllPhase.load()) return false;
+    // An empty edit layer does not make the rest of a sparse stack empty.
+    if (!stackCount(p, slot)) { p.workflowMessage = "COPY NEEDS A POPULATED CELL"; return false; }
+    for (bool pending : p.pendingSourceLoads[slot]) if (pending) {
+        p.workflowMessage = "FINISH LOADING BEFORE COPYING THE CELL"; return false;
+    }
     try {
         auto copy = std::make_shared<CellClipboard>();
         saveLayerEdit(p, slot);
         copy->sources = p.sources[slot];
         {
             std::lock_guard<std::mutex> lock(p.statusMutex);
-            if (!p.controlAssets[slot]) { p.workflowMessage = "COPY NEEDS A LOADED CELL"; return false; }
             copy->asset = p.controlAssets[slot]; copy->path = p.samplePaths[slot];
             copy->embedded = p.embeddedAssets[slot]; copy->analysis = p.slotAnalyses[slot];
         }
@@ -122,6 +162,8 @@ bool pasteCell(Plugin& p, std::size_t slot) {
     } catch (...) { p.workflowMessage = "PASTE FAILED"; return false; }
 }
 #undef S3G_NEON_CELL_FIELDS
+
+#include "s3g_sample_neon_clipboard.inc"
 
 unsigned playbackIndex(const Plugin& p, std::size_t slot) noexcept {
     const auto option = normalizedStageOptions(p.textureOptions[slot].load());
@@ -280,7 +322,7 @@ void requestWorkflow(Plugin& p, WorkflowCommand command) noexcept
     const auto slot = p.selectedSlot.load();
     const uint32_t message = static_cast<uint32_t>(command)
         | (static_cast<uint32_t>(slot) << 8u)
-        | (static_cast<uint32_t>(command == WorkflowCommand::Normalize
+        | (static_cast<uint32_t>(command == WorkflowCommand::Normalize || command == WorkflowCommand::CropLayer
             ? p.selectedLayers[slot].load() : p.visibleSlice.load()) << 16u)
         | (static_cast<uint32_t>(destination < 32u ? destination + 1u : 0u) << 24u)
         | (static_cast<uint32_t>(p.slicesToStack.load()) << 30u);
@@ -312,7 +354,9 @@ void selectSurfaceBank(Plugin& p, uint8_t bank) noexcept
     if (bank > 3u) return;
     const bool chop = p.visibleMode.load() == static_cast<uint8_t>(NeonMode::Slicer);
     const bool stack = p.visibleMode.load() == static_cast<uint8_t>(NeonMode::HotCue);
-    if (chop && bank * 8u >= sliceCount(p, p.selectedSlot.load())) return;
+    // Empty slice banks are valid surface selections too: do not leave the
+    // software on A while the hardware has switched to B/C/D. Empty pads are
+    // already dark and ignored by the slice audition bounds check.
     (chop ? p.chopBank : stack ? p.stackBank : p.cellBank).store(bank);
     p.visibleBank.store(bank);
     if (chop) p.visibleSlice.store(std::min<uint8_t>(
@@ -544,7 +588,7 @@ void clearAllSound(Plugin& p)
         for (auto& analysis : p.slotAnalyses) analysis = {};
     }
     for (std::size_t n = 0u; n < connections.size(); ++n) p.parameters[connections[n]].store(retained[n]);
-    p.publishedCapture.store(nullptr); p.captureAsset.reset();
+    p.publishedCapture.store(nullptr); p.captureAsset.reset(); forgetSavedCapture(p);
     // Both engines are quiescent until phase returns to zero. Detach their
     // raw pointers before reclaiming retired audio on this main thread.
     for (std::size_t slot = 0u; slot < 32u; ++slot) p.engine.setPreparedAsset(slot, nullptr);
@@ -599,6 +643,7 @@ void cropCapture(Plugin& p)
         std::lock_guard<std::mutex> lock(p.statusMutex);
         p.retainedAssets.push_back(cropped);
         p.captureAsset = std::move(cropped);
+        forgetSavedCapture(p); // Cropped review is a separate asset; saved layers stay intact.
         p.captureStart.store(0.0); p.captureEnd.store(1.0); p.captureCursor.store(0.0);
         p.captureZoom.store(1.0f); p.captureFrames.store(end - start); p.capturePlayhead.store(-1.0f);
         p.publishedCapture.store(p.captureAsset.get(), std::memory_order_release);
@@ -608,6 +653,8 @@ void cropCapture(Plugin& p)
         markStateDirty(p); requestProcess(p);
     } catch (...) { p.workflowMessage = "CROP FAILED; ORIGINAL TAKE KEPT"; }
 }
+
+#include "s3g_sample_neon_crop.inc"
 
 void normalizeCell(Plugin& p, uint8_t slot, unsigned scope, unsigned editLayer)
 {
@@ -688,6 +735,8 @@ void normalizeCell(Plugin& p, uint8_t slot, unsigned scope, unsigned editLayer)
     } catch (...) { p.workflowMessage = "NORMALIZE FAILED; STACK KEPT"; }
 }
 
+#include "s3g_sample_neon_capture.inc"
+
 void serviceWorkflow(Plugin& p)
 {
     if (p.resetAllPhase.load() == 1u && !p.processing.load()) stopSoundForReset(p);
@@ -695,32 +744,19 @@ void serviceWorkflow(Plugin& p)
     if (p.resetAllPhase.load()) return;
     const auto selection = p.pendingLayerSelection.exchange(UINT32_MAX);
     if (selection != UINT32_MAX) showLayer(p, (selection >> 8u) & 31u, selection & 31u);
-    if (p.captureState.load(std::memory_order_acquire) == Plugin::CaptureState::Ready) {
-        if (p.recorder.count() > 0u) {
-            try {
-                auto asset = std::make_shared<SampleAsset>(p.recorder.finish());
-                NeonHistoryEdit edit(p, "RECORD TAKE", 0, true);
-                if (!edit) { p.captureState.store(Plugin::CaptureState::Empty); return; }
-                p.retainedAssets.reserve(p.retainedAssets.size() + 1);
-                {
-                std::lock_guard<std::mutex> lock(p.statusMutex);
-                p.captureAsset = asset;
-                p.retainedAssets.push_back(asset);
-                p.publishedCapture.store(asset.get(), std::memory_order_release);
-                p.captureStart.store(0.0); p.captureEnd.store(1.0); p.captureCursor.store(0.0);
-                p.captureZoom.store(1.0f);
-                p.captureLayout.store(static_cast<uint8_t>(p.recordingLayout));
-                p.captureState.store(Plugin::CaptureState::Review, std::memory_order_release);
-                p.workflowMessage = "CAPTURE READY: REVIEW, THEN ASSIGN AN EMPTY CELL";
-                }
-                setCaptureTrim(p, false, 0.0); setCaptureTrim(p, true, 1.0);
-                edit.commit();
-            } catch (...) {
-                p.captureState.store(Plugin::CaptureState::Empty);
-                p.workflowMessage = "CAPTURE COULD NOT BE ALLOCATED";
-            }
-            markStateDirty(p);
-        } else p.captureState.store(Plugin::CaptureState::Empty);
+    serviceCapture(p);
+    refreshCaptureBudget(p);
+    switch (p.captureNotice.exchange(0)) {
+    case 1: p.workflowMessage = "TRACK INPUT NOT CONNECTED / CHECK INPUT PINS"; break;
+    case 2: p.workflowMessage = "CHOOSE A TARGET PAD BEFORE RECORDING"; break;
+    case 3: p.workflowMessage = "NO NEXT EMPTY LAYER / EXISTING AUDIO KEPT"; break;
+    case 4: p.workflowMessage = "INPUT WIDTH / FORMAT MUST MATCH TARGET STACK"; break;
+    case 5: p.workflowMessage = "TAKE STILL PUBLISHING; RECORDING CONTINUES / PRESS TAKE AGAIN"; break;
+    case 6: p.workflowMessage = "TAKE LENGTH LIMIT REACHED / RECORDING STOPPED"; break;
+    case 7: p.workflowMessage = "SET AUDIO BUDGET REACHED / TAKE KEPT / RECORDING STOPPED"; break;
+    case 8: p.workflowMessage = "FINISH SOURCE LOADING BEFORE RECORDING"; break;
+    case 9: p.workflowMessage = "FINISH PENDING EDIT BEFORE RECORDING"; break;
+    default: break;
     }
     const uint32_t encoded = p.pendingEditCommand.exchange(0u);
     if (!encoded) return;
@@ -736,6 +772,7 @@ void serviceWorkflow(Plugin& p)
     case WorkflowCommand::MapAllReplace: mapChopToBanks(p, slot, true, 0u, true,
         s3g::sample::kNeonChopAutoDestination, stackDestination); break;
     case WorkflowCommand::CropCapture: cropCapture(p); break;
+    case WorkflowCommand::CropLayer: cropLayer(p, slot, slice); break;
     case WorkflowCommand::Normalize: normalizeCell(p, slot, 0u, slice); break;
     case WorkflowCommand::NormalizeStack: normalizeCell(p, slot, 1u, 0u); break;
     case WorkflowCommand::NormalizeStackBalanced: normalizeCell(p, slot, 2u, 0u); break;
@@ -750,24 +787,48 @@ void serviceWorkflow(Plugin& p)
     }
     case WorkflowCommand::Equal: setChopMode(p, slot, static_cast<uint8_t>(SampleNeonChopMode::Equal)); break;
     case WorkflowCommand::Transients: setChopMode(p, slot, static_cast<uint8_t>(SampleNeonChopMode::Transient)); break;
+    case WorkflowCommand::ClearCaptureReview:
     case WorkflowCommand::DiscardCapture: {
-        if (p.captureState.load() == Plugin::CaptureState::Recording) break;
-        if (!p.captureAsset) break;
-        NeonHistoryEdit edit(p, "DISCARD TAKE", 0, true);
+        if (historyBusy(p) || !p.captureAsset) break;
+        const bool saved = command == WorkflowCommand::DiscardCapture && savedCaptureValid(p);
+        const unsigned savedPad = p.captureSavedPad, savedLayer = p.captureSavedLayer;
+        NeonHistoryEdit edit(p, saved ? "DELETE TAKE " + chopPadName(savedPad) + " L" + std::to_string(savedLayer + 1)
+            : "DISCARD TAKE", saved ? 1u << savedPad : 0, true);
         if (!edit) break;
+        // The checkpoint covers both the exact saved layer and its review.
+        // Keep all other layer indices and source files unchanged.
+        edit.commit();
+        if (saved) {
+            saveLayerEdit(p, savedPad);
+#if defined(S3G_SAMPLE_FILE_WORKER)
+            ++p.layerGenerations[savedPad][savedLayer]; p.collectionPending[savedPad][savedLayer] = false;
+#endif
+            p.registrations[savedPad][savedLayer].clear();
+            p.sources[savedPad][savedLayer] = {};
+            const unsigned count = stackCount(p, savedPad);
+            showLayer(p, savedPad, std::min<unsigned>(p.selectedLayers[savedPad].load(), count ? count - 1 : 0), false);
+            p.pendingCellStops.fetch_or(1u << savedPad);
+        }
         p.publishedCapture.store(nullptr);
-        p.captureAsset.reset();
+        p.captureAsset.reset(); forgetSavedCapture(p); p.captureAudition.store(false);
         p.captureState.store(Plugin::CaptureState::Empty);
         p.captureFrames.store(0u); p.captureStart.store(0.0); p.captureEnd.store(1.0);
         p.captureCursor.store(0.0); p.capturePlayhead.store(-1.0f);
-        p.workflowMessage = "CAPTURE DISCARDED";
-        edit.commit();
-        markStateDirty(p);
+        p.workflowMessage = saved ? "RECORDED LAYER + REVIEW DELETED / UNDO RESTORES TAKE" : "REVIEW DISCARDED / SAVED LAYERS KEPT";
+        refreshCaptureBudget(p); markStateDirty(p); requestProcess(p);
         break;
     }
     case WorkflowCommand::AssignCapture: {
         const auto target = p.captureTarget.load();
         if (!p.captureAsset || p.captureState.load() != Plugin::CaptureState::Review) break;
+        if (p.captureToStack.load()) {
+            const unsigned chosen = p.captureLayer.load();
+            const int layer = target < 32 ? nextCaptureLayer(p, target, chosen < 32 ? chosen : 0) : -1;
+            if (layer >= 0 && (chosen >= 32 || unsigned(layer) == chosen))
+                assignCaptureLayer(p, target, layer, p.captureAsset, p.captureLayout.load());
+            else p.workflowMessage = "CHOOSE AN EMPTY TARGET LAYER";
+            break;
+        }
         if (!emptyCell(p, target)) {
             p.workflowMessage = "SELECT AN EMPTY CAPTURE TARGET; NOTHING REPLACED";
             break;
@@ -809,9 +870,9 @@ void serviceWorkflow(Plugin& p)
 
 void capturePadAction(Plugin& p, uint8_t pad, bool secondary, bool shifted = false) noexcept
 {
-    if (shifted && pad == 0u) {
+    if (shifted && pad < 2u) {
         // REC on the printed SHIFT layer: do not trigger pad 1 or change target.
-        p.captureCommand.store(3);
+        p.captureCommand.store(pad == 0 ? 3 : 4);
         requestProcess(p);
         return;
     }
@@ -822,7 +883,7 @@ void capturePadAction(Plugin& p, uint8_t pad, bool secondary, bool shifted = fal
             // the capture destination, or feed review audio into the recorder.
             p.selectedSlot.store(target);
             auditionSlot(p, target);
-        } else {
+        } else if (!captureSetupBusy(p)) {
             p.captureTarget.store(target);
             if (p.captureState.load() == Plugin::CaptureState::Review)
                 p.captureAudition.store(true);
@@ -831,21 +892,24 @@ void capturePadAction(Plugin& p, uint8_t pad, bool secondary, bool shifted = fal
         return;
     }
     switch (pad) {
-    case 0u: p.captureCommand.store(1); break;
+    case 0u: p.captureCommand.store(3); break;
     case 1u: p.captureCommand.store(2); break;
-    case 2u: p.captureAudition.store(true); break;
-    case 3u: requestWorkflow(p, WorkflowCommand::DiscardCapture); break;
-    case 4u: if (p.captureBus.load() > 0u) p.captureBus.fetch_sub(1u); break;
+    case 2u: if (!captureSetupBusy(p)) p.captureAudition.store(true); break;
+    case 3u: if (!captureSetupBusy(p)) requestWorkflow(p, WorkflowCommand::DiscardCapture); break;
+    case 4u: if (!captureSetupBusy(p) && p.captureBus.load() > 0u) p.captureBus.fetch_sub(1u); break;
     case 5u: {
         const auto layout = static_cast<SampleNeonOutputLayout>(static_cast<uint8_t>(paramValue(p, kOutputLayoutParamId)));
-        if (p.captureBus.load() + 1u < s3g::sample::sampleNeonBusCount(layout)) p.captureBus.fetch_add(1u);
+        if (!captureSetupBusy(p) && p.captureBus.load() + 1u < s3g::sample::sampleNeonBusCount(layout)) p.captureBus.fetch_add(1u);
         break;
     }
     case 6u:
         if (shifted) requestWorkflow(p, WorkflowCommand::CropCapture);
         else { selectSurface(p, NeonMode::HotLoop, 1u); p.captureAudition.store(true); }
         break;
-    case 7u: requestWorkflow(p, WorkflowCommand::AssignCapture); break;
+    case 7u:
+        if (captureRunning(p) && p.captureToStack.load()) p.captureCommand.store(4);
+        else requestWorkflow(p, WorkflowCommand::AssignCapture);
+        break;
     }
     requestProcess(p);
 }

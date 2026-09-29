@@ -1,6 +1,6 @@
 # s3g Utility Neon MIDI
 
-Version 0.3.1. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
+Version 0.4.0. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
 audio processing, hardware MIDI output or second LED owner. Uses the same
 factory-message decoder as Sample Neon 32. Utility-family Fira Code/grayscale
 editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
@@ -9,7 +9,7 @@ editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
 
 Place these **in this order in the normal track FX chain**:
 
-1. **s3g Utility Neon MIDI 0.3.1** — Control Route `TRACKER + SAMPLE NEON`,
+1. **s3g Utility Neon MIDI 0.4.0** — Control Route `TRACKER + SAMPLE NEON`,
    Base Note `36`, Output Channel `1`.
 2. **s3g Tracker 0.4.1 or newer** — participating lanes, including the recording
    destination, on `CH01`.
@@ -49,6 +49,31 @@ In 0.1.3, HOT CUE bank buttons remain private STACK controls rather than
 changing the musical sample bank. Returning to SAMPLER restores its last bank.
 STACK layer gestures, modifiers and encoders continue through the private
 Sample Neon route; they do not become Tracker notes or recorded automation.
+
+## Independent Keyboard roles (0.4.0)
+
+The title-row KEYBOARD button opens the unit-role settings. Each unit can use
+PAD CELLS (the existing custom map) or KEYBOARD (32 consecutive notes across
+banks A–D). FIRST NOTE sets A1, default 48. Unit 2 can have its own output channel
+or FOLLOW UNIT 1, which preserves existing setups. Velocity and pitched poly
+aftertouch are sent as ordinary MIDI; held releases retain the original key and
+channel after changing bank/range/role. Editing pages still send controls only.
+
+Example: Unit 1 PAD CELLS on CH1; Unit 2 KEYBOARD on CH2. In Sample Neon 0.41,
+ROUTING → NOTES / VOICES: MIDI IN OMNI, CH1 PAD NOTE MAP, CH2 CHROMATIC A1.
+This pins the pitch keyboard to A1 regardless of the selected edit cell. In
+Tracker, record the keyboard on a CH2 lane (Tracker monitors on its armed lane's
+channel). REC OFF retains incoming channels. The same scheme works with one
+NEON by changing its role; it does not require two devices.
+
+Keyboard mode deliberately does not send Select Cell for each pitch. Private
+Keyboard setup messages allow Sample Neon to light the pinned cell's playable
+keys and root. In NOTES ONLY mode, Keyboard notes/velocity/poly aftertouch still
+work, but there is no Sample Neon control/LED synchronization. Source pad mode
+retains its existing private aftertouch behavior.
+
+New parameter IDs 9–13 and state v4 append role/range/channel settings. Existing
+IDs 1–8 and v1–v3 project states are retained.
 
 ## Controls and recording are separate
 
@@ -133,9 +158,9 @@ through this control path; Tracker does not write pressure into the pattern.
 Live edits/auditions are not a recording of automation or parameter locks.
 
 Choose `NOTES ONLY` for a different instrument or a separate recording branch.
-Then control envelopes, including aftertouch, are suppressed. The Utility does
-not currently emit ordinary MIDI polyphonic/channel aftertouch for other
-instruments; aftertouch forwarding is through the Sample Neon bridge only.
+Then control envelopes, including Pad Cells aftertouch, are suppressed.
+Keyboard mode emits ordinary pitched MIDI poly aftertouch, which is retained
+in Notes Only. Pad Cells aftertouch uses the Sample Neon bridge only.
 There is no raw MIDI-thru in the
 Utility, and it deliberately does not accept a keyboard or already-translated
 notes as an additional input. Connect those separately after the adapter.
@@ -187,6 +212,12 @@ and monitored for the plugin chain to play/record.
   No fallback sends unit 2's feedback to unit 1 if a device is absent.
 - The captured same-packet bank/page restore is ignored in USB mode, retaining
   the current editing page. Intentional later page presses remain functional.
+- Since 0.3.2, pads follow the explicitly selected mode/layer, not the page
+  encoded in a bank's stale pad addresses. Host MIDI also filters the exact
+  adjacent bank + mode-on/off triplet at one timestamp/on one port. PLAY still
+  sends the chosen bank's musical notes with measured velocity; other pages
+  remain controls. Use Sample Neon 0.40.5 alongside this update. Mode buttons
+  select the page for all banks on that unit; they do not affect another unit.
 
 `HOST DUAL PORTS` is an alternative for hosts/routing that provide distinct
 CLAP input ports 0 and 1. It preserves unit identity through Tracker but does

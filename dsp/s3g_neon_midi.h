@@ -27,11 +27,19 @@ public:
         uint8_t note = 0u;
         uint8_t channel = 0u;
         uint8_t cell = 0u;
+        bool keyboard = false;
     };
 
     uint8_t bank() const noexcept { return bank_; }
     uint8_t baseNote() const noexcept { return base_; }
     uint8_t channel() const noexcept { return channel_; } // zero based
+    bool keyboard() const noexcept { return keyboard_; }
+    uint8_t firstKey() const noexcept { return firstKey_; }
+    void setKeyboard(bool enabled, uint8_t first) noexcept {
+        first = std::min<uint8_t>(96, first);
+        if (keyboard_ != enabled || firstKey_ != first) padInput_.clear();
+        keyboard_ = enabled; firstKey_ = first;
+    }
     bool holds(uint8_t note, uint8_t channel) const noexcept {
         for (const auto& held : held_) if (held.active && held.note == note && held.channel == channel) return true;
         return false;
@@ -90,7 +98,8 @@ public:
     Result process(neon::MidiMessage message, uint32_t time, Sink&& sink) noexcept {
         if (message.data1 > 127u || message.data2 > 127u
             || neon::isStatusLedMessage(message)) return {};
-        const auto action = padInput_.process(message, time);
+        const auto action = neon::onSelectedPage(padInput_.process(message, time),
+            surface_.mode, surface_.layer);
         if (!action) return {neon::isVelocityToggle(message), BridgeKind::Control, 0u};
 
         if (action.type == neon::ActionType::SelectBank) {
@@ -115,10 +124,14 @@ public:
         if (action.type == neon::ActionType::PadVelocity) {
             // Musical hits use the latched value locally; editing/audition
             // pages need the raw CC followed by their raw note downstream.
-            return {!performancePad(action, message), BridgeKind::Control, 0u};
+            return {!performancePad(action), BridgeKind::Control, 0u};
         }
         if (action.type == neon::ActionType::PadPressure && action.pad < 8u) {
             const auto& held = held_[action.pad];
+            if (held.active && held.keyboard) {
+                sink(time, neon::MidiMessage {static_cast<uint8_t>(0xa0u | held.channel),held.note,action.value});
+                return {};
+            }
             return held.active ? Result {true, BridgeKind::Pressure, held.cell}
                 : Result {true, BridgeKind::Control, 0u};
         }
@@ -132,25 +145,24 @@ public:
             release(held, time, sink);
             return musical ? Result {} : Result {true, BridgeKind::Control, 0u};
         }
-        surface_.mode = action.mode;
-        surface_.layer = action.layer;
-        if (!performancePad(action, message))
+        if (!performancePad(action))
             return {true, BridgeKind::Control, 0u};
 
         if (!release(held, time, sink)) return {};
         const auto cell = static_cast<uint8_t>(bank_ * 8u + action.pad);
-        const auto note = customNotes_ ? notes_[cell] : static_cast<uint8_t>(base_ + cell);
+        const auto note = keyboard_ ? static_cast<uint8_t>(firstKey_ + cell)
+            : customNotes_ ? notes_[cell] : static_cast<uint8_t>(base_ + cell);
         if (sink(time, neon::MidiMessage {
                 static_cast<uint8_t>(0x90u | channel_), note, action.value })) {
-            held = {true, false, note, channel_, cell};
-            return {true, BridgeKind::SelectCell, cell};
+            held = {true, false, note, channel_, cell, keyboard_};
+            return keyboard_ ? Result {} : Result {true, BridgeKind::SelectCell, cell};
         }
         return {};
     }
 
 private:
-    bool performancePad(const neon::Action& action, neon::MidiMessage message) const noexcept {
-        return (message.status & 0x0fu) == 7u && action.mode == neon::Mode::Sampler
+    bool performancePad(const neon::Action& action) const noexcept {
+        return action.mode == neon::Mode::Sampler
             && action.layer == neon::Layer::First && !action.shifted
             && !surface_.modeHeld && !surface_.repeatHeld && !surface_.syncHeld
             && !surface_.censorHeld && !surface_.slipHeld;
@@ -170,6 +182,8 @@ private:
     std::array<Held, 8u> held_ {};
     PadNotes notes_ = sequentialNotes();
     bool customNotes_ = false;
+    bool keyboard_ = false;
+    uint8_t firstKey_ = 48;
     uint8_t bank_ = 0u, base_ = 36u, channel_ = 0u;
 };
 

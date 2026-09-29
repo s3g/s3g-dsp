@@ -81,6 +81,50 @@ void testNormalizeRemovePaste() {
     historyStep(p); check(historyState(p) == beforePaste, "paste undo exact destination and unrelated cells");
     historyStep(p, true); check(historyState(p) == pasted, "paste redo exact");
 }
+void testCropLayer() {
+    for (unsigned channels : {1u, 2u, 4u, 16u}) {
+        auto instance = historyFixture(); auto& p = *instance;
+        auto original = historyAudio(channels);
+        historySource(p, 0, 0, original); historySource(p, 0, 1, original);
+        historySource(p, 8, 0, original); // Shared PCM must not be modified.
+        setParam(p, slotParamId(0, kSlotZeroCross), 0);
+        setParam(p, slotParamId(0, kSlotStart), .25);
+        setParam(p, slotParamId(0, kSlotEnd), .75);
+        p.editPositions[0].store(.375); p.sourceBpms[0].store(123);
+        storeSliceLayout(p, 0, s3g::sample::equalSampleNeonSliceLayout(4), false);
+        p.textureOptions[0].store(kCutupsOption); p.fxParameters[0][2][3].store(.7f);
+        p.selectedSlot.store(0);
+        const auto before = historyState(p);
+        workflow(p, WorkflowCommand::CropLayer);
+        const auto cropped = p.sources[0][1].asset;
+        check(cropped != original && cropped->frameCount() == 512 && cropped->channelCount == channels, "crop selected layer width/length");
+        for (unsigned ch = 0; ch < channels; ++ch) for (unsigned n = 0; n < 512; ++n)
+            check(cropped->channels[ch][n] == original->channels[ch][n + 256], "crop preserves exact linked-channel PCM");
+        check(p.sources[0][0].asset == original && p.sources[8][0].asset == original && original->frameCount() == 1024,
+            "crop leaves other layers/pads and original audio untouched");
+        check(paramValue(p, slotParamId(0, kSlotStart)) == 0 && paramValue(p, slotParamId(0, kSlotEnd)) == 1
+            && p.editPositions[0].load() == .375 && p.sources[0][1].slices.sliceCount == 4
+            && p.sources[0][1].bpm == 123 && p.sources[0][1].path.empty(), "crop resets bounds and retains relative cursor/markers/BPM");
+        check(p.publishedStacks[0].load()->layers[1].asset == cropped.get()
+            && p.publishedAssets[0].load() == cropped.get(), "crop publishes render/edit sources");
+        const auto after = historyState(p);
+        workflow(p, WorkflowCommand::CropLayer);
+        check(p.editHistory->undo.size() == 1 && historyState(p) == after, "full-length crop is a no-op");
+        historyStep(p); check(historyState(p) == before && p.sources[0][1].asset == original, "crop Undo restores exact original selection/audio/settings");
+        historyStep(p, true); check(historyState(p) == after && p.sources[0][1].asset == cropped, "crop Redo exact");
+        historyStep(p);
+        p.captureState.store(Plugin::CaptureState::Recording);
+        workflow(p, WorkflowCommand::CropLayer);
+        check(p.sources[0][1].asset == original && p.editHistory->redo.size() == 1, "recording blocks crop without losing Redo");
+        p.captureState.store(Plugin::CaptureState::Empty);
+        requestWorkflow(p, WorkflowCommand::CropLayer); // Capture L2, then change view before callback.
+        showLayer(p, 0, 0); p.selectedSlot.store(8); serviceWorkflow(p);
+        check(p.sources[0][1].asset->frameCount() == 512 && p.sources[0][0].asset == original
+            && p.sources[8][0].asset == original && p.selectedLayers[0].load() == 0 && p.selectedSlot.load() == 8,
+            "queued crop retains requested pad/layer without changing current selection");
+    }
+}
+
 void testChop() {
     for (bool layers : {false, true}) {
         auto instance = historyFixture(); auto& p = *instance;
@@ -197,7 +241,7 @@ void testRecordedTake() {
     std::array<float, 64> left, right; left.fill(.2f); right.fill(-.2f);
     std::array<float*, 2> samples {{left.data(), right.data()}};
     p.recorder.append(samples.data(), 64, 0); p.captureFrames.store(64);
-    p.captureState.store(Plugin::CaptureState::Ready); serviceWorkflow(p);
+    p.captureReady.store(1); p.captureState.store(Plugin::CaptureState::Ready); serviceWorkflow(p);
     check(historyLabel(p, false) == "RECORD TAKE" && p.captureAsset, "finalized take journaled");
     auto take = p.captureAsset; const auto after = historyState(p);
     historyStep(p); check(historyState(p) == before && !p.captureAsset, "undo recorded take");
@@ -225,11 +269,79 @@ void testAudioAcknowledgment() {
     pluginStopProcessing(&p.plugin); pluginDeactivate(&p.plugin);
     historyStep(p, true); check(bool(p.sources[0][0].asset), "redo survives deactivate/reactivate boundary");
 }
+#include "sample_neon_capture_checks.inc"
+#include "sample_neon_clipboard_checks.inc"
+void testPerformanceBanks() {
+    auto instance=historyFixture(); auto& p=*instance;
+    p.selectedSlot.store(5);
+    storeSliceLayout(p,5,s3g::sample::equalSampleNeonSliceLayout(32),false);
+    for (uint8_t page=0;page<4;++page) for (uint8_t layer=0;layer<2;++layer) {
+        selectSurface(p,static_cast<NeonMode>(page),layer);
+        for (uint8_t bank=0;bank<4;++bank) {
+            selectSurfaceBank(p,bank); saveSurface(p);
+            check(p.visibleMode.load()==page && p.visibleLayer.load()==layer && p.visibleBank.load()==bank,
+                "Bank change retains selected performance mode and tool layer");
+            check(p.selectedSlot.load()==5,"Editing bank change retains selected source cell");
+            const auto frame=neonFeedbackFrame(p,p.surfaces[0]);
+            check(static_cast<uint8_t>(frame.mode)==page && static_cast<uint8_t>(frame.layer)==layer && frame.bank==bank,
+                "Feedback frame preserves mode across bank changes");
+        }
+    }
+    selectSurface(p,NeonMode::HotCue,0); selectSurfaceBank(p,2); saveSurface(p);
+    focusSurface(p,1); selectSurface(p,NeonMode::HotLoop,1); selectSurfaceBank(p,1); saveSurface(p);
+    focusSurface(p,0);
+    check(p.visibleMode.load()==2 && p.visibleLayer.load()==0 && p.visibleBank.load()==2,
+        "Unit one retains STACK bank C while unit two uses RESAMPLE bank B");
+    focusSurface(p,1);
+    check(p.visibleMode.load()==3 && p.visibleLayer.load()==1 && p.visibleBank.load()==1,
+        "Unit two retains independent mode, layer and bank");
 }
+void testRawBankModeInvariant() {
+    auto instance=historyFixture();auto& p=*instance;
+    setParam(p,kNeonActiveParamId,1);
+    storeSliceLayout(p,0,s3g::sample::equalSampleNeonSliceLayout(32),false);
+    struct Input {
+        std::array<clap_event_midi_t,6> events {};
+        clap_input_events_t list {this,
+            [](const clap_input_events_t*)->uint32_t{return 6;},
+            [](const clap_input_events_t* in,uint32_t n)->const clap_event_header_t* {
+                return n<6 ? &static_cast<const Input*>(in->ctx)->events[n].header : nullptr;
+            }};
+        void put(unsigned n,uint32_t time,NeonMidi m) {
+            auto& e=events[n];e.header={sizeof(e),time,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI,0};
+            e.data[0]=m.status;e.data[1]=m.data1;e.data[2]=m.data2;
+        }
+    } in;
+    namespace neon=s3g::controller::reloop_neon;
+    for(unsigned page=0;page<8;++page) for(uint8_t bank=0;bank<4;++bank) for(unsigned stale=0;stale<8;++stale) {
+        p.selectedSlot.store(0);
+        selectSurface(p,static_cast<NeonMode>(page%4),page/4);
+        const auto recall=neon::modeLedMessage(bank,static_cast<NeonMode>(stale%4),static_cast<neon::Layer>(stale/4));
+        auto pad=neon::padSurfaceMessage(bank,static_cast<NeonMode>(stale%4),static_cast<neon::Layer>(stale/4),7,101);
+        in.put(0,0,{static_cast<uint8_t>(0x93+bank),1,127});in.put(1,0,recall);
+        in.put(2,0,{recall.status,recall.data1,0});in.put(3,1,pad);
+        in.put(4,2,{static_cast<uint8_t>(0xa0|(pad.status&15)),pad.data1,47});
+        in.put(5,3,{static_cast<uint8_t>(pad.status-0x10),pad.data1,0});
+        collectEvents(p,&in.list,nullptr,64);
+        check(p.visibleMode.load()==page%4 && p.visibleLayer.load()==page/4 && p.visibleBank.load()==bank,
+            "raw bank recall, stale pad/pressure/release never change chosen page, layer or bank");
+    }
+    // A GUI page selection must also override an old hardware pad address.
+    selectSurface(p,NeonMode::Slicer,0);selectSurfaceBank(p,1);
+    in.put(0,0,{0x98,0x10,127});in.put(1,1,{0x88,0x10,0});
+    for(unsigned n=2;n<6;++n) in.put(n,n,{0xfe,0,0});
+    collectEvents(p,&in.list,nullptr,64);
+    check(p.visibleMode.load()==1 && p.visibleBank.load()==1 && p.visibleSlice.load()==8,
+        "on-screen CHOP stays authoritative and stale bank-B HOT CUE pad auditions slice 9");
+}
+}
+#include "sample_neon_note_routing_checks.inc"
 int main() {
     setenv("S3G_SAMPLE_NEON_DISABLE_DIRECT_MIDI", "1", 1);
     try {
         testNormalizeRemovePaste(); testChop(); testCaptureAndReset(); testLoadsAndLimit(); testRecordedTake(); testAudioAcknowledgment();
+        testLiveCapture(); testRetainedCaptureReview(); testCropLayer(); testLayerClipboard(); testPerformanceBanks(); testRawBankModeInvariant();
+        testPinnedNoteRouting();
         std::cout << "Neon destructive history: " << checks << " checks passed\n"; return 0;
     } catch (const std::exception& error) { std::cerr << "History failure after " << checks << " checks: " << error.what() << '\n'; return 1; }
 }

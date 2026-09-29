@@ -6,7 +6,7 @@
 namespace s3g::sample {
 enum class NeonStackShape : unsigned { Manual, RampUp, RampDown, Triangle, Sine, Square, Wander };
 constexpr std::array<const char*, 7> kNeonStackShapeNames {{
-    "MANUAL", "RAMP UP", "RAMP DOWN", "TRIANGLE", "SINE", "SQUARE", "WANDER"
+    "CUSTOM", "RAMP UP", "RAMP DOWN", "TRIANGLE", "SINE", "SQUARE", "WANDER"
 }};
 inline unsigned neonStackShapeMinimum(NeonStackShape shape) noexcept {
     return shape == NeonStackShape::Sine ? 9u : shape == NeonStackShape::Square ? 4u

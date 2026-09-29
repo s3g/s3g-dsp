@@ -3974,6 +3974,16 @@ int main(int argc, char** argv)
             clickAt(420,22);clickAt(120,340);clickAt(450,396); // DEFAULT, APPLY
             ok=saveMap().bytes==beforeMap.bytes&&ok;
             [parent removeFromSuperview];[mapWindow close];[mapWindow release];
+            failureStage = "Utility Neon Keyboard role and independent output channel";
+            clickAt(316,22); clickAt(300,116); clickAt(300,150.5);
+            params->flush(plugin,nullptr,&captured.events); redraw();
+            ok = params->get_value(plugin,9,&value) && value == 1 && ok;
+            if(folder && folder[0]) {
+                NSData* render=[document dataWithPDFInsideRect:[document bounds]];
+                ok=render && [render writeToFile:[[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.keyboard.pdf"] atomically:YES]&&ok;
+            }
+            clickAt(490,270);
             hostContext.deferParamFlush = false;
             hostContext.paramFlushRequested = false;
         }
@@ -4121,8 +4131,9 @@ int main(int argc, char** argv)
             inspectorChoice(0, 4);
             // MIDI IN is a global, existing host parameter, exposed here with
             // every musical channel and Omni. Menu selection must reach DSP/state.
+            inspectorChoice(2,1); // Routing's NOTES / VOICES section.
             for (unsigned channel : {1u, 7u, 8u, 12u, 16u, 0u}) {
-                inspectorChoice(2, channel);
+                inspectorChoice(3, channel);
                 double receive = -1;
                 ok = params->get_value(plugin, 7u, &receive) && receive == channel && ok;
                 MemoryPluginState channelState;
@@ -4133,6 +4144,7 @@ int main(int argc, char** argv)
                     std::memcpy(&stored,channelState.bytes.data()+16+6*sizeof(double),sizeof(double));
                 ok = stored == channel && ok;
             }
+            inspectorChoice(2,0); // Return to the AUDIO routing controls.
             inspectorChoice(3, 0);
             double format = -1.0;
             ok = params->get_value(plugin, 1016u, &format) && format == 0.0 && ok;
@@ -4382,7 +4394,7 @@ int main(int argc, char** argv)
                 plugin->process(plugin, &block); // Drain earlier menu previews.
                 plugin->reset(plugin);
                 plugin->process(plugin, &block);
-                inspectorChoice(0, 1); // Capture bus 2, matching A1's 3OA output.
+                inspectorChoice(1, 1); // Capture bus 2, matching A1's 3OA output.
                 const auto emptyTakePixels = overviewPixels();
                 clickAt(934.0, inspectorY(2)); // Record, without changing page.
                 clickAt(P::left+43, M::actions); // PLAY PADS on miniature NEON; no duplicate toolbox grid.
@@ -4512,6 +4524,64 @@ int main(int argc, char** argv)
                 plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
                 ok = savedState().bytes == cleared.bytes && ok;
                 if (!ok) std::cerr << "Neon recording guard/reset/undo/redo state mismatch\n";
+                if (ok) {
+                    failureStage = "Sample Neon live track input, latched Record and Take/Next";
+                    selectWorkspace(2); inspectorChoice(0, 1); // TRACK INPUT defaults to PAD STACK.
+                    inspectorChoice(12, 6); // 3OA ACN/SN3D input, independent of output layout.
+                    std::array<std::array<float, 64>, 32> trackSamples {};
+                    std::array<float*, 32> trackPointers {};
+                    for (unsigned ch = 0; ch < 32; ++ch) { trackSamples[ch].fill(.01f * (ch + 1)); trackPointers[ch] = trackSamples[ch].data(); }
+                    clap_audio_buffer_t trackInput {}; trackInput.data32 = trackPointers.data(); trackInput.channel_count = 32;
+                    block.audio_inputs = &trackInput; block.audio_inputs_count = 1;
+                    const auto beforeInput = savedState();
+                    clickAt(934, I::row(2)); // Both down/up: Record must remain latched.
+                    plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    plugin->process(plugin, &block); redraw();
+                    const auto recordingWave = waveformPixels();
+                    for (unsigned n = 0; n < 8; ++n) plugin->process(plugin, &block);
+                    for (const auto& channel : samples) for (float value : channel) ok = value == 0 && ok;
+                    captureNeonPage(@"sample-neon.live-input-record.pdf");
+                    clickAt(1000, I::row(11)); // TAKE / NEXT LAYER; next buffer begins immediately.
+                    plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = waveformPixels() != recordingWave && ok;
+                    const auto firstTake = savedState();
+                    ok = firstTake.bytes.size() > fixture.bytes.size() + 2 && firstTake.bytes[4] == 26
+                        && firstTake.bytes[fixture.bytes.size() + 1] == 1 && ok;
+                    for (unsigned n = 0; n < 8; ++n) plugin->process(plugin, &block);
+                    clickAt(934, I::row(2)); // Same Record button stops.
+                    plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    const auto twoTakes = savedState();
+                    ok = twoTakes.bytes.size() > firstTake.bytes.size()
+                        && twoTakes.bytes[fixture.bytes.size() + 1] == 2 && ok;
+                    plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == twoTakes.bytes && ok; // Still stopped, no held switch.
+                    const auto retainedWave = waveformPixels();
+                    captureNeonPage(@"sample-neon.resample-retained-take.pdf");
+                    clickAt(934, I::row(3)); // AUDITION the last saved take in Resample.
+                    plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    float reviewPeak = 0; for (const auto& channel : samples) for (float value : channel) reviewPeak = std::max(reviewPeak, std::abs(value));
+                    ok = reviewPeak > 1e-6f && waveformPixels() != retainedWave && ok;
+                    clickAt(1079, I::row(2)); // STOP audition, retain waveform/audio.
+                    plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    reviewPeak = 0; for (const auto& channel : samples) for (float value : channel) reviewPeak = std::max(reviewPeak, std::abs(value));
+                    ok = reviewPeak == 0 && savedState().bytes == twoTakes.bytes && ok;
+                    clickAt(380, W::actionCenter); // DELETE TAKE in waveform toolbar.
+                    plugin->on_main_thread(plugin); redraw();
+                    const auto deletedTake = savedState();
+                    ok = deletedTake.bytes != twoTakes.bytes && deletedTake.bytes[fixture.bytes.size() + 1] == 1 && ok;
+                    clickAt(1198, 24); plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == twoTakes.bytes && ok;
+                    clickAt(1292, 24); plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == deletedTake.bytes && ok;
+                    clickAt(1198, 24); plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == twoTakes.bytes && ok;
+                    clickAt(1198, 24); plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == firstTake.bytes && ok;
+                    clickAt(1198, 24); plugin->process(plugin, &block); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == beforeInput.bytes && ok;
+                    block.audio_inputs = nullptr; block.audio_inputs_count = 0;
+                    if (!ok) std::cerr << "Neon live input / Record latch / Take / Undo GUI failed\n";
+                }
                 plugin->stop_processing(plugin);
                 block.out_events = nullptr;
             }
@@ -5667,7 +5737,9 @@ int main(int argc, char** argv)
                 captureNeonPage(@"sample-neon.lanes-channel-view.pdf");
                 clickAt(416,W::viewCenter); clickAt(416,123); // STACK LANES.
                 ok = regionPixels(W::left,W::top,W::width,W::height()) == stackedRows && ok;
-                padChoice(2,1); // Optional PATH; LOOP must return to MANUAL.
+                padChoice(2,1); // Optional STACK PATH; LOOP must return to MANUAL.
+                // Keep the shared navigation name and Stack Cycle visible in the capture.
+                captureNeonPage(@"sample-neon.lanes-stack-path.pdf");
                 clickAt(P::controlLeft+P::trackWidth*.73, M::loop);
                 ok = familyRead(F::LaneAuto) == 0 && familyRead(F::LanePosition) > .5 && ok;
                 failureStage = "Sample Neon navigation takes over stale STACK override and edit audition";
@@ -5985,6 +6057,44 @@ int main(int argc, char** argv)
                 auto cuts=savedState(); cuts.offset=0; clap_istream_t restoreCuts {&cuts,stateReadWhole};
                 ok = state->load(plugin,&restoreCuts) && savedState().bytes==cuts.bytes && ok;
                 if (!ok) std::cerr << "Cutups native controls/pattern/recall failed\n";
+                if (ok) {
+                    failureStage = "Sample Neon main-waveform crop / Undo / Redo";
+                    selectPlay(true); clickAt(M::pageCenter(0), M::banks);
+                    clickAt(M::padX(0)+M::padWidth*.5, M::padY(0)+M::padHeight*.5);
+                    playback(0);
+                    clickAt(416, W::viewCenter); clickAt(416, 159); // EDIT LAYER.
+                    setValue(1017, 0); setValue(1003, .2); setValue(1004, .8); redraw();
+                    const auto beforeCrop = savedState();
+                    captureNeonPage(@"sample-neon.crop-selection.pdf");
+                    clickAt(376, W::actionCenter); plugin->on_main_thread(plugin); redraw();
+                    const auto afterCrop = savedState();
+                    ok = afterCrop.bytes != beforeCrop.bytes && paramValue(1003) == 0
+                        && paramValue(1004) == 1 && ok;
+                    clickAt(1198, 24); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == beforeCrop.bytes && ok;
+                    clickAt(1292, 24); plugin->on_main_thread(plugin); redraw();
+                    ok = savedState().bytes == afterCrop.bytes && ok;
+                    if (!ok) std::cerr << "Main waveform crop / Undo / Redo failed\n";
+                }
+#include "sample_neon_clipboard_gui_checks.inc"
+                if (ok) {
+                    failureStage = "Sample Neon pinned MIDI/Keyboard voice controls and recall";
+                    selectPlay(true); inspectorChoice(0,4); inspectorChoice(2,1);
+                    auto beforeVoices=savedState();
+                    clickAt(I::left+80,inspectorY(6)); inspectorChoice(7,2); inspectorChoice(8,3);
+                    clickAt(I::left+80,inspectorY(13));
+                    auto voices=savedState();
+                    const auto tail=voices.bytes.size()-116;
+                    ok=voices.bytes[4]==27 && voices.bytes[tail+96]>0 && voices.bytes[tail+112]<32 && ok;
+                    const unsigned pad=voices.bytes[tail+112];
+                    ok=voices.bytes[tail+pad*3]==2 && voices.bytes[tail+pad*3+1]==4 && ok;
+                    captureNeonPage(@"sample-neon.note-voices.pdf");
+                    voices.offset=0; clap_istream_t restoreVoices {&voices,stateReadWhole};
+                    ok=state->load(plugin,&restoreVoices) && savedState().bytes==voices.bytes && ok;
+                    beforeVoices.offset=0; clap_istream_t restoreBeforeVoices {&beforeVoices,stateReadWhole};
+                    ok=state->load(plugin,&restoreBeforeVoices) && savedState().bytes==beforeVoices.bytes && ok;
+                    inspectorChoice(2,0);
+                }
             }
             failureStage = "Sample Neon momentary button press feedback";
             const auto killPixels = [&] { return regionPixels(P::columnLeft(1,3),M::actions-10,P::columnWidth(3),20); };

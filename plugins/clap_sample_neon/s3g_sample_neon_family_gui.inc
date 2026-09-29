@@ -49,10 +49,10 @@
         if (familyPage == 3) {
             const bool pathActive = playbackChoice() == 6 ? familyValue(F::LaneAuto).load() != 0
                 : p.sourceModes[selectedSlot].load() == 4;
-            inspectorReadout("PATH", stackCount(p, selectedSlot) < 2 ? "NEEDS 2+ LAYERS"
+            inspectorReadout(Labels::stackPath, stackCount(p, selectedSlot) < 2 ? "NEEDS 2+ LAYERS"
                 : p.stackHeld[selectedSlot].load() ? "HELD PAD OVERRIDE"
                 : p.stackManual[selectedSlot].load() >= 0 ? "MANUAL OVERRIDE"
-                : !pathActive ? "INACTIVE / PAD NAV"
+                : !pathActive ? "NOT SELECTED"
                 : p.slotPlaying[selectedSlot].load() && p.stackWaveformLayers[selectedSlot].load() == -1 ? "EDIT AUDITION"
                 : !p.slotPlaying[selectedSlot].load() ? "READY / TRIGGER PAD"
                 : p.playbackClocks[selectedSlot].load() && !p.transportPlaying.load() ? "HOST STOPPED" : "RUNNING", 4);
@@ -63,8 +63,8 @@
             familySlider(F::StackOffset, "PHASE", 8);
             familySlider(F::StackCurve, "CURVE", 9);
             clockMenu(I::menu(10));
-            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.stackBeats[selectedSlot], "STACK CYCLE", I::menu(11));
-            else textureSliderRow(p.stackSeconds[selectedSlot], "STACK CYCLE", I::slider(11), .05f, 30, ControlDefaults::cycleSeconds,
+            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.stackBeats[selectedSlot], Labels::stackCycle, I::menu(11));
+            else textureSliderRow(p.stackSeconds[selectedSlot], Labels::stackCycle, I::slider(11), .05f, 30, ControlDefaults::cycleSeconds,
                 format("%.2f s", p.stackSeconds[selectedSlot].load()));
             const unsigned count = static_cast<unsigned>(familyValue(F::PathCount).load());
             const auto selectedShape = static_cast<NeonStackShape>(familyValue(F::StackShape).load());
@@ -115,7 +115,7 @@
                 [layers](double value) { return 1 + value * (layers - 1); }, [layers](double value) { return (value - 1) / (layers - 1); });
             else if (manual) textureSliderRow(values[v + pathPoint], "POINT LAYER", I::slider(15), 0, 1, float(pathPoint) / (count - 1), layerText);
             else inspectorReadout("POINT LAYER", layerText.c_str(), 15);
-            button(inspectorButton(17), "RESET PATH", [this] {
+            button(inspectorButton(17), "RESET STACK PATH", [this] {
                 auto f = familySnapshot(); const auto shape = static_cast<NeonStackShape>(f[NeonFamily::StackShape]);
                 neonSetStackShape(f, shape == NeonStackShape::Manual ? NeonStackShape::RampUp : shape,
                     static_cast<unsigned>(f[NeonFamily::PathCount]), static_cast<unsigned>(selectedSlot));
@@ -149,7 +149,7 @@
                 extraSlider(F::MotorSymmetry, "SYMMETRY", row++);
             }
             extraSlider(F::MotionWindow, "JOIN WINDOW", row, " ms");
-            familyMenu<E>(F::MotionTrajectory, "TRAJECTORY", 12, {"BASIC PATH", "HOVER", "MIRROR", "ZIGZAG", "MOVING LOOP"});
+            familyMenu<E>(F::MotionTrajectory, "TRAJECTORY", 12, {Labels::sourcePath, "HOVER", "MIRROR", "ZIGZAG", "MOVING LOOP"});
             familySlider<E>(F::MotionLocus, "LOCUS", 13);
             familySlider<E>(F::MotionField, "FIELD", 14);
             familySlider<E>(F::MotionTravel, "TRAVEL", 15);
@@ -158,7 +158,7 @@
             familySlider<E>(F::EventRate, "EVENT RATE", 18, " Hz");
             familySlider<E>(F::EventRepeats, "REPEATS", 19);
             familySlider<E>(F::EventStep, "STEP", 20);
-            extraSlider(F::EventPitch, "PITCH SPRAY", 17, " st");
+            extraSlider(F::EventPitch, Labels::pitchSpray, 17, " st");
             extraSlider(F::EventLevel, "LEVEL VAR", 18);
             extraSlider(F::EventCurve, "ACCELERATE", 19);
         } else {
@@ -166,13 +166,13 @@
             familyMenu<E>(F::GrainBias, "SPRAY BIAS", 16, {"BEHIND", "AROUND", "AHEAD"});
             familySlider<E>(F::GrainRegions, "REGIONS", 17);
             familySlider<E>(F::GrainPitch, "GRAIN TUNE", 18, " st");
-            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.motionRates[selectedSlot], "SCAN CYCLE", E::menu(19));
-            else textureSliderRow(p.motionSeconds[selectedSlot], "SCAN CYCLE", E::slider(19), .05f, 30, ControlDefaults::cycleSeconds,
+            if (p.playbackClocks[selectedSlot].load()) beatMenu(p.motionRates[selectedSlot], Labels::sourceCycle, E::menu(19));
+            else textureSliderRow(p.motionSeconds[selectedSlot], Labels::sourceCycle, E::slider(19), .05f, 30, ControlDefaults::cycleSeconds,
                 format("%.2f s", p.motionSeconds[selectedSlot].load()));
             familySlider<E>(F::GrainDensityScale, "DENSITY x", 20);
             const std::vector<std::string> paths {"FORWARD", "REVERSE", "BOUNCE", "WANDER"};
             const auto path = std::min<unsigned>(3, p.motionPaths[selectedSlot].load());
-            inspectorLabel<E>("SCAN PATH", 21);
+            inspectorLabel<E>(Labels::sourcePath, 21);
             menu(inspectorMenu<E>(21), paths[path], paths, path, [this](int n) {
                 p.motionPaths[selectedSlot].store(static_cast<uint8_t>(n)); markStateDirty(p); requestProcess(p);
             });
