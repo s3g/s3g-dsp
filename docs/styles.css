@@ -429,6 +429,11 @@ a:focus-visible {
   cursor: zoom-in;
 }
 
+/* Full-interface previews fit the page; the lightbox exposes the source image. */
+.doc-graphic.doc-screenshot img {
+  min-width: 0;
+}
+
 .media-lightbox-trigger img {
   transition: filter 160ms ease;
 }

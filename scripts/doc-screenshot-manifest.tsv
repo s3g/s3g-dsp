@@ -75,6 +75,9 @@ tracker	s3g-tracker
 relay	s3g-relay
 breakbeat-slicer	s3g-slicer
 sample-player	sample-player
+# Neon captures use the loaded REAPER session; retain real waveform examples when refreshing.
+sample-neon	sample-neon
+utility-neon-midi	utility-neon
 sample-doubles	sample-doubles
 sample-wavesets	sample-wavesets
 sample-motion	sample-motion
