@@ -13,10 +13,11 @@ inline PadNotes sequentialNotes(unsigned base = 36) noexcept {
     for (unsigned i = 0; i < notes.size(); ++i) notes[i] = static_cast<uint8_t>(base + i);
     return notes;
 }
-inline bool validNotes(const PadNotes& notes) noexcept {
+inline bool validNotes(const PadNotes& notes, bool unique = true, bool allowOff = false) noexcept {
     std::array<bool, 128> used {};
     for (auto note : notes) {
-        if (note > 127 || used[note]) return false;
+        if (allowOff && note == 255) continue;
+        if (note > 127 || (unique && used[note])) return false;
         used[note] = true;
     }
     return true;
@@ -29,7 +30,7 @@ inline int padForNote(const PadNotes& notes, int key) noexcept {
 
 // A bank-major list: A1..A8, B1..B8, C1..C8, D1..D8. Numeric MIDI
 // addresses avoid host-dependent octave names. Reject partial/ambiguous maps.
-inline bool parseNotes(std::string_view text, PadNotes& result) noexcept {
+inline bool parseNotes(std::string_view text, PadNotes& result, bool unique = true, bool allowOff = false) noexcept {
     PadNotes next {};
     unsigned count = 0;
     size_t pos = 0;
@@ -37,7 +38,13 @@ inline bool parseNotes(std::string_view text, PadNotes& result) noexcept {
     while (pos < text.size()) {
         while (pos < text.size() && separator(text[pos])) ++pos;
         if (pos == text.size()) break;
-        if (count == next.size() || text[pos] < '0' || text[pos] > '9') return false;
+        if (count == next.size()) return false;
+        if (allowOff && text.substr(pos,2) == "-1") {
+            pos += 2;
+            if (pos < text.size() && !separator(text[pos])) return false;
+            next[count++]=255; continue;
+        }
+        if (text[pos] < '0' || text[pos] > '9') return false;
         unsigned value = 0;
         do {
             value = value * 10 + static_cast<unsigned>(text[pos++] - '0');
@@ -46,7 +53,7 @@ inline bool parseNotes(std::string_view text, PadNotes& result) noexcept {
         if (pos < text.size() && !separator(text[pos])) return false;
         next[count++] = static_cast<uint8_t>(value);
     }
-    if (count != next.size() || !validNotes(next)) return false;
+    if (count != next.size() || !validNotes(next,unique,allowOff)) return false;
     result = next;
     return true;
 }

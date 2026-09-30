@@ -31,16 +31,17 @@ constexpr uint32_t kGuiWidth = 620u, kGuiHeight = 444u;
 constexpr clap_id kBank = 1u, kBase = 2u, kChannel = 3u, kRoute = 4u, kPanic = 5u;
 constexpr clap_id kInput = 6u, kBank2 = 7u, kUnit = 8u;
 constexpr clap_id kRole = 9u, kFirstKey = 10u, kRole2 = 11u, kFirstKey2 = 12u, kChannel2 = 13u;
+constexpr clap_id kLayout = 14u, kScale = 15u, kLayout2 = 16u, kScale2 = 17u, kLast = kScale2;
 constexpr const char* kId = "org.s3g.s3g-dsp.utility-neon-midi";
 constexpr const char* kName = "s3g Utility Neon MIDI";
 constexpr const char* features[] = {CLAP_PLUGIN_FEATURE_NOTE_EFFECT, CLAP_PLUGIN_FEATURE_UTILITY, nullptr};
 const clap_plugin_descriptor_t descriptor {
-    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.4.0",
+    CLAP_VERSION_INIT, kId, kName, "s3g", "https://github.com/s3g/s3g-dsp", "", "", "0.5.1",
     "Bank-aware Reloop NEON performance notes for Tracker and MIDI instruments.", features,
 };
 
 struct ParamDef { const char* name; double min, max, initial; };
-constexpr std::array<ParamDef, 13u> defs {{
+constexpr std::array<ParamDef, kLast> defs {{
     {"Bank", 0., 3., 0.}, {"Base Note", 0., 96., 36.},
     {"Output Channel", 1., 16., 1.}, {"Control Route", 0., 1., 1.},
     {"Release Held Notes", 0., 1., 0.},
@@ -48,13 +49,15 @@ constexpr std::array<ParamDef, 13u> defs {{
     {"Unit 1 Pad Role", 0., 1., 0.}, {"Unit 1 First Key", 0., 96., 48.},
     {"Unit 2 Pad Role", 0., 1., 0.}, {"Unit 2 First Key", 0., 96., 48.},
     {"Unit 2 Output Channel", 0., 16., 0.},
+    {"Unit 1 Keyboard Layout", 0., 2., 0.}, {"Unit 1 Scale", 0., s3g::kMusicalScaleCount-1., 0.},
+    {"Unit 2 Keyboard Layout", 0., 2., 0.}, {"Unit 2 Scale", 0., s3g::kMusicalScaleCount-1., 0.},
 }};
 struct Plugin {
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
     const clap_host_state_t* hostState = nullptr;
-    std::array<std::atomic<double>, 13u> values {{0., 36., 1., 1., 0., 0., 1., 0., 0., 48., 0., 48., 0.}};
+    std::array<std::atomic<double>, kLast> values {{0., 36., 1., 1., 0., 0., 1., 0., 0., 48., 0., 48., 0.,0.,0.,0.,0.}};
     std::atomic<bool> panicRequested {false}, notifyRequested {false};
     s3g::clap_gui::ParamEventQueue<256u> guiParamEvents;
     std::array<s3g::controller::neon_midi::Mapper, 2> mapper;
@@ -76,6 +79,13 @@ struct Plugin {
     std::array<bool, 2> bridgeDirty {{true, true}};
     std::array<bool,2> keyboardDirty {{false,false}};
     std::array<std::array<uint8_t,3>,2> keyboardSettings {{{0,48,0},{0,48,0}}};
+    std::array<s3g::controller::neon_midi::PublishedNoteMap,2> keyboardMaps;
+    std::array<s3g::controller::neon_midi::NoteMap,2> audioKeyboardMaps;
+    std::array<s3g::controller::neon_midi::PadNotes,2> keyboardNotes {{
+        s3g::controller::neon_midi::sequentialNotes(48),s3g::controller::neon_midi::sequentialNotes(48)}};
+    std::array<bool,2> keyboardMapDirty {};
+    std::array<s3g::controller::neon_midi::KeyboardMapPacket,1024> keyboardPackets {};
+    unsigned keyboardPacketCount = 0;
     std::array<std::array<uint8_t, 4u>, 2> bridgeSettings {{{255u, 255u, 255u, 255u}, {255u, 255u, 255u, 255u}}};
     std::array<s3g::controller::neon_midi::AddressedBridgePacket, 8192u> bridgePackets {};
     uint32_t bridgeCount = 0u;
@@ -90,6 +100,13 @@ struct Plugin {
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
     bool portableGuiVisible = false;
 #endif
+    Plugin() {
+        for (auto& map : keyboardMaps) {
+            s3g::controller::neon_midi::NoteMap value;
+            value.custom=true; value.notes=s3g::controller::neon_midi::sequentialNotes(48);
+            map.store(value);
+        }
+    }
 };
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
@@ -101,7 +118,7 @@ void notify(Plugin& p) {
         p.host->request_callback(p.host);
 }
 bool setValue(Plugin& p, clap_id id, double value) {
-    if (id < kBank || id > kChannel2 || !std::isfinite(value)) return false;
+    if (id < kBank || id > kLast || !std::isfinite(value)) return false;
     const auto& def = defs[id - 1u];
     value = std::round(std::clamp(value, def.min, def.max));
     if (id == kPanic) {
@@ -110,7 +127,7 @@ bool setValue(Plugin& p, clap_id id, double value) {
     return true;
 }
 double getValue(const Plugin& p, clap_id id) {
-    return id >= kBank && id <= kChannel2 ? p.values[id - 1u].load() : 0.;
+    return id >= kBank && id <= kLast ? p.values[id - 1u].load() : 0.;
 }
 void clearAftertouch(Plugin& p) {
     const auto last = p.lastHit[p.unit].load();
@@ -131,8 +148,19 @@ void syncMapping(Plugin& p) {
         const auto second = p.unit ? getValue(p,kChannel2) : 0.;
         mapper.setChannel(static_cast<uint8_t>((second > 0 ? second : getValue(p,kChannel)) - 1.));
         mapper.setKeyboard(getValue(p,p.unit ? kRole2 : kRole) > .5, static_cast<uint8_t>(getValue(p,p.unit ? kFirstKey2 : kFirstKey)));
+        p.keyboardMaps[p.unit].read(p.audioKeyboardMaps[p.unit]);
+        const auto keys = s3g::controller::neon_midi::keyboardNotes(
+            static_cast<unsigned>(getValue(p,p.unit ? kLayout2 : kLayout)),mapper.firstKey(),
+            static_cast<unsigned>(getValue(p,p.unit ? kScale2 : kScale)),p.audioKeyboardMaps[p.unit].notes);
+        if (keys != p.keyboardNotes[p.unit]) { p.keyboardNotes[p.unit]=keys; p.keyboardMapDirty[p.unit]=true; }
+        mapper.setKeyboardNotes(keys);
         const std::array<uint8_t,3> keyboard {{uint8_t(mapper.keyboard()),mapper.firstKey(),mapper.channel()}};
-        if (keyboard != p.keyboardSettings[p.unit]) { p.keyboardSettings[p.unit] = keyboard; p.keyboardDirty[p.unit] = true; }
+        if (keyboard != p.keyboardSettings[p.unit]) {
+            // A role switch must establish/retire the isolated feedback context
+            // even if bank, note range and output channel did not change.
+            if(keyboard[0]!=p.keyboardSettings[p.unit][0]) p.bridgeDirty[p.unit]=true;
+            p.keyboardSettings[p.unit] = keyboard; p.keyboardDirty[p.unit] = true; p.keyboardMapDirty[p.unit]=true;
+        }
         if (panic) { mapper.panic(); clearAftertouch(p); if (p.inputMode) p.disconnectPending[p.unit] = true; }
         const std::array<uint8_t, 4u> settings {{mapper.bank(), mapper.baseNote(),
             mapper.channel(), static_cast<uint8_t>(getValue(p, kRoute))}};
@@ -165,6 +193,9 @@ bool pushBridge(Plugin& p, const clap_output_events_t* out, uint32_t time,
     if (p.bridgeCount >= p.bridgePackets.size()) { p.rejected.fetch_add(1u); return false; }
     auto& packet = p.bridgePackets[p.bridgeCount++];
     const auto& mapper = p.mapper[p.unit];
+    if (kind == s3g::controller::neon_midi::BridgeKind::Sync && mapper.keyboardPerformance())
+        kind = s3g::controller::neon_midi::BridgeKind::KeyboardRange;
+    if (kind == s3g::controller::neon_midi::BridgeKind::KeyboardRange) message = {};
     if (p.inputMode && kind == s3g::controller::neon_midi::BridgeKind::Sync)
         message = {0u, static_cast<uint8_t>(mapper.mode()), static_cast<uint8_t>(mapper.layer())};
     const s3g::controller::neon_midi::BridgeMessage bridge {kind, mapper.bank(),
@@ -190,8 +221,21 @@ void syncBridge(Plugin& p, const clap_output_events_t* out, uint32_t time) {
         p.bridgeDirty[p.unit] = false;
         p.keyboardDirty[p.unit] |= p.mapper[p.unit].keyboard();
     }
-    if (p.keyboardDirty[p.unit] && pushBridge(p,out,time,s3g::controller::neon_midi::BridgeKind::KeyboardSetup,
-        {0,uint8_t(p.mapper[p.unit].keyboard()),p.mapper[p.unit].firstKey()})) p.keyboardDirty[p.unit] = false;
+    if (p.keyboardDirty[p.unit]) {
+        if (!pushBridge(p,out,time,s3g::controller::neon_midi::BridgeKind::KeyboardSetup,
+            {0,uint8_t(p.mapper[p.unit].keyboard()),p.mapper[p.unit].firstKey()})) return;
+        p.keyboardDirty[p.unit] = false; p.keyboardMapDirty[p.unit] = true;
+    }
+    if (!p.mapper[p.unit].keyboard()) { p.keyboardMapDirty[p.unit]=false; return; }
+    if (getValue(p,kRoute) < .5 || !p.keyboardMapDirty[p.unit]) return;
+    if (p.keyboardPacketCount >= p.keyboardPackets.size()) { p.rejected.fetch_add(1); return; }
+    auto& packet = p.keyboardPackets[p.keyboardPacketCount++];
+    packet = s3g::controller::neon_midi::encodeKeyboardMap(p.unit,p.mapper[p.unit].channel(),p.keyboardNotes[p.unit]);
+    clap_event_midi_sysex_t event {};
+    event.header={sizeof(event),time,CLAP_CORE_EVENT_SPACE_ID,CLAP_EVENT_MIDI_SYSEX,CLAP_EVENT_IS_LIVE};
+    event.port_index=0; event.buffer=packet.data(); event.size=static_cast<uint32_t>(packet.size());
+    if (out && out->try_push && out->try_push(out,&event.header)) p.keyboardMapDirty[p.unit]=false;
+    else p.rejected.fetch_add(1);
 }
 void serviceGui(Plugin& p, const clap_output_events_t* out) {
     s3g::clap_gui::serviceParamEvents(p.guiParamEvents, out,
@@ -219,6 +263,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
     auto& p = *self(plugin);
     const auto* out = block->out_events;
     p.bridgeCount = 0u;
+    p.keyboardPacketCount = 0;
     p.mapPacketCount = 0; p.mapSent = false;
     auto sink = [&p, out](uint32_t time, neon::MidiMessage message) {
         const bool release = (message.status & 0xf0u) == 0x80u;
@@ -289,15 +334,23 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
         if (p.disconnectPending[unit]) return; // Retry critical release before accepting new gestures.
         auto& mapper = p.mapper[unit];
         const auto oldBank = mapper.bank();
+        const bool wasKeyboardPerformance = mapper.keyboardPerformance();
         const auto result = mapper.process(raw, time, sink);
         using s3g::controller::neon_midi::BridgeKind;
         if (result.bridge && result.kind == BridgeKind::SelectCell) p.lastHitCell[unit] = result.cell;
         else if (result.bridge && result.kind == BridgeKind::Pressure && result.cell == p.lastHitCell[unit])
             p.lastHit[unit].store((p.lastHit[unit].load() & 0xffffu) | (static_cast<uint32_t>(raw.data2) << 16u));
         if (result.bridge && !pushBridge(p, out, time, result.kind, raw, result.cell)) {
-            mapper.panic(); p.disconnectPending[unit] = p.inputMode != 0;
+            if (result.kind == BridgeKind::KeyboardRange) p.bridgeDirty[unit] = true;
+            else { mapper.panic(); p.disconnectPending[unit] = p.inputMode != 0; }
         }
         if (mapper.bank() != oldBank) { p.values[unit ? kBank2-1 : kBank-1].store(mapper.bank()); notify(p); }
+        if (!wasKeyboardPerformance && mapper.keyboardPerformance()) {
+            // A deliberate SAMPLE press restores isolated keyboard feedback
+            // immediately, even when the range itself did not change.
+            p.bridgeDirty[unit] = true;
+            syncBridge(p, out, time);
+        }
     };
     const auto* in = block->in_events;
     const uint32_t n = in && in->size && in->get ? in->size(in) : 0;
@@ -345,6 +398,8 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* b
         p.heldCells[p.unit].store(mapper.heldCells());
         p.page[p.unit].store(static_cast<uint8_t>(static_cast<uint8_t>(mapper.mode()) + (mapper.layer() == neon::Layer::Second ? 4u : 0u)));
         awake |= mapper.heldCells() || mapper.pending() || p.disconnectPending[p.unit];
+        if ((!p.unit || inputMode==1 || inputMode==3) && getValue(p,kRoute)>.5)
+            awake |= p.bridgeDirty[p.unit] || p.keyboardDirty[p.unit] || p.keyboardMapDirty[p.unit];
     }
     p.unit = 0;
     return awake ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
@@ -364,16 +419,18 @@ bool paramInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
     return true;
 }
 bool paramValue(const clap_plugin_t* plugin, clap_id id, double* value) {
-    if (!value || id < kBank || id > kChannel2) return false;
+    if (!value || id < kBank || id > kLast) return false;
     *value = getValue(*self(plugin), id); return true;
 }
 bool valueText(const clap_plugin_t*, clap_id id, double value, char* text, uint32_t capacity) {
-    if (!text || !capacity || id < kBank || id > kChannel2 || !std::isfinite(value)) return false;
+    if (!text || !capacity || id < kBank || id > kLast || !std::isfinite(value)) return false;
     const int v = static_cast<int>(std::round(std::clamp(value, defs[id - 1u].min, defs[id - 1u].max)));
     if (id == kBank || id == kBank2) std::snprintf(text, capacity, "%c", 'A' + v);
     else if (id == kInput) { const char* modes[] = {"Host MIDI", "Host Dual Ports", "USB One NEON", "USB Two NEONs"}; std::snprintf(text, capacity, "%s", modes[v]); }
     else if (id == kUnit) std::snprintf(text, capacity, "Unit %d", v+1);
     else if (id == kRole || id == kRole2) std::snprintf(text, capacity, "%s",v ? "Keyboard" : "Pad Cells");
+    else if (id == kLayout || id == kLayout2) { const char* names[]={"Chromatic","Scale","Manual"}; std::snprintf(text,capacity,"%s",names[v]); }
+    else if (id == kScale || id == kScale2) std::snprintf(text,capacity,"%s",s3g::musicalScaleDefinition(v).name);
     else if (id == kChannel2 && v == 0) std::snprintf(text,capacity,"Follow Unit 1");
     else if (id == kRoute) std::snprintf(text, capacity, "%s", v ? "Tracker + Sample Neon" : "Notes Only");
     else if (id == kPanic) std::snprintf(text, capacity, "%s", v ? "Release" : "Ready");
@@ -381,7 +438,11 @@ bool valueText(const clap_plugin_t*, clap_id id, double value, char* text, uint3
     return true;
 }
 bool textValue(const clap_plugin_t*, clap_id id, const char* text, double* value) {
-    if (!text || !value || id < kBank || id > kChannel2) return false;
+    if (!text || !value || id < kBank || id > kLast) return false;
+    if (id == kScale || id == kScale2) {
+        uint32_t scale=0;
+        if (s3g::musicalScaleValueFromText(text,scale)) { *value=scale; return true; }
+    }
     if ((id == kBank || id == kBank2) && text[0] && !text[1]
         && ((text[0] >= 'A' && text[0] <= 'D') || (text[0] >= 'a' && text[0] <= 'd'))) {
         *value = (text[0] >= 'a' ? text[0] - 'a' : text[0] - 'A'); return true;
@@ -392,7 +453,7 @@ bool textValue(const clap_plugin_t*, clap_id id, const char* text, double* value
     if (id == kRoute && (!std::strcmp(text, "Tracker + Sample Neon") || !std::strcmp(text, "Notes Only"))) {
         *value = !std::strcmp(text, "Tracker + Sample Neon") ? 1. : 0.; return true;
     }
-    if (id == kInput || id == kUnit || id == kRole || id == kRole2 || id == kChannel2) for (int n = 0; n <= defs[id-1].max; ++n) {
+    if (id == kInput || id == kUnit || id == kRole || id == kRole2 || id == kChannel2 || id == kLayout || id == kLayout2) for (int n = 0; n <= defs[id-1].max; ++n) {
         char formatted[64] {}; valueText(nullptr, id, n, formatted, sizeof(formatted));
         if (!std::strcmp(text, formatted)) { *value = n; return true; }
     }
@@ -431,17 +492,31 @@ bool saveState(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
     for (unsigned n = 0; n < keyboard.size(); ++n) {
         keyboard[n] = static_cast<uint8_t>(getValue(p,kRole+n)); extended |= keyboard[n] != defs[kRole-1+n].initial;
     }
+    std::array<uint8_t,68> layouts {};
+    bool extendedLayouts=false;
+    for(unsigned n=0;n<4;++n) {
+        layouts[n]=static_cast<uint8_t>(getValue(p,kLayout+n)); extendedLayouts |= layouts[n]!=0;
+    }
+    for(unsigned unit=0;unit<2;++unit) {
+        s3g::controller::neon_midi::NoteMap manual;
+        if (!p.keyboardMaps[unit].read(manual)) return false;
+        std::copy(manual.notes.begin(),manual.notes.end(),layouts.begin()+4+unit*32);
+        extendedLayouts |= manual.notes!=s3g::controller::neon_midi::sequentialNotes(48);
+    }
+    extended |= extendedLayouts;
     if (extended) data[4] = 4;
+    if (extendedLayouts) data[4] = 5;
     const uint8_t custom = map.custom;
     return s3g::clap_state::writeAll(stream, data.data(), data.size())
         && (!extended || s3g::clap_state::writeAll(stream,&custom,1))
         && (!map.custom || s3g::clap_state::writeAll(stream, map.notes.data(), map.notes.size()))
-        && (!extended || s3g::clap_state::writeAll(stream,keyboard.data(),keyboard.size()));
+        && (!extended || s3g::clap_state::writeAll(stream,keyboard.data(),keyboard.size()))
+        && (!extendedLayouts || s3g::clap_state::writeAll(stream,layouts.data(),layouts.size()));
 }
 bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
     std::array<uint8_t, 20u> data {};
     if (!s3g::clap_state::readAll(stream, data.data(), 9u)
-        || std::memcmp(data.data(), "NMID", 4u) || (data[4] != 1u && data[4] != 2u && data[4] != 3u && data[4] != 4u)
+        || std::memcmp(data.data(), "NMID", 4u) || data[4]<1 || data[4]>5
         || data[5] > 3u || data[6] > 96u || data[7] < 1u || data[7] > 16u || data[8] > 1u) return false;
     if (data[4] >= 2u && (!s3g::clap_state::readAll(stream, data.data()+9u, 11u)
         || data[9] > 3u || data[10] > 3u || data[11] > 1u)) return false;
@@ -454,7 +529,7 @@ bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
     if (sources[0] && sources[0] == sources[1]) return false;
     s3g::controller::neon_midi::NoteMap map;
     map.custom = data[4] == 3;
-    if (data[4] == 4) {
+    if (data[4] >= 4) {
         uint8_t custom = 0;
         if (!s3g::clap_state::readAll(stream,&custom,1) || custom > 1) return false;
         map.custom = custom;
@@ -462,11 +537,22 @@ bool loadState(const clap_plugin_t* plugin, const clap_istream_t* stream) {
     if (map.custom && (!s3g::clap_state::readAll(stream,map.notes.data(),map.notes.size())
         || !s3g::controller::neon_midi::validNotes(map.notes))) return false;
     std::array<uint8_t,5> keyboard {{0,48,0,48,0}};
-    if (data[4] == 4) {
+    if (data[4] >= 4) {
         if (!s3g::clap_state::readAll(stream,keyboard.data(),keyboard.size())) return false;
         for (unsigned n = 0; n < keyboard.size(); ++n) if (keyboard[n] > defs[kRole-1+n].max) return false;
     }
+    std::array<uint8_t,68> layouts {};
+    for(unsigned unit=0;unit<2;++unit) for(unsigned n=0;n<32;++n) layouts[4+unit*32+n]=48+n;
+    if(data[4]==5 && !s3g::clap_state::readAll(stream,layouts.data(),layouts.size())) return false;
+    for(unsigned n=0;n<4;++n) if(layouts[n]>defs[kLayout-1+n].max) return false;
+    for(unsigned n=4;n<layouts.size();++n) if(layouts[n]>127 && layouts[n]!=255) return false;
     auto& p = *self(plugin);
+    for(unsigned n=0;n<4;++n) p.values[kLayout-1+n].store(layouts[n]);
+    for(unsigned unit=0;unit<2;++unit) {
+        s3g::controller::neon_midi::NoteMap manual; manual.custom=true;
+        std::copy_n(layouts.begin()+4+unit*32,32,manual.notes.begin());
+        p.keyboardMaps[unit].store(manual);
+    }
     for (unsigned n = 0; n < keyboard.size(); ++n) p.values[kRole-1+n].store(keyboard[n]);
     p.noteMap.store(map);
     for (uint32_t i = 0u; i < 4u; ++i) p.values[i].store(data[5u + i]);

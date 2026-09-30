@@ -3,6 +3,7 @@
 #include "s3g_reloop_neon.h"
 #include "s3g_neon_midi_bridge.h"
 #include "s3g_neon_note_map.h"
+#include "s3g_neon_keyboard.h"
 
 #include <array>
 #include <cstdint>
@@ -34,11 +35,21 @@ public:
     uint8_t baseNote() const noexcept { return base_; }
     uint8_t channel() const noexcept { return channel_; } // zero based
     bool keyboard() const noexcept { return keyboard_; }
+    bool keyboardPerformance() const noexcept {
+        return keyboard_ && surface_.mode == neon::Mode::Sampler && surface_.layer == neon::Layer::First;
+    }
     uint8_t firstKey() const noexcept { return firstKey_; }
     void setKeyboard(bool enabled, uint8_t first) noexcept {
         first = std::min<uint8_t>(96, first);
-        if (keyboard_ != enabled || firstKey_ != first) padInput_.clear();
+        if (keyboard_ != enabled || firstKey_ != first) {
+            padInput_.clear();
+            keyboardNotes_ = keyboardNotes(0,first,0);
+        }
         keyboard_ = enabled; firstKey_ = first;
+    }
+    void setKeyboardNotes(const PadNotes& notes) noexcept {
+        if (keyboardNotes_ != notes) padInput_.clear();
+        keyboardNotes_ = notes;
     }
     bool holds(uint8_t note, uint8_t channel) const noexcept {
         for (const auto& held : held_) if (held.active && held.note == note && held.channel == channel) return true;
@@ -103,6 +114,11 @@ public:
         if (!action) return {neon::isVelocityToggle(message), BridgeKind::Control, 0u};
 
         if (action.type == neon::ActionType::SelectBank) {
+            if (keyboardPerformance() && !action.shifted) {
+                if (action.pressed) setBank(action.bank);
+                // Range + LED context only: do not navigate the instrument.
+                return {true,BridgeKind::KeyboardRange,0};
+            }
             // CHOP bank buttons address slices, not the performance cell bank.
             if (action.pressed && !action.shifted
                 && surface_.mode != neon::Mode::Slicer && surface_.mode != neon::Mode::HotCue) setBank(action.bank);
@@ -150,8 +166,9 @@ public:
 
         if (!release(held, time, sink)) return {};
         const auto cell = static_cast<uint8_t>(bank_ * 8u + action.pad);
-        const auto note = keyboard_ ? static_cast<uint8_t>(firstKey_ + cell)
+        const auto note = keyboard_ ? keyboardNotes_[cell]
             : customNotes_ ? notes_[cell] : static_cast<uint8_t>(base_ + cell);
+        if (note > 127) return {};
         if (sink(time, neon::MidiMessage {
                 static_cast<uint8_t>(0x90u | channel_), note, action.value })) {
             held = {true, false, note, channel_, cell, keyboard_};
@@ -171,6 +188,12 @@ private:
     bool release(Held& held, uint32_t time, Sink&& sink) noexcept {
         if (!held.active) return true;
         held.releasing = true;
+        // Manual layouts can intentionally put the same key on several pads.
+        // Keep its gate open until the final physical finger releases it.
+        for (const auto& other : held_) if (&other != &held && other.active
+            && other.note == held.note && other.channel == held.channel) {
+            held = {}; return true;
+        }
         if (!sink(time, neon::MidiMessage {
                 static_cast<uint8_t>(0x80u | held.channel), held.note, 0u }))
             return false; // Retry next block; never silently lose a note-off.
@@ -181,6 +204,7 @@ private:
     neon::PadInputDecoder padInput_ {};
     std::array<Held, 8u> held_ {};
     PadNotes notes_ = sequentialNotes();
+    PadNotes keyboardNotes_ = sequentialNotes(48);
     bool customNotes_ = false;
     bool keyboard_ = false;
     uint8_t firstKey_ = 48;

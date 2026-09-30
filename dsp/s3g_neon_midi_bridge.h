@@ -6,7 +6,7 @@ namespace s3g::controller::neon_midi {
 // Private, host-local control envelope. Never send this research-ID SysEx to
 // hardware. Sequencers can forward it without treating editor buttons as notes.
 // Fixed 15-byte, 7-bit-clean wire format, with explicit signature and version.
-enum class BridgeKind : uint8_t { Sync = 0u, Control, SelectCell, Pressure, Disconnect, KeyboardSetup };
+enum class BridgeKind : uint8_t { Sync = 0u, Control, SelectCell, Pressure, Disconnect, KeyboardSetup, KeyboardRange };
 struct BridgeMessage {
     BridgeKind kind = BridgeKind::Sync;
     uint8_t bank = 0u, base = 36u, channel = 0u;
@@ -39,8 +39,8 @@ inline AddressedBridgePacket encodeAddressedBridge(const BridgeMessage& message)
 inline bool decodeBridge(const uint8_t* bytes, uint32_t size, BridgeMessage& message) noexcept {
     if (!bytes || (size != 15u && size != 21u) || bytes[0] != 0xf0u || bytes[1] != 0x7du
         || bytes[2] != 'S' || bytes[3] != '3' || bytes[4] != 'G' || bytes[5] != 'N'
-        || (size == 15u ? bytes[6] != 1u || (bytes[7] > 3u && bytes[7] != 5u)
-            : bytes[6] != 2u || bytes[7] > 5u || bytes[14] > 1u || bytes[19] > 15u)
+        || (size == 15u ? bytes[6] != 1u || (bytes[7] > 3u && bytes[7] != 5u && bytes[7] != 6u)
+            : bytes[6] != 2u || bytes[7] > 6u || bytes[14] > 1u || bytes[19] > 15u)
         || bytes[8] > 3u || bytes[9] > 96u
         || bytes[10] > 15u || bytes[size-1u] != 0xf7u) return false;
     for (uint32_t i = 1u; i < size-1u; ++i) if (bytes[i] > 127u) return false;
@@ -49,6 +49,7 @@ inline bool decodeBridge(const uint8_t* bytes, uint32_t size, BridgeMessage& mes
     if (kind == BridgeKind::Control && (bytes[11] & 0x70u) > 0x30u) return false;
     if (size == 21u && kind == BridgeKind::Sync && (bytes[12] > 3u || bytes[13] > 1u)) return false;
     if (kind == BridgeKind::KeyboardSetup && (bytes[12] > 1 || bytes[13] > 96)) return false;
+    if (kind == BridgeKind::KeyboardRange && (bytes[11] || bytes[12] || bytes[13])) return false;
     message.kind = kind; message.bank = bytes[8]; message.base = bytes[9]; message.channel = bytes[10];
     message.midi = {static_cast<uint8_t>(bytes[11] | 0x80u), bytes[12], bytes[13]};
     message.cell = kind == BridgeKind::Control ? 0u : bytes[11];

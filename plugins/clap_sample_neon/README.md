@@ -1,7 +1,7 @@
 # Sample Neon 32
 
 `s3g Sample Neon 32` is a 32-slot Sample-family instrument designed around the
-factory MIDI map of the Reloop Neon. Version 0.41.0 exposes one CLAP instrument,
+factory MIDI map of the Reloop Neon. Version 0.41.2 exposes one CLAP instrument,
 `s3g Sample Neon 32`, with a fixed 32-channel output port. The default Stereo layout
 mixes cells onto channels 1–2; unused channels remain silent.
 
@@ -14,6 +14,18 @@ return to their normal active/loaded/playback indication. This is visual
 acknowledgment only; MIDI mapping, held gestures and saved state are unchanged.
 
 ## Chromatic pads and independent voices (0.41.0)
+
+0.41.2 pairs with Utility Neon MIDI 0.5.1 to isolate a Keyboard unit's A–D
+range from the editor. On primary SAMPLE, range changes update only that
+unit's keyboard LEDs and subsequent pitches; the selected sample, software
+bank and performance page remain unchanged. The other unit retains normal
+Pad Cells navigation. Explicit edit-page presses still work. Tracker and
+saved parameter/state formats are unchanged.
+
+0.41.1 receives Utility Neon MIDI 0.5's resolved Scale/Manual Keyboard maps for
+root/playing/OFF LED feedback and modifier auditions. It does not overwrite the
+pad-note map or change the pinned channel destination. Direct-controller
+Keyboard remains chromatic; scale/manual layouts are configured in Utility.
 
 In EDIT VIEW → ROUTING, choose NOTES / VOICES. Each MIDI channel can use the
 existing PAD NOTE MAP, address one pinned CHROMATIC A1–D8 cell, or be OFF. Keep

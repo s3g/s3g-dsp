@@ -4,6 +4,7 @@
 #include "s3g_sample_neon_fill.h"
 #include "s3g_neon_midi_bridge.h"
 #include "s3g_neon_note_map.h"
+#include "s3g_neon_keyboard.h"
 #include "s3g_sample_neon_edit.h"
 #include "s3g_sample_cutups_analysis.h"
 #include "../common/s3g_clap_gui_param_queue.h"
@@ -670,6 +671,11 @@ struct Plugin {
     // Direct-controller Keyboard mode is independent of the selected edit cell.
     std::array<std::atomic<uint8_t>,2> keyboardTargets {{255,255}}, keyboardFirstNotes {{48,48}};
     std::array<uint8_t,2> utilityKeyboardChannels {{255,255}}, utilityFirstKeys {{48,48}};
+    // Physical Keyboard range is feedback-only, never a sample/edit bank.
+    std::array<bool,2> utilityRangeActive {};
+    std::array<uint8_t,2> utilityRanges {};
+    std::array<s3g::controller::neon_midi::PadNotes,2> utilityKeyboardNotes {{
+        s3g::controller::neon_midi::sequentialNotes(48),s3g::controller::neon_midi::sequentialNotes(48)}};
     std::atomic<bool> stateDirtyPending { false };
     uint32_t outputChannels = s3g::sample::kSampleNeonOutputChannels;
     double sampleRate = 48000.0;
@@ -3514,6 +3520,14 @@ std::size_t collectEvents(Plugin& instance,
             && header->size >= sizeof(clap_event_midi_sysex_t)) {
             const auto* sysex = reinterpret_cast<const clap_event_midi_sysex_t*>(header);
             s3g::controller::neon_midi::PadNotes notes;
+            uint8_t keyboardUnit=0, keyboardChannel=0;
+            if (sysex->port_index==0 && s3g::controller::neon_midi::decodeKeyboardMap(
+                sysex->buffer,sysex->size,keyboardUnit,keyboardChannel,notes)) {
+                instance.utilityKeyboardNotes[keyboardUnit]=notes;
+                instance.utilityKeyboardChannels[keyboardUnit]=keyboardChannel;
+                instance.surfaceFeedbackDirty[keyboardUnit]=true;
+                continue;
+            }
             if (sysex->port_index == 0 && s3g::controller::neon_midi::decodeNoteMap(sysex->buffer,sysex->size,notes)) {
                 instance.audioUtilityMap.notes = notes; instance.audioUtilityMap.custom = true;
                 instance.utilityNoteMap.store(instance.audioUtilityMap);
@@ -3528,16 +3542,47 @@ std::size_t collectEvents(Plugin& instance,
             // Cache USB assignments even with ownership off. Enabling OWNER
             // later must not rediscover the first device and lose unit 2.
             if (!neonActive && (!message.addressed
-                || (message.kind != BridgeKind::Sync && message.kind != BridgeKind::Disconnect))) continue;
+                || (message.kind != BridgeKind::Sync && message.kind != BridgeKind::Disconnect
+                    && message.kind != BridgeKind::KeyboardRange))) continue;
             const unsigned unit = message.addressed ? message.unit : 0u;
+            if (message.kind == BridgeKind::KeyboardRange) {
+                if (message.addressed) {
+                    if (!instance.addressedSurfaces.exchange(true)) saveSurface(instance);
+                    instance.surfaceConnected[unit]=true;
+                    instance.surfaceDestinations[unit]=message.destination;
+                } else instance.addressedSurfaces.store(false);
+                instance.utilityRangeActive[unit]=true;
+                instance.utilityRanges[unit]=message.bank;
+                instance.utilityKeyboardChannels[unit]=message.channel;
+                instance.surfaceFeedbackDirty[unit]=true;
+                continue; // No focus, editor bank, selected pad or mode changes.
+            }
             if (message.kind == BridgeKind::KeyboardSetup) {
                 instance.utilityKeyboardChannels[unit] = message.midi.data1 ? message.channel : 255;
+                if (!message.midi.data1) instance.utilityRangeActive[unit]=false;
                 instance.utilityFirstKeys[unit] = message.midi.data2;
+                instance.utilityKeyboardNotes[unit]=s3g::controller::neon_midi::sequentialNotes(message.midi.data2);
                 instance.surfaceFeedbackDirty[unit] = true;
                 continue;
             }
+            // A Keyboard packet's bank is its pitch range, not the saved
+            // editing bank. Explicit bank controls on edit pages still go
+            // through the ordinary action handler below.
+            const uint8_t navigationBank = message.kind == BridgeKind::Control
+                && (instance.utilityKeyboardChannels[unit] < 16 || instance.utilityRangeActive[unit])
+                ? (unit == instance.surfaceUnit ? instance.cellBank.load() : instance.surfaces[unit].cellBank)
+                : message.bank;
+            if (message.kind == BridgeKind::Control) {
+                const auto action = s3g::controller::reloop_neon::decode(message.midi);
+                if (action.type == NeonActionType::SelectMode && action.pressed) {
+                    instance.utilityRangeActive[unit] = false;
+                    instance.surfaceFeedbackDirty[unit] = true;
+                }
+            }
             if (message.kind == BridgeKind::Sync || message.kind == BridgeKind::Disconnect)
                 instance.utilityKeyboardChannels[unit] = 255;
+            if (message.kind == BridgeKind::Sync || message.kind == BridgeKind::Disconnect)
+                instance.utilityRangeActive[unit]=false;
             if (message.kind == BridgeKind::Disconnect) {
                 releaseSurface(instance, unit, header->time, count);
                 instance.surfaceConnected[unit] = false;
@@ -3562,19 +3607,19 @@ std::size_t collectEvents(Plugin& instance,
                 instance.surfaceConnected[unit] = true;
                 if (instance.surfaceDestinations[unit] != message.destination) instance.surfaceFeedbackDirty[unit] = true;
                 instance.surfaceDestinations[unit] = message.destination;
-                context.cellBank = message.bank;
+                context.cellBank = navigationBank;
                 if (message.kind == BridgeKind::Sync) {
                     // Keep the hardware mode and the Utility's mapping context
                     // aligned after input activation/reconnect/project recall.
                     context.mode = message.midi.data1; context.layer = message.midi.data2;
                     context.bank = context.mode == static_cast<uint8_t>(NeonMode::Slicer) ? context.chopBank
-                        : context.mode == static_cast<uint8_t>(NeonMode::HotCue) ? context.stackBank : message.bank;
+                        : context.mode == static_cast<uint8_t>(NeonMode::HotCue) ? context.stackBank : navigationBank;
                     instance.surfaceFeedbackDirty[unit] = true;
                     if (unit == instance.surfaceUnit)
                         selectSurface(instance, static_cast<NeonMode>(context.mode), context.layer);
                 }
                 if (context.mode != static_cast<uint8_t>(NeonMode::Slicer)
-                    && context.mode != static_cast<uint8_t>(NeonMode::HotCue)) context.bank = message.bank;
+                    && context.mode != static_cast<uint8_t>(NeonMode::HotCue)) context.bank = navigationBank;
                 // Sync another unit without changing the waveform/editor focus.
                 if (message.kind == BridgeKind::Sync && unit != instance.surfaceUnit) continue;
                 if (message.kind == BridgeKind::Pressure) {
@@ -3591,10 +3636,10 @@ std::size_t collectEvents(Plugin& instance,
             }
             // Adapter owns the performance bank; CHOP has its own slice bank.
             // No MIDI return path is needed or created.
-            instance.cellBank.store(message.bank);
+            instance.cellBank.store(navigationBank);
             if (instance.visibleMode.load() != static_cast<uint8_t>(NeonMode::Slicer)
                 && instance.visibleMode.load() != static_cast<uint8_t>(NeonMode::HotCue))
-                selectSurfaceBank(instance, message.bank);
+                selectSurfaceBank(instance, navigationBank);
             if (message.kind == BridgeKind::Sync) continue;
             if (message.kind == BridgeKind::SelectCell) {
                 selectSurface(instance, NeonMode::Sampler, 0u);
@@ -3860,8 +3905,13 @@ std::size_t collectEvents(Plugin& instance,
                     held.event.noteId = 0x4e000000u + static_cast<uint64_t>(slot) * 32u + instance.surfaceUnit*8u + action.pad;
                     held.event.kind = padFx ? SampleNeonEventKind::Pressure : SampleNeonEventKind::Trigger;
                     held.event.value = static_cast<float>(action.value) / 127.0f;
-                    if (keyboard) held.event.key = static_cast<uint8_t>((keyboardChannel < 16 ? instance.utilityFirstKeys[instance.surfaceUnit]
-                        : instance.keyboardFirstNotes[instance.surfaceUnit].load()) + cell);
+                    if (keyboard) {
+                        const unsigned keyCell = instance.utilityRangeActive[instance.surfaceUnit]
+                            ? instance.utilityRanges[instance.surfaceUnit]*8u + action.pad : cell;
+                        held.event.key = keyboardChannel < 16 ? instance.utilityKeyboardNotes[instance.surfaceUnit][keyCell]
+                            : static_cast<uint8_t>(instance.keyboardFirstNotes[instance.surfaceUnit].load()+cell);
+                        if (held.event.key>127) { held={}; continue; }
+                    }
                     held.event.reverse = instance.neonState.censorHeld;
                     if (padFx) setControllerParam(instance, slotParamId(slot, kSlotCharacter),
                         action.pad, header->time, output);
@@ -3894,8 +3944,11 @@ s3g::controller::reloop_neon::LedFrame neonFeedbackFrame(Plugin& instance,
     const Plugin::SurfaceContext& context, unsigned unit = 0) noexcept
 {
     s3g::controller::reloop_neon::LedFrame frame;
-    const uint8_t bank = context.bank, selected = context.selected;
-    const uint8_t mode = context.mode, layer = context.layer;
+    const bool keyboardRange = instance.utilityRangeActive[unit];
+    const uint8_t bank = keyboardRange ? instance.utilityRanges[unit] : context.bank;
+    const uint8_t selected = context.selected;
+    const uint8_t mode = keyboardRange ? static_cast<uint8_t>(NeonMode::Sampler) : context.mode;
+    const uint8_t layer = keyboardRange ? 0u : context.layer;
     const uint8_t editPage = context.editPage == 0 || context.editPage == 7 || context.editPage == 8 || context.editPage == 10
         ? context.editPage : playbackEditPage(playbackIndex(instance, selected));
     frame.bank = bank;
@@ -3915,8 +3968,9 @@ s3g::controller::reloop_neon::LedFrame neonFeedbackFrame(Plugin& instance,
         const unsigned pinned = keyboardChannel < 16 ? route >= 1 && route <= 32 ? route-1 : 255
             : instance.keyboardTargets[unit].load();
         if (mode == static_cast<uint8_t>(NeonMode::Sampler) && !layer && pinned < 32) {
-            const unsigned first = keyboardChannel < 16 ? instance.utilityFirstKeys[unit] : instance.keyboardFirstNotes[unit].load();
-            const unsigned key = first + cell;
+            const unsigned key = keyboardChannel < 16 ? instance.utilityKeyboardNotes[unit][cell]
+                : instance.keyboardFirstNotes[unit].load()+cell;
+            if (key>127) continue;
             const bool loaded = renderBase(instance.publishedStacks[pinned].load()) != nullptr;
             bool playing = false;
             for (unsigned n = 0; n < instance.engine.voiceCursorCount(pinned); ++n)
@@ -4510,7 +4564,7 @@ const clap_plugin_descriptor_t multichannelDescriptor {
     "s3g Sample Neon 32",
     "s3g",
     "https://github.com/s3g/s3g-dsp",
-    "", "", "0.41.0",
+    "", "", "0.41.2",
     "Channel-linked Neon sampler: stereo, quad, octo and ACN/SN3D ambisonics, with 32 output channels.",
     multichannelFeatures,
 };

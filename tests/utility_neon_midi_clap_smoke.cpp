@@ -5,6 +5,7 @@
 #include <clap/ext/note-name.h>
 #include "s3g_neon_midi.h"
 #include "s3g_neon_midi_stream.h"
+#include "realtime_alloc_probe_api.h"
 #if defined(S3G_TEST_TRACKER_RECORDER)
 #include "s3g/tracker/midi_step_recorder.h"
 #endif
@@ -22,6 +23,7 @@
 namespace {
 namespace nm = s3g::controller::neon_midi;
 unsigned checks = 0u;
+uint64_t allocationBlocks = 0;
 void check(bool value, const char* message) {
     ++checks;
     if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -120,7 +122,21 @@ struct Module {
         clap_process_t data {}; data.frames_count = 256u; data.transport = &transport;
         data.in_events = &in.in; data.out_events = &out.out;
         data.audio_outputs = audio; data.audio_outputs_count = audio ? 1u : 0u;
-        check(plugin->process(plugin, &data) != CLAP_PROCESS_ERROR, "process");
+        static const bool probe=std::getenv("S3G_NEON_ALLOCATION_PROBE")!=nullptr;
+        static const auto beginProbe=reinterpret_cast<void(*)()>(dlsym(RTLD_DEFAULT,"s3g_rt_alloc_probe_begin"));
+        static const auto endProbe=reinterpret_cast<void(*)()>(dlsym(RTLD_DEFAULT,"s3g_rt_alloc_probe_end"));
+        static const auto readProbe=reinterpret_cast<int(*)(s3g_rt_alloc_probe_counts*,size_t)>(dlsym(RTLD_DEFAULT,"s3g_rt_alloc_probe_read"));
+        if(probe) { check(beginProbe&&endProbe&&readProbe,"requested allocation probe available");beginProbe(); }
+        const auto status=plugin->process(plugin,&data);
+        if(probe) {
+            endProbe();s3g_rt_alloc_probe_counts counts {};
+            check(readProbe(&counts,sizeof(counts))==1&&counts.abi_version==S3G_RT_ALLOC_PROBE_ABI_VERSION,"read realtime allocation counts");
+            check(!(counts.malloc_calls+counts.calloc_calls+counts.realloc_calls+counts.free_calls
+                +counts.posix_memalign_calls+counts.aligned_alloc_calls+counts.allocation_failures+counts.invalid_alignment_calls),
+                "MIDI mapping process does not allocate or free");
+            ++allocationBlocks;
+        }
+        check(status != CLAP_PROCESS_ERROR, "process");
     }
     ~Module() { if (active) { plugin->stop_processing(plugin); plugin->deactivate(plugin); }
         if (plugin) plugin->destroy(plugin); if (entry) entry->deinit(); if (library) dlclose(library); }
@@ -142,11 +158,11 @@ struct State {
 };
 
 void testUtility(Module& p) {
-    check(p.params && p.params->count(p.plugin) == 13u, "stable controls plus independent keyboard roles/channels");
+    check(p.params && p.params->count(p.plugin) == 17u, "stable controls plus independent keyboard roles/layouts");
     auto* ports = static_cast<const clap_plugin_note_ports_t*>(p.plugin->get_extension(p.plugin, CLAP_EXT_NOTE_PORTS));
     check(ports && ports->count(p.plugin, true) == 2u && ports->count(p.plugin, false) == 1u, "two addressable host inputs, one merged musical output");
     check(!p.plugin->get_extension(p.plugin, CLAP_EXT_AUDIO_PORTS), "MIDI only");
-    for (uint32_t i = 0u; i < 13u; ++i) {
+    for (uint32_t i = 0u; i < 17u; ++i) {
         clap_param_info_t info {}; char text[128] {}; double value = -1.;
         check(p.params->get_info(p.plugin, i, &info), "parameter info");
         check(p.params->value_to_text(p.plugin, info.id, info.default_value, text, sizeof(text))
@@ -322,6 +338,8 @@ void testUtility(Module& p) {
     p.set(1u, 0.); p.set(2u, 36.); p.set(3u, 1.); p.set(4u, 1.);
 }
 
+#include "neon_keyboard_checks.inc"
+
 void testKeyboard(const char* path) {
     auto unit = std::make_unique<Module>(path); auto& p = *unit;
     p.set(4,0); p.set(6,1); p.set(11,1); p.set(12,48); p.set(13,2); p.activate();
@@ -441,7 +459,7 @@ void testAddressedBridge() {
         check(!nm::decodeBridge(invalid.data(), invalid.size(), decoded), "invalid unit rejected");
         invalid = packet; invalid[19] = 16;
         check(!nm::decodeBridge(invalid.data(), invalid.size(), decoded), "overflowing destination UID rejected");
-        invalid = packet; invalid[7] = 5;
+        invalid = packet; invalid[7] = 7;
         check(!nm::decodeBridge(invalid.data(), invalid.size(), decoded), "unknown bridge command rejected");
         const auto legacy = nm::encodeBridge(original);
         check(nm::decodeBridge(legacy.data(), legacy.size(), decoded) && !decoded.addressed
@@ -824,9 +842,12 @@ int main(int argc, char** argv) {
     testAddressedBridge();
     testBankModeInvariant(argv[1]);
     testKeyboard(argv[1]);
+    testKeyboardRangeIsolation(argv[1], argc == 4 ? argv[2] : nullptr);
+    testKeyboardLayouts(argv[1],argc==4 ? argv[2] : nullptr,argc==4 ? argv[3] : nullptr);
     testFillShortcutRoute(argv[1]);
     testDualUtility(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);
     testNoteMap(argv[1], argc == 4 ? argv[2] : nullptr, argc == 4 ? argv[3] : nullptr);
     std::printf("NEON MIDI: %u checks passed\n", checks);
+    if(allocationBlocks) std::printf("Allocation-probed process callbacks: %llu\n",static_cast<unsigned long long>(allocationBlocks));
     return 0;
 }

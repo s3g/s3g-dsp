@@ -3973,7 +3973,6 @@ int main(int argc, char** argv)
                 && customMap.bytes[20]==12 && customMap.bytes[51]==43 && ok;
             clickAt(420,22);clickAt(120,340);clickAt(450,396); // DEFAULT, APPLY
             ok=saveMap().bytes==beforeMap.bytes&&ok;
-            [parent removeFromSuperview];[mapWindow close];[mapWindow release];
             failureStage = "Utility Neon Keyboard role and independent output channel";
             clickAt(316,22); clickAt(300,116); clickAt(300,150.5);
             params->flush(plugin,nullptr,&captured.events); redraw();
@@ -3983,7 +3982,37 @@ int main(int argc, char** argv)
                 ok=render && [render writeToFile:[[NSString stringWithUTF8String:folder]
                     stringByAppendingPathComponent:@"utility-neon-midi.keyboard.pdf"] atomically:YES]&&ok;
             }
-            clickAt(490,270);
+            failureStage = "Utility Neon scale menu, manual note grid and recall";
+            clickAt(300,140);clickAt(300,174.5); // LAYOUT > SCALE
+            params->flush(plugin,nullptr,&captured.events);redraw();
+            clickAt(300,188);clickAt(450,15); // Canonical scale order: MAJOR, second item
+            params->flush(plugin,nullptr,&captured.events);redraw();
+            ok=params->get_value(plugin,14,&value)&&value==1&&ok;
+            ok=params->get_value(plugin,15,&value)&&value==1&&ok;
+            if(folder && folder[0]) {
+                NSData* render=[document dataWithPDFInsideRect:[document bounds]];
+                ok=render && [render writeToFile:[[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.scale.pdf"] atomically:YES]&&ok;
+            }
+            clickAt(300,240); // EDIT MANUAL NOTES
+            clickAt(120,340); // FROM SCALE
+            clickAt(100,137);ok=setCanvasNumericText(parent,@"48")&&ok; // A2 duplicates A1
+            clickAt(100,161);ok=setCanvasNumericText(parent,@"-1")&&ok; // A3 OFF
+            auto beforeManual=saveMap();
+            if(folder && folder[0]) {
+                NSData* render=[document dataWithPDFInsideRect:[document bounds]];
+                ok=render && [render writeToFile:[[NSString stringWithUTF8String:folder]
+                    stringByAppendingPathComponent:@"utility-neon-midi.manual.pdf"] atomically:YES]&&ok;
+            }
+            clickAt(450,396);params->flush(plugin,nullptr,&captured.events);redraw();
+            auto manual=saveMap();
+            ok=params->get_value(plugin,14,&value)&&value==2&&ok;
+            ok=beforeManual.bytes.size()==94 && manual.bytes.size()==94 && manual.bytes[4]==5
+                && manual.bytes[30]==48 && manual.bytes[31]==48 && manual.bytes[32]==255&&ok;
+            manual.offset=0;clap_istream_t manualInput {&manual,stateReadWhole};
+            ok=mapState->load(plugin,&manualInput)&&saveMap().bytes==manual.bytes&&ok;
+            clickAt(490,406);
+            [parent removeFromSuperview];[mapWindow close];[mapWindow release];
             hostContext.deferParamFlush = false;
             hostContext.paramFlushRequested = false;
         }

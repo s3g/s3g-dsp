@@ -29,7 +29,7 @@
 
         <p><code>s3g Sample Neon 32</code> is a performance sampler with 32 pad cells, up to 32 sample layers per cell, and nine playback methods. Chop recordings into pads or layer stacks, move through those layers, reshape the sound, and resample the result. It works with the on-screen controls, sequenced MIDI notes, or one or two Reloop NEON controllers without replacement firmware.</p>
 
-        <p>This guide covers version <code>0.41.0</code>, adding chromatic channel-to-pad routing, independent note voices and pinned NEON Keyboard roles to the existing Stack Path, recording, destructive-edit history and custom-map workflow. One instrument handles stereo, discrete multichannel and <code>ACN/SN3D</code> Ambisonic sources. Its CLAP input and output are each 32 channels; the default Stereo layout mixes sample playback onto channels 1–2 and leaves unused outputs silent unless input monitoring is explicitly enabled.</p>
+        <p>This guide covers version <code>0.41.2</code>, including chromatic channel-to-pad routing, independent note voices and pinned NEON Keyboard roles, plus independent range/LED feedback for Utility's scale/manual Keyboard layouts. One instrument handles stereo, discrete multichannel and <code>ACN/SN3D</code> Ambisonic sources. Its CLAP input and output are each 32 channels; the default Stereo layout mixes sample playback onto channels 1–2 and leaves unused outputs silent unless input monitoring is explicitly enabled.</p>
 
         <h2 id="workflow">Workflow</h2>
 
@@ -432,6 +432,15 @@
 
         <p>Held note-offs retain their original pad, key and channel after routing edits. Root and voice settings follow cell copy/paste and destructive-edit Undo. Project/set state saves both channel destinations and direct-controller Keyboard settings; Utility saves its own roles and channels. These settings do not require replacement firmware or a Tracker upgrade.</p>
 
+        <h3 id="keyboard-layouts">Utility Keyboard Scales and Manual Notes</h3>
+
+        <p>Utility Neon MIDI <code>0.5.0</code> adds a <code>LAYOUT</code> menu in its Keyboard panel, independently for each unit. <code>CHROMATIC</code> retains consecutive semitones. <code>SCALE</code> uses the shared 101-scale s3g-dsp list: Root Note is the MIDI key on A1, and each following pad advances one scale degree continuously through banks A–D. Major from MIDI 48 gives 48, 50, 52, 53, 55, 57, 59, 60 on bank A, then 62 on B1. Notes above 127 are OFF.</p>
+
+        <p><code>MANUAL → EDIT MANUAL NOTES</code> gives every banked pad its own MIDI note (0–127), with -1 meaning OFF. Duplicate pitches are permitted; the last held finger releases their shared MIDI gate. Copy/Paste List transfers 32 bank-major numbers; From Scale fills the draft from the current root and scale, while From A1 fills a chromatic run. Apply selects Manual; Cancel changes nothing. Manual maps persist when switching layouts and ignore First Note/Scale. These pitch maps are separate from the unique Pad Note Map used to address sample cells.</p>
+
+        <p>The Utility monitor displays the actual mapped notes. Sample Neon 0.41.1 uses Utility's resolved map for root/playing/OFF LEDs and modifier auditions; the channel remains pinned to the same sample cell. Scale/manual selection lives in Utility, not the direct-controller settings in Sample Neon. Existing Tracker thru carries the map without recording it as notes. Held pressure and releases retain their original pitch when the map changes.</p>
+        <p>With Utility <code>0.5.1</code> and Sample Neon <code>0.41.2</code>, bank buttons A–D on a Keyboard unit's primary SAMPLE page select only its eight-key range and its bank LEDs. They do not change the software's selected sample, bank or editing page. A second NEON in Pad Cells can handle those duties independently; one unit works too. Chromatic/Scale advance through the resolved pitches, while Manual selects the next eight assignments. Explicitly pressing CHOP, STACK, RESAMPLE or a secondary page still enters editing; SAMPLE restores the isolated keyboard. This is automatic, needs no new routing or Tracker upgrade, and retains held-note release pitches.</p>
+
         <h2 id="storage">Storage, Sets and Reset</h2>
 
         <table class="readout-table">
@@ -517,6 +526,7 @@
           <a href="#pad-note-map">Custom Pad Notes</a>
           <a href="#two-controllers">Two Controllers</a>
           <a href="#polyphony">Chromatic Pads and Voices</a>
+          <a href="#keyboard-layouts">Keyboard Scales and Manual Notes</a>
           <a href="#storage">Storage and Reset</a>
           <a href="#troubleshooting">Troubleshooting</a>
         </div>

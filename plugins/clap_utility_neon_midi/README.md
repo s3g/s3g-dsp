@@ -1,6 +1,6 @@
 # s3g Utility Neon MIDI
 
-Version 0.4.0. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
+Version 0.5.1. MIDI-only CLAP companion for one or two Reloop NEONs. No firmware change,
 audio processing, hardware MIDI output or second LED owner. Uses the same
 factory-message decoder as Sample Neon 32. Utility-family Fira Code/grayscale
 editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
@@ -9,7 +9,7 @@ editor: 10 pt body, 15 px menu fields, 18 px dropdown rows, 65–200% resizing.
 
 Place these **in this order in the normal track FX chain**:
 
-1. **s3g Utility Neon MIDI 0.4.0** — Control Route `TRACKER + SAMPLE NEON`,
+1. **s3g Utility Neon MIDI 0.5.1** — Control Route `TRACKER + SAMPLE NEON`,
    Base Note `36`, Output Channel `1`.
 2. **s3g Tracker 0.4.1 or newer** — participating lanes, including the recording
    destination, on `CH01`.
@@ -50,11 +50,41 @@ changing the musical sample bank. Returning to SAMPLER restores its last bank.
 STACK layer gestures, modifiers and encoders continue through the private
 Sample Neon route; they do not become Tracker notes or recorded automation.
 
-## Independent Keyboard roles (0.4.0)
+## Independent Keyboard roles and layouts (0.5.0)
 
 The title-row KEYBOARD button opens the unit-role settings. Each unit can use
-PAD CELLS (the existing custom map) or KEYBOARD (32 consecutive notes across
-banks A–D). FIRST NOTE sets A1, default 48. Unit 2 can have its own output channel
+PAD CELLS (the existing custom map) or KEYBOARD (32 keys across banks A–D).
+Each unit has its own LAYOUT:
+
+- **CHROMATIC:** consecutive semitones from FIRST NOTE (default 48).
+- **SCALE:** the shared 101-scale s3g-dsp list in its canonical order. ROOT NOTE
+  is the MIDI note on A1 and defines the tonic/octave. Each following pad plays
+  the next scale degree, continuing through banks B, C and D. For example,
+  Major from 48 starts `48, 50, 52, 53, 55, 57, 59, 60`; B1 is 62.
+  Notes above MIDI 127 are OFF, never wrapped or clamped to a repeated pitch.
+- **MANUAL:** EDIT MANUAL NOTES opens all 32 banked keys. Enter MIDI 0–127,
+  or -1 for OFF. Repeated pitches are allowed; a shared key remains held until
+  the last finger releases it. COPY/PASTE LIST uses 32 bank-major integers.
+  FROM SCALE fills the draft from the current root/scale; FROM A1 fills a
+  chromatic run. APPLY commits and selects Manual; CANCEL leaves it unchanged.
+  Manual notes ignore First Note/Scale, and remain stored when using another layout.
+
+The Keyboard page shows all 32 resolved keys; the main monitor shows the active
+bank. The existing PAD NOTE MAP remains separate: it maps notes to sample cells,
+requires unique notes, and is shared by both units. Manual Keyboard maps instead
+choose pitches for a pinned sample, separately for each unit.
+
+With Utility **0.5.1** and Sample Neon **0.41.2**, A–D on a KEYBOARD unit's
+primary SAMPLE page select only its eight-key range. Its bank LEDs follow that
+range; Sample Neon's selected pad, sample bank and editing page do not change.
+The other NEON can remain in PAD CELLS for normal navigation. This also works
+with one unit and with Utility's on-screen bank selection. No extra switch is
+needed. A deliberate CHOP, STACK, RESAMPLE or secondary-page press still enters
+editing; pressing SAMPLE returns to the isolated keyboard. Held notes keep
+their original pitch and channel across range changes. In Manual layout, A–D
+select the corresponding eight assignments rather than transposing them.
+
+Unit 2 can have its own output channel
 or FOLLOW UNIT 1, which preserves existing setups. Velocity and pitched poly
 aftertouch are sent as ordinary MIDI; held releases retain the original key and
 channel after changing bank/range/role. Editing pages still send controls only.
@@ -72,8 +102,14 @@ keys and root. In NOTES ONLY mode, Keyboard notes/velocity/poly aftertouch still
 work, but there is no Sample Neon control/LED synchronization. Source pad mode
 retains its existing private aftertouch behavior.
 
-New parameter IDs 9–13 and state v4 append role/range/channel settings. Existing
-IDs 1–8 and v1–v3 project states are retained.
+Parameter IDs 9–13 / state v4 added role/range/channel settings. IDs 14–17 /
+state v5 append layouts, scales and both manual maps. All existing IDs and
+v1–v4 projects retain their settings; neutral new settings still save in
+the older formats. Mapping edits do not change held releases or aftertouch.
+Sample Neon **0.41.1** receives the resolved keyboard map for root/playing/OFF
+LEDs and modifier audition pitches. Older Neon versions still receive the
+correct musical pitches but assume chromatic hardware feedback. No Tracker
+upgrade is needed; its existing private-message thru carries the map.
 
 ## Controls and recording are separate
 
