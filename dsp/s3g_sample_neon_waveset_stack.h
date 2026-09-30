@@ -46,7 +46,8 @@ public:
     void render(WavesetSettings settings, const NeonStack* stack,
         unsigned selected, double start, double end, const float* velocities,
         const float* positions, const uint8_t* retriggers,
-        float* const* output, uint32_t frames) noexcept {
+        float* const* output, uint32_t frames, double sourceScrub=-1,
+        const float* scanPositions=nullptr,double launchPosition=-1) noexcept {
         cursorCount_ = 0u;
         for (uint32_t at = 0u; at < frames;) {
             if (positions[at] < 0.0f) {
@@ -56,16 +57,17 @@ public:
                 ++at; continue; // -1 preserves direct CHOP audio.
             }
             if (retriggers[at]) reset();
-            const auto blend = neonStackBlend(positions[at], stack ? stack->count : 0u);
+            const auto blend = neonStackBlend(positions[at], stack);
             uint32_t size = 1u;
             while (at + size < frames && size < 32u && positions[at + size] >= 0.0f && !retriggers[at + size]) {
-                const auto next = neonStackBlend(positions[at + size], stack ? stack->count : 0u);
+                const auto next = neonStackBlend(positions[at + size], stack);
                 if (next.first != blend.first || next.second != blend.second) break;
                 ++size;
             }
             for (unsigned ch = 0u; ch < 16u; ++ch) std::fill_n(output[ch] + at, size, 0.0f);
+            const unsigned firstLane=stack&&stack->skipEmptyLayers?(layers_[1]==blend.first?1u:layers_[0]==blend.second?1u:0u):blend.first%2u;
             for (unsigned side = 0u; side < (blend.first == blend.second ? 1u : 2u); ++side) {
-                const unsigned layer = side ? blend.second : blend.first, lane = layer % 2u;
+                const unsigned layer = side ? blend.second : blend.first, lane = stack&&stack->skipEmptyLayers?(side?1u-firstLane:firstLane):layer%2u;
                 const auto source = stack && layer < stack->count ? stack->layers[layer] : NeonStackLayer {};
                 const auto* map = source.wavesets;
                 WavesetRenderEvent note;
@@ -85,11 +87,14 @@ public:
                     ? WavesetPlayMode::ReverseLoop : WavesetPlayMode::ForwardLoop;
                 settings.attackSeconds = 0.0f;
                 note.noteId = layer + 1u; note.velocity = velocities[at];
+                if(launchPosition>=0)note.launchPosition=settings.start+(settings.end-settings.start)*launchPosition;
                 std::array<float*, 16u> channels {};
                 for (unsigned ch = 0u; ch < 16u; ++ch) channels[ch] = scratch_[ch].data();
-                engines_[lane].render(settings, trigger ? &note : nullptr, trigger ? 1u : 0u, channels.data(), 16u, size);
+                if(sourceScrub>=0 && !scanPositions)engines_[lane].seekVoices(settings.start+(settings.end-settings.start)*sourceScrub);
+                engines_[lane].render(settings, trigger ? &note : nullptr, trigger ? 1u : 0u, channels.data(), 16u, size,
+                    scanPositions ? scanPositions+at : nullptr);
                 for (uint32_t frame = 0u; frame < size; ++frame) {
-                    const auto b = neonStackBlend(positions[at + frame], stack->count);
+                    const auto b = neonStackBlend(positions[at + frame], stack);
                     const float gain = blend.first == blend.second ? 1.0f : side ? b.mix : 1.0f - b.mix;
                     for (unsigned ch = 0u; ch < 16u; ++ch) output[ch][at + frame] += scratch_[ch][frame] * gain;
                 }
@@ -97,9 +102,9 @@ public:
             at += size;
         }
         if (!frames || positions[frames - 1u] < 0.0f) return;
-        const auto blend = neonStackBlend(positions[frames - 1u], stack ? stack->count : 0u);
+        const auto blend = neonStackBlend(positions[frames - 1u], stack);
         for (unsigned side = 0u; side < (blend.first == blend.second ? 1u : 2u); ++side) {
-            const unsigned layer = side ? blend.second : blend.first, lane = layer % 2u;
+            const unsigned layer = side ? blend.second : blend.first, lane = stack&&stack->skipEmptyLayers?(layers_[0]==layer?0u:1u):layer%2u;
             if (!maps_[lane] || layers_[lane] != layer) continue;
             for (unsigned n = 0u; n < engines_[lane].voiceCursorCount() && cursorCount_ < cursors_.size(); ++n) {
                 const auto& cursor = engines_[lane].voiceCursors()[n];

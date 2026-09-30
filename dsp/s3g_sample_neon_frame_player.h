@@ -58,7 +58,7 @@ public:
                 continue;
             }
             stackPosition_ = positions[frame];
-            const auto blend = neonStackBlend(stackPosition_, stack ? stack->count : 1);
+            const auto blend = neonStackBlend(stackPosition_, stack);
             std::array<NeonStackLayer, 2> sources {{stack ? stack->layers[blend.first] : fallback,
                 stack ? stack->layers[blend.second] : fallback}};
             if (blend.first == selected) { sources[0].start = start; sources[0].end = end; }

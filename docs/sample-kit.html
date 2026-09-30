@@ -82,6 +82,7 @@
         <h2 id="storage">Kit and Sample Storage</h2>
 
         <p><code>STORE PROJECT</code> copies newly imported sources into a saved REAPER project's media directory when that service is available. <code>LINK</code> retains original paths. <code>EMBED</code> serializes decoded 32-bit float audio into plug-in or kit state. A Project source that cannot be made project-relative is embedded as a safety payload when necessary, so a newly created or unsaved session does not discard its kit.</p>
+        <p>Generated audio without an original file is collected in the background in Project mode. Pads and slices sharing the same source share one collected file. Until collection succeeds, the audio stays embedded; later project saves and undo snapshots use the smaller file references. Keep the project's <code>s3g Samples</code> media folder with the project.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="sample-player.html"><span>Previous</span>Sample Player</a>

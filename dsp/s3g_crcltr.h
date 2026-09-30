@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s3g_smoothing.h"
+#include "s3g_crcltr_snapshot.h"
 
 #include <algorithm>
 #include <array>
@@ -293,6 +294,11 @@ public:
 
     const CrcltrParams& params() const { return params_; }
 
+    // Attach only while suspended, before restoring any loop audio.
+    void setSnapshotMirror(uint32_t index,CrcltrSnapshot* mirror) {
+        if(index<loops_.size())loops_[index].snapshot=mirror;
+    }
+
     // A host can call this before audio resumes so edits made while processing
     // was stopped do not have to wait for an inaudible old-window wrap.
     void applyPendingLoopWindows()
@@ -306,6 +312,11 @@ public:
                  float* outputLeft, float* outputRight, uint32_t frames)
     {
         if (!prepared_ || !outputLeft || !outputRight || frames == 0u) return;
+
+        const bool changesAudio=params_.record||gateWasHigh_;
+        const auto snapshotTarget=gateWasHigh_?latchedTarget_:params_.recordTarget;
+        SnapshotWrite snapshotA(loops_[0],changesAudio&&snapshotTarget!=CrcltrRecordTarget::Loop2);
+        SnapshotWrite snapshotB(loops_[1],changesAudio&&snapshotTarget!=CrcltrRecordTarget::Loop1);
 
         for (uint32_t i = 0u; i < frames; ++i) {
             const float dryLeft = inputLeft ? finiteOrZero(inputLeft[i]) : 0.0f;
@@ -361,6 +372,7 @@ public:
     {
         if (index >= loops_.size()) return;
         auto& loop = loops_[index];
+        SnapshotWrite snapshot(loop);
         loop.recordedFrames = 0u;
         loop.phase = 0.0;
         loop.writePosition = 0u;
@@ -474,6 +486,7 @@ public:
             || sourceSampleRate <= 1.0) return false;
         auto& loop = loops_[index];
         const double scale = sampleRate_ / sourceSampleRate;
+        SnapshotWrite snapshot(loop);
         const uint32_t restoredFrames = std::min<uint32_t>(
             loopCapacityFrames_, std::max<uint32_t>(2u,
                 static_cast<uint32_t>(std::llround(
@@ -486,10 +499,9 @@ public:
                 first + 1u);
             const float amount = static_cast<float>(sourcePosition
                 - std::floor(sourcePosition));
-            loop.left[frame] = lerp(finiteOrZero(left[first]),
-                finiteOrZero(left[second]), amount);
-            loop.right[frame] = lerp(finiteOrZero(right[first]),
-                finiteOrZero(right[second]), amount);
+            writeFrame(loop,frame,lerp(finiteOrZero(left[first]),
+                finiteOrZero(left[second]), amount),lerp(finiteOrZero(right[first]),
+                finiteOrZero(right[second]), amount));
         }
         loop.recordedFrames = restoredFrames;
         loop.writePosition = 0u;
@@ -522,9 +534,9 @@ public:
             || frames == 0u || destinationFrame > loopCapacityFrames_
             || frames > loopCapacityFrames_ - destinationFrame) return false;
         auto& loop = loops_[index];
+        SnapshotWrite snapshot(loop);
         for (uint32_t frame = 0u; frame < frames; ++frame) {
-            loop.left[destinationFrame + frame] = finiteOrZero(left[frame]);
-            loop.right[destinationFrame + frame] = finiteOrZero(right[frame]);
+            writeFrame(loop,destinationFrame+frame,finiteOrZero(left[frame]),finiteOrZero(right[frame]));
         }
         return true;
     }
@@ -534,6 +546,7 @@ public:
         if (!prepared_ || index >= loops_.size() || frames < 2u
             || frames > loopCapacityFrames_) return false;
         auto& loop = loops_[index];
+        SnapshotWrite snapshot(loop);
         loop.recordedFrames = frames;
         loop.writePosition = 0u;
         loop.preRollFrames = 0u;
@@ -556,6 +569,7 @@ private:
     };
 
     struct LoopState {
+        CrcltrSnapshot* snapshot = nullptr;
         float* left = nullptr;
         float* right = nullptr;
         float* preRollLeft = nullptr;
@@ -837,12 +851,22 @@ private:
         }
     }
 
+    struct SnapshotWrite {
+        LoopState& loop;CrcltrSnapshot* mirror;
+        explicit SnapshotWrite(LoopState& value,bool enabled=true):loop(value),mirror(enabled?value.snapshot:nullptr){if(mirror)mirror->begin();}
+        ~SnapshotWrite(){if(mirror)mirror->end(loop.recordedFrames);}
+    };
+    static void writeFrame(LoopState& loop,uint32_t frame,float left,float right) noexcept {
+        loop.left[frame]=left;loop.right[frame]=right;
+        if(loop.snapshot)loop.snapshot->write(frame,left,right);
+    }
+
     void beginCapture(LoopState& loop)
     {
         loop.recordedFrames = 0u;
         loop.writePosition = std::min(loop.preRollFrames, loopCapacityFrames_);
-        std::copy_n(loop.preRollLeft, loop.writePosition, loop.left);
-        std::copy_n(loop.preRollRight, loop.writePosition, loop.right);
+        for(uint32_t frame=0;frame<loop.writePosition;++frame)
+            writeFrame(loop,frame,loop.preRollLeft[frame],loop.preRollRight[frame]);
         loop.phase = 0.0;
         loop.armed = false;
         loop.capturing = true;
@@ -867,16 +891,14 @@ private:
             if (loop.recordedFrames < 2u) return;
             const uint32_t frame = loop.writePosition % loop.recordedFrames;
             if (latchedRecordMode_ == CrcltrRecordMode::Overdub) {
-                loop.left[frame] = clamp(
+                left = clamp(
                     loop.left[frame] * params_.overdubFeedback + left,
                     -4.0f, 4.0f);
-                loop.right[frame] = clamp(
+                right = clamp(
                     loop.right[frame] * params_.overdubFeedback + right,
                     -4.0f, 4.0f);
-            } else {
-                loop.left[frame] = left;
-                loop.right[frame] = right;
             }
+            writeFrame(loop,frame,left,right);
             loop.writePosition = (frame + 1u) % loop.recordedFrames;
             return;
         }
@@ -891,8 +913,7 @@ private:
         }
         if (!loop.capturing) return;
         if (loop.writePosition < loopCapacityFrames_) {
-            loop.left[loop.writePosition] = left;
-            loop.right[loop.writePosition] = right;
+            writeFrame(loop,loop.writePosition,left,right);
             ++loop.writePosition;
         }
         if (loop.writePosition >= loopCapacityFrames_) finishCapture(loop);

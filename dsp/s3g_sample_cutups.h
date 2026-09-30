@@ -96,6 +96,8 @@ struct CutupsRenderEvent {
     float velocity = 1.0f;
     uint8_t midiChannel = 0u;
     uint8_t polyPathIndexOverride = 255u; // optional outer voice pool; ordinary Cutups chooses its own
+    double launchPosition = -1; // optional first-cut bookmark for embedded decks
+    uint8_t launchLayer = 255u;
 };
 
 struct CutRegionTable {
@@ -457,6 +459,11 @@ public:
         prepared_ = false;
     }
 
+    void seekTimeline(double position) noexcept {
+        if (!std::isfinite(position)) return;
+        for(auto& voice:voices_)if(voice.active){voice.timelinePosition=std::clamp(position,0.,1.);voice.framesUntilCut=0;}
+    }
+
     bool setAsset(std::size_t lane, const SampleAsset* asset) noexcept
     {
         if (lane >= assets_.size() || (asset && !asset->valid()))
@@ -607,6 +614,8 @@ private:
         float releaseDecrement = 0.0f;
         double framesUntilCut = 0.0;
         double timelinePosition = 0.0;
+        double launchPosition = -1;
+        uint8_t launchLayer = 255u;
         uint32_t cutIndex = 0u;
         uint32_t patternStep = 0u;
         uint32_t repeatIndex = 0u;
@@ -843,7 +852,8 @@ private:
         const uint32_t completedStep = voice.patternStep;
         const bool repeatingAddress = voice.cutIndex > 0u
             && voice.repeatIndex > 0u;
-        const uint8_t lane = repeatingAddress
+        const bool bookmark=voice.cutIndex==0&&voice.launchPosition>=0&&voice.launchLayer<LaneCount&&assets_[voice.launchLayer];
+        const uint8_t lane = bookmark?voice.launchLayer:repeatingAddress
             ? voice.current.lane : chooseLane(voice, settings);
         const uint32_t regionCount = availableRegionCount(lane, settings);
         const uint32_t region = repeatingAddress
@@ -853,6 +863,8 @@ private:
         if (settings.sourceOrder == CutSourceOrder::Timeline)
             position = std::clamp(voice.timelinePosition,
                 settings.sourceStart(lane), std::nextafter(settings.sourceEnd(lane), settings.sourceStart(lane)));
+        if(bookmark)position=std::clamp(settings.sourceStart(lane)+(settings.sourceEnd(lane)-settings.sourceStart(lane))*voice.launchPosition,
+            settings.sourceStart(lane),std::nextafter(settings.sourceEnd(lane),settings.sourceStart(lane)));
 
         const double interval = intervalFrames(voice, settings,
             hostTempoBpm);
@@ -1172,6 +1184,7 @@ private:
         voice->velocityGain = 1.0f + (event.velocity - 1.0f)
             * settings.velocitySensitivity;
         voice->timelinePosition = settings.start;
+        voice->launchPosition=event.launchPosition;voice->launchLayer=event.launchLayer;
         voice->randomState = settings.seed
             ^ static_cast<uint32_t>(event.noteId)
             ^ (static_cast<uint32_t>(event.key) << 16u)

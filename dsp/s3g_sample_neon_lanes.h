@@ -8,6 +8,7 @@ namespace s3g::sample {
 // grains, allocations, channel redistribution or source changes on audio.
 class NeonLanesPlayer {
 public:
+    void seek(double position) noexcept { if (std::isfinite(position)) phase_=std::clamp(position,0.,1.); }
     void reset() noexcept { phase_ = 0; weights_.fill(0); cursorCount_ = 0; initialized_ = false; }
     unsigned cursorCount() const noexcept { return cursorCount_; }
     const auto& cursors() const noexcept { return cursors_; }
@@ -16,7 +17,7 @@ public:
         double start, double end, const NeonFamilySettings& f, double sampleRate,
         float gain, double tune, unsigned direction, bool velocityEnabled,
         const float* positions, const float* velocities, const uint8_t* triggers,
-        float* const* output, unsigned frames) noexcept {
+        float* const* output, unsigned frames, const float* platterRates=nullptr,double launchPosition=0) noexcept {
         const unsigned count = stack ? std::min<unsigned>(32, stack->count) : 1;
         std::array<NeonStackLayer, 32> layers {};
         unsigned anchor = 32;
@@ -33,7 +34,7 @@ public:
         const bool reverse = (direction & 1u) != 0, pingpong = direction >= 2;
         cursorCount_ = 0;
         for (unsigned frame = 0; frame < frames; ++frame) {
-            if (triggers[frame]) reset();
+            if (triggers[frame]) {reset();seek(launchPosition);}
             const float position = positions[frame];
             if (position < 0) {
                 if (position == -1 || position == -2) reset(); // raw audition / stopped
@@ -63,7 +64,8 @@ public:
             }
             initialized_ = true;
             position_ = count > 1 && totalWeight > 0 ? static_cast<float>(weightedPosition / totalWeight / (count - 1)) : 0;
-            const float level = static_cast<float>(gain * (velocityEnabled ? velocities[frame] : 1) / std::sqrt(std::max(1.e-12, energy)));
+            const double platter=platterRates ? platterRates[frame] : 1.;
+            const float level = static_cast<float>(gain * std::min(1.,std::abs(platter)*20.) * (velocityEnabled ? velocities[frame] : 1) / std::sqrt(std::max(1.e-12, energy)));
             for (unsigned n = 0; n < count; ++n) {
                 const auto& layer = layers[n];
                 if (!layer.asset || weights_[n] < .00001f) continue;
@@ -91,7 +93,8 @@ public:
                     cursor.reverse = reverse != (pingpong && phase_ > 1);
                 }
             }
-            phase_ += increment;
+            phase_ += increment*platter;
+            if (phase_<0) phase_+= (pingpong?2.:1.)*std::ceil(-phase_/(pingpong?2.:1.));
             if (pingpong) { if (phase_ >= 2) phase_ = std::fmod(phase_, 2); }
             else if (phase_ >= 1) phase_ = join + std::fmod(phase_ - 1, 1 - join);
         }

@@ -305,6 +305,7 @@ struct WavesetRenderEvent {
     uint8_t key = 60u;
     float velocity = 1.0f;
     uint8_t midiChannel = 0u;
+    double launchPosition = -1; // optional absolute source bookmark
 };
 
 class SampleWavesetsEngine {
@@ -339,6 +340,12 @@ public:
         reset();
     }
     void setPreparedMap(const WavesetMap* map) noexcept { map_ = map; reset(); }
+
+    // Optional controller gesture; ordinary Wavesets playback is unchanged.
+    void seekVoices(double position) noexcept {
+        if (!map_ || !map_->asset || !std::isfinite(position)) return;
+        for (auto& voice : voices_) if (voice.active) setVoicePosition(voice,position);
+    }
 
     float outputPeak() const noexcept { return outputPeak_; }
 
@@ -393,7 +400,7 @@ public:
     void render(const WavesetSettings& settings,
         const WavesetRenderEvent* events, std::size_t eventCount,
         float* const* outputs, uint32_t outputChannelCount,
-        uint32_t frameCount) noexcept
+        uint32_t frameCount, const float* scanPositions=nullptr) noexcept
     {
         voiceCursorCount_ = 0u;
         if (!outputs || outputChannelCount == 0u
@@ -421,7 +428,12 @@ public:
                 renderRoutedVoice(voice, settings, outputs,
                     outputChannelCount, frame, master,
                     routingFadeInGain(voice));
+                const double oldPhase=voice.oscillatorPhase;
                 advanceVoice(voice, settings);
+                // Deck scan changes source at a completed waveform cycle,
+                // never in the middle of one on receipt of a MIDI packet.
+                if(scanPositions && voice.oscillatorPhase<oldPhase)
+                    setVoicePosition(voice,settings.start+(settings.end-settings.start)*scanPositions[frame]);
                 advanceTransport(voice, settings);
                 advanceRoutingFadeIn(voice);
             }
@@ -1155,6 +1167,9 @@ private:
             ? settings.start : settings.end);
         voice->transportPosition = voice->progressionForward
             ? settings.start : settings.end;
+        if(event.launchPosition>=0&&std::isfinite(event.launchPosition)){
+            voice->transportPosition=std::clamp(event.launchPosition,settings.start,settings.end);
+            setVoicePosition(*voice,voice->transportPosition);}
     }
 
     void noteOn(const WavesetRenderEvent& event,

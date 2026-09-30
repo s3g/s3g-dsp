@@ -501,12 +501,12 @@ std::string sliderValueTextToFit(CDrawContext& context,
 
 void drawPanel(CDrawContext& context, const CRect& bounds,
     const std::string& title, CFontRef font, double headerHeight,
-    double labelInset, double labelTop)
+    double labelInset, double labelTop, CColor headerColor, CColor labelColor)
 {
     const auto& style = palette();
     context.setFillColor(style.cell);
     context.drawRect(bounds, kDrawFilled);
-    context.setFillColor(style.strip);
+    context.setFillColor(headerColor);
     context.drawRect(rect(bounds.left, bounds.top, bounds.getWidth(),
         headerHeight), kDrawFilled);
     context.setFillColor(style.accent);
@@ -514,7 +514,7 @@ void drawPanel(CDrawContext& context, const CRect& bounds,
         bounds.getWidth(), 2.0), kDrawFilled);
     drawTextLine(context, title, bounds.left + labelInset,
         bounds.top + labelTop, bounds.getWidth() - labelInset * 2.0,
-        style.label, font);
+        labelColor, font);
 }
 
 void drawButton(CDrawContext& context, const CRect& bounds,

@@ -47,3 +47,13 @@ if(APPLE)
 elseif(WIN32)
   set_target_properties(s3g_sample_kit_clap PROPERTIES SUFFIX ".clap")
 endif()
+
+if(BUILD_TESTING AND APPLE)
+  add_executable(s3g_sample_kit_snapshot_smoke ../../tests/sample_kit_snapshot_smoke.mm)
+  target_include_directories(s3g_sample_kit_snapshot_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+  target_compile_options(s3g_sample_kit_snapshot_smoke PRIVATE -fobjc-arc)
+  target_link_libraries(s3g_sample_kit_snapshot_smoke PRIVATE s3g_dsp Threads::Threads
+    "-framework Cocoa" "-framework AVFoundation")
+  add_test(NAME s3g_sample_kit_snapshot_smoke COMMAND s3g_sample_kit_snapshot_smoke)
+  set_tests_properties(s3g_sample_kit_snapshot_smoke PROPERTIES LABELS "non_nim;sample;state" TIMEOUT 30)
+endif()

@@ -23,8 +23,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "0.10.0-pre"
 EXCLUDED = "s3g_analyzer_ambi_energy_64.clap"
-EXPECTED_FILES = 121
-EXPECTED_DESCRIPTORS = 128
+EXPECTED_FILES = 125
+EXPECTED_DESCRIPTORS = 132
 SPEC = importlib.util.spec_from_file_location(
     "s3g_package_verifier", ROOT / "scripts/verify-macos-clap-package.py")
 VERIFIER = importlib.util.module_from_spec(SPEC)
@@ -79,7 +79,7 @@ def windows_inventory(manifest):
             raise ValueError(f"Unsafe manifest build path: {bundle.build_path}")
     selected = [item for item in bundles if item.installed_name != EXCLUDED]
     if len(bundles) - len(selected) != 1 or len(selected) != EXPECTED_FILES:
-        raise ValueError("Expected 121 Windows files and exactly one Ambi Energy exclusion")
+        raise ValueError(f"Expected {EXPECTED_FILES} Windows files and exactly one Ambi Energy exclusion")
     return selected
 
 
@@ -263,7 +263,7 @@ def main():
             f"Source status: {'dirty rehearsal; not for release' if status else 'clean'}\n"
             f"Package purpose: {'rehearsal; not for release' if args.allow_dirty else 'release candidate'}\n"
             f"Build: native MSVC x64 Release; static compiler runtime\n"
-            f"Generator: {cache['CMAKE_GENERATOR']}\nFiles: 121\nDescriptors: 128\n"
+            f"Generator: {cache['CMAKE_GENERATOR']}\nFiles: {EXPECTED_FILES}\nDescriptors: {EXPECTED_DESCRIPTORS}\n"
             "Status: experimental; package checks do not replace REAPER testing.\n", encoding="utf-8")
         files = sorted(path for path in stage.rglob("*") if path.is_file())
         hashes = {path.relative_to(stage).as_posix(): digest(path) for path in files}
@@ -291,7 +291,7 @@ def main():
         candidate.rename(archive)
         with checksum.open("x", encoding="utf-8", newline="\n") as stream:
             stream.write(f"{digest(archive)}  {archive.name}\n")
-    print(f"PASS: 121 Windows x64 CLAP files / 128 runtime descriptors\n{archive}\n{checksum}")
+    print(f"PASS: {EXPECTED_FILES} Windows x64 CLAP files / {EXPECTED_DESCRIPTORS} runtime descriptors\n{archive}\n{checksum}")
     print("Experimental package prepared, not installed or published. Native REAPER testing remains required.")
 
 

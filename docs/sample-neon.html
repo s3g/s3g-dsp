@@ -467,7 +467,7 @@
           </tbody>
         </table>
 
-        <p>The header's storage choice applies to every layer. Save the REAPER project before relying on Project collection; until then imported sources remain linked. Recordings, generated audio without a file, and the resample review are kept embedded when needed. Embedded audio has a 256 MiB limit and can make project files large. If a source is missing, use Load to locate or replace it.</p>
+        <p>The header's storage choice applies to every layer and the retained resample review. Save the REAPER project before relying on Project collection; until then imported sources remain linked. Completed recordings and the review are collected in the background as lossless floating-point WAV files. Until collection succeeds, they stay embedded for safety. Later saves and undo snapshots reuse file references, including earlier audio versions needed by Undo. Embed keeps the audio inside the state, with a 256 MiB limit. If a source is missing, use Load to locate or replace it.</p>
 
         <p><code>LOAD SET / SAVE SET</code> recall complete sounds, stacks and settings. Load Set warns before replacing current work and starts a new undo history on success; it is not itself undoable. Saving keeps the current history. A set saved in Link/Project mode is not automatically a self-contained sample archive; use Embed when its size is suitable, or carry the referenced media. See the shared <a href="sample-instruments.html#state">storage guide</a>.</p>
 

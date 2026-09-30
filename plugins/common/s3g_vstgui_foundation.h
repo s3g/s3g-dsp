@@ -84,7 +84,8 @@ std::string sliderValueTextToFit(VSTGUI::CDrawContext& context,
 void drawPanel(VSTGUI::CDrawContext& context, const VSTGUI::CRect& bounds,
     const std::string& title, VSTGUI::CFontRef font,
     double headerHeight = 21.0, double labelInset = 8.0,
-    double labelTop = 5.0);
+    double labelTop = 5.0, VSTGUI::CColor headerColor = palette().strip,
+    VSTGUI::CColor labelColor = palette().label);
 void drawButton(VSTGUI::CDrawContext& context, const VSTGUI::CRect& bounds,
     const std::string& label, VSTGUI::CFontRef font, bool active = false,
     VSTGUI::CColor inactiveColor = color(0x484848));

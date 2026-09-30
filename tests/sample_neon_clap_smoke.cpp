@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/note-name.h>
@@ -1193,6 +1194,7 @@ int main(int argc, char** argv)
     ok = expect(state->save(instrument, &captured.output)
         && captured.bytes.size() == expectedStateBytes + 256u * 2u * sizeof(float),
         "completed stereo capture was not embedded in state") && ok;
+    ok = sample_snapshot_test::repeated(instrument,state,captured.bytes.size()) && ok;
     uint32_t captureWidth = 0u, captureLength = 0u;
     if (captured.bytes.size() >= expectedStateBytes) {
         std::memcpy(&captureWidth, captured.bytes.data() + expectedStateBytes - 16u, 4u);
@@ -2141,6 +2143,7 @@ int main(int argc, char** argv)
         ok = expect(projectSimulation.additions == 32u && stackState->save(stacked, &collected.output)
             && collected.bytes.size() < savedStack.bytes.size() / 2u,
             "PROJECT must collect every generated layer, register media and remove PCM from state") && ok;
+        ok = sample_snapshot_test::repeated(stacked,stackState,collected.bytes.size()) && ok;
         stacked->destroy(stacked);
         ok = expect(projectSimulation.removals == projectSimulation.additions, "project file registrations must balance") && ok;
         std::filesystem::rename(projectRoot / "媒体", projectRoot / "relocated");

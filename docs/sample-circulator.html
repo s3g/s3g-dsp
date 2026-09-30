@@ -119,7 +119,9 @@
 
         <h2 id="storage">Storage and Recall</h2>
 
-        <p>Sample Circulator stores both stereo loops inside the host project whether they came from files or live capture, so reopening a session does not depend on the original files remaining in place. If the session sample rate changes, the loops are resampled during recall to preserve their duration.</p>
+        <p>In a saved REAPER project, Sample Circulator collects both completed stereo loops into the project's <code>s3g Samples</code> media folder as lossless floating-point WAV files. This includes imported loops, recordings, punches and overdubs. Later saves and undo snapshots use small file references instead of repeating the loop audio. Keep this media folder with the project and use REAPER's copy-media option when moving it with Save As.</p>
+        <p>Until collection succeeds—or if the host cannot provide project storage—the loops remain embedded in the state for safety. Earlier collected versions are retained so Undo can recover them; clearing a loop does not delete its files. Finish recording before saving. If the session sample rate changes, the loops are resampled during recall to preserve their duration.</p>
+        <p>The plug-in's Save Preset command always embeds both loops so that the preset file remains self-contained.</p>
 
         <p>Older CRCLTR sessions reopen in Classic mode. The loops, playback windows, directions, rates, joins, crossfade settings, and play state otherwise return with the project.</p>
 

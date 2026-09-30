@@ -334,6 +334,11 @@ void exerciseAmbiStorage(const clap_plugin_t *plugin, clap_host_t &host,
   bind(collectedEmbed);
   expect(!header(collectedEmbed).embedded,
          "collected PROJECT state no longer contains PCM");
+  for (unsigned snapshot = 0; snapshot < 32; ++snapshot) {
+    const auto repeated = save();
+    expect(repeated.bytes == collectedEmbed.bytes,
+           "collected field stays small and unchanged across undo snapshots");
+  }
 
   queuePortableSampleLoad(p, source.u8string());
   drain();

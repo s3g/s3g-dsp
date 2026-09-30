@@ -416,6 +416,7 @@ DOC_SEQUENCE = [
     "sample-kit.html",
     "sample-neon.html",
     "utility-neon-midi.html",
+    "sample-decks.html",
     "sample-doubles.html",
     "sample-wavesets.html",
     "sample-motion.html",

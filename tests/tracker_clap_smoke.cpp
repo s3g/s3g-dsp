@@ -932,11 +932,24 @@ int main(int argc, char** argv)
                 [hostWindow makeKeyAndOrderFront:nil];
                 const auto pump = [&] {
                     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-                    [parent layoutSubtreeIfNeeded]; [parent displayIfNeeded];
+                    // AppKit may defer normal drawing for an occluded smoke
+                    // window. VSTGUI builds control hit maps during drawing;
+                    // exercise painted controls, including reparented tools.
+                    @autoreleasepool {
+                        for (NSWindow* window in NSApp.windows) {
+                            if (!window.visible || (window != hostWindow
+                                && ![window.title hasPrefix:@"s3g Tracker — "])) continue;
+                            NSView* view = window == hostWindow ? parent : window.contentView;
+                            [view layoutSubtreeIfNeeded];
+                            (void)[view dataWithPDFInsideRect:view.bounds];
+                        }
+                    }
                 };
                 const auto click = [&](NSPoint point, NSInteger clicks) {
                     const NSPoint location = [portableMain convertPoint:point toView:nil];
                     NSView* target = [parent hitTest:[parent convertPoint:point fromView:portableMain]];
+                    ok &= expect(target && [target isDescendantOf:portableMain],
+                        "native main-page click missed the visible VSTGUI page");
                     [hostWindow makeFirstResponder:parent];
                     [hostWindow makeFirstResponder:target];
                     NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:location
@@ -952,7 +965,10 @@ int main(int argc, char** argv)
                     NSEvent* event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
                         modifierFlags:flags timestamp:0 windowNumber:hostWindow.windowNumber context:nil
                         characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
-                    [hostWindow.firstResponder keyDown:event]; pump();
+                    if (!(flags & NSEventModifierFlagCommand)
+                        || ![hostWindow.firstResponder performKeyEquivalent:event])
+                        [hostWindow.firstResponder keyDown:event];
+                    pump();
                 };
                 pump();
                 ok &= expect(findAccessibleView(parent,@"Editable tracker lanes") == nil
@@ -1097,7 +1113,10 @@ int main(int argc, char** argv)
                     };
                     const auto warpCycle = [&](NSString* value) {
                         // Use the right-side numeric value, avoiding the drag track.
-                        warpClick(NSMakePoint(NSWidth(portableWarps.bounds) - 40, 186), 2);
+                        pump();
+                        const NSRect control = [portableWarps warpControlRect:@"cycle"];
+                        ok &= expect(!NSIsEmptyRect(control), "Warps cycle control was not drawn");
+                        warpClick(NSMakePoint(NSMaxX(control) - 5, NSMidY(control)), 2);
                         if (![portableWarps s3gTrackerHasFocusedTextInput]) {
                             std::fprintf(stderr,"Warps text unfocused; host %s; cycle %s; native %s; hidden %d\n",
                                 NSStringFromRect(portableWarps.bounds).UTF8String,
@@ -1177,6 +1196,8 @@ int main(int argc, char** argv)
                     const auto songClick = [&](NSPoint point) {
                         NSPoint location = [portableSong convertPoint:point toView:nil];
                         NSView* target = [hostWindow.contentView hitTest:[portableSong convertPoint:point toView:hostWindow.contentView]];
+                        ok &= expect(target && [target isDescendantOf:portableSong],
+                            "native Song click missed the visible VSTGUI page");
                         [hostWindow makeFirstResponder:target];
                         NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:location
                             modifierFlags:0 timestamp:0 windowNumber:hostWindow.windowNumber context:nil
@@ -1245,6 +1266,16 @@ int main(int argc, char** argv)
                     clickButton(parent,nil,@"TRACKER page",nil);pump();
                 }
                 if (std::getenv("S3G_TRACKER_EXPECT_PORTABLE_REFERENCE")) {
+                    // Probe a private pasteboard, not the user's clipboard.
+                    // A sandbox without macOS pasteboard access otherwise
+                    // reports misleading Console/Help/Live Code regressions.
+                    NSPasteboard* probe = [NSPasteboard pasteboardWithUniqueName];
+                    const bool pasteboardReady = probe
+                        && [probe setString:@"Tracker smoke" forType:NSPasteboardTypeString]
+                        && [[probe stringForType:NSPasteboardTypeString] isEqualToString:@"Tracker smoke"];
+                    [probe releaseGlobally];
+                    ok &= expect(pasteboardReady,
+                        "macOS pasteboard unavailable: run the GUI smoke in a logged-in desktop session with pasteboard access");
                     NSView* console = findAccessibleView(parent, @"Tracker portable Console page");
                     NSView* help = findAccessibleView(parent, @"Tracker portable Help page");
                     ok &= expect(console && help, "expected portable Console/Help pages missing");
@@ -1280,7 +1311,9 @@ int main(int argc, char** argv)
                                     && context.hwndInfo(reinterpret_cast<void*>(1), 0) == 0,
                                 "REAPER text-field/global-shortcut classification failed");
                             [window.firstResponder keyDown:event];
-                        } else [window.firstResponder keyDown:event];
+                        } else if (!(flags & NSEventModifierFlagCommand)
+                            || ![window.firstResponder performKeyEquivalent:event])
+                            [window.firstResponder keyDown:event];
                         pump();
                     };
                     const auto referenceType = [&](NSView* view, NSString* text) {
@@ -1292,7 +1325,7 @@ int main(int argc, char** argv)
                         referenceKey(view,@"c",8,NSEventModifierFlagCommand);
                         return [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
                     };
-                    if (console && help) {
+                    if (console && help && pasteboardReady) {
                         clickButton(parent,nil,@"CONSOLE page",nil);pump();
                         int note=70;
                         for(double scale : {0.65,1.0,1.5,2.0}) {

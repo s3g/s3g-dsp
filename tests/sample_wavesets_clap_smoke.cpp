@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
@@ -487,6 +488,8 @@ int main(int argc, char** argv)
                 && safetyRecord.embedded == 1u
                 && safetyRecord.path[0u] == '\0';
         }
+        if(ok)ok=sample_snapshot_test::referenceCase<CurrentSavedState>(plugin,state,safetyOutput.bytes,[](auto& h){
+            h.requestedStorageMode=0;std::snprintf(h.path.data(),h.path.size(),"/missing/snapshot-wavesets.wav");});
         LegacySavedStateV2 legacy;
         legacy.parameters = {{
             -9.0, 0.25, 2.0, 2.0, 4.0, 5.0, -3.0, 1.0, 4.0,

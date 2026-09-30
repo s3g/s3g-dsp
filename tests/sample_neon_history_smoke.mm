@@ -2,6 +2,7 @@
 // never an installable plugin; the real VSTGUI bundle has separate GUI tests.
 #include "../plugins/clap_sample_neon/s3g_sample_neon_clap.cpp"
 #include <iostream>
+#include "generated_sample_media_checks.h"
 
 namespace {
 unsigned checks = 0;
@@ -336,12 +337,14 @@ void testRawBankModeInvariant() {
 }
 }
 #include "sample_neon_note_routing_checks.inc"
+#include "sample_neon_generated_media_checks.inc"
 int main() {
     setenv("S3G_SAMPLE_NEON_DISABLE_DIRECT_MIDI", "1", 1);
     try {
         testNormalizeRemovePaste(); testChop(); testCaptureAndReset(); testLoadsAndLimit(); testRecordedTake(); testAudioAcknowledgment();
         testLiveCapture(); testRetainedCaptureReview(); testCropLayer(); testLayerClipboard(); testPerformanceBanks(); testRawBankModeInvariant();
         testPinnedNoteRouting();
+        testGeneratedAuditionMedia();
         std::cout << "Neon destructive history: " << checks << " checks passed\n"; return 0;
     } catch (const std::exception& error) { std::cerr << "History failure after " << checks << " checks: " << error.what() << '\n'; return 1; }
 }

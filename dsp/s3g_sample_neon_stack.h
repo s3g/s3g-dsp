@@ -29,6 +29,9 @@ struct NeonStack {
     std::array<double, 33u> primarySlices {{0.0, 1.0}};
     std::array<NeonMosaicFragment, 1024> fragments {};
     unsigned fragmentCount = 0;
+    // Decks may keep different native channel formats in one document. A
+    // prepared format group keeps original layer IDs, but skips other formats.
+    bool skipEmptyLayers = false;
 };
 // Bounded descriptor analysis on the publication thread, never in render().
 // Use channel energy, not a sum that can cancel anti-phase/spatial sources.
@@ -82,5 +85,13 @@ inline NeonStackBlend neonStackBlend(double position, unsigned count) noexcept {
     const double p = std::clamp(position, 0.0, 1.0) * (count - 1u);
     const auto a = static_cast<unsigned>(p);
     return {a, std::min(count - 1u, a + 1u), static_cast<float>(p - a)};
+}
+inline NeonStackBlend neonStackBlend(double position, const NeonStack* stack) noexcept {
+    if(!stack||!stack->skipEmptyLayers)return neonStackBlend(position,stack?stack->count:0u);
+    const double target=std::clamp(position,0.,1.)*std::max(0,int(stack->count)-1);
+    unsigned below=32,above=32;
+    for(unsigned n=0;n<stack->count;++n)if(stack->layers[n].asset){if(n<=target)below=n;if(n>=target&&above==32)above=n;}
+    if(below==32)below=above;if(above==32)above=below;if(below==32)return {};
+    return {below,above,below==above?0.f:static_cast<float>((target-below)/(above-below))};
 }
 } // namespace s3g::sample

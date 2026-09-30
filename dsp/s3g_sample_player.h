@@ -217,6 +217,32 @@ struct PlayerSettings {
 
 class SamplePlayerEngine {
 public:
+    // Transport gesture used by Sample Decks. Keeps voices/envelopes alive;
+    // ordinary instruments never call this and retain their existing clocks.
+    void seekVoices(double position) noexcept {
+        if (!std::isfinite(position)) return;
+        for (auto& voice : voices_) if (voice.active && voice.asset) {
+            voice.position = voice.playStartFrame + std::clamp(position, 0., 1.)
+                * std::max(0., double(voice.playEndFrame - voice.playStartFrame) - 1.);
+        }
+    }
+    // Decks-only layer handoff: keep note identity, envelope and relative time.
+    // Ordinary sampler playback never calls this API.
+    void retargetSource(const SampleAsset* asset,double start,double end,uint8_t layer) noexcept {
+        if(!asset||end<=start)return;
+        for(auto& voice:voices_)if(voice.active&&voice.asset&&(voice.asset!=asset||voice.sourceLayer!=layer)){
+            const double phase=std::clamp((voice.position-voice.playStartFrame)/std::max(1.,double(voice.playEndFrame-voice.playStartFrame)),0.,1.);
+            const double ratio=asset->sampleRate/voice.asset->sampleRate;
+            voice.asset=asset;voice.sourceLayer=layer;voice.sourceRatio*=ratio;
+            voice.increment*=ratio;voice.readIncrementMagnitude*=ratio;
+            voice.playStartFrame=std::min(asset->frameCount()-1,static_cast<unsigned>(start*asset->frameCount()));
+            voice.playEndFrame=std::clamp(static_cast<unsigned>(end*asset->frameCount()),voice.playStartFrame+1,asset->frameCount());
+            voice.loopStartFrame=voice.playStartFrame;voice.loopEndFrame=voice.playEndFrame;
+            voice.position=voice.playStartFrame+phase*std::max(0.,double(voice.playEndFrame-voice.playStartFrame)-1);
+            voice.playbackTransitionFromSamples=voice.lastOutputSamples;
+            voice.playbackTransitionTotalFrames=voice.playbackTransitionFramesRemaining=std::max(1u,static_cast<unsigned>(sampleRate_*.005));
+        }
+    }
     bool prepare(double sampleRate, uint32_t outputChannelCount) noexcept
     {
         if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)
@@ -277,7 +303,8 @@ public:
 
     void render(const PlayerSettings& settings, const RenderEvent* events,
         std::size_t eventCount, float* const* outputs,
-        uint32_t outputChannelCount, uint32_t frameCount) noexcept
+        uint32_t outputChannelCount, uint32_t frameCount,
+        const float* platterRates = nullptr) noexcept
     {
         if (!outputs || outputChannelCount == 0u
             || outputChannelCount > kMaximumAudioChannels) return;
@@ -324,14 +351,26 @@ public:
             voiceCursorCount_ = 0u;
             for (auto& voice : voices_) {
                 if (!voice.active || !voice.asset) continue;
+                const double nominalIncrement=voice.increment;
+                const double nominalRead=voice.readIncrementMagnitude;
+                const auto nominalMode=voice.playMode;
+                const double platter=platterRates ? std::clamp<double>(platterRates[frame],-8.,9.) : 1.;
+                if (platterRates) {
+                    voice.increment*=platter;
+                    voice.readIncrementMagnitude=std::abs(voice.increment);
+                    if (nominalMode==PlayMode::ForwardLoop || nominalMode==PlayMode::ReverseLoop)
+                        voice.playMode=voice.increment<0 ? PlayMode::ReverseLoop : PlayMode::ForwardLoop;
+                }
                 const double windowPhase = (voice.position - voice.playStartFrame)
                     / std::max(1.0, static_cast<double>(voice.playEndFrame - voice.playStartFrame));
                 const float envelope = (voice.grainWindow <= 4u
                     ? s3g::sample::grainWindow(static_cast<GrainEnvelope>(voice.grainWindow),
                         static_cast<float>(voice.increment < 0 ? 1.0 - windowPhase : windowPhase), voice.grainSkew)
                     : voice.envelopeLevel) * boundaryFade(voice);
+                // A held, stationary platter must become silent, not emit DC.
+                const float moving=static_cast<float>(std::min(1.,std::abs(platter)*20.));
                 const float level = voice.velocityLevel * envelope
-                    * voice.eventGain;
+                    * voice.eventGain * moving;
                 const uint32_t sourceChannels = voice.asset->channelCount;
                 const FilterCoefficients filter = makeFilterCoefficients(
                     voice, settings);
@@ -421,10 +460,17 @@ public:
                 }
                 voice.position += voice.increment;
                 advanceStretchPhase(voice);
-                advanceGlide(voice);
+                if (!platterRates) advanceGlide(voice);
                 advanceLiveSustain(voice);
                 advanceEnvelope(voice);
                 advancePosition(voice);
+                if (platterRates) {
+                    const bool bounced=voice.increment*nominalIncrement*platter<0;
+                    voice.increment=bounced ? -nominalIncrement : nominalIncrement;
+                    voice.readIncrementMagnitude=nominalRead;
+                    voice.playMode=nominalMode;
+                    advanceGlide(voice);
+                }
                 ++voice.elapsedFrames;
                 if (voice.chokeFramesRemaining && --voice.chokeFramesRemaining == 0u)
                     voice.active = false;

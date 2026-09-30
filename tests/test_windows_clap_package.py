@@ -110,7 +110,7 @@ regression(s3g_tracker_windows_clap_smoke)
 
     def test_complete_manifest_excludes_only_energy(self):
         inventory = PACKAGE.windows_inventory(ROOT / "scripts/clap-bundles.tsv")
-        self.assertEqual(len(inventory), 121)
+        self.assertEqual(len(inventory), 125)
         self.assertNotIn(PACKAGE.EXCLUDED, [item.installed_name for item in inventory])
         self.assertIn("s3g_tracker.clap", [item.installed_name for item in inventory])
 

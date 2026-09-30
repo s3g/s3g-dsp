@@ -1118,6 +1118,17 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        if (std::strcmp(pluginId,"org.s3g.s3g-dsp.sample-decks")==0) {
+            if (const char* fixture=std::getenv("S3G_DECKS_GUI_STATE")) {
+                NSData* data=[NSData dataWithContentsOfFile:[NSString stringWithUTF8String:fixture]];
+                MemoryPluginState memory;
+                if(data){const auto* bytes=static_cast<const uint8_t*>(data.bytes);memory.bytes.assign(bytes,bytes+data.length);}
+                clap_istream_t input {&memory,stateReadWhole};
+                const auto* state=static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin,CLAP_EXT_STATE));
+                if(!data||!state||!state->load(plugin,&input)){std::cerr<<"Decks GUI fixture load failed\n";return 1;}
+            }
+        }
+
         failureStage = "parameter defaults";
         const auto* params = static_cast<const clap_plugin_params_t*>(
             plugin->get_extension(plugin, CLAP_EXT_PARAMS));
@@ -1639,6 +1650,9 @@ int main(int argc, char** argv)
         NSView* document = root;
         const bool portableVstguiRoot = root
             && [NSStringFromClass([root class]) isEqualToString:@"VSTGUI_NSView"];
+        if (std::strcmp(pluginId,"org.s3g.s3g-dsp.sample-decks")==0 && !portableVstguiRoot) {
+            std::cerr<<"Sample Decks requires the VSTGUI editor\n";ok=false;
+        }
         if (ok) failureStage = "responsive document";
         if (responsive) {
             if (portableVstguiRoot) {
@@ -1673,6 +1687,8 @@ int main(int argc, char** argv)
             ok = ok && closeEnough([root frame].size.width, nativeWidth)
                 && closeEnough([root frame].size.height, nativeHeight);
         }
+#include "sample_decks_gui_checks.inc"
+#include "sample_decks_graphics_gui_checks.inc"
         const bool ambiEncoder = requestedDescriptor->name
             && std::strncmp(requestedDescriptor->name,
                 "s3g Ambi Encoder ", 17u) == 0;

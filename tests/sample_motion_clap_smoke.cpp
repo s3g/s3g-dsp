@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
@@ -499,6 +500,7 @@ int main(int argc, char** argv)
     ok = ok && state->load(plugin, &fileBackedProjectFixture.stream)
         && state->save(plugin, &fileBackedProjectSave.stream)
         && fileBackedProjectSave.bytes.size() == sizeof(SavedState);
+    ok = sample_snapshot_test::repeated(plugin,state,sizeof(SavedState)) && ok;
     if (fileBackedProjectSave.bytes.size() == sizeof(savedFileBackedProject))
         std::memcpy(&savedFileBackedProject,
             fileBackedProjectSave.bytes.data(),

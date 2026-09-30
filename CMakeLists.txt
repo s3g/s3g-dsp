@@ -51,6 +51,8 @@ option(S3G_BUILD_SAMPLE_KIT_PREVIEW
   "Build the s3g Sample Kit 16-pad/32-channel CLAP" ON)
 option(S3G_BUILD_SAMPLE_NEON_PREVIEW
   "Build the Reloop Neon-focused s3g Sample Neon multichannel CLAP" ON)
+option(S3G_BUILD_SAMPLE_DECKS_PREVIEW
+  "Build the Beatpad 2-focused two-stack s3g Sample Decks 32 CLAP" ON)
 option(S3G_BUILD_UTILITY_NEON_MIDI
   "Build the bank-aware Reloop NEON MIDI CLAP adapter" ON)
 
@@ -696,6 +698,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-clap-bundle-manifest.py)
     add_test(NAME docs_static_audit
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-docs.py)
+    add_test(NAME sample_snapshot_contract_audit
+      COMMAND ${Python3_EXECUTABLE} -m unittest tests/test_sample_snapshot_contract.py)
     add_test(NAME realtime_audit_runner_unit
       COMMAND ${Python3_EXECUTABLE} -m unittest
         tests/test_run_clap_realtime_audit.py)
@@ -714,6 +718,7 @@ if(BUILD_TESTING)
     set_tests_properties(
       clap_bundle_manifest_source_audit
       docs_static_audit
+      sample_snapshot_contract_audit
       realtime_audit_runner_unit
       realtime_release_gates_runner_unit
       validator_manifest_runner_unit
@@ -1533,6 +1538,14 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
 
   if(S3G_BUILD_SAMPLE_NEON_PREVIEW AND APPLE)
+    foreach(_snapshot_product sample_rings crcltr)
+      add_executable(s3g_${_snapshot_product}_generated_media_smoke tests/${_snapshot_product}_generated_media_smoke.mm)
+      target_include_directories(s3g_${_snapshot_product}_generated_media_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+      target_link_libraries(s3g_${_snapshot_product}_generated_media_smoke PRIVATE s3g_dsp Threads::Threads
+        "-framework Cocoa" "-framework AVFoundation")
+      add_test(NAME s3g_${_snapshot_product}_generated_media_smoke COMMAND s3g_${_snapshot_product}_generated_media_smoke)
+      set_tests_properties(s3g_${_snapshot_product}_generated_media_smoke PROPERTIES LABELS "non_nim;sample;state" TIMEOUT 60)
+    endforeach()
     add_executable(s3g_sample_neon_history_smoke tests/sample_neon_history_smoke.mm)
     target_include_directories(s3g_sample_neon_history_smoke PRIVATE ${S3G_CLAP_INCLUDE_DIR})
     target_compile_options(s3g_sample_neon_history_smoke PRIVATE -fobjc-arc)
@@ -2141,6 +2154,9 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   if(S3G_BUILD_SAMPLE_NEON_PREVIEW)
     add_subdirectory(plugins/clap_sample_neon)
+  endif()
+  if(S3G_BUILD_SAMPLE_DECKS_PREVIEW)
+    add_subdirectory(plugins/clap_sample_decks)
   endif()
   if(S3G_BUILD_UTILITY_NEON_MIDI)
     add_subdirectory(plugins/clap_utility_neon_midi)

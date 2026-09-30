@@ -10,14 +10,17 @@ class SampleNeonPolyEngine {
 public:
     static constexpr unsigned capacity = 32;
     using MotionVisual = SampleNeonEngine::MotionVisual;
-    bool prepare(double rate, uint32_t frames) {
+    bool prepare(double rate, uint32_t frames, bool effects = true, unsigned pads = 32, bool legacyPerformance = false) {
         unprepare(); rate_ = rate; maximum_ = frames;
+        padCount_ = std::clamp(pads, 1u, 32u); effectsEnabled_ = effects;
+        legacyPerformance_ = legacyPerformance;
         if (!core_.prepare(rate, frames, false)) return false;
         try {
-            for (auto& b : padAudio_) b.resize(16u * frames);
+            for (unsigned p = 0; p < padCount_; ++p) padAudio_[p].resize(16u * frames);
             for (auto& b : dummy_) b.resize(frames);
         } catch (...) { unprepare(); return false; }
-        for (auto& fx : effects_) if (!fx.prepare(rate)) { unprepare(); return false; }
+        if (effectsEnabled_) for (unsigned p = 0; p < padCount_; ++p)
+            if (!effects_[p].prepare(rate)) { unprepare(); return false; }
         reset(); return true;
     }
     void unprepare() noexcept {
@@ -32,6 +35,11 @@ public:
         for (unsigned p = 0; p < 32; ++p) { routing_[p].reset(0x6d2b79f5u+p); cutRouting_[p].reset(cutSeeds_[p]); }
     }
     void killAll() noexcept { reset(); }
+    void resetPad(unsigned pad) noexcept { if (pad < padCount_) stopPad(pad); }
+    void seekSource(unsigned pad, double position) noexcept {
+        for (unsigned i = 0; i < capacity; ++i)
+            if (voices_[i].used && voices_[i].pad == pad) core_.seekSource(i, position);
+    }
     void setPreparedAsset(std::size_t pad, const SampleAsset* asset) noexcept {
         if (pad >= 32 || assets_[pad] == asset) return;
         stopPad(static_cast<unsigned>(pad)); assets_[pad] = asset;
@@ -72,8 +80,11 @@ public:
     const auto& voiceCursors(std::size_t pad) const noexcept { return cursors_[pad]; }
     uint32_t voiceCursorCount(std::size_t pad) const noexcept { return cursorCounts_[pad]; }
 
+    using PadSink = void (*)(void*, unsigned, float* const*, unsigned, uint32_t);
     void render(const SampleNeonSettings& settings, const SampleNeonEvent* events,
-        std::size_t count, float* const* output, uint32_t channels, uint32_t frames) noexcept {
+        std::size_t count, float* const* output, uint32_t channels, uint32_t frames,
+        PadSink sink = nullptr, void* context = nullptr) noexcept {
+        sink_ = sink; sinkContext_ = context;
         if (!output || (channels != 2 && channels != kSampleNeonOutputChannels)) return;
         for (unsigned ch = 0; ch < channels; ++ch) { if (!output[ch]) return; std::fill_n(output[ch], frames, 0.f); }
         if (!maximum_ || frames > maximum_) return;
@@ -81,7 +92,7 @@ public:
         count = events ? std::min(count, kSampleNeonMaximumBlockEvents) : 0;
         // Changes in voice policy stop that pad; a live limit reduction cannot
         // leave inaccessible held voices behind. Audio/FX routing stays per pad.
-        for (unsigned p = 0; p < 32; ++p) {
+        for (unsigned p = 0; p < padCount_; ++p) {
             const auto& s = settings.slots[p];
             const unsigned policy = s.noteVoiceMode | (unsigned(s.noteVoiceLimit) << 8)
                 | (unsigned(s.playback) << 16);
@@ -142,7 +153,7 @@ private:
         *entry = {true, e.slot, e.key, e.noteId, ++serial_};
     }
     void handle(const SampleNeonSettings& settings, const SampleNeonEvent& e) noexcept {
-        if (e.slot >= 32) return;
+        if (e.slot >= padCount_) return;
         const auto& s = settings.slots[e.slot];
         if (e.kind == SampleNeonEventKind::Choke && e.noteId == 0) { stopPad(e.slot); return; }
         if (e.kind == SampleNeonEventKind::Pressure) pressure_[e.slot] = std::clamp(e.value, 0.f, 1.f);
@@ -167,7 +178,7 @@ private:
         if (s.chokeGroup) for (unsigned p = 0; p < 32; ++p)
             if (p != e.slot && settings.slots[p].chokeGroup == s.chokeGroup) stopPad(p);
         const bool audition = e.mode != controller::reloop_neon::Mode::Sampler || e.selectedSource;
-        const unsigned policy = audition ? 1u : mode(s, e.key);
+        const unsigned policy = audition && !(legacyPerformance_ && e.key == 255 && !s.noteVoiceMode) ? 1u : mode(s, e.key);
         if (policy == 3) remember(e);
         int existing = -1; unsigned inPad = 0;
         for (unsigned i = 0; i < capacity; ++i) if (voices_[i].used && voices_[i].pad == e.slot) {
@@ -237,12 +248,13 @@ private:
             }
             core_.setPreparedWavesets(i, maps_[v.pad]);
         }
-        for (auto& b : padAudio_) for (unsigned ch = 0; ch < 16; ++ch) std::fill_n(b.data() + ch * maximum_, frames, 0.f);
+        for (unsigned p = 0; p < padCount_; ++p) for (unsigned ch = 0; ch < 16; ++ch)
+            std::fill_n(padAudio_[p].data() + ch * maximum_, frames, 0.f);
         std::array<float*, kSampleNeonOutputChannels> dummy;
         for (unsigned ch = 0; ch < dummy.size(); ++ch) dummy[ch] = dummy_[ch].data();
         core_.render(renderSettings_, pending_.data(), pendingCount_, dummy.data(), kSampleNeonOutputChannels, frames, sumVoice, this, mask);
         const float master = std::pow(10.f, std::clamp(settings.masterGainDecibels, -60.f, 12.f) * .05f);
-        for (unsigned p = 0; p < 32; ++p) {
+        for (unsigned p = 0; p < padCount_; ++p) {
             const auto& s = settings.slots[p]; const auto* asset = assets_[p];
             const bool distribute = neonDistributes(s);
             if (!asset || !sampleNeonRouteCompatible(asset->channelCount, s.sourceFormat, settings.outputLayout, s.outputBus, distribute)) continue;
@@ -251,9 +263,12 @@ private:
             if (first + width > channels) continue;
             const unsigned processed = distribute ? width : asset->channelCount;
             std::array<float*, 16> data; for (unsigned ch = 0; ch < 16; ++ch) data[ch] = padAudio_[p].data() + ch * maximum_;
-            effects_[p].process(data.data(), processed, frames, s.character, s.fx,
+            if (effectsEnabled_) effects_[p].process(data.data(), processed, frames, s.character, s.fx,
                 std::clamp(settings.globalMangle + s.mangle + pressure_[p] * s.pressureDepth, 0.f, 1.f),
                 s.sourceFormat == SampleNeonSourceFormat::Ambisonic, settings.hostTempoBpm);
+            // Decks consumes the pre-FX sum, then applies its EQ/FX and
+            // crossfader once per deck. Neon retains its original path.
+            if (sink_) sink_(sinkContext_, p, data.data(), processed, frames);
             for (unsigned ch = 0; ch < width; ++ch) {
                 const float balance = (distribute ? width : asset->channelCount) > 2 ? 1.f
                     : std::sqrt(std::min(1.f, ch == 0 ? 1 - std::clamp(s.pan, -1.f, 1.f) : 1 + std::clamp(s.pan, -1.f, 1.f)));
@@ -302,5 +317,10 @@ private:
     double rate_ = 48000;
     uint32_t maximum_ = 0;
     float peak_ = 0;
+    unsigned padCount_ = 32;
+    bool effectsEnabled_ = true;
+    bool legacyPerformance_ = false;
+    PadSink sink_ = nullptr;
+    void* sinkContext_ = nullptr;
 };
 } // namespace s3g::sample

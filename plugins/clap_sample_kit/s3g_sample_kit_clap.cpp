@@ -4,6 +4,7 @@
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_sample_file_decode.h"
 #include "../common/s3g_sample_storage.h"
+#include "../common/s3g_generated_sample_media.h"
 
 #if defined(S3G_ENABLE_VSTGUI_SAMPLE_KIT_GUI)
 #include "../common/s3g_clap_vstgui.h"
@@ -311,6 +312,7 @@ struct LoadResult {
 #endif
 
 struct Plugin {
+    s3g::sample_storage::GeneratedSampleMedia generatedMedia;
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -503,6 +505,7 @@ void markStateDirty(Plugin& instance) noexcept
 {
     if (instance.hostState && instance.hostState->mark_dirty)
         instance.hostState->mark_dirty(instance.host);
+    if(instance.host&&instance.host->request_callback)instance.host->request_callback(instance.host);
 }
 
 void setParam(Plugin& instance, clap_id id, double value,
@@ -1093,6 +1096,13 @@ void queueChopSourceLoad(Plugin& instance, std::string path)
 
 void serviceLoads(Plugin& instance)
 {
+    std::vector<s3g::sample_storage::GeneratedSampleMedia::Source> generated;
+    {std::lock_guard<std::mutex> lock(instance.statusMutex);
+        for(unsigned pad=0;pad<instance.controlAssets.size();++pad)for(unsigned variation=0;variation<instance.controlAssets[pad].size();++variation)
+            if(instance.controlAssets[pad][variation]&&instance.samplePaths[pad][variation].empty())
+                generated.push_back({instance.controlAssets[pad][variation],"kit-pad-"+std::to_string(pad+1)+"-layer-"+std::to_string(variation+1)});
+        if(instance.chopSourceAsset&&instance.chopSourcePath.empty())generated.push_back({instance.chopSourceAsset,"kit-chop-source"});}
+    instance.generatedMedia.service(instance.host,generated,instance.storageMode==StorageMode::Project);
     std::deque<LoadResult> results;
     {
         std::lock_guard<std::mutex> lock(instance.loaderMutex);
@@ -1556,6 +1566,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!plugin || !stream || !stream->write) return false;
     auto& instance = *self(plugin);
+    if(instance.storageMode==StorageMode::Project&&instance.host&&instance.host->request_callback)instance.host->request_callback(instance.host);
     StateHeader header;
     SavedStateV3Body saved {};
     for (std::size_t index = 0u; index < kStoredParamCount; ++index)
@@ -1620,6 +1631,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     uint64_t embeddedBytes = 0u;
     for (uint16_t index = 0u; index < saved.assetCount; ++index) {
         auto path = uniquePaths[index];
+        if(mode==StorageMode::Project&&path.empty())path=instance.generatedMedia.reference(uniqueAssets[index],instance.host);
         if (mode == StorageMode::Project && !path.empty()) {
             const ReaperContext context
                 = s3g::sample_storage::reaperContext(instance.host);
@@ -1628,6 +1640,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
                     path, relative, nullptr)) path = relative;
         }
         auto& state = saved.assets[index];
+        if(path.size()>=state.path.size())path.clear(); // embed rather than save a truncated locator
         std::snprintf(state.path.data(), state.path.size(), "%s",
             path.c_str());
         const auto& asset = uniqueAssets[index];

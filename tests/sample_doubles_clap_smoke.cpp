@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/note-name.h>
@@ -634,7 +635,9 @@ int main(int argc, char** argv)
         if (ok) {
             std::memcpy(&safetyRecord, safetyOutput.bytes.data(),
                 sizeof(safetyRecord));
-            ok = safetyRecord.requestedStorageMode == 0u
+            ok = sample_snapshot_test::referenceCase<SavedStateV5Record>(plugin,state,safetyOutput.bytes,[](auto& h){
+                h.requestedStorageMode=0;std::snprintf(h.path.data(),h.path.size(),"/missing/snapshot-doubles.wav");}) && ok;
+            ok = ok && safetyRecord.requestedStorageMode == 0u
                 && safetyRecord.embedded == 1u
                 && safetyRecord.path[0u] == '\0';
         }

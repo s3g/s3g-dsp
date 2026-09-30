@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
@@ -331,6 +332,8 @@ bool exercise(const clap_plugin_factory_t* factory,
     MemoryOutput saved;
     ok = ok && state->save(plugin, &saved.stream)
         && saved.bytes.size() == fixture.bytes.size();
+    if(ok)ok=sample_snapshot_test::referenceCase<SavedState>(plugin,state,saved.bytes,[](auto& h){
+        h.storageMode=0;for(auto& lane:h.lanes)std::snprintf(lane.path.data(),lane.path.size(),"/missing/snapshot-grains.wav");});
     if (ok) {
         uint32_t savedVersion = 0u;
         uint32_t savedParamCount = 0u;

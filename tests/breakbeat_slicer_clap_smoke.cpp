@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/audio-ports-config.h>
 #include <clap/ext/gui.h>
@@ -682,6 +683,7 @@ int main(int argc, char** argv)
         && saved.bytes.size() >= sizeof(FixtureSavedState)
             + 16u * 256u * sizeof(float);
     if (stateRoundTrip) {
+        stateRoundTrip=sample_snapshot_test::repeated(plugin,state,saved.bytes.size());
         FixtureSavedState savedFixture;
         std::memcpy(&savedFixture, saved.bytes.data(), sizeof(savedFixture));
         stateRoundTrip = savedFixture.version == kStateVersion

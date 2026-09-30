@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/note-name.h>
 #include <clap/ext/note-ports.h>
@@ -423,6 +424,7 @@ int main(int argc, char** argv)
     const bool version3Saved = state->save(plugin, &outputState)
         && saved.bytes.size() > 400u * 2u * sizeof(float);
     ok = ok && version3Saved;
+    ok = sample_snapshot_test::repeated(plugin,state,saved.bytes.size()) && ok;
     plugin->reset(plugin);
     saved.offset = 0u;
     clap_istream_t inputState { &saved, readState };

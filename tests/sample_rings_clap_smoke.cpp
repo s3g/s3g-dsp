@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/note-ports.h>
 #include <clap/ext/params.h>
@@ -554,6 +555,7 @@ int main(int argc, char** argv)
         && stored.version == kStateVersion && stored.storageMode == 0u
         && stored.embedded[0u] == 1u && stored.paths[0u][0u] == '\0',
         "new instance did not save as PROJECT with embedded live capture");
+    ok &= sample_snapshot_test::repeated(plugin,state,memory.bytes.size());
     EventList alter;
     alter.add(kPlaybackRateParamId, 4.0);
     alter.add(kPlayingParamId, 1.0);
@@ -663,9 +665,16 @@ int main(int argc, char** argv)
     const uint32_t registrationsBefore = host.projectFileRegistrations;
     const auto copyDeadline = std::chrono::steady_clock::now()
         + std::chrono::seconds(3);
-    while (host.projectFileRegistrations < registrationsBefore + 2u
-        && std::chrono::steady_clock::now() < copyDeadline) {
+    bool requestedSourcesReady=false;
+    while (!requestedSourcesReady&&std::chrono::steady_clock::now()<copyDeadline) {
         plugin->on_main_thread(plugin);
+        MemoryState snapshot;clap_ostream_t output{&snapshot,stateWrite};CurrentSavedState header{};
+        if(state->save(plugin,&output)&&snapshot.bytes.size()>=sizeof(header)){
+            std::memcpy(&header,snapshot.bytes.data(),sizeof(header));
+            requestedSourcesReady=header.paths[0][0]&&header.paths[0][0]!='/'
+                &&std::strstr(header.paths[0].data(),"shared-source")
+                &&std::strcmp(header.paths[0].data(),header.paths[1].data())==0;
+        }
         std::this_thread::yield();
     }
     plugin->on_main_thread(plugin);
@@ -683,15 +692,19 @@ int main(int argc, char** argv)
     if (std::filesystem::is_directory(copiedDirectory))
         for (const auto& entry : std::filesystem::directory_iterator(
                  copiedDirectory))
-            if (entry.is_regular_file()) ++projectMediaFiles;
+            // Earlier captures now have their own collected files. Count the
+            // selected imported source, not unrelated retained undo media.
+            if (entry.is_regular_file()&&entry.path().filename().string().find("shared-source")!=std::string::npos) ++projectMediaFiles;
     ok &= check(copiedProject.storageMode == 0u
         && copiedProject.embedded[0u] == 0u
         && copiedProject.embedded[1u] == 0u
         && copiedProject.paths[0u][0u] != '/'
         && std::strcmp(copiedProject.paths[0u].data(),
             copiedProject.paths[1u].data()) == 0
-        && projectMediaFiles == 1u,
+        && projectMediaFiles == 1u && requestedSourcesReady
+        && host.projectFileRegistrations>=registrationsBefore+2u,
         "identical PROJECT sources did not reuse one relative media copy");
+    ok &= sample_snapshot_test::repeated(plugin,state,projectRoundTrip.bytes.size());
 
     plugin->stop_processing(plugin);
     plugin->deactivate(plugin);

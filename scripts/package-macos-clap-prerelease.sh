@@ -17,8 +17,8 @@ package_name="${1:-s3g-dsp-macos-clap-$release_version}"
 final_staging="$dist_root/$package_name"
 zip_path="$dist_root/$package_name.zip"
 checksum_path="$zip_path.sha256"
-expected_bundle_count=122
-expected_descriptor_count=129
+expected_bundle_count=126
+expected_descriptor_count=133
 
 codesign_args=(--force --deep --sign "$codesign_identity")
 if [[ "$codesign_identity" != "-" ]]; then

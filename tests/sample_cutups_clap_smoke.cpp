@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/gui.h>
 #include <clap/ext/note-ports.h>
@@ -387,6 +388,8 @@ int main(int argc, char** argv)
     MemoryOutput saved;
     ok = ok && state->save(plugin, &saved.stream)
         && saved.bytes.size() == fixture.bytes.size();
+    if(ok)ok=sample_snapshot_test::referenceCase<SavedState>(plugin,state,saved.bytes,[](auto& h){
+        h.storageMode=0;for(auto& lane:h.lanes)std::snprintf(lane.path.data(),lane.path.size(),"/missing/snapshot-cutups.wav");});
     if (ok) {
         SavedState roundTrip;
         std::memcpy(&roundTrip, saved.bytes.data(), sizeof(roundTrip));

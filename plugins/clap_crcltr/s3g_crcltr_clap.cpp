@@ -7,6 +7,7 @@
 #include <clap/ext/params.h>
 #include <clap/ext/state.h>
 #include <clap/ext/gui.h>
+#include "../common/s3g_generated_sample_media.h"
 
 #include "../common/s3g_clap_gui_param_queue.h"
 
@@ -244,6 +245,13 @@ struct LoopLoadResult {
 #endif
 
 struct Plugin {
+    s3g::sample_storage::GeneratedSampleMedia generatedMedia;
+    std::array<s3g::CrcltrSnapshot,2> loopSnapshots;
+    std::array<std::shared_ptr<const s3g::sample::SampleAsset>,2> savedLoopAssets;
+    std::array<uint64_t,2> savedLoopVersions{{UINT64_MAX,UINT64_MAX}};
+    std::array<const ImportedLoopAudio*,2> savedImports{};
+    std::array<uint64_t,2> notifiedLoopVersions{}; // audio thread only
+    bool embedPresetAudio=false; // explicit preset files remain self-contained
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -699,7 +707,7 @@ void serviceLoopClearRequests(Plugin& plugin)
         if ((clearMask & (1u << loop)) == 0u) continue;
         plugin.dsp.clearLoop(loop);
         plugin.loopPosition[loop].store(0.0f, std::memory_order_relaxed);
-        if (!plugin.prepared) plugin.pendingLoopFrames[loop] = 0u;
+        if (!plugin.prepared){plugin.pendingLoopFrames[loop] = 0u;plugin.savedLoopAssets[loop].reset();}
     }
     if (!plugin.prepared && plugin.pendingLoopFrames[0] == 0u
         && plugin.pendingLoopFrames[1] == 0u)
@@ -924,6 +932,53 @@ bool snapshotLoops(Plugin& plugin)
     return true;
 }
 
+// Only the first snapshot of a new take copies PCM. No disk work, locks, or
+// access to mutable DSP storage; subsequent snapshots only compare versions.
+bool cacheLoopSnapshots(Plugin& p)
+{
+    try {
+        for(unsigned loop=0;loop<2;++loop){
+            if(!p.prepared){
+                if(!p.savedLoopAssets[loop]&&p.pendingLoopFrames[loop]){
+                    auto asset=std::make_shared<s3g::sample::SampleAsset>();
+                    asset->sampleRate=p.pendingAudioSampleRate;asset->channelCount=2;
+                    asset->channels[0]=p.pendingLoopAudio[2*loop];asset->channels[1]=p.pendingLoopAudio[2*loop+1];
+                    p.savedLoopAssets[loop]=std::move(asset);
+                }
+                continue;
+            }
+            const auto imported=p.controlLoadedAudio[loop];
+            const bool loading=p.loopSourceKinds[loop].load(std::memory_order_acquire)==static_cast<uint8_t>(LoopSourceKind::Loading);
+            if(loading&&imported&&imported->valid()){
+                if(p.savedImports[loop]!=imported.get()){
+                    auto asset=std::make_shared<s3g::sample::SampleAsset>();asset->sampleRate=imported->sampleRate;asset->channelCount=2;
+                    asset->channels[0]=imported->left;asset->channels[1]=imported->right;p.savedLoopAssets[loop]=std::move(asset);
+                    p.savedImports[loop]=imported.get();
+                }
+                continue;
+            }
+            auto& mirror=p.loopSnapshots[loop];bool copied=false;
+            for(unsigned attempt=0;attempt<3&&!copied;++attempt){
+                const auto version=mirror.version();if(version&1)continue;
+                if(!p.savedImports[loop]&&p.savedLoopVersions[loop]==version){copied=true;break;}
+                const auto frames=mirror.frames();std::shared_ptr<s3g::sample::SampleAsset> asset;
+                if(frames){asset=std::make_shared<s3g::sample::SampleAsset>();asset->sampleRate=p.sampleRate;asset->channelCount=2;
+                    asset->channels[0].resize(frames);asset->channels[1].resize(frames);}
+                if(!mirror.copy(version,frames?asset->channels[0].data():nullptr,frames?asset->channels[1].data():nullptr,frames))continue;
+                p.savedLoopAssets[loop]=std::move(asset);p.savedLoopVersions[loop]=version;p.savedImports[loop]=nullptr;copied=true;
+            }
+            if(!copied)return false; // a concurrent take changed: never save torn/stale audio
+        }
+    }catch(...){return false;}
+    return true;
+}
+
+void serviceGeneratedLoops(Plugin& p)
+{
+    if(!cacheLoopSnapshots(p))return;
+    p.generatedMedia.service(p.host,{{p.savedLoopAssets[0],"circulator-loop-A"},{p.savedLoopAssets[1],"circulator-loop-B"}});
+}
+
 bool restorePendingLoops(Plugin& plugin)
 {
     if (!plugin.prepared || plugin.pendingAudioSampleRate <= 1.0) return true;
@@ -956,11 +1011,15 @@ bool activate(const clap_plugin_t* plugin, double sampleRate, uint32_t,
     }
     p->params.record = false;
     if (!p->dsp.prepare(sampleRate, p->maxFrames)) return false;
+    try{for(unsigned loop=0;loop<2;++loop){p->loopSnapshots[loop].prepare(p->dsp.loopCapacityFrames());
+        p->dsp.setSnapshotMirror(loop,&p->loopSnapshots[loop]);p->savedLoopVersions[loop]=UINT64_MAX;p->savedImports[loop]=nullptr;}}
+    catch(...){return false;}
     p->prepared = true;
     p->dsp.setParams(p->params);
     if (!restorePendingLoops(*p)) return false;
     beginWaveformRebuild(*p, 0u);
     beginWaveformRebuild(*p, 1u);
+    if(p->host&&p->host->request_callback)p->host->request_callback(p->host);
     return true;
 }
 
@@ -1122,6 +1181,9 @@ clap_process_status process(const clap_plugin_t* plugin,
         }
     }
     renderRange(*p, renderedFrames, frames - renderedFrames);
+    if(!p->params.record){for(unsigned loop=0;loop<2;++loop){const auto version=p->loopSnapshots[loop].version();
+        if(version!=p->notifiedLoopVersions[loop]){p->notifiedLoopVersions[loop]=version;
+            if(p->host&&p->host->request_callback)p->host->request_callback(p->host);}}}
     serviceWaveformPublication(*p);
 
     float blockPeak = 0.0f;
@@ -1155,6 +1217,7 @@ void onMainThread(const clap_plugin_t* plugin)
     serviceLoopLoadResults(*p);
 #endif
     serviceRetiredLoopImports(*p);
+    serviceGeneratedLoops(*p);
 }
 
 uint32_t audioPortsCount(const clap_plugin_t*, bool) { return 1u; }
@@ -1541,19 +1604,26 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
-    if (!snapshotLoops(*p)) return false;
+    if(p->host&&p->host->request_callback)p->host->request_callback(p->host);
+    if (!cacheLoopSnapshots(*p)) return false;
     SavedStateHeader state = savedStateFor(p->params);
-    state.audioSampleRate = p->pendingAudioSampleRate;
-    state.loopFrames[0] = p->pendingLoopFrames[0];
-    state.loopFrames[1] = p->pendingLoopFrames[1];
+    std::array<std::string,2> references;
+    for(unsigned loop=0;loop<2;++loop){const auto& asset=p->savedLoopAssets[loop];
+        if(asset){state.audioSampleRate=asset->sampleRate;state.loopFrames[loop]=asset->frameCount();
+            if(!p->embedPresetAudio)references[loop]=p->generatedMedia.reference(asset,p->host);
+            if(references[loop].size()>32768)references[loop].clear();}}
+    if(!references[0].empty()||!references[1].empty())state.version=4;
     if (!writeAll(stream, &state, sizeof(state))) return false;
     for (uint32_t loop = 0u; loop < 2u; ++loop) {
+        if(state.version>=4){const uint32_t length=static_cast<uint32_t>(references[loop].size());
+            if(!writeAll(stream,&length,sizeof(length))||(length&&!writeAll(stream,references[loop].data(),length)))return false;
+            if(length)continue;}
         const uint64_t bytes = static_cast<uint64_t>(state.loopFrames[loop])
             * sizeof(float);
         if (bytes == 0u) continue;
-        if (!writeAll(stream, p->pendingLoopAudio[loop * 2u].data(), bytes)
+        if (!writeAll(stream, p->savedLoopAssets[loop]->channels[0].data(), bytes)
             || !writeAll(stream,
-                p->pendingLoopAudio[loop * 2u + 1u].data(), bytes))
+                p->savedLoopAssets[loop]->channels[1].data(), bytes))
             return false;
     }
     return true;
@@ -1591,10 +1661,16 @@ SavedStateHeader upgradeStateV2(const SavedStateHeaderV2& old)
     return state;
 }
 
+#if defined(S3G_SAMPLE_FILE_WORKER)
+bool decodeLoopSample(const LoopLoadRequest&,std::shared_ptr<const ImportedLoopAudio>&,std::string&);
+#endif
+
 bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
 {
     if (!stream || !stream->read) return false;
     auto* p = self(plugin);
+    const auto discardPreviousImports=[&]{
+    p->savedLoopAssets={};p->savedImports={};p->savedLoopVersions.fill(UINT64_MAX);
     p->loopClearRequestMask.store(0u, std::memory_order_release);
     p->loopLoadPendingMask.store(0u, std::memory_order_release);
     p->loopLoadErrorMask.store(0u, std::memory_order_release);
@@ -1607,6 +1683,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         p->controlLoadedAudio[loop].reset();
         p->loopLoadStatuses[loop] = "EMPTY";
     }
+    };
     uint32_t version = 0u;
     if (!readAll(stream, &version, sizeof(version))) return false;
     if (version == 1u) {
@@ -1615,6 +1692,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         if (!readAll(stream,
                 reinterpret_cast<uint8_t*>(&legacy) + sizeof(version),
                 sizeof(legacy) - sizeof(version))) return false;
+        discardPreviousImports();
         applyParam(*p, kLoop1RateParamId, legacy.loop1Rate);
         applyParam(*p, kLoop2RateParamId, legacy.loop2Rate);
         applyParam(*p, kCrossfadeModeParamId, legacy.crossfadeMode);
@@ -1654,7 +1732,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
                 sizeof(old) - sizeof(version))
             || old.headerBytes != sizeof(SavedStateHeaderV2)) return false;
         state = upgradeStateV2(old);
-    } else if (version == kStateVersion) {
+    } else if (version == kStateVersion || version == 4u) {
         state.version = version;
         if (!readAll(stream,
                 reinterpret_cast<uint8_t*>(&state) + sizeof(version),
@@ -1669,6 +1747,31 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     if (state.loopFrames[0] > kMaximumPersistedFrames
         || state.loopFrames[1] > kMaximumPersistedFrames) return false;
 
+    std::array<std::shared_ptr<const s3g::sample::SampleAsset>,2> loadedAssets;
+    std::array<std::string,2> loadedPaths;
+    try{for(unsigned loop=0;loop<2;++loop){
+        if(version>=4){uint32_t length=0;if(!readAll(stream,&length,sizeof(length))||length>32768)return false;
+            if(length){std::string relative(length,'\0');if(!readAll(stream,relative.data(),length)||relative.find('\0')!=std::string::npos)return false;
+                if(!s3g::sample_storage::resolveProjectRelativePath(s3g::sample_storage::reaperContext(p->host),relative,loadedPaths[loop]))return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+                LoopLoadRequest request;request.path=loadedPaths[loop];request.destinationSampleRate=state.audioSampleRate;request.destinationCapacity=kMaximumPersistedFrames;
+                std::shared_ptr<const ImportedLoopAudio> decoded;std::string error;
+                if(!decodeLoopSample(request,decoded,error)||decoded->left.size()!=state.loopFrames[loop])return false;
+                auto asset=std::make_shared<s3g::sample::SampleAsset>();asset->sampleRate=state.audioSampleRate;asset->channelCount=2;
+                asset->channels[0]=decoded->left;asset->channels[1]=decoded->right;loadedAssets[loop]=std::move(asset);continue;
+#else
+                return false;
+#endif
+            }}
+        if(!state.loopFrames[loop])continue;
+        if(state.audioSampleRate<=1)return false;
+        auto asset=std::make_shared<s3g::sample::SampleAsset>();asset->sampleRate=state.audioSampleRate;asset->channelCount=2;
+        for(unsigned ch=0;ch<2;++ch){asset->channels[ch].resize(state.loopFrames[loop]);
+            if(!readAll(stream,asset->channels[ch].data(),uint64_t(state.loopFrames[loop])*sizeof(float)))return false;}
+        loadedAssets[loop]=std::move(asset);
+    }}catch(...){return false;}
+
+    discardPreviousImports();
     applyParam(*p, kLoop1RateParamId, state.loop1Rate);
     applyParam(*p, kLoop2RateParamId, state.loop2Rate);
     applyParam(*p, kCrossfadeModeParamId, state.crossfadeMode);
@@ -1699,14 +1802,8 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             p->pendingLoopFrames[loop] = frames;
             p->pendingLoopAudio[loop * 2u].resize(frames);
             p->pendingLoopAudio[loop * 2u + 1u].resize(frames);
-            const uint64_t bytes = static_cast<uint64_t>(frames)
-                * sizeof(float);
-            if (bytes > 0u
-                && (!readAll(stream, p->pendingLoopAudio[loop * 2u].data(),
-                        bytes)
-                    || !readAll(stream,
-                        p->pendingLoopAudio[loop * 2u + 1u].data(), bytes)))
-                return false;
+            if(loadedAssets[loop]){p->pendingLoopAudio[2*loop]=loadedAssets[loop]->channels[0];
+                p->pendingLoopAudio[2*loop+1]=loadedAssets[loop]->channels[1];}
             if (frames > 0u) {
                 p->loopSourceKinds[loop].store(
                     static_cast<uint8_t>(LoopSourceKind::Embedded),
@@ -1719,6 +1816,12 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     }
     if (p->prepared) p->dsp.clear();
     if (!restorePendingLoops(*p)) return false;
+    for(unsigned loop=0;loop<2;++loop){
+        if(!p->prepared||std::abs(p->sampleRate-state.audioSampleRate)<.5){p->savedLoopAssets[loop]=loadedAssets[loop];
+            p->savedLoopVersions[loop]=p->loopSnapshots[loop].version();
+            if(!loadedPaths[loop].empty())p->generatedMedia.remember(loadedAssets[loop],p->host,loadedPaths[loop]);}
+    }
+    if(p->host&&p->host->request_callback)p->host->request_callback(p->host);
     p->waveformRebuildMask.fetch_or(3u, std::memory_order_release);
     return true;
 }
@@ -1727,6 +1830,12 @@ const clap_plugin_state_t stateExtension {
     stateSave,
     stateLoad,
 };
+
+bool savePresetState(const clap_plugin_t* plugin,const clap_ostream_t* stream){
+    auto& p=*self(plugin);struct Restore{bool& value;bool previous;~Restore(){value=previous;}} restore{p.embedPresetAudio,p.embedPresetAudio};
+    p.embedPresetAudio=true;return stateSave(plugin,stream);
+}
+const clap_plugin_state_t presetStateExtension{savePresetState,stateLoad};
 
 #if defined(S3G_SAMPLE_FILE_WORKER)
 
@@ -1943,6 +2052,7 @@ bool installDecodedLoop(Plugin& plugin, uint32_t loop, uint64_t generation,
                 audio->left.size());
             plugin.pendingLoopAudio[loop * 2u] = audio->left;
             plugin.pendingLoopAudio[loop * 2u + 1u] = audio->right;
+            plugin.savedLoopAssets[loop].reset();
         } catch (...) {
             plugin.loopLoadStatuses[loop] = "LOAD RAN OUT OF MEMORY";
             return false;
@@ -3611,7 +3721,7 @@ bool portableLoadPreset(void* context, const char* path)
 bool portableSavePreset(void* context, const char* path)
 {
     return context && s3g::clap_gui::portable::saveStateFile(
-        &static_cast<Plugin*>(context)->plugin, stateExtension, path);
+        &static_cast<Plugin*>(context)->plugin, presetStateExtension, path);
 }
 
 const std::array<s3g::portable_gui::SampleFamilyAction, 4u>

@@ -12,6 +12,7 @@
 #include "../common/s3g_clap_state_stream.h"
 #include "../common/s3g_sample_file_decode.h"
 #include "../common/s3g_sample_storage.h"
+#include "../common/s3g_generated_sample_media.h"
 #include "../common/s3g_audio_file_export.h"
 #include "s3g_sample_neon_layout.h"
 #include "s3g_sample_neon_labels.h"
@@ -101,7 +102,7 @@ using s3g::sample::SampleNeonOutputLayout;
 using s3g::sample::TriggerMode;
 
 constexpr uint32_t kStateMagic = 0x4e533353u; // "S3SN"
-constexpr uint32_t kStateVersion = 27u;
+constexpr uint32_t kStateVersion = 28u;
 constexpr std::size_t kMaximumPathBytes = 2048u;
 constexpr std::size_t kSliceModeStateBytes =
     s3g::sample::kSampleNeonSlotCount
@@ -626,6 +627,7 @@ struct CellClipboard;
 struct LayerClipboard;
 struct NeonEditHistory;
 struct Plugin {
+    s3g::sample_storage::GeneratedSampleMedia generatedMedia;
     StorageMode storageMode = StorageMode::Project;
     std::array<std::array<LayerSource, 32u>, 32u> sources {};
     std::array<std::atomic<uint8_t>, 32u> selectedLayers {}, sourceModes {}, stackPaths {};
@@ -2279,7 +2281,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
 {
     auto& instance = *self(plugin);
     if (instance.resetAllPhase.load()) return false;
-    serviceStorage(instance);
+    if(instance.storageMode==StorageMode::Project&&instance.host&&instance.host->request_callback)instance.host->request_callback(instance.host);
+    const auto captureReference=instance.storageMode==StorageMode::Project
+        ?instance.generatedMedia.reference(instance.captureAsset,instance.host):std::string{};
     // Keep unextended LINK sessions readable by 0.22.x. New storage or stack
     // settings require version 15; do not discard hidden scan settings.
     bool legacy = instance.storageMode == StorageMode::Link;
@@ -2317,7 +2321,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     const std::array<uint8_t, 6> recordSetup {{instance.captureSource.load(), instance.captureInputFormat.load(),
         instance.captureInputGroup.load(), uint8_t(instance.captureToStack.load()), instance.captureLayer.load(), uint8_t(instance.captureMonitor.load())}};
     std::array<uint8_t,116> voiceSetup {};
-    bool voiceExtended = false;
+    bool voiceExtended = !captureReference.empty();
     for (unsigned n = 0; n < 32; ++n) {
         voiceSetup[n*3] = instance.noteVoiceModes[n].load();
         voiceSetup[n*3+1] = instance.noteVoiceLimits[n].load();
@@ -2343,7 +2347,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     extended |= lanes;
     legacy &= !extended;
     StateHeader header;
-    header.version = voiceExtended ? 27u : captureExtended ? 26u : cutupsExtended ? 25u : mapExtended ? 24u : spectralExtended ? 23u : frameExtended ? 22u : characterExtended ? 21u : routingEnvelope ? 20u : fillExtended ? 19u : lanes ? 18u : extended ? 17u : legacy ? 14u : 15u;
+    header.version = !captureReference.empty() ? 28u : voiceExtended ? 27u : captureExtended ? 26u : cutupsExtended ? 25u : mapExtended ? 24u : spectralExtended ? 23u : frameExtended ? 22u : characterExtended ? 21u : routingEnvelope ? 20u : fillExtended ? 19u : lanes ? 18u : extended ? 17u : legacy ? 14u : 15u;
     if (!s3g::clap_state::writeAll(stream, &header, sizeof(header)))
         return false;
     std::array<double, kStoredParamCount> values {};
@@ -2574,7 +2578,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     }
     // Version 15 stores all source PCM once in the stack table, including the
     // review capture. Retain the empty legacy table for a stable prefix.
-    if (!writeEmbeddedAudio(stream, embedded) || !writeStackState(instance, stream)) return false;
+    if (!writeEmbeddedAudio(stream, embedded) || !writeStackState(instance, stream, !captureReference.empty())) return false;
     if (extended) for (const auto& pad : instance.familyControls) {
         std::array<float, kNeonFamilyCount> controls {};
         for (unsigned i = 0; i < controls.size(); ++i) controls[i] = pad[i].load();
@@ -2595,6 +2599,8 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     }
     if (captureExtended && !writeArray(recordSetup)) return false;
     if (voiceExtended && !writeArray(voiceSetup)) return false;
+    if(!captureReference.empty()){const uint32_t size=static_cast<uint32_t>(captureReference.size());
+        if(size>32768||!writeStackValue(stream,size)||!s3g::clap_state::writeAll(stream,captureReference.data(),size))return false;}
     return true;
 }
 
@@ -2605,7 +2611,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     StateHeader header;
     if (!s3g::clap_state::readAll(stream, &header, sizeof(header))
         || header.magic != kStateMagic
-        || (header.version != kStateVersion && header.version != 26u && header.version != 25u && header.version != 24u && header.version != 23u && header.version != 22u && header.version != 21u && header.version != 20u && header.version != 19u && header.version != 18u && header.version != 17u && header.version != 16u && header.version != 15u && header.version != 14u && header.version != 13u && header.version != 12u && header.version != 11u && header.version != 10u)
+        || (header.version != kStateVersion && header.version != 27u && header.version != 26u && header.version != 25u && header.version != 24u && header.version != 23u && header.version != 22u && header.version != 21u && header.version != 20u && header.version != 19u && header.version != 18u && header.version != 17u && header.version != 16u && header.version != 15u && header.version != 14u && header.version != 13u && header.version != 12u && header.version != 11u && header.version != 10u)
         || header.parameterCount != kStoredParamCount
         || header.pathBytes != kMaximumPathBytes) return false;
     std::array<double, kStoredParamCount> values {};
@@ -2830,6 +2836,17 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
         for (unsigned n = 0; n < 16; ++n) if (voiceSetup[96+n] > 33) return false;
         for (unsigned n = 0; n < 2; ++n)
             if ((voiceSetup[112+n*2] > 31 && voiceSetup[112+n*2] != 255) || voiceSetup[113+n*2] > 96) return false;
+    }
+    std::string captureAbsolute;
+    if(header.version>=28){uint32_t length=0;std::string relative,error;
+        if(!readStackValue(stream,length)||!length||length>32768)return false;relative.resize(length);
+        if(!s3g::clap_state::readAll(stream,relative.data(),length)||relative.find('\0')!=std::string::npos
+            ||!s3g::sample_storage::resolveProjectRelativePath(s3g::sample_storage::reaperContext(instance.host),relative,captureAbsolute))return false;
+#if defined(S3G_SAMPLE_FILE_WORKER)
+        if(!decodeSampleFile(captureAbsolute,embedded[32],error))return false;
+#else
+        return false;
+#endif
     }
     // An active take owns its buffers until Stop; reject restore atomically.
     if (instance.resetAllPhase.load() || instance.captureState.load() == Plugin::CaptureState::Recording
@@ -3060,6 +3077,7 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     instance.sendNeonInitialization.store(true, std::memory_order_release);
     instance.ledFeedbackDirty.store(true, std::memory_order_release);
     instance.captureAsset = embedded[32u];
+    if(!captureAbsolute.empty())instance.generatedMedia.remember(instance.captureAsset,instance.host,captureAbsolute);
     forgetSavedCapture(instance); // Recall keeps review PCM, not a stale deletion link.
     instance.resetNeonVelocity.store(true, std::memory_order_release);
     if (instance.captureAsset) instance.retainedAssets.push_back(instance.captureAsset);

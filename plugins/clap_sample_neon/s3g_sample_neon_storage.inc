@@ -1,4 +1,5 @@
 void serviceStorage(Plugin& p) {
+    p.generatedMedia.service(p.host,{{p.captureAsset,"neon-audition"}},p.storageMode==StorageMode::Project);
 #if defined(S3G_SAMPLE_FILE_WORKER)
     if (p.resetAllPhase.load() || p.storageMode != StorageMode::Project
         || std::chrono::steady_clock::now() < p.nextCollection) return;
@@ -58,7 +59,7 @@ template<class T> bool writeStackValue(const clap_ostream_t* stream, const T& va
 template<class T> bool readStackValue(const clap_istream_t* stream, T& value) {
     return s3g::clap_state::readAll(stream, &value, sizeof(value));
 }
-bool writeStackState(Plugin& p, const clap_ostream_t* stream) {
+bool writeStackState(Plugin& p, const clap_ostream_t* stream, bool captureReferenced=false) {
     const auto mode = static_cast<uint8_t>(p.storageMode);
     if (!writeStackValue(stream, mode)) return false;
     std::array<const SampleAsset*, 1025u> embedded {};
@@ -90,7 +91,7 @@ bool writeStackState(Plugin& p, const clap_ostream_t* stream) {
                 || !s3g::clap_state::writeAll(stream, path.data(), length)) return false;
         }
     }
-    embedded.back() = p.captureAsset.get();
+    if(!captureReferenced)embedded.back() = p.captureAsset.get();
     return writeEmbeddedAudio(stream, embedded);
 }
 bool readStackState(const clap_istream_t* stream, StackState& state) {

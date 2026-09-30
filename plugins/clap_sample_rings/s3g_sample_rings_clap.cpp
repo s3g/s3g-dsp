@@ -11,6 +11,7 @@
 #include "../common/s3g_sample_family_vstgui.h"
 #endif
 #include "../common/s3g_sample_storage.h"
+#include "../common/s3g_generated_sample_media.h"
 
 #include <clap/clap.h>
 #include <clap/ext/audio-ports.h>
@@ -253,6 +254,7 @@ struct LoadResult {
 #endif
 
 struct Plugin {
+    s3g::sample_storage::GeneratedSampleMedia generatedMedia;
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
     const clap_host_params_t* hostParams = nullptr;
@@ -1016,6 +1018,10 @@ void queueProjectCopy(Plugin& plugin, uint32_t slot)
 
 void serviceLoads(Plugin& plugin)
 {
+    std::vector<s3g::sample_storage::GeneratedSampleMedia::Source> generated;
+    for(unsigned slot=0;slot<kSourceCount;++slot)if(plugin.sources[slot]&&plugin.sourcePaths[slot].empty())
+        generated.push_back({plugin.sources[slot],"rings-capture-"+std::to_string(slot+1)});
+    plugin.generatedMedia.service(plugin.host,generated,plugin.storageMode==StorageMode::Project);
     std::deque<LoadResult> results;
     {
         std::lock_guard<std::mutex> lock(plugin.loaderMutex);
@@ -2201,6 +2207,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     auto& instance = *self(plugin);
     finalizeCaptures(instance);
+    if(instance.storageMode==StorageMode::Project&&instance.host&&instance.host->request_callback)instance.host->request_callback(instance.host);
     SavedState saved;
     saved.storageMode = static_cast<uint8_t>(instance.storageMode);
     uint64_t embeddedBytes = 0u;
@@ -2211,6 +2218,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
             saved.slots[slot][offset] = paramValue(instance,
                 slotParamId(slot, offset));
         std::string locator = instance.sourcePaths[slot];
+        if(instance.storageMode==StorageMode::Project&&locator.empty())locator=instance.generatedMedia.reference(instance.sources[slot],instance.host);
         if (instance.storageMode == StorageMode::Project && locator.empty()
             && !instance.projectRelativePaths[slot].empty())
             locator = instance.projectRelativePaths[slot];
@@ -2226,6 +2234,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
             if (s3g::sample_storage::makeProjectRelativePath(context,
                     locator, relative, &error)) locator = relative;
         }
+        if(locator.size()>=saved.paths[slot].size())locator.clear();
         std::snprintf(saved.paths[slot].data(), saved.paths[slot].size(),
             "%s", locator.c_str());
         const auto asset = instance.sources[slot];

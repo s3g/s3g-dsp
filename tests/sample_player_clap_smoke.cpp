@@ -1,4 +1,5 @@
 #include <clap/clap.h>
+#include "sample_snapshot_checks.h"
 #include <clap/ext/audio-ports.h>
 #include <clap/ext/note-name.h>
 #include <clap/ext/note-ports.h>
@@ -775,6 +776,7 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
             && pathlessProjectRoundTrip.embedded == 1u,
         "requested PROJECT was not kept separate from its safety payload");
 
+    ok &= sample_snapshot_test::repeated(plugin,state,pathlessProjectSaved.bytes.size());
     CurrentFixtureState pendingProject = pathlessProject;
     std::snprintf(pendingProject.path.data(), pendingProject.path.size(),
         "%s", "/missing/original-project-source.wav");
@@ -804,6 +806,7 @@ bool exerciseDescriptor(const clap_plugin_factory_t* factory,
                 pendingProject.path.data()) == 0,
         "pending PROJECT did not preserve its small absolute locator");
 
+    ok &= sample_snapshot_test::repeated(plugin,state,sizeof(CurrentFixtureState));
     ok &= expect(plugin->activate(plugin, 48000.0, 8u, 16u)
             && plugin->start_processing(plugin),
         "activation failed");

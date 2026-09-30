@@ -34,7 +34,9 @@
         for (unsigned n = 0; n < kMaximumCutupsPatternSteps; ++n) {
             s.manualPattern[n] = {static_cast<uint8_t>(f.values[neonFamilyIndex(F::CutPatternLane)+n]),
                 f.values[neonFamilyIndex(F::CutPatternSource)+n]};
+            if(c.sourceScrub>=0)s.manualPattern[n].source=static_cast<float>(c.sourceScrub);
         }
+        if(c.sourceScrub>=0)s.sourceOrder=CutSourceOrder::Manual;
         for (unsigned n = 0; n < kSampleNeonLayers; ++n) {
             const bool inStack = c.stack && n < c.stack->count;
             const auto layer = inStack ? stackLayer(c,n,assets_[slot])
@@ -76,6 +78,7 @@
                 event.kind == SampleNeonEventKind::Trigger ? CutupsEventKind::NoteOn
                     : event.kind == SampleNeonEventKind::Release ? CutupsEventKind::NoteOff : CutupsEventKind::StopAll,
                 c.triggerMode == TriggerMode::Toggle ? 0u : event.noteId, 60u, event.value, 0u, c.noteVoiceOrdinal};
+            if(waveActive_[slot]&&c.deckTransport&&event.kind==SampleNeonEventKind::Trigger){events[total-1].launchPosition=c.launchPosition;events[total-1].launchLayer=c.selectedLayer;}
         }
         renderTo(frames);
         waveCursorCounts_[slot] = waveActive_[slot] ? engine.voiceCursorCount() : 0;

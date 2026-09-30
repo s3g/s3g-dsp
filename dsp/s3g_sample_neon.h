@@ -254,6 +254,21 @@ struct SampleNeonEvent {
 };
 
 struct SampleNeonSlotSettings {
+    // Optional deck platter override, normalized within the source window.
+    // Disabled for every existing Neon instance and saved state.
+    double sourceScrub = -1.0;
+    const float* deckPlatterRates = nullptr;
+    const float* deckScanPositions = nullptr;
+    float deckScanMix = 1.f;
+    double scrubbed(double natural, unsigned frame=0) const noexcept {
+        if (sourceScrub<0 && !deckScanPositions) return natural;
+        const double target=deckScanPositions ? deckScanPositions[frame] : sourceScrub;
+        // Circular interpolation avoids scanning across the whole file when
+        // releasing near the source wrap. Ordinary Neon never enables this.
+        const double difference=target-natural;
+        return neonUnitPhase(natural+(difference-std::round(difference))*deckScanMix);
+    }
+    bool deckWavesetSources = false; // Decks enables all stack source policies.
     NeonFamilySettings family;
     const NeonStack* stack = nullptr;
     NeonSourceMode sourceMode = NeonSourceMode::Primary;
@@ -292,6 +307,8 @@ struct SampleNeonSlotSettings {
     bool sync = false;
     bool velocityEnabled = true;
     double sourceDurationSeconds = 0.0;
+    int deckPerformanceLayer = -1; // Decks' clock-preserving discrete layer ride
+    bool deckTransport = false; // opt-in launch offsets for embedded decks
     double sourceTempoBpm = 120.0;
     double slicerDomainStart = 0.0;
     double slicerDomainBeats = 8.0;
@@ -382,6 +399,10 @@ struct SampleNeonSettings {
 
 class SampleNeonEngine {
 public:
+    void seekSource(std::size_t slot, double position) noexcept {
+        if (slot >= players_.size()) return;
+        players_[slot].seekVoices(position); lanes_[slot].seek(position);cutups_[slot].seekTimeline(position);
+    }
     bool prepare(double sampleRate, uint32_t maximumFrames, bool prepareEffects = true)
     {
         if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)
@@ -771,6 +792,11 @@ public:
                 }
                 playerEvents[playerEventCount++] = event;
             }
+            if(settings.slots[slot].playback==SampleNeonPlayback::Sample&&settings.slots[slot].deckPerformanceLayer>=0){
+                const unsigned layer=static_cast<unsigned>(settings.slots[slot].deckPerformanceLayer);
+                const auto source=stackLayer(settings.slots[slot],layer,assets_[slot]);
+                players_[slot].retargetSource(source.asset,source.start,source.end,static_cast<uint8_t>(layer));
+            }
             appendTechniqueEvents(settings, slot, events, eventCount,
                 playerEvents, playerEventCount, frameCount);
 
@@ -780,7 +806,8 @@ public:
             players_[slot].render(makePlayerSettings(settings, slot),
                 playerEvents.data(), playerEventCount, channels.data(),
                 kMaximumAudioChannels,
-                frameCount);
+                frameCount, settings.slots[slot].playback == SampleNeonPlayback::Sample
+                    ? settings.slots[slot].deckPlatterRates : nullptr);
             updateStackVoices(slot);
             const auto& frameControl = settings.slots[slot];
             if (frameControl.playback == SampleNeonPlayback::Cutups)
@@ -809,7 +836,7 @@ public:
                 lanes_[slot].render(s.stack, {assets_[slot], s.start, s.end}, s.selectedLayer,
                     s.start, s.end, s.family, sampleRate_, decibelsToLinear(s.gainDecibels),
                     s.tuneSemitones, s.direction, s.velocityEnabled, waveScanPositions_.data(),
-                    waveScanVelocities_.data(), waveScanRetriggers_.data(), channels.data(), frameCount);
+                    waveScanVelocities_.data(), waveScanRetriggers_.data(), channels.data(), frameCount, s.deckPlatterRates,s.deckTransport?s.launchPosition:0);
                 waveActive_[slot] = grainEmitters_[slot].ownsOutput;
                 waveCursors_[slot] = lanes_[slot].cursors();
                 waveCursorCounts_[slot] = lanes_[slot].cursorCount();
@@ -966,6 +993,9 @@ private:
         else if (s.sourceMode == NeonSourceMode::Velocity) layer = neonVelocityLayer(velocity, count);
         else if (s.sourceMode == NeonSourceMode::Random)
             layer = std::min(count - 1u, static_cast<unsigned>(nextRandom01(stackSeeds_[slot]) * count));
+        if(s.stack&&s.stack->skipEmptyLayers&&!s.stack->layers[layer].asset){
+            const auto blend=neonStackBlend(count>1?double(layer)/(count-1):0.,s.stack);
+            layer=blend.mix>.5f?blend.second:blend.first;}
         stackPositions_[slot] = count > 1u ? static_cast<float>(layer) / (count - 1u) : 0.0f;
         return layer;
     }
@@ -1105,7 +1135,8 @@ private:
                 ? control.motionCycleBeats * 60.0 / std::clamp<double>(settings.hostTempoBpm, 20.0, 999.0)
                 : control.motionCycleSeconds;
             const double phase = static_cast<double>(ageFrames) / sampleRate_ / std::clamp(seconds, 0.05, 96.0);
-            const double position = phase - std::floor(phase);
+            const double shifted=phase+(control.deckTransport?control.launchPosition:0);
+            const double position = control.scrubbed(shifted - std::floor(shifted), frameOffset);
             return control.direction == 1u ? 1.0 - position : position;
         }
         if (control.playback != SampleNeonPlayback::Motion)
@@ -1115,7 +1146,7 @@ private:
             : static_cast<double>(ageFrames) / sampleRate_ / std::clamp<double>(control.motionCycleSeconds, 0.05, 30.0);
         const double seconds = control.clock == SampleNeonClock::Host
             ? motionBeatAtFrame(settings, frameOffset) * 60.0 / settings.hostTempoBpm : ageFrames / sampleRate_;
-        return motionTrajectory(control, phase, seconds, slot);
+        return control.scrubbed(motionTrajectory(control, phase, seconds, slot), frameOffset);
     }
 
     void synchronizeMotionClock(const SampleNeonSettings& settings) noexcept
@@ -1225,7 +1256,7 @@ private:
         s.repeats = 1u + static_cast<unsigned>(std::lround(control.technique[1] * 15.0f));
         s.shape = static_cast<WavesetShape>(std::clamp<int>(static_cast<int>(std::lround(control.technique[2] * 11.0f)), 0, 11));
         s.processAmount = control.technique[3];
-        if (control.sourceMode == NeonSourceMode::Scan) {
+        if (control.sourceMode == NeonSourceMode::Scan || control.deckWavesetSources) {
             wavesets_[slot].reset();
             waveActive_[slot] = grainEmitters_[slot].ownsOutput;
             if (control.sourceFormat == SampleNeonSourceFormat::Ambisonic) {
@@ -1234,7 +1265,7 @@ private:
                 return;
             }
             waveScans_[slot].render(s, control.stack, control.selectedLayer, control.start, control.end,
-                waveScanVelocities_.data(), waveScanPositions_.data(), waveScanRetriggers_.data(), channels, frames);
+                waveScanVelocities_.data(), waveScanPositions_.data(), waveScanRetriggers_.data(), channels, frames, control.sourceScrub,control.deckScanPositions,control.deckTransport?control.launchPosition:-1);
             waveCursors_[slot] = waveScans_[slot].cursors();
             waveCursorCounts_[slot] = waveScans_[slot].cursorCount();
             return;
@@ -1393,6 +1424,7 @@ private:
                 if (spectral || oscillator) {
                     const double base = spectral ? control.launchPosition : f[NeonFamily::OscPosition];
                     frameSourcePositions_[frame] = static_cast<float>(emitter.sourcePhase == 0 ? base : neonUnitPhase(base + emitter.sourcePhase));
+                    frameSourcePositions_[frame] = static_cast<float>(control.scrubbed(frameSourcePositions_[frame],frame));
                     const double advance = spectral ? std::clamp<double>(f[NeonFamily::SpectralAdvance]
                         + emitter.pressure * f[NeonFamily::SpectralPressure], 0, 1) : f[NeonFamily::OscScan];
                     const double seconds = control.clock == SampleNeonClock::Host
@@ -1405,8 +1437,9 @@ private:
                 const bool scan = ((!emitter.selectedSource && control.sourceMode == NeonSourceMode::Scan) || liveStack) && control.stack
                     && (motion || stretch || control.playback == SampleNeonPlayback::Grains);
                 const double positionInStack = scan ? liveStack ? livePosition : stackScan(settings, slot, emitter.ageFrames, frame) : 0.0;
-                auto blend = scan ? neonStackBlend(positionInStack, control.stack->count)
+                auto blend = scan ? neonStackBlend(positionInStack, control.stack)
                     : NeonStackBlend {emitter.layer, emitter.layer, 0.0f};
+                if(sequence&&control.deckPerformanceLayer>=0){const unsigned layer=static_cast<unsigned>(control.deckPerformanceLayer);blend={layer,layer,0};}
                 if (scan && !liveStack && f[NeonFamily::StackJump] != 0) {
                     const unsigned layer = blend.mix >= .5f ? blend.second : blend.first;
                     blend = {layer, layer, 0};
@@ -1472,6 +1505,8 @@ private:
                     if (step == 0 && motionModel != 1u) emitter.eventPosition = position;
                     position = std::clamp(emitter.eventPosition + (motionModel == 2u ? step * f[NeonFamily::EventStep] : 0), 0.0, 1.0);
                 }
+                // Motion/Stretch already apply the platter in scanPosition().
+                if (!motion && !stretch) position=control.scrubbed(position,frame);
                 emitter.doubletPosition = position;
                 grain.startOffsetNormalized = std::min(range * position, std::max(0.0, range - window));
                 grain.windowLengthNormalized = window;
@@ -1504,10 +1539,11 @@ private:
                     grain.edgeFadeFrames = static_cast<uint32_t>(std::max(2.0,
                         std::min(std::round(sampleRate_ * .005),
                             std::floor(interval * .25))));
-                    const bool primaryMap = control.stack && control.selectedLayer != 0u && !emitter.selectedSource;
+                    const bool primaryMap = control.deckPerformanceLayer<0 && control.stack && control.selectedLayer != 0u && !emitter.selectedSource;
                     const auto slices = std::clamp<unsigned>(primaryMap ? control.stack->primarySliceCount : control.sliceCount, 1u, 32u);
                     const auto repeats = 1u + static_cast<unsigned>(std::lround(control.technique[2] * 7.0f));
                     unsigned index = static_cast<unsigned>((emitter.serial - 1u) / repeats % slices);
+                    if(control.deckTransport){unsigned first=0;while(first+1<slices&&control.sliceLayout.boundaries[first+1]<=control.launchPosition)++first;index=(index+first)%slices;}
                     if (control.technique[1] > 0.75f) {
                         if ((emitter.serial - 1u) % repeats == 0u)
                             emitter.sequenceIndex = std::min(slices - 1u, static_cast<unsigned>(nextRandom01(emitter.seed) * slices));
@@ -1517,6 +1553,7 @@ private:
                     auto layout = control.sliceLayout.valid() && control.sliceLayout.sliceCount == slices
                         ? control.sliceLayout : equalSampleNeonSliceLayout(slices);
                     if (primaryMap) { layout.sliceCount = static_cast<uint8_t>(slices); layout.boundaries = control.stack->primarySlices; }
+                    if(control.sourceScrub>=0 || control.deckScanPositions){const double at=control.scrubbed(double(index)/slices,frame);index=0;while(index+1<slices&&layout.boundaries[index+1]<=at)++index;}
                     grain.startOffsetNormalized = range * layout.boundaries[index];
                     grain.windowLengthNormalized = range * (layout.boundaries[index + 1u] - layout.boundaries[index]);
                     if (f[NeonFamily::MosaicMode] != 0 && control.stack && control.stack->fragmentCount) {
@@ -1594,7 +1631,7 @@ private:
         if (control.playback == SampleNeonPlayback::Wavesets || control.playback == SampleNeonPlayback::Lanes || control.playback == SampleNeonPlayback::Spectral)
             std::fill_n(waveScanRetriggers_.data(), frames, 0u);
         if (control.playback == SampleNeonPlayback::Sample || control.playback == SampleNeonPlayback::Cutups
-            || (control.playback == SampleNeonPlayback::Wavesets && control.sourceMode != NeonSourceMode::Scan && control.family[NeonFamily::WavesetEngine] == 0)) {
+            || (control.playback == SampleNeonPlayback::Wavesets && control.sourceMode != NeonSourceMode::Scan && !control.deckWavesetSources && control.family[NeonFamily::WavesetEngine] == 0)) {
             emitter = {};
             std::fill_n(techniqueEnvelope_.data(), frames, 1.0f); return;
         }
