@@ -232,6 +232,17 @@ inline bool moveSampleNeonSliceMarker(SampleNeonSliceLayout& layout,
     return true;
 }
 
+// Numeric navigation only: no PCM, voices, delay lines or FFT history. Decks
+// may use this to issue a NEW launch after a host's transport-start reset.
+struct NeonTransportPosition {
+    uint64_t ageFrames = 0, serial = 0, seed = 0;
+    unsigned layer = 0, sourceLayer = 0, sequenceIndex = 0, mosaicIndex = 0;
+    double sourcePhase = 0, heldPosition = 0, eventPosition = 0, doubletPosition = 0;
+    double sourcePosition = 0, lanePhase = 0, stackCuePosition = 0;
+    float stackTarget = -1, velocity = 1;
+    bool selectedSource = false, reverse = false;
+};
+
 struct SampleNeonEvent {
     uint32_t frameOffset = 0u;
     SampleNeonEventKind kind = SampleNeonEventKind::Trigger;
@@ -252,6 +263,7 @@ struct SampleNeonEvent {
     // pad triggers leave key at 255 and retain the pad's existing tuning.
     uint8_t key = 255u;
     bool snapStackPosition = false; // cue recall starts at the blend, not a glide from layer zero
+    const NeonTransportPosition* transportPosition = nullptr; // valid for this render only
 };
 
 struct SampleNeonSlotSettings {
@@ -400,6 +412,20 @@ struct SampleNeonSettings {
 
 class SampleNeonEngine {
 public:
+    NeonTransportPosition transportPosition(unsigned slot) const noexcept {
+        NeonTransportPosition p;
+        if (slot >= kSampleNeonSlotCount) return p;
+        const auto& e = grainEmitters_[slot];
+        p.ageFrames=e.ageFrames;p.serial=e.serial;p.seed=e.seed;p.layer=e.layer;
+        p.sequenceIndex=e.sequenceIndex;p.mosaicIndex=e.mosaicIndex;p.sourcePhase=e.sourcePhase;
+        p.heldPosition=e.heldPosition;p.eventPosition=e.eventPosition;p.doubletPosition=e.doubletPosition;
+        p.selectedSource=e.selectedSource;p.velocity=e.velocity;
+        p.lanePhase=lanes_[slot].phase();p.stackTarget=stackCueTargets_[slot];p.stackCuePosition=stackCuePositions_[slot];
+        const auto n=voiceCursorCount(slot);
+        if(n){const auto& c=voiceCursors(slot)[n-1];p.sourcePosition=c.sourcePositionNormalized;p.reverse=c.reverse;p.sourceLayer=c.layer;
+            if(!e.ownsOutput)p.layer=c.layer;}
+        return p;
+    }
     void seekSource(std::size_t slot, double position) noexcept {
         if (slot >= players_.size()) return;
         players_[slot].seekVoices(position); lanes_[slot].seek(position);cutups_[slot].seekTimeline(position);
@@ -790,6 +816,8 @@ public:
                         source.slot, motionBeatAtFrame(settings,
                             source.frameOffset), settings.transportPlaying,
                         event);
+                    if(source.transportPosition){event.resumePositionNormalized=source.transportPosition->sourcePosition;
+                        event.resumeReverse=source.transportPosition->reverse?1:0;}
                 }
                 playerEvents[playerEventCount++] = event;
             }
@@ -834,10 +862,13 @@ public:
             }
             if (settings.slots[slot].playback == SampleNeonPlayback::Lanes) {
                 const auto& s = settings.slots[slot];
+                double resumePhase=-1;
+                for(std::size_t n=0;n<eventCount;++n)if(events[n].slot==slot&&events[n].transportPosition)
+                    resumePhase=events[n].transportPosition->lanePhase;
                 lanes_[slot].render(s.stack, {assets_[slot], s.start, s.end}, s.selectedLayer,
                     s.start, s.end, s.family, sampleRate_, decibelsToLinear(s.gainDecibels),
                     s.tuneSemitones, s.direction, s.velocityEnabled, waveScanPositions_.data(),
-                    waveScanVelocities_.data(), waveScanRetriggers_.data(), channels.data(), frameCount, s.deckPlatterRates,s.deckTransport?s.launchPosition:0);
+                    waveScanVelocities_.data(), waveScanRetriggers_.data(), channels.data(), frameCount, s.deckPlatterRates,s.deckTransport?s.launchPosition:0,resumePhase);
                 waveActive_[slot] = grainEmitters_[slot].ownsOutput;
                 waveCursors_[slot] = lanes_[slot].cursors();
                 waveCursorCounts_[slot] = lanes_[slot].cursorCount();
@@ -1265,8 +1296,12 @@ private:
                 for (unsigned ch = 0u; ch < 16u; ++ch) std::fill_n(channels[ch], frames, 0.0f);
                 return;
             }
+            double launch=control.deckTransport?control.launchPosition:-1;
+            for(std::size_t n=0;n<count;++n)if(input[n].slot==slot&&input[n].transportPosition){
+                const auto& p=*input[n].transportPosition;const auto layer=stackLayer(control,p.sourceLayer,assets_[slot]);
+                launch=std::clamp((p.sourcePosition-layer.start)/std::max(1.e-9,layer.end-layer.start),0.,1.);}
             waveScans_[slot].render(s, control.stack, control.selectedLayer, control.start, control.end,
-                waveScanVelocities_.data(), waveScanPositions_.data(), waveScanRetriggers_.data(), channels, frames, control.sourceScrub,control.deckScanPositions,control.deckTransport?control.launchPosition:-1);
+                waveScanVelocities_.data(), waveScanPositions_.data(), waveScanRetriggers_.data(), channels, frames, control.sourceScrub,control.deckScanPositions,launch);
             waveCursors_[slot] = waveScans_[slot].cursors();
             waveCursorCounts_[slot] = waveScans_[slot].cursorCount();
             return;
@@ -1715,6 +1750,13 @@ private:
                         / (emitter.attackFrames + emitter.fadeOutFrames);
                     emitter.attackFrames = static_cast<uint32_t>(std::max(1.0, emitter.attackFrames * scale));
                     emitter.fadeOutFrames = static_cast<uint32_t>(std::max(1.0, emitter.fadeOutFrames * scale));
+                }
+                if(const auto* p=event.transportPosition){
+                    emitter.ageFrames=p->ageFrames;emitter.serial=p->serial;emitter.seed=p->seed;emitter.layer=p->layer;
+                    emitter.sequenceIndex=p->sequenceIndex;emitter.mosaicIndex=p->mosaicIndex;emitter.sourcePhase=p->sourcePhase;
+                    emitter.heldPosition=p->heldPosition;emitter.eventPosition=p->eventPosition;emitter.doubletPosition=p->doubletPosition;
+                    emitter.selectedSource=p->selectedSource;
+                    stackCueTargets_[slot]=p->stackTarget;stackCuePositions_[slot]=p->stackCuePosition;
                 }
             } else if (event.kind == SampleNeonEventKind::Release
                 && emitter.trigger == TriggerMode::Gate && emitter.noteId == event.noteId) {

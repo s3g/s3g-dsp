@@ -130,7 +130,7 @@
         for(unsigned tick=1;tick<5;++tick){const double fraction=tick/5.,seconds=v.at(fraction)*duration;if(seconds<0||seconds>duration)continue;
             const auto label=vertical?rect(b.right-58,b.top+fraction*b.getHeight(),54,12):rect(b.left+fraction*b.getWidth(),b.bottom-13,54,12);
             text(format(duration*v.width<.1?"%.3f S":"%.2f S",seconds),label,style.dim,kRightText,smallFont);}
-        text(format("%s / L%02u%s / %.1fX",kMethods[static_cast<unsigned>(control(p,d,Playback))],blend.first+1,blend.first!=blend.second?format(" > %02u / %.0f%%",blend.second+1,blend.mix*100).c_str():"",zoom[d]),rect(b.left,532,b.getWidth(),12),style.value,kLeftText,smallFont);
+        text(format("%s / L%02u%s / %.1fX",kMethods[static_cast<unsigned>(control(p,d,Playback))],blend.first+1,blend.first!=blend.second?format(" > %02u / %.0f%%",blend.second+1,blend.mix*100).c_str():"",zoom[d]),rect(b.left,b.bottom+2,b.getWidth(),12),style.value,kLeftText,smallFont);
         if(view[d]==3)return;
         // Lock the viewport for the complete mouse gesture; a moving waveform
         // must not move the pointer's target underneath a drag.

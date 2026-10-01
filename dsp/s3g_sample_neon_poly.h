@@ -78,6 +78,10 @@ public:
         const int v = latest_[pad]; return v < 0 ? MotionVisual {} : core_.motionVisual(v, renderSettings_);
     }
     const auto& voiceCursors(std::size_t pad) const noexcept { return cursors_[pad]; }
+    NeonTransportPosition transportPosition(unsigned pad) const noexcept {
+        const int v=latest_[pad];if(v<0)return {};
+        auto p=core_.transportPosition(v);p.velocity=voices_[v].velocity;return p;
+    }
     uint32_t voiceCursorCount(std::size_t pad) const noexcept { return cursorCounts_[pad]; }
 
     using PadSink = void (*)(void*, unsigned, float* const*, unsigned, uint32_t);
@@ -116,6 +120,7 @@ private:
         uint8_t pad = 0, key = 255;
         uint64_t external = 0, identity = 0, age = 0;
         uint8_t ordinal = 0;
+        float velocity = 1;
     };
     struct Held { bool used = false; uint8_t pad = 0, key = 255; uint64_t id = 0, age = 0; };
     void stopVoice(unsigned i) noexcept {
@@ -209,6 +214,7 @@ private:
         stopVoice(chosen);
         auto& v = voices_[chosen];
         v = {true, false, policy == 0, e.slot, e.key, e.noteId, ++serial_, serial_};
+        v.velocity=e.value;
         uint32_t ordinals = 0;
         for (unsigned i = 0; i < capacity; ++i) if (i != static_cast<unsigned>(chosen) && voices_[i].used && voices_[i].pad == e.slot)
             ordinals |= uint32_t(1) << voices_[i].ordinal;

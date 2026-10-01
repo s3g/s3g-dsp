@@ -49,9 +49,10 @@
           <li><strong>Left display:</strong> <strong>A WAVE</strong> shows A's waveform; <strong>B EDIT</strong> opens B's controls.</li>
           <li><strong>Right display:</strong> <strong>B WAVE</strong> shows B's waveform; <strong>A EDIT</strong> opens A's controls.</li>
           <li><strong>Performance strips:</strong> the left transport and pads always control A, and the right always control B, regardless of the display above them.</li>
-          <li><strong>Center:</strong> output format, levels, crossfader, recording, and setup stay within reach.</li>
+          <li><strong>Center:</strong> two permanent mixer strips keep A/B gain, high/mid/low EQ, DJ filter, FX amount, cue, slip, and levels visible. The crossfader, headphone mix/level, recording, output format, and setup are always available too.</li>
         </ul>
         <p>Cyan-gray title bars identify A; orange-gray bars identify B. An edit panel takes the color of the deck it controls. Use <strong>SHOW WAVE</strong> to bring that deck's waveform into the opposite display. Changing display pages does not change the sound, recording direction, or controller assignments.</p>
+        <p>The center mixer follows the Beatpad and host automation directly. Moving a hardware control updates its on-screen value; dragging a slider or typing a value edits the same setting. A and B stay fixed even when the opposite deck's editor is open. <strong>FILT</strong> is the DJ filter: negative values low-pass, positive values high-pass, and zero is neutral. <strong>FX</strong> is the amount of the Character effect selected for that deck. Shifted hardware knobs retain their Stack Cycle, Source Cycle, playback macro, and FX Amount assignments.</p>
         <p>The waveform pane contains the playback method, layer source, and selected layer. The edit-page menu opens <strong>SOURCE / CHOP</strong>, <strong>PLAYBACK</strong>, <strong>STACK PATH</strong>, <strong>CHARACTER FX</strong>, <strong>MIXER / ROUTING</strong>, <strong>CUTUPS PATTERN</strong>, <strong>PERFORMANCE INPUT</strong>, or <strong>HEADPHONE CUE</strong>. Some playback methods have a second page under <strong>CONTROLS</strong>. Double-click a slider to restore its default.</p>
 
         <h3 id="waveforms">Reading and navigating waveforms</h3>
@@ -103,7 +104,7 @@
         <p>The readout identifies the step, layer, and source percentage. Double-click resets the step's layer address; Option-double-click resets its source position. The pattern is saved with the project or set.</p>
 
         <h3 id="character-fx">Shape the sound</h3>
-        <p><strong>CHARACTER FX</strong> has Filter, Echo, Space, Shift, Vowel, Punch, Drive, and Crush, each with its own controls. <strong>MIXER / ROUTING</strong> adds deck gain, three-band EQ, and a DJ filter. Use the FX Punch pad mode to temporarily introduce a Character effect while performing; pressure changes its intensity. Effect changes fade through dry to keep transitions smooth.</p>
+        <p><strong>CHARACTER FX</strong> has Filter, Echo, Space, Shift, Vowel, Punch, Drive, and Crush, each with its own controls. Set its amount with <strong>FX</strong> in the center mixer, alongside deck gain, three-band EQ, and the separate DJ filter. <strong>MIXER / ROUTING</strong> holds technique routing and cue-position settings. Use the FX Punch pad mode to temporarily introduce a Character effect while performing; pressure changes its intensity. Effect changes fade through dry to keep transitions smooth.</p>
 
         <h2 id="performance">Eight performance pad modes</h2>
         <p>Choose <strong>PAD MODE</strong> on screen or the corresponding Beatpad page. These are different ways to intervene in the current playback method, not eight more playback engines. <strong>INPUT</strong> opens extra performance options on the opposite display.</p>
@@ -185,7 +186,7 @@
 
         <h3 id="headphone-cue">Headphone cue</h3>
         <ol>
-          <li>Open <strong>HEADPHONE CUE</strong> from the title bar or edit-page menu. Lower Cue Level and your interface's headphone volume before auditioning.</li>
+          <li>Open <strong>HEADPHONE CUE</strong> from the title bar or edit-page menu to set the route. Lower Cue Level in the center mixer and your interface's headphone volume before auditioning.</li>
           <li>Choose <strong>CUE OUTPUT</strong>. Auto uses the first free stereo pair after the main mix and any stems; a fixed pair lets you match your interface routing.</li>
           <li>In REAPER, expose that pair through the plug-in pins and track channels, then send it to your interface's headphone outputs. Keep it out of the master mix.</li>
           <li>Press mixer <strong>CUE A</strong> or <strong>CUE B</strong> to hear a deck independently of its fader and the crossfader. Use <strong>CUE → MASTER</strong> to blend between audition and the main mix.</li>
@@ -286,6 +287,7 @@
 
         <h2 id="troubleshooting">If something seems wrong</h2>
         <p><strong>The deck is playing but I hear nothing.</strong><br>Check its level, the crossfader, output level, and REAPER routing. Host clock also needs a running host transport; try Free clock for independent playback.</p>
+        <p><strong>Can I start recording in REAPER after launching the decks?</strong><br>Yes. With Free clock, decks launched with Play or a latched performance action recover when REAPER resets the plug-in immediately before starting its transport. Sample position and Free-clock technique/stack progress are retained, with a short fade-in. The reset still clears effects tails and overlapping grains; Wavesets and Cutups begin a fresh group/cut at the remembered source position. Held keyboard notes and momentary auditions are not relaunched. Stop, Panic, loading a set, changing the source, and unrelated resets still stop playback. This does not change Host-clock behavior. To record the sound of Decks, set the REAPER track to record its audio output.</p>
         <p><strong>The stack stopped moving.</strong><br>Choose Follow Source or press Shift + Sync. Then check the source choice: Follow Source will not move automatically if the source itself is Selected or Manual rather than Stack Path.</p>
         <p><strong>A Shift knob does not seem to respond.</strong><br>Move it through the current on-screen value to pick up control. Check that the chosen method and source use the cycle you are adjusting.</p>
         <p><strong>Some Slices pads are dark.</strong><br>Check the selected layer's markers and pad bank. Only existing slices can play; make markers in Source / Chop first.</p>

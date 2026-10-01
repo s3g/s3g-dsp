@@ -13,11 +13,12 @@ public:
     unsigned cursorCount() const noexcept { return cursorCount_; }
     const auto& cursors() const noexcept { return cursors_; }
     float position() const noexcept { return position_; }
+    double phase() const noexcept { return phase_; }
     void render(const NeonStack* stack, NeonStackLayer fallback, unsigned selected,
         double start, double end, const NeonFamilySettings& f, double sampleRate,
         float gain, double tune, unsigned direction, bool velocityEnabled,
         const float* positions, const float* velocities, const uint8_t* triggers,
-        float* const* output, unsigned frames, const float* platterRates=nullptr,double launchPosition=0) noexcept {
+        float* const* output, unsigned frames, const float* platterRates=nullptr,double launchPosition=0,double resumePhase=-1) noexcept {
         const unsigned count = stack ? std::min<unsigned>(32, stack->count) : 1;
         std::array<NeonStackLayer, 32> layers {};
         unsigned anchor = 32;
@@ -34,7 +35,7 @@ public:
         const bool reverse = (direction & 1u) != 0, pingpong = direction >= 2;
         cursorCount_ = 0;
         for (unsigned frame = 0; frame < frames; ++frame) {
-            if (triggers[frame]) {reset();seek(launchPosition);}
+            if (triggers[frame]) {reset();seek(launchPosition);if(resumePhase>=0)phase_=std::clamp(resumePhase,0.,2.);resumePhase=-1;}
             const float position = positions[frame];
             if (position < 0) {
                 if (position == -1 || position == -2) reset(); // raw audition / stopped

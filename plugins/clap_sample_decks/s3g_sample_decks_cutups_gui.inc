@@ -4,7 +4,7 @@
     bool cutPatternDrag=false,cutPatternSourceDrag=false;
     unsigned cutDragDeck=0;
     std::array<bool,64> cutGestures {};
-    CRect cutPatternBounds(unsigned d) const {return rect(left(1-d)+16,176,panelWidth-32,336);}
+    CRect cutPatternBounds(unsigned d) const {return rect(left(1-d)+16,176,panelWidth-32,DeckLayout::editorBottom-176);}
     unsigned cutPatternLayer(unsigned d,unsigned step,const NeonFamilySettings& f) const {
         std::array<unsigned,32> loaded {};unsigned count=0;
         for(unsigned n=0;n<32;++n)if(p.document->decks[d].layers[n].asset)loaded[count++]=n;

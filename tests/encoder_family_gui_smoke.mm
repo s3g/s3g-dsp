@@ -21,6 +21,7 @@
 #include "../dsp/s3g_musical_scales.h"
 #include "../dsp/s3g_parameter_surface.h"
 #include "../plugins/clap_sample_neon/s3g_sample_neon_layout.h"
+#include "../plugins/clap_sample_decks/s3g_sample_decks_view.h"
 #include "../dsp/s3g_sample_neon_family.h"
 #include "../dsp/s3g_sample_neon_character.h"
 

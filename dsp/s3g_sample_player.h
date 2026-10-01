@@ -99,6 +99,10 @@ struct RenderEvent {
     // A soft choke fades matching voices while they keep reading their source.
     // Ordinary MIDI chokes/stops remain immediate.
     uint32_t chokeFadeFrames = 0u;
+    // Optional deck transport recovery, absolute within the file. Unlike a
+    // launch offset, this preserves the original loop/window boundaries.
+    double resumePositionNormalized = -1;
+    int8_t resumeReverse = -1;
 };
 
 struct VoiceCursor {
@@ -1201,6 +1205,10 @@ private:
             voice.envelopeLevel = voice.sustainLevel;
         }
         voice.active = voice.velocityLevel > 0.0f;
+        if(event.resumePositionNormalized>=0){
+            voice.position=std::clamp(event.resumePositionNormalized*frames,double(start),double(end-1));
+            if(event.resumeReverse>=0)voice.increment=std::copysign(std::abs(voice.increment),event.resumeReverse?-1.:1.);
+        }
     }
 
     void retargetVoice(Voice& voice, const RenderEvent& event,

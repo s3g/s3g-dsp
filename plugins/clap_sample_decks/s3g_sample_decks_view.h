@@ -31,9 +31,21 @@ struct DeckViewport {
     double pan(double delta) const noexcept {return std::clamp(start-delta*width*.1,0.,1-width);}
 };
 struct DeckLayout {
-    static constexpr double panelWidth=604,rowPitch=26;
-    static constexpr double left(unsigned side){return side?818:18;}
-    static constexpr double waveTop=158,waveHeight=372,pathTop=567,pathHeight=64;
-    static constexpr double performanceTop=660,padTop=722;
+    static constexpr unsigned width=1600,height=900;
+    static constexpr double panelWidth=604,rowPitch=26,centerLeft=638,centerWidth=324;
+    static constexpr double left(unsigned side){return side?978:18;}
+    static constexpr double waveTop=158,waveHeight=462,pathTop=657,pathHeight=64;
+    static constexpr double performanceTop=750,padTop=812,gridTop=638,footerTop=873;
+    static constexpr double editorBottom=602,deckHeight=696;
+};
+struct DeckMixerLayout {
+    static constexpr double stripWidth=140,stripPitch=152,toneTop=212;
+    static constexpr double stripLeft(unsigned deck){return DeckLayout::centerLeft+16+deck*stripPitch;}
+    static constexpr double toneRow(unsigned row){return toneTop+row*DeckLayout::rowPitch;}
+    static constexpr double cueTop=370,slipTop=394,faderTop=426,faderHeight=64,levelTop=492;
+    static constexpr double crossLabel=514,crossBaseline=535,crossTrack=542;
+    static constexpr double cueMixRow=563,cueLevelRow=589;
+    static constexpr double recordTop=619,recordSourceRow=655,recordButtonTop=678,recordPreviewTop=710,recordLimitTop=707;
+    static constexpr double setupTop=755,setupRow=791;
 };
 }

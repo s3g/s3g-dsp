@@ -33,7 +33,7 @@ namespace {
 using namespace s3g::sample;
 using namespace s3g::decks;
 namespace media=s3g::sample_storage;
-constexpr unsigned kGuiWidth=1440,kGuiHeight=810;
+constexpr unsigned kGuiWidth=DeckLayout::width,kGuiHeight=DeckLayout::height;
 constexpr uint64_t kAudioBudget=512ull*1024*1024;
 struct PendingPad { bool active=false; unsigned mode=0,remaining=0; float velocity=1; };
 struct PadNote { uint64_t id=0; uint8_t key=60; float velocity=1; };
@@ -138,6 +138,16 @@ struct Plugin {
     std::atomic<double> sampleRate {48000}; unsigned maximumFrames=0;
     std::atomic<bool> activated {false};
     bool hostPlaying=false; double tempo=120,beat=0; bool beatValid=false;
+    bool hostTransportKnown=false;
+    std::array<bool,2> transportLatched{};
+    struct TransportRecovery {
+        bool pending=false;
+        float format=0;
+        NeonTransportPosition position;
+        DeckPerformance performance;
+        std::array<float,kDeckStride> controls{};
+    };
+    std::array<TransportRecovery,2> transportRecovery;
     std::atomic<bool> dirty {false};
     unsigned ledTick=0,callbackFrames=0;
     std::array<std::array<int16_t,128>,2> padLeds {};
@@ -482,11 +492,11 @@ void preparePlatters(Plugin& p,SampleNeonSettings& s,unsigned frames) noexcept {
 void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& events,unsigned& count) noexcept {
     const unsigned d=std::min(1u,c.deck);auto add=[&](SampleNeonEventKind kind,float v=1.f){if(count>=events.size())return;
         auto& e=events[count++];e={};e.slot=static_cast<uint8_t>(d);e.kind=kind;e.noteId=d+1;e.value=v;};
-    auto clearNotes=[&]{p.padNotes[d]={};p.pendingPads[d]={};p.padHeld[d]={};p.padPressure[d]={};p.screenHeld[d]={};p.padPulse[d]={};
+    auto clearNotes=[&]{p.transportLatched[d]=false;p.padNotes[d]={};p.pendingPads[d]={};p.padHeld[d]={};p.padPressure[d]={};p.screenHeld[d]={};p.padPulse[d]={};
         p.performance[d]={};p.padGestures[d]={};p.engine.roll(d).release();
         for(auto& state:p.padFeedback[d])state.store(0,std::memory_order_relaxed);
         for(unsigned n=0;n<count;)if(events[n].slot==d){for(unsigned k=n+1;k<count;++k)events[k-1]=events[k];--count;}else ++n;};
-    auto start=[&]{clearNotes();p.engine.stop(d);const unsigned before=count;add(SampleNeonEventKind::Trigger);p.playing[d].store(count>before);return count>before;};
+    auto start=[&]{clearNotes();p.engine.stop(d);const unsigned before=count;add(SampleNeonEventKind::Trigger);p.playing[d].store(count>before);p.transportLatched[d]=count>before;return count>before;};
     switch(c.kind){
     case CommandKind::Play:if(p.playing[d].load()){clearNotes();p.engine.stop(d);p.playing[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.touching[d].store(false);p.scanMix[d]=0;}else start();break;
     case CommandKind::Stop:clearNotes();p.engine.stop(d);p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.beatpad.faderStart[d]=false;p.scanMix[d]=0;break;
@@ -559,6 +569,7 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
         setValue(p,param(receiver,Layer),layer);setValue(p,param(receiver,SourceMode),1);setValue(p,param(receiver,Position),0);
         audioCommand(p,{CommandKind::Stop,receiver},events,count);
         if(count<events.size()){auto& e=events[count++];e={};e.slot=receiver;e.noteId=++p.noteSerial;p.playing[receiver].store(true);
+            p.transportLatched[receiver]=c.kind==CommandKind::LaunchTake;
             if(c.kind==CommandKind::AuditionTake){p.performance[d].auditionReceiver=receiver;p.performance[d].auditionNote=e.noteId;}}break;}
     case CommandKind::PadPressure:p.padPressure[d][c.index%8]=static_cast<float>(std::clamp(c.value,0.,1.));
         if(p.performance[d].fxOrder[c.index%8])p.performance[d].fxPressure[c.index%8]=p.padPressure[d][c.index%8];break;
@@ -595,6 +606,7 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
         p.padHeld[d][pad]=true;p.screenHeld[d][pad]=false;p.padOwner[d][pad]=mode;
         p.padGestures[d][pad]=++p.noteSerial;
         if(keyboardPads(p,d)){
+            p.transportLatched[d]=false;
             if(perf.window){perf.window=false;p.engine.stopVoices(d);p.padNotes[d]={};}
             const int key=keyboardNote(p,d,pad);if(key<0||key>127){p.padHeld[d][pad]=false;break;}
             note={++p.noteSerial,static_cast<uint8_t>(key),static_cast<float>(c.value)};
@@ -607,7 +619,7 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
             else {const auto cue=doc->decks[d].bookmarks[pad];const auto& layer=doc->decks[d].layers[cue.layer];
                 const bool blend=selectCueLayer(p,*doc,d,cue.layer,cue.stackPosition);
                 setValue(p,param(d,Position),std::clamp((cue.position-layer.start)/std::max(1.e-7,layer.end-layer.start),0.,1.));
-                perf.window=false;p.padNotes[d]={};p.engine.stopVoices(d);add(SampleNeonEventKind::Trigger,static_cast<float>(c.value));events[count-1].selectedSource=!blend;events[count-1].snapStackPosition=blend;p.playing[d].store(true);}
+                perf.window=false;p.padNotes[d]={};p.engine.stopVoices(d);add(SampleNeonEventKind::Trigger,static_cast<float>(c.value));events[count-1].selectedSource=!blend;events[count-1].snapStackPosition=blend;p.playing[d].store(true);p.transportLatched[d]=true;}
         }
         else if(mode==2){const bool toggle=control(p,d,FxLatch)!=0;
             perf.fxOrder[pad]=toggle&&perf.fxOrder[pad]?0:p.padGestures[d][pad];perf.fxToggle[pad]=toggle;perf.fxPressure[pad]=static_cast<float>(c.value);}
@@ -619,6 +631,7 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
             const auto kind=pad<4?CommandKind::TimedCapture:pad==4?CommandKind::Record:pad==5?CommandKind::NextTake:pad==6?CommandKind::AuditionTake:CommandKind::LaunchTake;
             audioCommand(p,{kind,d,pad,1},events,count);p.padHeld[d][pad]=true;p.padOwner[d][pad]=mode;}
         else if(mode==1||mode==3){
+            p.transportLatched[d]=mode==1;
             if(mode==1&&perf.window&&perf.loop&&perf.pad==pad){
                 const double absolute=std::max(0.f,p.cursor[d].load());perf.window=false;
                 setValue(p,param(d,Position),(absolute-control(p,d,Start))/std::max(1.e-7f,control(p,d,End)-control(p,d,Start)));
@@ -648,6 +661,7 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
 
 #include "s3g_sample_decks_midi.inc"
 #include "s3g_sample_decks_state.inc"
+#include "s3g_sample_decks_transport.inc"
 
 bool pluginInit(const clap_plugin_t* plugin){auto& p=*self(plugin);
     if(p.host&&p.host->get_extension){p.hostParams=static_cast<const clap_host_params_t*>(p.host->get_extension(p.host,CLAP_EXT_PARAMS));p.hostState=static_cast<const clap_host_state_t*>(p.host->get_extension(p.host,CLAP_EXT_STATE));
@@ -655,6 +669,7 @@ bool pluginInit(const clap_plugin_t* plugin){auto& p=*self(plugin);
         if(p.hostTimer&&p.hostTimer->register_timer)p.hostTimer->register_timer(p.host,16,&p.timerId);
     }return true;}
 bool activate(const clap_plugin_t* plugin,double rate,uint32_t,uint32_t maximum){auto& p=*self(plugin);if(!std::isfinite(rate)||rate<8000||rate>384000||!maximum||maximum>65536)return false;
+    p.transportLatched={};for(auto& r:p.transportRecovery)r.pending=false;p.hostTransportKnown=false;p.hostPlaying=false;
     try{if(!p.engine.prepare(rate,maximum))return false;p.headphones.prepare(rate);for(auto& c:p.scratch)c.assign(maximum,0);for(auto& c:p.inputScratch)c.assign(maximum,0);}catch(...){return false;}
     for(auto& platter:p.platters)platter.prepare(rate);p.scanMix={};for(auto& held:p.touching)held.store(false);p.lastStackTarget.fill(-2);p.stackTouch={};p.padNotes={};p.padHeld={};p.pendingPads={};
     p.beatpad.resetGestures();p.bendHeld={};p.shift={};p.lastController=-1;
@@ -662,11 +677,12 @@ bool activate(const clap_plugin_t* plugin,double rate,uint32_t,uint32_t maximum)
     p.performance={};p.padGestures={};for(auto& light:p.performanceLights)light.store(0);for(auto& history:p.rollHistory)history.store(0);
     p.sampleRate.store(rate);p.maximumFrames=maximum;p.audioRevision.fill(UINT64_MAX);p.ledInit=false;p.activated.store(true);return true;}
 void deactivate(const clap_plugin_t* plugin){auto& p=*self(plugin);p.engine.reset();p.playing[0].store(false);p.playing[1].store(false);p.hazard.store(nullptr);p.activated.store(false);
+    p.transportLatched={};for(auto& r:p.transportRecovery)r.pending=false;p.hostTransportKnown=false;
     for(unsigned d=0;d<2;++d)clearPadFeedback(p,d);
     if(p.capture.state.load()==1||p.capture.state.load()==2)p.capture.state.store(3);}
 bool startProcessing(const clap_plugin_t*){return true;}
 void stopProcessing(const clap_plugin_t*){}
-void reset(const clap_plugin_t* plugin){auto& p=*self(plugin);p.engine.reset();p.headphones.reset();for(unsigned d=0;d<2;++d){p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.playbackVisuals[d].clear();clearPadFeedback(p,d);p.rollHistory[d].store(0);p.performanceLights[d].store(0);}p.performance={};p.padGestures={};p.lastStackTarget.fill(-2);p.stackTouch={};p.scanMix={};p.padHeld={};p.pendingPads={};p.padNotes={};p.padPressure={};p.pressure={};p.beatpad.resetGestures();p.bendHeld={};p.shift={};p.refreshLeds.store(true);}
+void reset(const clap_plugin_t* plugin){auto& p=*self(plugin);rememberTransportForHostStart(p);p.transportLatched={};p.engine.reset();p.headphones.reset();for(unsigned d=0;d<2;++d){p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.playbackVisuals[d].clear();clearPadFeedback(p,d);p.rollHistory[d].store(0);p.performanceLights[d].store(0);}p.performance={};p.padGestures={};p.lastStackTarget.fill(-2);p.stackTouch={};p.scanMix={};p.padHeld={};p.pendingPads={};p.padNotes={};p.padPressure={};p.pressure={};p.beatpad.resetGestures();p.bendHeld={};p.shift={};p.refreshLeds.store(true);}
 
 // Read the complete input block before output writes (hosts may alias buffers).
 // Missing channels are not the same as connected, silent channels. Never record
@@ -693,11 +709,13 @@ clap_process_status process(const clap_plugin_t* plugin,const clap_process_t* bl
     if(p.lastController!=int(value(p,Controller))){p.lastController=int(value(p,Controller));p.beatpad.resetGestures();p.shift={};p.bendHeld={};
         for(auto& platter:p.platters)platter.bend(0);}
     for(unsigned d=0;d<2;++d)if(p.audioRevision[d]!=doc->decks[d].revision){p.engine.stop(d);p.padNotes[d]={};p.padHeld[d]={};p.pendingPads[d]={};p.playing[d].store(false);p.platters[d].reset();p.touching[d].store(false);p.scanMix[d]=0;p.audioRevision[d]=doc->decks[d].revision;
+        p.transportRecovery[d].pending=false;p.transportLatched[d]=false;
         p.performance[d]={};p.bendHeld[d]={};p.beatpad.storingCue[d]={};p.beatpad.faderStart[d]=false;p.rollHistory[d].store(0);p.performanceLights[d].store(0);
         clearPadFeedback(p,d);
         const auto* base=doc->decks[d].playbackBase(static_cast<unsigned>(control(p,d,Layer)));p.audioSource[d]=base?base->asset.get():nullptr;
         p.engine.setSource(d,p.audioSource[d],base?base->wavesets.get():nullptr);}
-    if(const unsigned mask=p.forceStop.exchange(0))for(unsigned d=0;d<2;++d)if(mask&(1u<<d)){p.engine.stop(d);p.performance[d]={};p.padNotes[d]={};p.padHeld[d]={};p.pendingPads[d]={};p.playing[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.beatpad.storingCue[d]={};p.beatpad.faderStart[d]=false;p.touching[d].store(false);p.scanMix[d]=0;clearPadFeedback(p,d);}
+    if(const unsigned mask=p.forceStop.exchange(0))for(unsigned d=0;d<2;++d)if(mask&(1u<<d)){p.transportRecovery[d].pending=false;p.transportLatched[d]=false;p.engine.stop(d);p.performance[d]={};p.padNotes[d]={};p.padHeld[d]={};p.pendingPads[d]={};p.playing[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.beatpad.storingCue[d]={};p.beatpad.faderStart[d]=false;p.touching[d].store(false);p.scanMix[d]=0;clearPadFeedback(p,d);}
+    p.hostTransportKnown=block->transport!=nullptr;
     if(block->transport){const auto& t=*block->transport;p.hostPlaying=t.flags&CLAP_TRANSPORT_IS_PLAYING;p.beatValid=t.flags&CLAP_TRANSPORT_HAS_BEATS_TIMELINE;
         if((t.flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t.tempo))p.tempo=std::clamp(t.tempo,20.,400.);if(p.beatValid)p.beat=double(t.song_pos_beats)/CLAP_BEATTIME_FACTOR;}
     else {p.hostPlaying=false;p.beatValid=false;}
@@ -707,7 +725,7 @@ clap_process_status process(const clap_plugin_t* plugin,const clap_process_t* bl
     s3g::clap_gui::serviceParamEvents(p.guiParams,block->out_events,[](clap_id,double){});
     const unsigned total=block->in_events&&block->in_events->size?block->in_events->size(block->in_events):0;unsigned event=0,at=0;float peak=0;
     while(at<block->frames_count){std::array<SampleNeonEvent,64> events{};unsigned count=0;
-        if(at==0){Command c;while(p.commands.peek(c)){audioCommand(p,c,events,count);p.commands.pop();}}
+        if(at==0){recoverTransportAtHostStart(p,events,count);Command c;while(p.commands.peek(c)){audioCommand(p,c,events,count);p.commands.pop();}}
         while(event<total){const auto* e=block->in_events->get(block->in_events,event);if(e&&e->time>at)break;++event;if(!e||e->space_id!=CLAP_CORE_EVENT_SPACE_ID)continue;
             if(e->type==CLAP_EVENT_PARAM_VALUE&&e->size>=sizeof(clap_event_param_value_t)){const auto& v=*reinterpret_cast<const clap_event_param_value_t*>(e);if(v.param_id)setValue(p,v.param_id-1,v.value);}
             else if(e->type==CLAP_EVENT_MIDI&&e->size>=sizeof(clap_event_midi_t)){const auto& m=*reinterpret_cast<const clap_event_midi_t*>(e);if(m.port_index==0)midi(p,m.data,events,count);}

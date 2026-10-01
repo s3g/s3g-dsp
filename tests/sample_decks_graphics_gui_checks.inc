@@ -33,7 +33,7 @@
                 });
                 std::vector<double> paintTimes;
                 for(unsigned orientation:{3u,2u,0u,1u}){
-                    choice(18+480,139.5,orientation);choice(818+480,139.5,orientation);
+                    choice(18+480,139.5,orientation);choice(s3g::decks::DeckLayout::left(1)+480,139.5,orientation);
                     for(unsigned pass=0;pass<48;++pass){const auto start=std::chrono::steady_clock::now();zoom(pass%2,pass%24<12?4:-4);
                         paintTimes.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());}
                 }

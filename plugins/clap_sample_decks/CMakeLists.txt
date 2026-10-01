@@ -42,7 +42,7 @@ if(BUILD_TESTING AND APPLE)
     ENVIRONMENT "S3G_DECKS_TEST_STATE=${CMAKE_CURRENT_BINARY_DIR}/sample-decks-gui-state.bin")
   if(TARGET s3g_encoder_family_gui_smoke)
     add_test(NAME s3g_sample_decks_gui_smoke COMMAND s3g_encoder_family_gui_smoke
-      $<TARGET_FILE:s3g_sample_decks_clap> org.s3g.s3g-dsp.sample-decks 1440 810 "s3g Sample Decks 32" proportional)
+      $<TARGET_FILE:s3g_sample_decks_clap> org.s3g.s3g-dsp.sample-decks 1600 900 "s3g Sample Decks 32" proportional)
     set_tests_properties(s3g_sample_decks_gui_smoke PROPERTIES LABELS "non_nim;sample;controller;clap;gui" TIMEOUT 120)
     set_tests_properties(s3g_sample_decks_gui_smoke PROPERTIES FIXTURES_REQUIRED sample_decks_gui_source
       ENVIRONMENT "S3G_DECKS_GUI_STATE=${CMAKE_CURRENT_BINARY_DIR}/sample-decks-gui-state.bin")

@@ -79,6 +79,9 @@
                     : event.kind == SampleNeonEventKind::Release ? CutupsEventKind::NoteOff : CutupsEventKind::StopAll,
                 c.triggerMode == TriggerMode::Toggle ? 0u : event.noteId, 60u, event.value, 0u, c.noteVoiceOrdinal};
             if(waveActive_[slot]&&c.deckTransport&&event.kind==SampleNeonEventKind::Trigger){events[total-1].launchPosition=c.launchPosition;events[total-1].launchLayer=c.selectedLayer;}
+            if(waveActive_[slot]&&event.transportPosition){const auto& p=*event.transportPosition;
+                const auto layer=stackLayer(c,p.layer,assets_[slot]);events[total-1].launchLayer=p.layer;
+                events[total-1].launchPosition=std::clamp((p.sourcePosition-layer.start)/std::max(1.e-9,layer.end-layer.start),0.,1.);}
         }
         renderTo(frames);
         waveCursorCounts_[slot] = waveActive_[slot] ? engine.voiceCursorCount() : 0;

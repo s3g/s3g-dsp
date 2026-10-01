@@ -73,6 +73,8 @@ private:
 
 class SampleDecksEngine {
 public:
+    NeonTransportPosition transportPosition(unsigned deck) const noexcept { return engine_.transportPosition(deck); }
+    void fadeTransportIn(unsigned deck) noexcept { sourceFade_[deck]=static_cast<unsigned>(std::ceil(kDeckCueFadeSeconds*rate_)); }
     bool prepare(double rate, uint32_t frames) {
         rate_ = rate; maximum_ = frames;
         if (!engine_.prepare(rate, frames, false, 2, true)) return false;

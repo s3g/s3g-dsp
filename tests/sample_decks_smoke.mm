@@ -62,6 +62,7 @@ struct Audio {
 };
 #include "sample_decks_media_checks.inc"
 #include "sample_decks_transition_checks.inc"
+#include "sample_decks_transport_checks.inc"
 void waitWork(Plugin& p){for(unsigned i=0;i<3000&&p.busy;++i){service(p);std::this_thread::sleep_for(std::chrono::milliseconds(1));}check(!p.busy,"background work completes");}
 void platterModel(){
     for(double rate:{44100.,48000.,96000.}){
@@ -420,6 +421,7 @@ void binary(const char* path,Bytes& state,Bytes& mixedState){void* image=dlopen(
         params->flush(plugin,&input,nullptr);a.midi(0x90,0x60,127);check(a.run(plugin,40)>1.e-5,"each playback method in exact bundle produces audio");
     }
     binaryCueLayerWorkflow(plugin,params,a);
+    binaryTransportResetWorkflow(plugin,params,a);
     headphoneBinaryWorkflow(plugin,params,a);
     beatpadShiftBinaryWorkflow(plugin,params,a);
     binaryCaptureDestinationWorkflow(plugin,params,a,mixedState);
@@ -431,6 +433,7 @@ int main(int argc,char** argv){@autoreleasepool{try{
     if(argc==3&&std::string(argv[1])=="--graphics-fixture"){graphicsFixture(argv[2]);return 0;}
     projectMediaSnapshotChecks();
     characterTransitionChecks();cueTransitionChecks();
+    transportResetWorkflow();
     platterModel();
     const auto view=DeckViewport::make(8,0,.01,true);check(std::abs(view.fraction(.01)-.4)<1.e-12,"scrolling playhead stays fixed near source edges");
     const auto overview=DeckViewport::make(8,.3,.9,false);check(overview.pan(-2)>.3&&overview.pan(2)<.3,"horizontal wheel pans overview in both directions");

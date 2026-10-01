@@ -2,16 +2,16 @@ namespace decks_canvas {
 using namespace s3g::portable_gui::canvas;
 namespace foundation=s3g::portable_gui::foundation;
 using F=NeonFamily;
-constexpr double panelWidth=604, rowPitch=26; // shared ordinary toolbox pitch
+constexpr double panelWidth=DeckLayout::panelWidth, rowPitch=DeckLayout::rowPitch; // shared ordinary toolbox pitch
 class Editor final:public View {
 public:
     explicit Editor(Plugin& plugin):View(kGuiWidth,kGuiHeight,true),p(plugin),page(plugin.viewState.page),view(plugin.viewState.view),zoom(plugin.viewState.zoom),offset(plugin.viewState.offset){setWantsFocus(true);}
     ~Editor() override {endCutPatternDrag();for(unsigned d=0;d<2;++d){if(guiTouch[d])command(p,{CommandKind::Touch,d,0,0});
         for(unsigned n=0;n<8;++n)command(p,{CommandKind::ScreenPad,d,n,-1});}}
     void service() override {::service(p);}
-    static double left(unsigned d){return d?818:18;}
+    static double left(unsigned d){return DeckLayout::left(d);}
     static CRect wave(unsigned d){return rect(left(d)+16,DeckLayout::waveTop,panelWidth-32,DeckLayout::waveHeight);}
-    CRect pathBounds(unsigned d,bool editing=false) const {return editing?rect(left(1-d)+16,228,panelWidth-32,284):rect(left(d)+16,DeckLayout::pathTop,panelWidth-32,DeckLayout::pathHeight);}
+    CRect pathBounds(unsigned d,bool editing=false) const {return editing?rect(left(1-d)+16,228,panelWidth-32,DeckLayout::editorBottom-228):rect(left(d)+16,DeckLayout::pathTop,panelWidth-32,DeckLayout::pathHeight);}
     void paint() override {
         foundation::drawPluginTitle(*context,"s3g Sample Decks 32",rect(18,12,270,20),titleFont);
         button(rect(328,13,68,18),"LOAD SET",[this]{setFile(false);});
@@ -20,11 +20,11 @@ public:
         button(rect(550,13,52,18),"REDO",[this]{history(p,true);},false,!p.redo.empty()&&!blocked());
         button(rect(620,13,100,18),"REFRESH LEDS",[this]{p.refreshLeds.store(true);request(p);p.message="LED FEEDBACK → TRACK MIDI HARDWARE OUTPUT → BEATPAD 2";});
         button(rect(736,13,100,18),"HEADPHONE CUE",[this]{const unsigned d=static_cast<unsigned>(value(p,FocusDeck));p.viewState.oppositeEdit[1-d]=1;page[d]=7;p.dirty.store(true);});
-        text(foundation::peakDbText(p.outputPeak.load()),rect(1250,12,172,20),style.value,kRightText);
+        text(foundation::peakDbText(p.outputPeak.load()),rect(kGuiWidth-190,12,172,20),style.value,kRightText);
         for(unsigned d=0;d<2;++d){(void)p.playbackVisuals[d].read(visual[d]);deck(d);}
         mixer();
-        text(p.message,rect(18,783,1150,18),style.dim);
-        text(format("AUDIO %.1f / 512 MiB",p.loadedAudioBytes/double(1024*1024)),rect(1178,783,244,18),style.dim,kRightText);
+        text(p.message,rect(18,DeckLayout::footerTop,kGuiWidth-290,18),style.dim);
+        text(format("AUDIO %.1f / 512 MiB",p.loadedAudioBytes/double(1024*1024)),rect(kGuiWidth-262,DeckLayout::footerTop,244,18),style.dim,kRightText);
     }
     void onMouseDownEvent(MouseDownEvent& e) override {if(getFrame())getFrame()->setFocusView(this);View::onMouseDownEvent(e);}
     void onKeyboardEvent(KeyboardEvent& e) override {
@@ -33,7 +33,7 @@ public:
             if(e.character=='z'||e.character=='Z'){history(p,e.modifiers.has(ModifierKey::Shift));e.consumed=true;}
         }
     }
-    bool dropped(const std::vector<std::string>& paths,CPoint point) override {if(paths.empty()||point.x<18||(point.x>622&&point.x<818)||point.x>1422)return false;loadFiles(p,p.viewState.target(point.x>=818?1:0),paths);return true;}
+    bool dropped(const std::vector<std::string>& paths,CPoint point) override {if(paths.empty()||point.x<left(0)||(point.x>left(0)+panelWidth&&point.x<left(1))||point.x>left(1)+panelWidth)return false;loadFiles(p,p.viewState.target(point.x>=left(1)?1:0),paths);return true;}
     void wheel(MouseWheelEvent& e) override {
         for(unsigned d=0;d<2;++d)if(!p.viewState.oppositeEdit[d]&&foundation::contains(wave(d),e.mousePosition)){
             const double old=zoom[d];const auto before=viewport(d);
@@ -50,7 +50,7 @@ public:
         if(e.buttonState.isRight()){
             for(unsigned side=0;side<2;++side)if(p.viewState.oppositeEdit[side]){
                 const unsigned d=p.viewState.target(side);
-                for(unsigned n=0;n<32;++n)if(foundation::contains(layerCell(left(side),548,n),e.mousePosition)){
+                for(unsigned n=0;n<32;++n)if(foundation::contains(layerCell(left(side),DeckLayout::gridTop,n),e.mousePosition)){
                     const bool loaded=bool(p.document->decks[d].layers[n].asset);
                     openPopup(rect(e.mousePosition.x,e.mousePosition.y,164,0),{"COPY LAYER","PASTE LAYER","CLEAR LAYER"},-1,
                         [this,d,n](int choice){if(choice==1)requestLayerPaste(d,n);else editStackLayer(p,d,n,choice==0?LayerEdit::Copy:LayerEdit::Clear);},
@@ -85,7 +85,7 @@ private:
     void requestLayerPaste(unsigned d,unsigned n){
         if(blocked()||!p.layerClipboard)return;
         if(!p.document->decks[d].layers[n].asset){editStackLayer(p,d,n,LayerEdit::Paste);return;}
-        openPopup(rect(left(1-d)+172,520,260,0),{format("REPLACE %c / LAYER %02u?",'A'+d,n+1),"CANCEL","PASTE / REPLACE"},-1,
+        openPopup(rect(left(1-d)+172,DeckLayout::gridTop-28,260,0),{format("REPLACE %c / LAYER %02u?",'A'+d,n+1),"CANCEL","PASTE / REPLACE"},-1,
             [this,d,n](int choice){if(choice==2)editStackLayer(p,d,n,LayerEdit::Paste);},1,{},18,{false,true,true});
     }
     // Zoom/pan are view preferences, serialized on the next normal save. They
@@ -152,7 +152,7 @@ private:
         }
         if(!def.choices.empty()){
             const unsigned choice=static_cast<unsigned>(std::clamp(std::round(v),def.lo,def.hi));
-            const std::string prefix=id==Stems?"STEMS: ":id==Curve?"FADE: ":id==Storage?"STORE: ":id==FocusDeck?"FOCUS: ":"";
+            const std::string prefix=!compact?"":id==Stems?"STEMS: ":id==Curve?"FADE: ":id==Storage?"STORE: ":id==FocusDeck?"FOCUS: ":"";
             menu(box,prefix+def.choices[choice],def.choices,static_cast<int>(choice),[this,id](int n){gesture(id,true);set(id,n);gesture(id,false);});return;
         }
         const double valueWidth=compact?44:64,valueGap=6;
@@ -202,7 +202,7 @@ private:
     void deck(unsigned side){
         const double x=left(side);const unsigned d=p.viewState.target(side);const bool editing=p.viewState.oppositeEdit[side]!=0;
         const auto& doc=p.document->decks[d];const auto& l=doc.layers[layer(d)];
-        deckPanel(rect(x,42,panelWidth,606),editing?(d?"EDIT DECK B":"EDIT DECK A"):(d?"DECK B":"DECK A"),d);
+        deckPanel(rect(x,42,panelWidth,DeckLayout::deckHeight),editing?(d?"EDIT DECK B":"EDIT DECK A"):(d?"DECK B":"DECK A"),d);
         button(rect(x+148,47,204,18),side?"B WAVE":"A WAVE",[this,side]{p.viewState.oppositeEdit[side]=0;p.dirty.store(true);},!editing);
         button(rect(x+362,47,226,18),side?"A EDIT":"B EDIT",[this,side]{p.viewState.oppositeEdit[side]=1;p.dirty.store(true);},editing);
         if(editing){
@@ -225,7 +225,7 @@ private:
                 text("CLICK ADD / DRAG MOVE / RIGHT CLICK REMOVE",rect(x+16,310,572,18),style.dim);
             }else if(page[d]==6)screenPerformance(d,x);
             else if(page[d]==7)headphonePanel(x);
-            layerGrid(d,x,548);
+            layerGrid(d,x,DeckLayout::gridTop);
         }else{
             controlRow(param(d,Playback),x+16,78,276);
             const unsigned method=static_cast<unsigned>(control(p,d,Playback));
@@ -240,38 +240,38 @@ private:
             const std::vector<std::string> orientations{"VERTICAL SCROLL","HORIZONTAL SCROLL","HORIZONTAL OVERVIEW","VERTICAL OVERVIEW"};
             menu(rect(x+398,130,190,19),orientations[p.viewState.orientation[d]],orientations,p.viewState.orientation[d],[this,d](int n){p.viewState.orientation[d]=n;if(n>=2){zoom[d]=1;offset[d]=0;}p.dirty.store(true);});
             waveform(d);
-            text("STACK PATH",rect(x+16,541,100,18),style.label);
-            controlRow(param(d,StackNavigation),x+124,544,218);
-            controlRow(param(d,StackPosition),x+358,544,230,"STACK POS");
+            text("STACK PATH",rect(x+16,DeckLayout::pathTop-26,100,18),style.label);
+            controlRow(param(d,StackNavigation),x+124,DeckLayout::pathTop-23,218);
+            controlRow(param(d,StackPosition),x+358,DeckLayout::pathTop-23,230,"STACK POS");
             stackPath(d,pathBounds(d));
         }
         performance(side);
     }
-    void performance(unsigned d){const double x=left(d);deckPanel(rect(x,660,panelWidth,111),d?"B / PERFORMANCE":"A / PERFORMANCE",d);
-        button(rect(x+148,665,64,18),p.playing[d].load()?"PAUSE":"PLAY",[this,d]{command(p,{CommandKind::Play,d});},p.playing[d].load());
-        button(rect(x+220,665,64,18),"STOP",[this,d]{command(p,{CommandKind::Stop,d});});
-        button(rect(x+292,665,80,18),"SET CUE",[this,d]{command(p,{CommandKind::SetCue,d});});
-        button(rect(x+380,665,64,18),"CUE",[this,d]{command(p,{CommandKind::Cue,d});});
-        button(rect(x+452,665,64,18),"SYNC",[this,d]{command(p,{CommandKind::Sync,d});});
-        button(rect(x+524,665,64,18),"INPUT",[this,d]{p.viewState.oppositeEdit[1-d]=1;page[d]=6;p.dirty.store(true);});
-        controlRow(param(d,PadMode),x+16,696,276);
+    void performance(unsigned d){const double x=left(d),y=DeckLayout::performanceTop;deckPanel(rect(x,y,panelWidth,111),d?"B / PERFORMANCE":"A / PERFORMANCE",d);
+        button(rect(x+148,y+5,64,18),p.playing[d].load()?"PAUSE":"PLAY",[this,d]{command(p,{CommandKind::Play,d});},p.playing[d].load());
+        button(rect(x+220,y+5,64,18),"STOP",[this,d]{command(p,{CommandKind::Stop,d});});
+        button(rect(x+292,y+5,80,18),"SET CUE",[this,d]{command(p,{CommandKind::SetCue,d});});
+        button(rect(x+380,y+5,64,18),"CUE",[this,d]{command(p,{CommandKind::Cue,d});});
+        button(rect(x+452,y+5,64,18),"SYNC",[this,d]{command(p,{CommandKind::Sync,d});});
+        button(rect(x+524,y+5,64,18),"INPUT",[this,d]{p.viewState.oppositeEdit[1-d]=1;page[d]=6;p.dirty.store(true);});
+        controlRow(param(d,PadMode),x+16,y+36,276);
         const bool keyboard=keyboardPads(p,d);const unsigned mode=static_cast<unsigned>(control(p,d,PadMode));
         if(mode==4){const unsigned role=static_cast<unsigned>(control(p,d,SamplerPads));
-            menu(rect(x+312,693,132,19),role?"KEYBOARD":"LAYERS",{"LAYERS","KEYBOARD"},role,[this,d](int n){set(param(d,SamplerPads),n);});
+            menu(rect(x+312,y+33,132,19),role?"KEYBOARD":"LAYERS",{"LAYERS","KEYBOARD"},role,[this,d](int n){set(param(d,SamplerPads),n);});
             const unsigned bank=static_cast<unsigned>(control(p,d,PadBank));
             const std::string prefix=keyboard?"KEYS ":"LAYERS ";std::vector<std::string> choices;
             for(unsigned b=0;b<4;++b)choices.push_back(prefix+format("%u–%u",b*8+1,b*8+8));
-            menu(rect(x+456,693,132,19),choices[bank],choices,bank,[this,d](int n){set(param(d,PadBank),n);});
+            menu(rect(x+456,y+33,132,19),choices[bank],choices,bank,[this,d](int n){set(param(d,PadBank),n);});
         }else if(mode==3||mode==6){const auto& banks=p.defs[param(d,PadBank)].choices;const unsigned bank=static_cast<unsigned>(control(p,d,PadBank));
             if(mode==3){const auto& choices=p.defs[param(d,SliceHold)].choices;const unsigned selected=static_cast<unsigned>(control(p,d,SliceHold));
-                menu(rect(x+312,693,132,19),choices[selected],choices,selected,[this,d](int n){set(param(d,SliceHold),n);});}
-            else text("STACK BANK",rect(x+312,694,128,18),style.label);
-            menu(rect(x+456,693,132,19),banks[bank],banks,bank,[this,d](int n){set(param(d,PadBank),n);});
+                menu(rect(x+312,y+33,132,19),choices[selected],choices,selected,[this,d](int n){set(param(d,SliceHold),n);});}
+            else text("STACK BANK",rect(x+312,y+34,128,18),style.label);
+            menu(rect(x+456,y+33,132,19),banks[bank],banks,bank,[this,d](int n){set(param(d,PadBank),n);});
         }else if(mode==0||mode==2){const unsigned key=mode==0?CueAction:FxLatch,selected=static_cast<unsigned>(control(p,d,key));const auto& choices=p.defs[param(d,key)].choices;
-            menu(rect(x+312,693,132,19),choices[selected],choices,selected,[this,d,key](int n){set(param(d,key),n);});
-            text(mode==0?"LAYER + POSITION":"PRESSURE → AMOUNT",rect(x+456,694,132,18),style.dim);
-        }else text(mode==1?"SOURCE BEATS / TOGGLE":mode==5?"OUTPUT BEATS / HOLD":value(p,RecordSource)!=0?"TRACK INPUT → THIS DECK":"THIS DECK → OTHER DECK",rect(x+312,694,276,18),style.label);
-        for(unsigned n=0;n<8;++n){const auto b=rect(x+16+n*72,722,66,31);const unsigned index=(mode==3||mode==4||mode==6?static_cast<unsigned>(control(p,d,PadBank))*8:0)+n;
+            menu(rect(x+312,y+33,132,19),choices[selected],choices,selected,[this,d,key](int n){set(param(d,key),n);});
+            text(mode==0?"LAYER + POSITION":"PRESSURE → AMOUNT",rect(x+456,y+34,132,18),style.dim);
+        }else text(mode==1?"SOURCE BEATS / TOGGLE":mode==5?"OUTPUT BEATS / HOLD":value(p,RecordSource)!=0?"TRACK INPUT → THIS DECK":"THIS DECK → OTHER DECK",rect(x+312,y+34,276,18),style.label);
+        for(unsigned n=0;n<8;++n){const auto b=rect(x+16+n*72,DeckLayout::padTop,66,31);const unsigned index=(mode==3||mode==4||mode==6?static_cast<unsigned>(control(p,d,PadBank))*8:0)+n;
             const int key=keyboardNote(p,d,n);
             const bool loaded=padAvailable(p,*p.document,d,mode,static_cast<unsigned>(control(p,d,PadBank)),n);
             const char* captures[]{"1 BEAT","2 BEATS","4 BEATS","8 BEATS","RECORD","TAKE","AUDITION","LAUNCH"};
@@ -287,7 +287,7 @@ private:
             buttonFace(b,label,pressed||selected,loaded||pressed||latched);
             if(pressed){stroke(b,color(d?0xc3a394:0x99bdc1),2);if(state.held)fill(rect(b.left+3,b.bottom-4,(b.getWidth()-6)*state.pressure,2),style.text);}
             if(loaded||pressed||latched)drag(b,[](CPoint){},[this,d,n,b,label]{flashButton(b,label);command(p,{CommandKind::ScreenPad,d,n,1});},[this,d,n]{command(p,{CommandKind::ScreenPad,d,n,0});});}
-        if(mode==3)text(control(p,d,SliceRaw)!=0?"RAW SAMPLE AUDITION":"USES SELECTED PLAYBACK METHOD",rect(x+16,755,572,14),style.dim);
+        if(mode==3)text(control(p,d,SliceRaw)!=0?"RAW SAMPLE AUDITION":"USES SELECTED PLAYBACK METHOD",rect(x+16,y+95,572,14),style.dim);
     }
     void layerGrid(unsigned d,double x,double y){text(format("DECK %c / STACK LAYERS",'A'+d),rect(x+16,y-22,300,18),style.label);
         for(unsigned n=0;n<32;++n){const auto b=layerCell(x,y,n);const bool loaded=bool(p.document->decks[d].layers[n].asset);
@@ -305,9 +305,9 @@ private:
         if(page[d]==0)return {Start,End,ZeroCross,SliceCount,SourceBpm};
         if(page[d]==2){std::vector<unsigned> r{StackCycle,StackBeats,f(F::StackShape),f(F::StackJump),f(F::StackCurve),f(F::PathCount),f(F::StackOffset)};
             if(control(p,d,Playback)==2)r.push_back(f(F::StackAdvance));return r;}
-        if(page[d]==3){std::vector<unsigned> r{Character,Amount,PressureDepth};const unsigned effect=static_cast<unsigned>(control(p,d,Character));
+        if(page[d]==3){std::vector<unsigned> r{Character,PressureDepth};const unsigned effect=static_cast<unsigned>(control(p,d,Character));
             for(unsigned n=0;n<kNeonCharacterCounts[effect];++n)r.push_back(kFx+effect*kNeonCharacterControls+n);r.push_back(kFx+effect*kNeonCharacterControls+11);return r;}
-        if(page[d]==4)return {Gain,High,Mid,Low,Filter,f(F::RoutingMode),f(F::RoutingWidth),f(F::RoutingTraversal),f(F::GrainStereoLink),Slip,CuePosition};
+        if(page[d]==4)return {f(F::RoutingMode),f(F::RoutingWidth),f(F::RoutingTraversal),f(F::GrainStereoLink),CuePosition};
         std::vector<unsigned> r{Rate,Tune,Direction,Repeat,Clock,Position,Attack,Release};
         auto add=[&](std::initializer_list<unsigned> list){r.insert(r.end(),list.begin(),list.end());};
         switch(static_cast<unsigned>(control(p,d,Playback))){
@@ -336,51 +336,72 @@ private:
         const std::string label=selected==1&&output>=0?format("AUTO → %d–%d",output+1,output+2):choices[selected];
         const auto box=rect(x+154,101,138,19);foundation::drawMenuBox(*context,box,label,font,style);
         hit(box,[this,box,choices,selected,enabled]{openPopup(box,choices,selected,[this](int n){set(HeadphoneOutput,n);},1,{},18,enabled);});
-        controlRow(HeadphoneMix,x+16,130,276);controlRow(HeadphoneLevel,x+16,156,276);
         if(value(p,Format)>=3){text("QUAD / OCTO FOLD",rect(x+312,102,136,18),style.dim);
             menu(rect(x+450,101,138,19),"AMBI → XY",{},-1,[](int){},false);}
         else controlRow(HeadphoneFold,x+312,104,276);
         text(value(p,Format)>=3?"AMBI: ACN/SN3D → XY STEREO":"AMBI: AUTO XY DECODE",rect(x+312,128,276,18),style.dim);
         text("STEREO MONITOR — NOT HRTF / BINAURAL",rect(x+312,154,276,18),style.dim);
-        for(unsigned d=0;d<2;++d)button(rect(x+16+d*144,186,132,20),d?"CUE B":"CUE A",[this,d]{set(HeadphoneA+d,1-value(p,HeadphoneA+d));},value(p,HeadphoneA+d)!=0);
         const std::string status=!selected?"HEADPHONE CUE OFF":output<0?"CUE MUTED: OUTPUT OVERLAPS MAIN / STEMS":format("CUE → PLUG-IN OUT %d–%d",output+1,output+2);
         text(status,rect(x+16,222,572,18),style.label);
         text("ROUTE THIS PAIR TO HEADPHONES IN REAPER",rect(x+16,248,572,18),style.dim);
         text("CUE IS AFTER EQ / FX, BEFORE FADERS",rect(x+16,274,572,18),style.dim);
     }
-    void mixer(){const double x=638,w=164;
-        panel(rect(x,42,w,172),"OUTPUT");controlRow(Output,x+16,78,w-32);controlRow(Format,x+16,104,w-32);controlRow(Stems,x+16,130,w-32);controlRow(Curve,x+16,156,w-32);
-        panel(rect(x,226,w,202),"MIXER");
-        for(unsigned d=0;d<2;++d){const double xx=x+24+d*78;const auto area=rect(xx,277,32,100);fill(area,style.cell);stroke(area,style.grid);
-            button(rect(xx-8,252,52,18),d?"CUE B":"CUE A",[this,d]{set(HeadphoneA+d,1-value(p,HeadphoneA+d));},value(p,HeadphoneA+d)!=0);
+    void mixer(){
+        using M=DeckMixerLayout;const double x=DeckLayout::centerLeft,w=DeckLayout::centerWidth;
+        panel(rect(x,42,w,106),"OUTPUT");
+        controlRow(Output,x+16,78,w-32);controlRow(Format,x+16,104,w-32);
+        controlRow(Stems,x+16,130,M::stripWidth);controlRow(Curve,M::stripLeft(1),130,M::stripWidth);
+        panel(rect(x,160,w,447),"MIXER");
+        // These are the same CLAP values used by the Beatpad adapter and host
+        // automation, never an editor-side copy of the hardware's mixer state.
+        constexpr unsigned toneKeys[]{Gain,High,Mid,Low,Filter,Amount};
+        const char* toneLabels[]{"GAIN","HIGH","MID","LOW","FILT","FX"};
+        for(unsigned d=0;d<2;++d){const double xx=M::stripLeft(d);
+            text(d?"DECK B":"DECK A",rect(xx,184,M::stripWidth,18),style.label,kCenterText);
+            for(unsigned n=0;n<6;++n)controlRow(param(d,toneKeys[n]),xx,M::toneRow(n),M::stripWidth,toneLabels[n]);
+            button(rect(xx,M::cueTop,M::stripWidth,18),d?"CUE B":"CUE A",[this,d]{gesture(HeadphoneA+d,true);set(HeadphoneA+d,1-value(p,HeadphoneA+d));gesture(HeadphoneA+d,false);},value(p,HeadphoneA+d)!=0);
+            button(rect(xx,M::slipTop,M::stripWidth,18),"SLIP",[this,d]{const auto id=param(d,Slip);gesture(id,true);set(id,1-value(p,id));gesture(id,false);},control(p,d,Slip)!=0);
+            const auto area=rect(xx+(M::stripWidth-32)*.5,M::faderTop,32,M::faderHeight);
+            fill(area,style.cell);stroke(area,style.grid);
             const double y=area.bottom-control(p,d,Level)*area.getHeight();fill(rect(area.left-3,y-2,38,4),style.value);
-            drag(area,[this,d,area](CPoint pt){set(param(d,Level),std::clamp((area.bottom-pt.y)/area.getHeight(),0.,1.));},[this,d]{gesture(param(d,Level),true);},[this,d]{gesture(param(d,Level),false);},[this,d]{guiValue(p,param(d,Level),1);});}
-        text("A ← FADE → B",rect(x+16,385,w-32,17),style.label,kCenterText);
-        const auto cross=rect(x+16,410,w-32,1);foundation::drawHorizontalSlider(*context,cross,value(p,Crossfade),403,15);
-        drag(rect(x+12,400,w-24,23),[this,cross](CPoint point){set(Crossfade,(point.x-cross.left)/cross.getWidth());},
-            [this]{gesture(Crossfade,true);},[this]{gesture(Crossfade,false);},[this]{set(Crossfade,.5);});
-        panel(rect(x,440,w,204),"RECORD / RESAMPLE");
+            const auto id=param(d,Level);
+            drag(area,[this,id,area](CPoint pt){set(id,std::clamp((area.bottom-pt.y)/area.getHeight(),0.,1.));},
+                [this,id]{gesture(id,true);},[this,id]{gesture(id,false);},
+                [this,id]{gesture(id,true);set(id,p.defs[id].initial);gesture(id,false);});
+            const auto valueBox=rect(xx+38,M::levelTop,64,18);
+            text(format("%.3g",value(p,id)),valueBox,style.value,kCenterText);
+            number(valueBox,value(p,id),[this,id](double v){set(id,v);},true,[this,id]{gesture(id,true);},[this,id]{gesture(id,false);});
+        }
+        text("A ← FADE → B",rect(x+16,M::crossLabel,w-32,17),style.label,kCenterText);
+        const auto cross=rect(x+16,M::crossTrack,w-32,1);foundation::drawHorizontalSlider(*context,cross,value(p,Crossfade),M::crossBaseline,15);
+        drag(rect(x+12,M::crossBaseline-3,w-24,23),[this,cross](CPoint point){set(Crossfade,(point.x-cross.left)/cross.getWidth());},
+            [this]{gesture(Crossfade,true);},[this]{gesture(Crossfade,false);},
+            [this]{gesture(Crossfade,true);set(Crossfade,p.defs[Crossfade].initial);gesture(Crossfade,false);});
+        controlRow(HeadphoneMix,x+16,M::cueMixRow,w-32);controlRow(HeadphoneLevel,x+16,M::cueLevelRow,w-32);
+        panel(rect(x,M::recordTop,w,124),"RECORD / RESAMPLE");
         const bool record=p.capture.state.load()==1||p.capture.state.load()==2;
         const auto source=static_cast<unsigned>(value(p,RecordSource));const bool recordInput=source!=0;
         const auto& sources=p.defs[RecordSource].choices;
-        menu(rect(x+16,474,w-32,19),sources[source],sources,source,[this](int n){set(RecordSource,n);},!blocked());
+        menu(rect(x+16,M::recordSourceRow-3,M::stripWidth,19),sources[source],sources,source,[this](int n){set(RecordSource,n);},!blocked());
         const unsigned width=sampleNeonBusWidth(decksLayout(static_cast<unsigned>(value(p,Format))));
         if(recordInput){std::vector<std::string> groups;for(unsigned first=0;first+width<=32;first+=width)groups.push_back(format("INPUT %u–%u",first+1,first+width));
             const unsigned group=recordInputFirst(p,width)/width;
-            menu(rect(x+16,500,w-32,19),groups[group],groups,group,[this](int n){set(RecordInputGroup,n);},!blocked());
-        }else text("DECK → NEW LAYER",rect(x+16,500,w-32,18),style.dim,kCenterText);
+            menu(rect(M::stripLeft(1),M::recordSourceRow-3,M::stripWidth,19),groups[group],groups,group,[this](int n){set(RecordInputGroup,n);},!blocked());
+        }else text("DECK → NEW LAYER",rect(M::stripLeft(1),M::recordSourceRow-2,M::stripWidth,18),style.dim,kCenterText);
         for(unsigned d=0;d<2;++d){const bool active=record&&p.capture.from==d;
             const std::string destination=recordInput?std::string("INPUT → ")+(d?"B":"A"):(d?"B → A":"A → B");
             const unsigned to=recordInput?d:1-d,target=active?p.capture.target:p.document->decks[to].recordTarget(layer(to));
-            button(rect(x+16,528+d*26,w-32,20),(active?"STOP ":"REC ")+destination+(target<32?format(" L%02u",target+1):" FULL"),[this,d]{startRecord(p,d);},active,!p.busy&&(!record||active));}
-        const auto r=rect(x+16,584,w-32,20);fill(r,style.cell);stroke(r,style.grid);for(unsigned n=0;n<132;++n){const float pk=p.capture.peaks[n*512/132].load();line({r.left+n,r.top+10-std::min(1.f,pk)*8},{r.left+n,r.top+10+std::min(1.f,pk)*8},style.value);}
-        text(format("%.1f /",p.capture.frames.load()/std::max(1.,p.capture.rate)),rect(x+16,612,60,18),style.dim,kRightText);
-        const auto maxBox=rect(x+82,612,44,18);text(format("%.0f S",value(p,RecordSeconds)),maxBox,style.value);number(maxBox,value(p,RecordSeconds),[this](double v){set(RecordSeconds,v);});
-        panel(rect(x,656,w,115),"SETUP");
+            button(rect(M::stripLeft(d),M::recordButtonTop,M::stripWidth,20),(active?"STOP ":"REC ")+destination+(target<32?format(" L%02u",target+1):" FULL"),[this,d]{startRecord(p,d);},active,!p.busy&&(!record||active));}
+        const auto r=rect(x+16,M::recordPreviewTop,178,16);fill(r,style.cell);stroke(r,style.grid);
+        for(unsigned n=0;n<178;++n){const float pk=p.capture.peaks[n*512/178].load();line({r.left+n,r.top+8-std::min(1.f,pk)*6},{r.left+n,r.top+8+std::min(1.f,pk)*6},style.value);}
+        text(format("%.1f /",p.capture.frames.load()/std::max(1.,p.capture.rate)),rect(x+202,M::recordLimitTop,50,18),style.dim,kRightText);
+        const auto maxBox=rect(x+260,M::recordLimitTop,48,18);text(format("%.0f S",value(p,RecordSeconds)),maxBox,style.value);
+        number(maxBox,value(p,RecordSeconds),[this](double v){set(RecordSeconds,v);},true,[this]{gesture(RecordSeconds,true);},[this]{gesture(RecordSeconds,false);});
+        panel(rect(x,M::setupTop,w,106),"SETUP");
         std::vector<std::string> inputs{"BEATPAD 2","NOTES / ALL"};for(unsigned i=1;i<=16;++i)inputs.push_back("NOTES / CH "+std::to_string(i));
         const int input=value(p,Controller)?0:1+static_cast<int>(value(p,MidiChannel));
-        menu(rect(x+16,689,w-32,19),inputs[input],inputs,input,[this](int n){set(Controller,n==0?1:0);set(MidiChannel,n>0?n-1:0);});
-        controlRow(Storage,x+16,718,w-32);controlRow(FocusDeck,x+16,744,w-32);
+        menu(rect(x+16,M::setupRow-3,w-32,19),inputs[input],inputs,input,[this](int n){set(Controller,n==0?1:0);set(MidiChannel,n>0?n-1:0);});
+        controlRow(Storage,x+16,M::setupRow+rowPitch,w-32);controlRow(FocusDeck,x+16,M::setupRow+2*rowPitch,w-32);
     }
     Plugin& p;
     std::array<uint8_t,2>& page;std::array<uint8_t,2>& view;std::array<unsigned,2> subpage {};
