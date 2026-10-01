@@ -7,6 +7,17 @@
                     NSEvent* event=[NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:0 clickCount:clicks pressure:1];
                     if(type==NSEventTypeLeftMouseDown)[document mouseDown:event];else [document mouseUp:event];}
                 params->flush(plugin,nullptr,nullptr);redraw();};
+            const auto rightClick=[&](double x,double y){const auto at=[document convertPoint:NSMakePoint(x*scale,y*scale) toView:nil];
+                for(NSEventType type:{NSEventTypeRightMouseDown,NSEventTypeRightMouseUp}){
+                    NSEvent* source=[NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:0 clickCount:1 pressure:1];
+                    // AppKit's synthetic factory leaves buttonNumber at zero;
+                    // VSTGUI needs the actual secondary-button field as well.
+                    CGEventRef cg=CGEventCreateCopy([source CGEvent]);
+                    CGEventSetIntegerValueField(cg,kCGMouseEventButtonNumber,kCGMouseButtonRight);
+                    NSEvent* event=[NSEvent eventWithCGEvent:cg];CFRelease(cg);
+                    ok=[event buttonNumber]==1&&ok;
+                    if(type==NSEventTypeRightMouseDown)[document rightMouseDown:event];else [document rightMouseUp:event];}
+                redraw();};
             const auto drawPattern=[&](double x1,double y1,double x2,double y2,NSEventModifierFlags modifiers=0,unsigned clicks=1){
                 for(NSEventType type:{NSEventTypeLeftMouseDown,NSEventTypeLeftMouseDragged,NSEventTypeLeftMouseUp}){
                     const bool first=type==NSEventTypeLeftMouseDown;
@@ -53,7 +64,8 @@
                 clap_ostream_t out{&bytes,[](const clap_ostream_t* s,const void* data,uint64_t n)->int64_t{auto& b=*static_cast<std::vector<uint8_t>*>(s->ctx);const auto* p=static_cast<const uint8_t*>(data);b.insert(b.end(),p,p+n);return n;}};
                 const auto* state=static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin,CLAP_EXT_STATE));
                 ok=state&&state->save(plugin,&out)&&bytes.size()>=42&&ok;
-                std::array<double,2> result{};if(bytes.size()>=42){std::memcpy(&result[0],bytes.data()+bytes.size()-42+5,8);std::memcpy(&result[1],bytes.data()+bytes.size()-42+13,8);}return result;};
+                const unsigned tail=bytes.size()>4&&bytes[4]>=8?64:0;
+                std::array<double,2> result{};if(bytes.size()>=42+tail){std::memcpy(&result[0],bytes.data()+bytes.size()-tail-42+5,8);std::memcpy(&result[1],bytes.data()+bytes.size()-tail-42+13,8);}return result;};
             std::vector<double> parameters;
             for(unsigned n=0;n<params->count(plugin);++n){clap_param_info_t info{};params->get_info(plugin,n,&info);double v=0;params->get_value(plugin,info.id,&v);parameters.push_back(v);}
             redraw();capture("sample-decks.performance");
@@ -62,6 +74,31 @@
             deckColors(false,true);
             click(18+466,56); // Left pane: B EDIT.
             deckColors(true,true);capture("sample-decks.cross-edit");
+            if(std::getenv("S3G_DECKS_GUI_STATE")){
+                failureStage="Sample Decks layer grid context menu";
+                const auto snapshot=[&]{std::vector<uint8_t> bytes;
+                    clap_ostream_t output{&bytes,[](const clap_ostream_t* s,const void* data,uint64_t n)->int64_t{
+                        auto& b=*static_cast<std::vector<uint8_t>*>(s->ctx);const auto* p=static_cast<const uint8_t*>(data);b.insert(b.end(),p,p+n);return n;}};
+                    const auto* state=static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin,CLAP_EXT_STATE));
+                    require(state&&state->save(plugin,&output),"save layer menu result");return bytes;};
+                const auto before=snapshot();
+                rightClick(818+16+72+33,557);capture("sample-decks.layer-copy-menu");click(818+16+72+43,566); // Copy A layer 2, in the right-hand editor.
+                require(snapshot()==before,"copy layer leaves project untouched");
+                rightClick(18+16+7*72+33,620);capture("sample-decks.layer-paste-menu");click(18+16+7*72+43,647); // Paste B layer 32 in left editor.
+                const auto pasted=snapshot();if(pasted.size()<=before.size())std::cerr<<"Layer menu bytes: "<<before.size()<<" -> "<<pasted.size()<<'\n';require(pasted.size()>before.size(),"context paste populates the opposite deck's empty layer");
+                click(516,22);require(snapshot()==before,"context paste has working Undo");
+                click(576,22);require(snapshot()==pasted,"context paste has working Redo");
+                rightClick(18+16+7*72+33,620);click(18+16+7*72+43,665); // Clear the same B layer.
+                require(snapshot()==before,"context clear removes only that layer");
+                click(516,22);require(snapshot()==pasted,"context clear restores with Undo");
+                click(576,22);require(snapshot()==before,"context clear repeats with Redo");
+                rightClick(18+16+33,557);click(18+16+43,584); // Occupied B layer 1: confirmation.
+                require(snapshot()==before,"occupied paste waits for confirmation");
+                click(18+182,547);require(snapshot()==before,"Cancel keeps destination audio");
+                rightClick(18+16+33,557);click(18+16+43,584);click(18+182,565);
+                require(snapshot()!=before,"confirmed paste replaces occupied layer");
+                click(516,22);require(snapshot()==before,"Undo restores replaced layer");
+            }
             for(unsigned n=0;n<parameters.size();++n){clap_param_info_t info{};params->get_info(plugin,n,&info);double v=0;params->get_value(plugin,info.id,&v);ok=v==parameters[n]&&ok;}
             if(!ok)std::cerr<<"Decks view switch changed an audio parameter\n";
             // Rate is the first playback-editor row. A on the RIGHT, B on the LEFT.
@@ -258,6 +295,18 @@
                     choice(638+80,483.5,2);require(read(10)==2,"Input + Thru menu");
                     choice(638+80,483.5,0);require(read(10)==0,"Deck Output remains available");
                     block.audio_inputs=nullptr;block.audio_inputs_count=0;
+                    failureStage="Sample Decks headphone cue controls";
+                    set(3,0);set(4,0);set(9,0);set(16,0);set(17,0);redraw();
+                    click(680,261);require(read(16)==1&&read(17)==0,"persistent mixer Cue A button");
+                    click(758,261);require(read(17)==1,"persistent mixer Cue B button");
+                    click(786,22);capture("sample-decks.headphone-cue");
+                    click(818+220,110);click(818+170,183);require(read(12)==3,"headphone routing selects explicit 3/4");
+                    click(818+220,110);click(818+170,165);require(read(12)==3,"main 1/2 cannot be selected as cue output");click(1200,310);
+                    click(1010,138);require(read(13)>0,"headphone Cue/Master slider");
+                    click(1010,138,2);require(read(13)==0,"headphone blend double-click default");
+                    choice(1340,110.5,2);require(read(15)==2,"quad/octo fold mode menu");
+                    click(818+50,196);require(read(16)==0,"headphone page mirrors mixer Cue A toggle");
+                    capture("sample-decks.headphone-routing");
                     plugin->stop_processing(plugin);}
                 if(activated)plugin->deactivate(plugin);
             }

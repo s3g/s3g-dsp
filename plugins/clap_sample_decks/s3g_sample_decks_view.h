@@ -10,7 +10,7 @@ struct DeckViewState {
     std::array<uint8_t,2> oppositeEdit {},page {{1,1}},view {},channels {},orientation {};
     std::array<double,2> zoom {{4,4}},offset {};
     bool valid() const noexcept {
-        for(unsigned d=0;d<2;++d)if(oppositeEdit[d]>1||page[d]>6||view[d]>3||channels[d]>2||orientation[d]>3
+        for(unsigned d=0;d<2;++d)if(oppositeEdit[d]>1||page[d]>7||view[d]>3||channels[d]>2||orientation[d]>3
             ||!std::isfinite(zoom[d])||zoom[d]<1||zoom[d]>64||!std::isfinite(offset[d])||offset[d]<0||offset[d]>1)return false;
         return true;
     }

@@ -6,14 +6,15 @@
 namespace s3g::decks {
 using namespace s3g::sample;
 enum Global : unsigned { Output, Crossfade, Curve, Format, Stems, Controller, MidiChannel,
-    Storage, RecordSeconds, FocusDeck, RecordSource, RecordInputGroup, GlobalCount };
+    Storage, RecordSeconds, FocusDeck, RecordSource, RecordInputGroup,
+    HeadphoneOutput, HeadphoneMix, HeadphoneLevel, HeadphoneFold, HeadphoneA, HeadphoneB, GlobalCount };
 enum Control : unsigned { Playback, Layer, SourceMode, Level, Tune, Start, End, Direction,
     Repeat, Clock, Cycle, CycleBeats, StackCycle, StackBeats, Position, GrainSize, Density,
     Spray, PitchSpray, ReverseChance, Attack, Release, Character, Amount, PressureDepth,
     SourceBpm, Technique0, Technique1, Technique2, Technique3, PadMode, PadBank, Slip,
     Rate, ZeroCross, SliceCount, High, Mid, Low, Filter, MotionPath, Gain, CuePosition, StackNavigation, StackPosition,
     SamplerPads, KeyboardRoot, KeyboardOctave, KeyboardVoices, ScreenVelocity, ScreenPressure, ScreenLatch,
-    CueAction, SliceHold, SliceRaw, FxLatch, RideTime, CueLayer, ControlCount };
+    CueAction, SliceHold, SliceRaw, FxLatch, RideTime, CueLayer, CueStackPosition, ControlCount };
 static_assert(ControlCount<=64);
 constexpr unsigned kDeckBase=32, kDeckStride=512, kFamily=64, kFx=400;
 constexpr unsigned kParamCount=kDeckBase+2*kDeckStride;
@@ -39,6 +40,14 @@ inline Definition definition(unsigned index) {
         case FocusDeck:return {"FOCUS",0,1,0,true,{"A","B"}};
         case RecordSource:return {"RECORD SOURCE",0,2,0,true,{"DECK OUTPUT","TRACK INPUT","INPUT + THRU"}};
         case RecordInputGroup:return {"INPUT GROUP",0,15,0,true};
+        case HeadphoneOutput:{std::vector<std::string> choices{"OFF","AUTO"};
+            for(unsigned ch=1;ch<32;ch+=2)choices.push_back("OUT "+std::to_string(ch)+"–"+std::to_string(ch+1));
+            return {"CUE OUTPUT",0,17,1,true,std::move(choices)};}
+        case HeadphoneMix:return {"CUE → MASTER",0,1,0};
+        case HeadphoneLevel:return {"CUE LEVEL / DB",-60,0,-6};
+        case HeadphoneFold:return {"QUAD / OCTO FOLD",0,2,0,true,{"STEREO PAIRS","CLOCKWISE RING","MONO SUM"}};
+        case HeadphoneA:return {"CUE A",0,1,0,true,{"OFF","ON"}};
+        case HeadphoneB:return {"CUE B",0,1,0,true,{"OFF","ON"}};
         default:return {};
         }
     }
@@ -89,6 +98,7 @@ inline Definition definition(unsigned index) {
     case CuePosition:return {"CUE POSITION",0,1,0};
     // -1 preserves the position-only behavior of sets saved before v7.
     case CueLayer:return {"CUE LAYER",-1,31,-1,true};
+    case CueStackPosition:return {"CUE STACK POSITION",-1,31,-1};
     case StackNavigation:return {"STACK NAV",0,1,0,true,{"FOLLOW SOURCE","MANUAL STACK"}};
     case StackPosition:return {"STACK POSITION",0,1,0};
     case SamplerPads:return {"SAMPLER PADS",0,1,0,true,{"LAYERS","KEYBOARD"}};

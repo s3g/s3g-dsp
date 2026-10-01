@@ -47,7 +47,8 @@ public:
         motorAlpha_ = 1-std::exp(-1/(.060*rate));
         reset();
     }
-    void reset() noexcept { pending_=hand_=0; motor_=1; touched_=false; }
+    void reset() noexcept { pending_=hand_=bend_=0; motor_=1; touched_=false; }
+    void bend(float amount) noexcept { bend_=std::clamp<double>(amount,-.08,.08); }
     void touch(bool held) noexcept {
         touched_=held;
         if (!held) pending_=0; // do not store a backlog of scratch travel
@@ -61,12 +62,12 @@ public:
         pending_-=impulse/rate_;
         const double drive=std::clamp(impulse,touched_?-8.:-.35,touched_?8.:.35);
         hand_+=(touched_?handAlpha_:motorAlpha_)*(drive-hand_);
-        motor_+=(touched_?brakeAlpha_:motorAlpha_)*((touched_?0.:1.)-motor_);
+        motor_+=(touched_?brakeAlpha_:motorAlpha_)*((touched_?0.:1.+bend_)-motor_);
         return static_cast<float>(motor_+hand_);
     }
 private:
     double rate_=48000,handAlpha_=0,brakeAlpha_=0,motorAlpha_=0;
-    double pending_=0,hand_=0,motor_=1;
+    double pending_=0,hand_=0,motor_=1,bend_=0;
     bool touched_=false;
 };
 

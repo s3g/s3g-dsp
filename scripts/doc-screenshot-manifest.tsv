@@ -78,6 +78,8 @@ sample-player	sample-player
 # Neon captures use the loaded REAPER session; retain real waveform examples when refreshing.
 sample-neon	sample-neon
 utility-neon-midi	utility-neon
+# Decks captures also use a loaded REAPER session; retain its waveform and Stack Path examples.
+sample-decks	sample-decks
 sample-doubles	sample-doubles
 sample-wavesets	sample-wavesets
 sample-motion	sample-motion

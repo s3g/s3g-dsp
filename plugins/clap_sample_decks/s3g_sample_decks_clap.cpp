@@ -1,6 +1,8 @@
 #include "s3g_sample_decks_document.h"
 #include "s3g_sample_decks_view.h"
 #include "s3g_sample_decks_controls.h"
+#include "s3g_sample_decks_beatpad_state.h"
+#include "s3g_sample_decks_headphones.h"
 #include "s3g_sample_decks_media.h"
 #include "../clap_sample_neon/s3g_sample_neon_visual_state.h"
 #include "../common/s3g_clap_gui_param_queue.h"
@@ -71,6 +73,7 @@ struct Plugin {
     s3g::clap_gui::SpscEventQueue<Command,1024> commands;
     s3g::clap_gui::SpscEventQueue<BookmarkEdit,64> bookmarkEdits;
     std::shared_ptr<Document> document=std::make_shared<Document>();
+    std::shared_ptr<const LayerAudio> layerClipboard;
     std::deque<std::shared_ptr<Document>> undo,redo;
     std::vector<std::shared_ptr<Document>> retired;
     std::atomic<const Document*> published {nullptr},hazard {nullptr};
@@ -88,6 +91,7 @@ struct Plugin {
     bool busy=false;
     std::string message="DROP AUDIO ON EITHER DECK";
     SampleDecksEngine engine;
+    DeckHeadphones headphones;
     DeckViewState viewState;
     std::array<NeonVisualPublication,2> playbackVisuals;
     std::array<std::atomic<int>,2> waveformLayer {{-1,-1}};
@@ -105,6 +109,9 @@ struct Plugin {
     std::array<bool,2> held {},shift {},cueOn {};
     std::array<double,2> cue {},resume {},jogTarget {};
     std::array<DeckPlatter,2> platters;
+    BeatpadState beatpad;
+    std::array<std::array<bool,2>,2> bendHeld{};
+    int lastController=-1;
     std::array<std::array<float,64>,2> platterRates {},scanPositions {};
     std::array<float,2> scanMix {};
     std::array<std::array<float,8>,2> padPressure {};
@@ -132,8 +139,10 @@ struct Plugin {
     std::atomic<bool> activated {false};
     bool hostPlaying=false; double tempo=120,beat=0; bool beatValid=false;
     std::atomic<bool> dirty {false};
-    unsigned ledTick=0,ledRefreshTick=0,callbackFrames=0;
+    unsigned ledTick=0,callbackFrames=0;
     std::array<std::array<int16_t,128>,2> padLeds {};
+    std::array<std::array<int16_t,6>,2> jogLeds {};
+    std::array<int16_t,2> headphoneLeds {};
     bool ledInit=false; std::atomic<bool> refreshLeds {false};
     std::array<std::array<media::ProjectFileRegistration,32>,2> registrations;
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
@@ -219,6 +228,24 @@ void history(Plugin& p,bool forward) {
     const auto action=forward?next->action:p.document->action;
     for(unsigned i=0;i<kParamCount;++i)p.values[i].store(next->savedControls[i]);
     publish(p,std::move(next),3,false);p.message=forward?"REDO":"UNDO";p.message+=" — "+action;
+}
+enum class LayerEdit { Copy, Paste, Clear };
+bool editStackLayer(Plugin& p,unsigned d,unsigned n,LayerEdit action) {
+    if(d>=2||n>=32||p.busy||p.capture.state.load()){p.message="FINISH RECORDING / LOADING FIRST";return false;}
+    const auto& source=p.document->decks[d].layers[n];
+    if(action==LayerEdit::Copy){if(!source.asset)return false;
+        p.layerClipboard=std::make_shared<LayerAudio>(source);p.message="LAYER COPIED";return true;}
+    if(action==LayerEdit::Paste&&!p.layerClipboard)return false;
+    if(action==LayerEdit::Clear&&!source.asset)return false;
+    auto doc=std::make_shared<Document>(*p.document);
+    auto& deck=doc->decks[d];deck.layers[n]=action==LayerEdit::Paste?*p.layerClipboard:LayerAudio{};
+    for(auto& cue:deck.bookmarks)if(cue.set&&cue.layer==n)cue={};
+    if(audioBytes(*doc)>kAudioBudget){p.message="512 MIB AUDIO BUDGET EXCEEDED";return false;}
+    doc->action=action==LayerEdit::Paste?"PASTE LAYER":"CLEAR LAYER";
+    publish(p,std::move(doc),1u<<d);
+    if(unsigned(control(p,d,Layer))==n){const auto& layer=p.document->decks[d].layers[n];
+        guiValue(p,param(d,Start),layer.start);guiValue(p,param(d,End),layer.end);}
+    p.message=p.document->action;return true;
 }
 bool decode(const std::string& path,std::shared_ptr<const SampleAsset>& result,std::string& error,uint64_t budget=kAudioBudget) {
 #if defined(__APPLE__)
@@ -448,7 +475,7 @@ void preparePlatters(Plugin& p,SampleNeonSettings& s,unsigned frames) noexcept {
         c.deckPlatterRates=p.platterRates[d].data();
         if(p.scanMix[d]>0){c.deckScanPositions=p.scanPositions[d].data();c.deckScanMix=p.scanMix[d];
             c.sourceScrub=p.scanPositions[d][0];}
-        if(!p.touching[d].load())p.scanMix[d]=std::max(0.f,p.scanMix[d]-static_cast<float>(frames/(sampleRate*.12)));
+        if(!p.touching[d].load()&&!p.bendHeld[d][0]&&!p.bendHeld[d][1])p.scanMix[d]=std::max(0.f,p.scanMix[d]-static_cast<float>(frames/(sampleRate*.12)));
     }
 }
 
@@ -461,8 +488,14 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
         for(unsigned n=0;n<count;)if(events[n].slot==d){for(unsigned k=n+1;k<count;++k)events[k-1]=events[k];--count;}else ++n;};
     auto start=[&]{clearNotes();p.engine.stop(d);const unsigned before=count;add(SampleNeonEventKind::Trigger);p.playing[d].store(count>before);return count>before;};
     switch(c.kind){
-    case CommandKind::Play:if(p.playing[d].load()){clearNotes();p.engine.stop(d);p.playing[d].store(false);p.platters[d].reset();p.touching[d].store(false);p.scanMix[d]=0;}else start();break;
-    case CommandKind::Stop:clearNotes();p.engine.stop(d);p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.scanMix[d]=0;break;
+    case CommandKind::Play:if(p.playing[d].load()){clearNotes();p.engine.stop(d);p.playing[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.touching[d].store(false);p.scanMix[d]=0;}else start();break;
+    case CommandKind::Stop:clearNotes();p.engine.stop(d);p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.beatpad.faderStart[d]=false;p.scanMix[d]=0;break;
+    case CommandKind::Bend:
+        // Non-vinyl techniques use the same temporary source scan as rim jog;
+        // keep it engaged while held, then blend back to their native path.
+        if(c.value>0){if(p.scanMix[d]==0)p.jogTarget[d]=currentPosition(p,d);p.scanMix[d]=1;}
+        p.bendHeld[d][c.index%2]=c.value>0;
+        p.platters[d].bend(.08f*(int(p.bendHeld[d][1])-int(p.bendHeld[d][0])));break;
     case CommandKind::Seek: {
         const double pos=std::clamp(c.value,0.,1.);setValue(p,param(d,Position),pos);p.jogTarget[d]=pos;p.engine.seek(d,pos);break;}
     case CommandKind::Touch:
@@ -484,17 +517,29 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
             :discrete?control(p,d,Layer)/(layers-1):p.stackPosition[d].load();
         setValue(p,param(d,StackPosition),std::clamp(base+c.value*(discrete?1.:.08)/(layers-1),0.,1.));
         setValue(p,param(d,StackNavigation),1);break;}
-    case CommandKind::Cue:{
+    case CommandKind::Cue:case CommandKind::CueStop:{
         const auto* doc=p.hazard.load();const int layer=static_cast<int>(control(p,d,CueLayer));
-        if(layer>=0){if(!doc||!doc->decks[d].layers[layer].asset)break;selectCueLayer(p,*doc,d,static_cast<unsigned>(layer));}
+        bool blend=false;
+        if(layer>=0){if(!doc||!doc->decks[d].layers[layer].asset){
+                if(c.kind==CommandKind::CueStop)audioCommand(p,{CommandKind::Stop,d},events,count);
+                break;
+            }blend=selectCueLayer(p,*doc,d,static_cast<unsigned>(layer),control(p,d,CueStackPosition));}
         setValue(p,param(d,Position),control(p,d,CuePosition));
-        if(start()&&layer>=0)events[count-1].selectedSource=true;break;}
+        if(c.kind==CommandKind::CueStop){audioCommand(p,{CommandKind::Stop,d},events,count);p.engine.seek(d,control(p,d,Position));break;}
+        if(start()&&layer>=0){events[count-1].selectedSource=!blend;events[count-1].snapStackPosition=blend;}break;}
     case CommandKind::SetCue:{
         const auto* doc=p.hazard.load();if(!doc)break;const auto cue=cueForStore(p,*doc,d,events,count);if(!cue.set)break;
         const auto& source=doc->decks[d].layers[cue.layer];
         setValue(p,param(d,CueLayer),cue.layer);
+        setValue(p,param(d,CueStackPosition),cue.stackPosition);
         setValue(p,param(d,CuePosition),(cue.position-source.start)/std::max(1.e-7,source.end-source.start));break;}
     case CommandKind::Sync:setValue(p,param(d,Rate),p.tempo/control(p,d,SourceBpm));setValue(p,param(d,Position),0);start();break;
+    case CommandKind::FollowSource:
+        setValue(p,param(d,StackNavigation),0);
+        p.performance[d].riding=false;p.performance[d].rideOrder={};p.performance[d].rideFine=0;
+        // Force a resume event even if the menu already reads Follow Source;
+        // a single-layer cue can still have an isolated source voice.
+        p.lastStackTarget[d]=-2;break;
     case CommandKind::Record:p.recordRequest.store(static_cast<int>(d));if(p.host&&p.host->request_callback)p.host->request_callback(p.host);break;
     case CommandKind::TimedCapture:case CommandKind::NextTake:
         p.recordRequest.store(static_cast<int>(d+2*(c.kind==CommandKind::NextTake?5:1+std::min(3u,c.index))));
@@ -560,9 +605,9 @@ void audioCommand(Plugin& p,const Command& c,std::array<SampleNeonEvent,64>& eve
             const unsigned action=static_cast<unsigned>(control(p,d,CueAction));
             if(action){audioCommand(p,{action==1?CommandKind::StoreBookmark:CommandKind::ClearBookmark,d,pad},events,count);setValue(p,param(d,CueAction),0);}
             else {const auto cue=doc->decks[d].bookmarks[pad];const auto& layer=doc->decks[d].layers[cue.layer];
-                selectCueLayer(p,*doc,d,cue.layer);
+                const bool blend=selectCueLayer(p,*doc,d,cue.layer,cue.stackPosition);
                 setValue(p,param(d,Position),std::clamp((cue.position-layer.start)/std::max(1.e-7,layer.end-layer.start),0.,1.));
-                perf.window=false;p.padNotes[d]={};p.engine.stopVoices(d);add(SampleNeonEventKind::Trigger,static_cast<float>(c.value));events[count-1].selectedSource=true;p.playing[d].store(true);}
+                perf.window=false;p.padNotes[d]={};p.engine.stopVoices(d);add(SampleNeonEventKind::Trigger,static_cast<float>(c.value));events[count-1].selectedSource=!blend;events[count-1].snapStackPosition=blend;p.playing[d].store(true);}
         }
         else if(mode==2){const bool toggle=control(p,d,FxLatch)!=0;
             perf.fxOrder[pad]=toggle&&perf.fxOrder[pad]?0:p.padGestures[d][pad];perf.fxToggle[pad]=toggle;perf.fxPressure[pad]=static_cast<float>(c.value);}
@@ -610,8 +655,9 @@ bool pluginInit(const clap_plugin_t* plugin){auto& p=*self(plugin);
         if(p.hostTimer&&p.hostTimer->register_timer)p.hostTimer->register_timer(p.host,16,&p.timerId);
     }return true;}
 bool activate(const clap_plugin_t* plugin,double rate,uint32_t,uint32_t maximum){auto& p=*self(plugin);if(!std::isfinite(rate)||rate<8000||rate>384000||!maximum||maximum>65536)return false;
-    try{if(!p.engine.prepare(rate,maximum))return false;for(auto& c:p.scratch)c.assign(maximum,0);for(auto& c:p.inputScratch)c.assign(maximum,0);}catch(...){return false;}
+    try{if(!p.engine.prepare(rate,maximum))return false;p.headphones.prepare(rate);for(auto& c:p.scratch)c.assign(maximum,0);for(auto& c:p.inputScratch)c.assign(maximum,0);}catch(...){return false;}
     for(auto& platter:p.platters)platter.prepare(rate);p.scanMix={};for(auto& held:p.touching)held.store(false);p.lastStackTarget.fill(-2);p.stackTouch={};p.padNotes={};p.padHeld={};p.pendingPads={};
+    p.beatpad.resetGestures();p.bendHeld={};p.shift={};p.lastController=-1;
     for(unsigned d=0;d<2;++d)clearPadFeedback(p,d);
     p.performance={};p.padGestures={};for(auto& light:p.performanceLights)light.store(0);for(auto& history:p.rollHistory)history.store(0);
     p.sampleRate.store(rate);p.maximumFrames=maximum;p.audioRevision.fill(UINT64_MAX);p.ledInit=false;p.activated.store(true);return true;}
@@ -620,7 +666,7 @@ void deactivate(const clap_plugin_t* plugin){auto& p=*self(plugin);p.engine.rese
     if(p.capture.state.load()==1||p.capture.state.load()==2)p.capture.state.store(3);}
 bool startProcessing(const clap_plugin_t*){return true;}
 void stopProcessing(const clap_plugin_t*){}
-void reset(const clap_plugin_t* plugin){auto& p=*self(plugin);p.engine.reset();for(unsigned d=0;d<2;++d){p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.playbackVisuals[d].clear();clearPadFeedback(p,d);p.rollHistory[d].store(0);p.performanceLights[d].store(0);}p.performance={};p.padGestures={};p.lastStackTarget.fill(-2);p.stackTouch={};p.scanMix={};p.padHeld={};p.pendingPads={};p.padNotes={};p.padPressure={};p.pressure={};p.refreshLeds.store(true);}
+void reset(const clap_plugin_t* plugin){auto& p=*self(plugin);p.engine.reset();p.headphones.reset();for(unsigned d=0;d<2;++d){p.playing[d].store(false);p.touching[d].store(false);p.platters[d].reset();p.playbackVisuals[d].clear();clearPadFeedback(p,d);p.rollHistory[d].store(0);p.performanceLights[d].store(0);}p.performance={};p.padGestures={};p.lastStackTarget.fill(-2);p.stackTouch={};p.scanMix={};p.padHeld={};p.pendingPads={};p.padNotes={};p.padPressure={};p.pressure={};p.beatpad.resetGestures();p.bendHeld={};p.shift={};p.refreshLeds.store(true);}
 
 // Read the complete input block before output writes (hosts may alias buffers).
 // Missing channels are not the same as connected, silent channels. Never record
@@ -644,12 +690,14 @@ clap_process_status process(const clap_plugin_t* plugin,const clap_process_t* bl
     for(unsigned ch=0;ch<32;++ch)if((out.data32&&!out.data32[ch])||(out.data64&&!out.data64[ch]))return CLAP_PROCESS_ERROR;
     unsigned inputWidth=0;const bool inputConnected=prepareTrackInput(p,*block,inputWidth);
     const Document* doc=nullptr;do{doc=p.published.load();p.hazard.store(doc);}while(doc!=p.published.load());
+    if(p.lastController!=int(value(p,Controller))){p.lastController=int(value(p,Controller));p.beatpad.resetGestures();p.shift={};p.bendHeld={};
+        for(auto& platter:p.platters)platter.bend(0);}
     for(unsigned d=0;d<2;++d)if(p.audioRevision[d]!=doc->decks[d].revision){p.engine.stop(d);p.padNotes[d]={};p.padHeld[d]={};p.pendingPads[d]={};p.playing[d].store(false);p.platters[d].reset();p.touching[d].store(false);p.scanMix[d]=0;p.audioRevision[d]=doc->decks[d].revision;
-        p.performance[d]={};p.rollHistory[d].store(0);p.performanceLights[d].store(0);
+        p.performance[d]={};p.bendHeld[d]={};p.beatpad.storingCue[d]={};p.beatpad.faderStart[d]=false;p.rollHistory[d].store(0);p.performanceLights[d].store(0);
         clearPadFeedback(p,d);
         const auto* base=doc->decks[d].playbackBase(static_cast<unsigned>(control(p,d,Layer)));p.audioSource[d]=base?base->asset.get():nullptr;
         p.engine.setSource(d,p.audioSource[d],base?base->wavesets.get():nullptr);}
-    if(const unsigned mask=p.forceStop.exchange(0))for(unsigned d=0;d<2;++d)if(mask&(1u<<d)){p.engine.stop(d);p.performance[d]={};p.padNotes[d]={};p.padHeld[d]={};p.pendingPads[d]={};p.playing[d].store(false);p.platters[d].reset();p.touching[d].store(false);p.scanMix[d]=0;clearPadFeedback(p,d);}
+    if(const unsigned mask=p.forceStop.exchange(0))for(unsigned d=0;d<2;++d)if(mask&(1u<<d)){p.engine.stop(d);p.performance[d]={};p.padNotes[d]={};p.padHeld[d]={};p.pendingPads[d]={};p.playing[d].store(false);p.platters[d].reset();p.bendHeld[d]={};p.beatpad.storingCue[d]={};p.beatpad.faderStart[d]=false;p.touching[d].store(false);p.scanMix[d]=0;clearPadFeedback(p,d);}
     if(block->transport){const auto& t=*block->transport;p.hostPlaying=t.flags&CLAP_TRANSPORT_IS_PLAYING;p.beatValid=t.flags&CLAP_TRANSPORT_HAS_BEATS_TIMELINE;
         if((t.flags&CLAP_TRANSPORT_HAS_TEMPO)&&std::isfinite(t.tempo))p.tempo=std::clamp(t.tempo,20.,400.);if(p.beatValid)p.beat=double(t.song_pos_beats)/CLAP_BEATTIME_FACTOR;}
     else {p.hostPlaying=false;p.beatValid=false;}
@@ -702,7 +750,9 @@ clap_process_status process(const clap_plugin_t* plugin,const clap_process_t* bl
             const bool triggering=std::any_of(events.begin(),events.begin()+count,[d](const auto& e){return e.slot==d&&e.kind==SampleNeonEventKind::Trigger;});
             if((target!=p.lastStackTarget[d]||triggering)&&count<events.size()){
                 const bool isolated=std::any_of(events.begin(),events.begin()+count,[d](const auto& e){return e.slot==d&&e.kind==SampleNeonEventKind::Trigger&&e.selectedSource;});
-                auto& e=events[count++];e={};e.slot=static_cast<uint8_t>(d);e.kind=SampleNeonEventKind::StackPosition;e.value=target;e.resumeNavigation=!isolated;p.lastStackTarget[d]=target;}
+                const bool snap=std::any_of(events.begin(),events.begin()+count,[d](const auto& e){return e.slot==d&&e.kind==SampleNeonEventKind::Trigger&&e.snapStackPosition;});
+                auto& e=events[count++];e={};e.slot=static_cast<uint8_t>(d);e.kind=SampleNeonEventKind::StackPosition;e.value=target;e.resumeNavigation=!isolated;
+                e.snapStackPosition=snap;p.lastStackTarget[d]=target;}
             const float pos=control(p,d,Position);if(pos!=p.lastPosition[d]){p.engine.seek(d,pos);p.lastPosition[d]=pos;}
             if(p.touching[d].load()&&control(p,d,Slip)!=0){const auto* a=doc->decks[d].base();if(a)p.resume[d]=neonUnitPhase(p.resume[d]+frames/p.sampleRate.load()*control(p,d,Rate)/(a->frameCount()/a->sampleRate));}
             float pressure=0;for(unsigned i=0;i<8;++i)if(p.padHeld[d][i])pressure=std::max(pressure,std::max(p.padPressure[d][i],p.screenHeld[d][i]?control(p,d,ScreenPressure):0.f));
@@ -722,8 +772,15 @@ clap_process_status process(const clap_plugin_t* plugin,const clap_process_t* bl
                 c.frames.store(written+n);if(written+n==c.capacity)c.state.store(3);}
             if(c.state.load()==3&&p.host&&p.host->request_callback)p.host->request_callback(p.host);}
         const bool monitorInput=value(p,RecordSource)==2&&inputConnected;
-        for(unsigned ch=0;ch<32;++ch)for(unsigned i=0;i<frames;++i){const float thru=monitorInput&&ch<inputWidth?p.inputScratch[ch][at+i]:0;
-            const float v=audio[ch][i]+thru;peak=std::max(peak,std::abs(v));if(out.data32)out.data32[ch][at+i]=v;else out.data64[ch][at+i]=v;}
+        if(monitorInput)for(unsigned ch=0;ch<inputWidth;++ch)for(unsigned i=0;i<frames;++i)audio[ch][i]+=p.inputScratch[ch][at+i];
+        DeckHeadphoneSettings hp;hp.output=static_cast<unsigned>(value(p,HeadphoneOutput));hp.format=static_cast<unsigned>(value(p,Format));
+        hp.fold=static_cast<unsigned>(value(p,HeadphoneFold));hp.stems=mix.stems;hp.selected={value(p,HeadphoneA)!=0,value(p,HeadphoneB)!=0};
+        hp.mix=value(p,HeadphoneMix);hp.gainDb=value(p,HeadphoneLevel);
+        std::array<const float*,16> cueA{},cueB{};const unsigned width=sampleNeonBusWidth(s.outputLayout);
+        for(unsigned ch=0;ch<width;++ch){cueA[ch]=p.engine.deckAudio(0,ch);cueB[ch]=p.engine.deckAudio(1,ch);}
+        p.headphones.render(hp,width,cueA.data(),cueB.data(),audio.data(),frames);
+        for(unsigned ch=0;ch<32;++ch)for(unsigned i=0;i<frames;++i){const float v=audio[ch][i];
+            peak=std::max(peak,std::abs(v));if(out.data32)out.data32[ch][at+i]=v;else out.data64[ch][at+i]=v;}
         for(unsigned d=0;d<2;++d){p.playing[d].store(p.engine.active(d));const unsigned n=p.engine.cursorCount(d);p.cursor[d].store(n?p.engine.cursors(d)[n-1].sourcePositionNormalized:-1);
             if(p.performance[d].window){auto cursors=p.engine.cursors(d);for(unsigned i=0;i<n;++i)cursors[i].layer=p.performance[d].layer;
                 p.playbackVisuals[d].publish(cursors,n,p.engine.motionVisual(d,s));}

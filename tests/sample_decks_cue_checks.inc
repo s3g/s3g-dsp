@@ -73,7 +73,7 @@ void cueLayerWorkflow(){
     Bytes state;check(saveState(plugin,&state.out),"save layer cues");
     check(loadState(plugin,&state.in)&&p.document->decks[0].bookmarks[0].layer==1
         &&p.document->decks[0].bookmarks[1].layer==2&&control(p,0,CueLayer)==2,"pad and main layer cues survive project recall");
-    Bytes legacy;legacy.data=state.data;legacy.data[4]=6;
+    Bytes legacy;versionSeven(state,legacy);legacy.data[4]=6;
     const float reserved=0;for(unsigned d=0;d<2;++d)std::memcpy(legacy.data.data()+12+param(d,CueLayer)*sizeof(float),&reserved,sizeof(float));
     check(loadState(plugin,&legacy.in)&&control(p,0,CueLayer)==-1&&p.document->decks[0].bookmarks[0].layer==1,
         "v6 sets keep their pad cues and migrate main cues without inventing a layer");
@@ -98,4 +98,19 @@ void binaryCueLayerWorkflow(const clap_plugin_t* plugin,const clap_plugin_params
     a.midi(0x92,0x03,127);a.run(plugin,3);plugin->on_main_thread(plugin);a.midi(0x82,0x03,0);a.run(plugin);
     set(param(0,Layer),0);a.run(plugin);a.midi(0x92,0x03,127);a.run(plugin,3);
     check(get(param(0,Layer))==1,"exact binary hardware Cues pad returns to stored lane");
+    a.midi(0x82,0x03,0);a.run(plugin);
+    for(unsigned method:{1u,2u,4u,5u,6u,7u}){
+        plugin->reset(plugin);set(param(0,Playback),method);set(param(0,Layer),0);
+        set(param(0,SourceMode),4);set(param(0,StackNavigation),1);set(param(0,StackPosition),.35);
+        set(param(0,Position),.3);set(param(0,Spray),0);a.run(plugin);
+        a.midi(0x90,0x60,127);a.run(plugin,100);a.midi(0x90,0x5e,127);a.run(plugin);
+        check(std::abs(get(param(0,CueStackPosition))-.7)<.003,"exact binary SET CUE retains fractional stack address");
+        set(param(0,StackPosition),.9);a.run(plugin,80);a.midi(0x90,0x5f,127);a.run(plugin,4);
+        check(get(param(0,StackNavigation))==1&&std::abs(get(param(0,StackPosition))-.35)<.002
+            &&get(param(0,SourceMode))==4,"exact binary CUE holds saved blend without replacing source mode");
+        const double rate=get(param(0,Rate)),position=get(param(0,Position));
+        a.midi(0x90,0x1d,127);a.run(plugin,4);
+        check(get(param(0,StackNavigation))==0&&get(param(0,Rate))==rate&&get(param(0,Position))==position,
+            "exact binary Shift Sync resumes Follow Source without ordinary Sync changes");
+    }
 }

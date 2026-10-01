@@ -7,16 +7,17 @@ bool readString(const clap_istream_t* s,std::string& v){uint32_t n=0;if(!readSca
 bool saveState(const clap_plugin_t* plugin,const clap_ostream_t* stream){
     auto& p=*self(plugin);if(p.busy||p.capture.state.load())return false;
     try {
-        if(!writeScalar(stream,uint32_t(0x334b4453))||!writeScalar(stream,uint32_t(7))||!writeScalar(stream,uint32_t(kParamCount)))return false;
+        if(!writeScalar(stream,uint32_t(0x334b4453))||!writeScalar(stream,uint32_t(9))||!writeScalar(stream,uint32_t(kParamCount)))return false;
         for(unsigned i=0;i<kParamCount;++i)if(!writeScalar(stream,value(p,i)))return false;
         media::ProjectLocation project;const auto context=media::reaperContext(p.host);
         const bool projectReady=media::queryProjectLocation(context,project);
         const auto mode=static_cast<unsigned>(value(p,Storage));
+        std::array<const SampleAsset*,64> savedAssets{};
         for(unsigned d=0;d<2;++d)for(unsigned n=0;n<32;++n){const auto& l=p.document->decks[d].layers[n];
             // A crop/normalize clears its locator. A registration may still
             // refer to the previous layer and must never replace edited PCM.
             std::string path=l.path;
-            uint8_t type=l.asset?1:0; // 1 embedded, 2 absolute, 3 project-relative
+            uint8_t type=l.asset?1:0; // 1 embedded, 2 absolute, 3 project-relative, 4 shared audio
             if(l.asset&&mode!=2) {
                 if(mode==0&&projectReady){
                     if(const auto* cached=preparedMedia(p,d,n,project)){
@@ -31,9 +32,16 @@ bool saveState(const clap_plugin_t* plugin,const clap_ostream_t* stream){
                 }
                 else if(mode==1&&!path.empty())type=2;
             }
+            // Pasted layers share immutable audio. Keep that identity in state
+            // too, so a copied large file neither multiplies embedded PCM nor
+            // exceeds the import budget on project recall. Metadata stays local.
+            const unsigned address=d*32+n;unsigned shared=address;
+            if(l.asset){for(unsigned previous=0;previous<address;++previous)if(savedAssets[previous]==l.asset.get()){shared=previous;break;}
+                if(shared<address)type=4;savedAssets[address]=l.asset.get();}
             if(!writeScalar(stream,type))return false;if(!type)continue;
             if(!writeString(stream,l.name)||!writeScalar(stream,l.start)||!writeScalar(stream,l.end)||!writeScalar(stream,l.slices.sliceCount))return false;
             for(double v:l.slices.boundaries)if(!writeScalar(stream,v))return false;
+            if(type==4){if(!writeScalar(stream,static_cast<uint8_t>(shared)))return false;continue;}
             if(type>=2){if(!writeString(stream,path))return false;continue;}
             const auto& a=*l.asset;if(!writeScalar(stream,a.sampleRate)||!writeScalar(stream,a.channelCount)||!writeScalar(stream,a.frameCount()))return false;
             for(unsigned ch=0;ch<a.channelCount;++ch)if(!s3g::clap_state::writeAll(stream,a.channels[ch].data(),a.frameCount()*sizeof(float)))return false;
@@ -43,6 +51,8 @@ bool saveState(const clap_plugin_t* plugin,const clap_ostream_t* stream){
         const auto& v=p.viewState;
         for(unsigned d=0;d<2;++d)if(!writeScalar(stream,v.oppositeEdit[d])||!writeScalar(stream,v.page[d])||!writeScalar(stream,v.view[d])
             ||!writeScalar(stream,v.channels[d])||!writeScalar(stream,v.orientation[d])||!writeScalar(stream,v.zoom[d])||!writeScalar(stream,v.offset[d]))return false;
+        for(const auto& deck:p.document->decks)for(const auto& cue:deck.bookmarks)
+            if(!writeScalar(stream,cue.stackPosition))return false;
         return true;
     }catch(...){return false;}
 }
@@ -50,22 +60,28 @@ bool loadState(const clap_plugin_t* plugin,const clap_istream_t* stream){
     auto& p=*self(plugin);if(p.capture.state.load()||p.busy)return false;
     try {
         uint32_t magic=0,version=0,total=0;
-        if(!readScalar(stream,magic)||magic!=0x334b4453||!readScalar(stream,version)||version<1||version>7||!readScalar(stream,total)||total!=kParamCount)return false;
+        if(!readScalar(stream,magic)||magic!=0x334b4453||!readScalar(stream,version)||version<1||version>9||!readScalar(stream,total)||total!=kParamCount)return false;
         std::array<float,kParamCount> values{};
         for(unsigned i=0;i<total;++i){if(!readScalar(stream,values[i])||!std::isfinite(values[i]))return false;const auto& def=p.defs[i];
+            if(version<9&&i>=HeadphoneOutput&&i<GlobalCount)values[i]=static_cast<float>(def.initial);
             if(version<5&&i>=RecordSource&&i<GlobalCount)values[i]=static_cast<float>(def.initial);
             if(version<3&&i>=kDeckBase&&(i-kDeckBase)%kDeckStride>=SamplerPads&&(i-kDeckBase)%kDeckStride<ControlCount)values[i]=static_cast<float>(def.initial);
             if(version<4&&i>=kDeckBase&&(i-kDeckBase)%kDeckStride>=ScreenVelocity&&(i-kDeckBase)%kDeckStride<ControlCount)values[i]=static_cast<float>(def.initial);
             if(version<6&&i>=kDeckBase&&(i-kDeckBase)%kDeckStride>=CueAction&&(i-kDeckBase)%kDeckStride<ControlCount)values[i]=static_cast<float>(def.initial);
             if(version<7&&i>=kDeckBase&&(i-kDeckBase)%kDeckStride==CueLayer)values[i]=static_cast<float>(def.initial);
+            if(version<8&&i>=kDeckBase&&(i-kDeckBase)%kDeckStride==CueStackPosition)values[i]=static_cast<float>(def.initial);
             if(!def.name.empty()&&(values[i]<def.lo||values[i]>def.hi||(def.integer&&values[i]!=std::round(values[i]))))return false;}
         for(unsigned d=0;d<2;++d){NeonFamilySettings f;for(unsigned i=0;i<kNeonFamilyCount;++i)f.values[i]=values[param(d,kFamily+i)];if(!f.valid())return false;
             if(values[param(d,End)]<=values[param(d,Start)])return false;}
         auto doc=std::make_shared<Document>();uint64_t bytes=0;
-        for(unsigned d=0;d<2;++d){for(auto& l:doc->decks[d].layers){uint8_t type=0;
-            if(!readScalar(stream,type)||type>3)return false;if(!type)continue;
+        for(unsigned d=0;d<2;++d){for(unsigned n=0;n<32;++n){auto& l=doc->decks[d].layers[n];uint8_t type=0;
+            if(!readScalar(stream,type)||type>(version>=8?4:3))return false;if(!type)continue;
             if(!readString(stream,l.name)||!readScalar(stream,l.start)||!readScalar(stream,l.end)||!std::isfinite(l.start)||!std::isfinite(l.end)||l.start<0||l.end>1||l.end<=l.start||!readScalar(stream,l.slices.sliceCount))return false;
             for(double& v:l.slices.boundaries)if(!readScalar(stream,v))return false;if(!l.slices.valid())return false;
+            if(type==4){uint8_t shared=0;if(!readScalar(stream,shared)||shared>=d*32+n)return false;
+                const auto& source=doc->decks[shared/32].layers[shared%32];if(!source.asset)return false;
+                l.asset=source.asset;l.path=source.path;l.relative=source.relative;
+                l.waveform=source.waveform;l.wavesets=source.wavesets;l.analysis=source.analysis;continue;}
             if(type>=2){std::string path,error;if(!readString(stream,path))return false;
                 if(type==3){if(!media::resolveProjectRelativePath(media::reaperContext(p.host),path,l.path))return false;}else l.path=path;
                 if(!decode(l.path,l.asset,error,kAudioBudget-bytes))return false;
@@ -84,6 +100,9 @@ bool loadState(const clap_plugin_t* plugin,const clap_istream_t* stream){
         if(version>=2)for(unsigned d=0;d<2;++d)if(!readScalar(stream,view.oppositeEdit[d])||!readScalar(stream,view.page[d])||!readScalar(stream,view.view[d])
             ||!readScalar(stream,view.channels[d])||!readScalar(stream,view.orientation[d])||!readScalar(stream,view.zoom[d])||!readScalar(stream,view.offset[d]))return false;
         if(!view.valid())return false;
+        if(version>=8)for(auto& deck:doc->decks)for(auto& cue:deck.bookmarks)
+            if(!readScalar(stream,cue.stackPosition)||!std::isfinite(cue.stackPosition)
+                ||(cue.stackPosition<0&&cue.stackPosition!=-1)||cue.stackPosition>31)return false;
         p.viewState=view;
         doc->action="LOAD SET";for(unsigned i=0;i<total;++i)p.values[i].store(values[i]);
         p.undo.clear();p.redo.clear();p.lastTake[0].store(-1);p.lastTake[1].store(-1);p.nextTake=-1;for(auto& d:p.registrations)for(auto& registration:d)registration.clear();

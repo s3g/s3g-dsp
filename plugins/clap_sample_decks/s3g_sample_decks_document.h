@@ -15,7 +15,12 @@ struct LayerAudio {
     SampleNeonSliceLayout slices=equalSampleNeonSliceLayout(8);
     bool relative=false;
 };
-struct DeckBookmark { bool set=false; uint8_t layer=0; double position=0; };
+struct DeckBookmark {
+    bool set=false; uint8_t layer=0; double position=0;
+    // Fractional layer address, not normalized: adding layers must not move a
+    // saved blend. -1 retains the original single-layer cue behavior.
+    float stackPosition=-1;
+};
 struct DeckDocument {
     std::array<LayerAudio,32> layers;
     std::array<DeckBookmark,8> bookmarks {};

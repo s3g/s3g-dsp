@@ -18,6 +18,8 @@ struct Bytes {
     clap_istream_t in{this,[](const clap_istream_t* s,void* bytes,uint64_t n)->int64_t{
         auto& b=*static_cast<Bytes*>(s->ctx);n=std::min<uint64_t>(n,b.data.size()-b.at);std::memcpy(bytes,b.data.data()+b.at,n);b.at+=n;return n;}};
 };
+void versionSeven(const Bytes& current,Bytes& old){old.data=current.data;old.at=0;
+    if(old.data[4]>=8){old.data.resize(old.data.size()-16*sizeof(float));old.data[4]=7;}}
 clap_host_t testHost{CLAP_VERSION_INIT,nullptr,"Sample Decks Test","s3g","","1",
     [](const clap_host_t*,const char*)->const void*{return nullptr;},[](const clap_host_t*){},[](const clap_host_t*){},[](const clap_host_t*){}};
 std::shared_ptr<const SampleAsset> tone(unsigned channels,float amplitude=.2f){
@@ -199,18 +201,28 @@ void keyboardWorkflow(Plugin& p,const clap_plugin_t* plugin,Audio& a){
 }
 void ledWorkflow(Plugin& p,const clap_plugin_t* plugin,Audio& a){
     setValue(p,Controller,1);setValue(p,param(0,PadBank),0);setValue(p,param(0,Layer),0);
-    p.refreshLeds.store(true);a.run(plugin);
-    check(a.feedbackCount==256,"all 8 modes and Shift pad pages primed on both decks");
+    p.ledInit=false;p.refreshLeds.store(false);a.run(plugin);
+    check(a.feedbackCount==270,"all pad pages and both six-message jog rings initialized");
     for(unsigned d=0;d<2;++d)for(unsigned key=0;key<128;++key){const auto& m=a.feedback[d*128+key];
         check(m.data[0]==0x92+d&&m.data[1]==key&&m.port_index==0,"manufacturer pad LED addresses");
         check(m.data[2]==p.padLeds[d][key],"cache matches successfully sent LED");}
     check(p.padLeds[0][0x20]==35&&p.padLeds[0][0x60]==35&&p.padLeds[0][0x23]==0,"selected, Shift and empty-layer LEDs");
     a.run(plugin);check(a.feedbackCount==0,"no blind per-block MIDI feedback");
+    // Roll-pad availability changes as its history fills, even with silence.
+    // Let those genuine state changes settle before testing idle feedback.
+    a.run(plugin,static_cast<unsigned>(std::ceil(p.sampleRate.load()*3/a.block.frames_count)));
+    for(unsigned frame=0;frame<unsigned(p.sampleRate.load()*6);frame+=a.block.frames_count){
+        a.run(plugin);check(a.feedbackCount==0,"unchanged LEDs stay silent beyond the former periodic refresh interval");}
+    p.refreshLeds.store(true);a.run(plugin);check(a.feedbackCount==270,"Refresh LEDs explicitly resends pads and jog rings");
+    a.run(plugin);check(a.feedbackCount==0,"manual refresh returns to change-only feedback");
     a.midi(0x92,0x20,127);a.run(plugin,12);check(p.padLeds[0][0x20]==127&&p.padLeds[0][0x60]==127,"held pad lit in both shift states");
     a.midi(0x82,0x20,0);a.run(plugin,12);check(p.padLeds[0][0x20]==35,"release returns loaded LED");
     a.feedbackLimit=1;p.refreshLeds.store(true);a.run(plugin);check(a.feedbackCount==1&&p.padLeds[0][1]==-1,"failed output push stays dirty");
-    a.feedbackLimit=512;p.ledTick=4800;a.run(plugin);check(a.feedbackCount==255,"unsent LED retries including off values");
-    p.ledRefreshTick=96000;a.run(plugin);check(a.feedbackCount==256,"periodic refresh recovers newly connected return routing");
+    a.feedbackLimit=512;p.ledTick=4800;a.run(plugin);check(a.feedbackCount==269,"unsent pad and ring LEDs retry including off values");
+    a.block.out_events=nullptr;a.run(plugin);check(!p.ledInit,"missing output invalidates LED initialization");
+    a.block.out_events=&a.out;a.run(plugin);check(a.feedbackCount==270,"restoring host event output primes all LEDs");
+    setValue(p,Controller,0);a.run(plugin);check(!p.ledInit&&a.feedbackCount==0,"Notes profile has no controller LED feedback");
+    setValue(p,Controller,1);a.run(plugin);check(a.feedbackCount==270,"enabling Beatpad profile primes all LEDs");
     reset(plugin);a.run(plugin);
 }
 void controllerIndependentWorkflow(Plugin& p,const clap_plugin_t* plugin,Audio& a){
@@ -240,6 +252,9 @@ void controllerIndependentWorkflow(Plugin& p,const clap_plugin_t* plugin,Audio& 
 }
 #include "sample_decks_pad_checks.inc"
 #include "sample_decks_cue_checks.inc"
+#include "sample_decks_stack_cue_checks.inc"
+#include "sample_decks_headphone_checks.inc"
+#include "sample_decks_shift_checks.inc"
 #include "sample_decks_capture_format_checks.inc"
 void sliceBoundaryWorkflow(){
     for(unsigned channels:{2u,4u,16u}){LayerAudio layer;layer.asset=tone(channels);layer.start=.23;layer.end=.71;
@@ -305,7 +320,7 @@ void trackInputWorkflow(){
     const auto* saved=p.document->decks[0].layers[0].asset.get();startRecord(p,0);a.run(plugin,2);setValue(p,Format,1);a.run(plugin);service(p);waitWork(p);
     check(p.document->decks[0].layers[0].asset.get()==saved&&p.document->decks[0].layers[1].asset->channelCount==2,"format change keeps the original take format and existing audio");
     Bytes state;check(saveState(plugin,&state.out),"input source settings save");setValue(p,RecordSource,0);state.at=0;check(loadState(plugin,&state.in)&&value(p,RecordSource)==1,"input source settings recall");
-    state.data.erase(state.data.end()-202,state.data.end()-42);state.data[4]=4;state.at=0;check(loadState(plugin,&state.in)&&value(p,RecordSource)==0,"older states default to deck resampling");
+    Bytes old;versionSeven(state,old);old.data.erase(old.data.end()-202,old.data.end()-42);old.data[4]=4;check(loadState(plugin,&old.in)&&value(p,RecordSource)==0,"older states default to deck resampling");
     plugin->stop_processing(plugin);plugin->deactivate(plugin);plugin->destroy(plugin);
 }
 void whiteBox(Bytes& state){
@@ -356,14 +371,15 @@ void whiteBox(Bytes& state){
     setValue(p,Crossfade,0);check(saveState(plugin,&state.out),"embedded state save");
     state.at=0;check(loadState(plugin,&state.in),"embedded state load");Bytes again;check(saveState(plugin,&again.out)&&again.data==state.data,"exact state roundtrip");
     // v1 audio/parameters remain loadable; v2 appends only display preferences.
-    Bytes legacy;legacy.data=state.data;legacy.data[4]=1;legacy.data.resize(legacy.data.size()-202);
+    Bytes v7;versionSeven(state,v7);
+    Bytes legacy;legacy.data=v7.data;legacy.data[4]=1;legacy.data.resize(legacy.data.size()-202);
     for(unsigned d=0;d<2;++d)for(unsigned key=SamplerPads;key<ControlCount;++key)
         std::fill_n(legacy.data.begin()+12+param(d,key)*sizeof(float),sizeof(float),uint8_t(0));
     check(loadState(plugin,&legacy.in),"version-one sets remain compatible");
     check(control(p,0,KeyboardRoot)==60&&control(p,0,KeyboardVoices)==8&&control(p,0,SamplerPads)==0,"reserved old-state slots migrate to keyboard defaults");
-    Bytes versionTwo;versionTwo.data=legacy.data;versionTwo.data[4]=2;versionTwo.data.insert(versionTwo.data.end(),state.data.end()-42,state.data.end());
+    Bytes versionTwo;versionTwo.data=legacy.data;versionTwo.data[4]=2;versionTwo.data.insert(versionTwo.data.end(),v7.data.end()-42,v7.data.end());
     check(loadState(plugin,&versionTwo.in),"version-two sets remain compatible");
-    Bytes versionThree;versionThree.data=state.data;versionThree.data.erase(versionThree.data.end()-202,versionThree.data.end()-42);versionThree.data[4]=3;
+    Bytes versionThree;versionThree.data=v7.data;versionThree.data.erase(versionThree.data.end()-202,versionThree.data.end()-42);versionThree.data[4]=3;
     for(unsigned d=0;d<2;++d)for(unsigned key=ScreenVelocity;key<ControlCount;++key)
         std::fill_n(versionThree.data.begin()+12+param(d,key)*sizeof(float),sizeof(float),uint8_t(0));
     check(loadState(plugin,&versionThree.in)&&control(p,0,ScreenVelocity)==1&&control(p,0,ScreenLatch)==0,"version-three sets migrate mouse controls without silent velocity");
@@ -390,6 +406,10 @@ void binary(const char* path,Bytes& state,Bytes& mixedState){void* image=dlopen(
     state.at=0;check(stateExt&&stateExt->load(plugin,&state.in),"binary loads real PCM set");
     check(plugin->get_extension(plugin,CLAP_EXT_GUI)!=nullptr,"binary has editor extension");
     check(plugin->activate(plugin,48000,1,256)&&plugin->start_processing(plugin),"binary activate");Audio a;a.run(plugin);
+    check(a.feedbackCount==270,"exact binary initializes Beatpad pads and jog rings");
+    a.run(plugin,static_cast<unsigned>(std::ceil(48000.*3/a.block.frames_count)));
+    for(unsigned frame=0;frame<48000*6;frame+=a.block.frames_count){
+        a.run(plugin);check(a.feedbackCount==0,"exact binary sends no periodic idle LED refresh");}
     const auto* params=static_cast<const clap_plugin_params_t*>(plugin->get_extension(plugin,CLAP_EXT_PARAMS));check(params!=nullptr,"binary parameter extension");
     const auto* ports=static_cast<const clap_plugin_audio_ports_t*>(plugin->get_extension(plugin,CLAP_EXT_AUDIO_PORTS));clap_audio_port_info_t inputPort{},outputPort{};
     check(ports&&ports->count(plugin,true)==1&&ports->count(plugin,false)==1&&ports->get(plugin,0,true,&inputPort)&&ports->get(plugin,0,false,&outputPort)
@@ -400,12 +420,14 @@ void binary(const char* path,Bytes& state,Bytes& mixedState){void* image=dlopen(
         params->flush(plugin,&input,nullptr);a.midi(0x90,0x60,127);check(a.run(plugin,40)>1.e-5,"each playback method in exact bundle produces audio");
     }
     binaryCueLayerWorkflow(plugin,params,a);
+    headphoneBinaryWorkflow(plugin,params,a);
+    beatpadShiftBinaryWorkflow(plugin,params,a);
     binaryCaptureDestinationWorkflow(plugin,params,a,mixedState);
     plugin->stop_processing(plugin);plugin->deactivate(plugin);plugin->destroy(plugin);entry->deinit();dlclose(image);
 }
 }
 int main(int argc,char** argv){@autoreleasepool{try{
-    waveformPeakChecks();
+    waveformPeakChecks();headphoneMatrixChecks();headphoneWorkflow();beatpadShiftWorkflow();
     if(argc==3&&std::string(argv[1])=="--graphics-fixture"){graphicsFixture(argv[2]);return 0;}
     projectMediaSnapshotChecks();
     characterTransitionChecks();cueTransitionChecks();
@@ -414,6 +436,6 @@ int main(int argc,char** argv){@autoreleasepool{try{
     const auto overview=DeckViewport::make(8,.3,.9,false);check(overview.pan(-2)>.3&&overview.pan(2)<.3,"horizontal wheel pans overview in both directions");
     check(overview.pan(100)==0&&overview.pan(-100)==.875&&DeckViewport{}.pan(-2)==0,"overview pan clamps to source edges and full-fit stays still");
     check(DeckViewState{}.target(0)==0,"left waveform targets A");DeckViewState ui;ui.oppositeEdit[0]=1;check(ui.target(0)==1,"left edit targets B");
-    cueLayerWorkflow();Bytes mixedState;captureDestinationWorkflow(mixedState);trackInputWorkflow();capturePadWorkflow();rollFieldWorkflow();Bytes state;whiteBox(state);if(argc>1)binary(argv[1],state,mixedState);
+    cueLayerWorkflow();stackCueWorkflow();layerClipboardWorkflow();jogLedWorkflow();Bytes mixedState;captureDestinationWorkflow(mixedState);trackInputWorkflow();capturePadWorkflow();rollFieldWorkflow();Bytes state;whiteBox(state);if(argc>1)binary(argv[1],state,mixedState);
     if(const char* fixture=std::getenv("S3G_DECKS_TEST_STATE")){std::ofstream file(fixture,std::ios::binary);file.write(reinterpret_cast<const char*>(state.data.data()),state.data.size());}
     std::cout<<"Sample Decks: "<<checks<<" checks passed\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}}

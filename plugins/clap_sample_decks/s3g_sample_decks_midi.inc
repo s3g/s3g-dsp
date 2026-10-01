@@ -27,7 +27,7 @@ const ControllerAdapter& controllerAdapter(const Plugin& p) noexcept {
 }
 void midi(Plugin& p,const uint8_t* bytes,std::array<SampleNeonEvent,64>& events,unsigned& count) noexcept {
     if((bytes[0]&0xf0)==0xb0&&(bytes[1]==120||bytes[1]==123)){
-        p.stackTouch={};p.shift={};
+        p.stackTouch={};p.shift={};p.beatpad.resetGestures();
         for(unsigned d=0;d<2;++d)audioCommand(p,{CommandKind::Stop,d},events,count);return;
     }
     controllerAdapter(p).decode(p,bytes,events,count);

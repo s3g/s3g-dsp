@@ -25,7 +25,9 @@ void projectMediaSnapshotChecks(){
     host.get_extension=[](const clap_host_t*,const char* id)->const void*{return !std::strcmp(id,"cockos.reaper_extension")?activeBridge:nullptr;};
     const auto* plugin=create(&factory,&host,descriptor.id);check(plugin&&plugin->init(plugin),"project snapshot plugin");auto& p=*self(plugin);
     auto doc=std::make_shared<Document>();const auto asset=tone(2);std::array<const float*,16> channels{};channels[0]=asset->channels[0].data();channels[1]=asset->channels[1].data();
-    for(unsigned n=0;n<17;++n){auto& l=doc->decks[0].layers[n];l.asset=asset;l.name="LAYER "+std::to_string(n+1);l.path=(root/(l.name+".wav")).string();std::string error;
+    // Separate imported assets, not clipboard aliases: the pending-state test
+    // must still exercise seventeen files' PCM after shared-audio deduplication.
+    for(unsigned n=0;n<17;++n){auto& l=doc->decks[0].layers[n];l.asset=std::make_shared<SampleAsset>(*asset);l.name="LAYER "+std::to_string(n+1);l.path=(root/(l.name+".wav")).string();std::string error;
         check(s3g::audio_file::writePlanarFloatWaveAtomically(l.path,asset->sampleRate,2,asset->frameCount(),channels.data(),error),"project fixture WAV");analyzeLayer(l);}
     publish(p,doc,1,false);setValue(p,Storage,0);setValue(p,param(0,Playback),1);
     const auto revision=p.revision;const auto historyCount=p.undo.size();

@@ -251,6 +251,7 @@ struct SampleNeonEvent {
     // Address (slot) and musical pitch are deliberately independent. Factory
     // pad triggers leave key at 255 and retain the pad's existing tuning.
     uint8_t key = 255u;
+    bool snapStackPosition = false; // cue recall starts at the blend, not a glide from layer zero
 };
 
 struct SampleNeonSlotSettings {
@@ -1656,6 +1657,8 @@ private:
                     emitter.layer = chooseStackLayer(control, emitter.velocity, slot);
                 }
                 stackCueTargets_[slot] = std::isfinite(event.value) ? std::clamp(event.value, -1.0f, 1.0f) : -1.0f;
+                if (event.snapStackPosition && stackCueTargets_[slot] >= 0)
+                    stackCuePositions_[slot] = stackCueTargets_[slot];
                 stackCueReturning_[slot] = hadOverride && stackCueTargets_[slot] < 0;
                 stackCueReturnFrames_[slot] = static_cast<uint32_t>(sampleRate_ * control.family[NeonFamily::LaneSlew] * 8);
                 continue;

@@ -8,7 +8,7 @@ namespace s3g::decks {
 // Keep profile values stable: future devices append entries, not reinterpret 0/1.
 enum class ControllerProfile : unsigned { Notes=0, Beatpad2=1 };
 enum class CommandKind { Play, Stop, Seek, Touch, Jog, StackJog, Pad, Record, Cue, SetCue, Sync, ScreenPad, PadPressure,
-    StoreBookmark, ClearBookmark, TimedCapture, NextTake, AuditionTake, LaunchTake };
+    StoreBookmark, ClearBookmark, TimedCapture, NextTake, AuditionTake, LaunchTake, FollowSource, Bend, CueStop };
 struct Command { CommandKind kind; unsigned deck=0,index=0; double value=0; };
 
 // One atomic word per physical pad: no main-thread reads of audio-owned state.

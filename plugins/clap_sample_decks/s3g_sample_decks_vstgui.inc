@@ -19,6 +19,7 @@ public:
         button(rect(490,13,52,18),"UNDO",[this]{history(p,false);},false,!p.undo.empty()&&!blocked());
         button(rect(550,13,52,18),"REDO",[this]{history(p,true);},false,!p.redo.empty()&&!blocked());
         button(rect(620,13,100,18),"REFRESH LEDS",[this]{p.refreshLeds.store(true);request(p);p.message="LED FEEDBACK → TRACK MIDI HARDWARE OUTPUT → BEATPAD 2";});
+        button(rect(736,13,100,18),"HEADPHONE CUE",[this]{const unsigned d=static_cast<unsigned>(value(p,FocusDeck));p.viewState.oppositeEdit[1-d]=1;page[d]=7;p.dirty.store(true);});
         text(foundation::peakDbText(p.outputPeak.load()),rect(1250,12,172,20),style.value,kRightText);
         for(unsigned d=0;d<2;++d){(void)p.playbackVisuals[d].read(visual[d]);deck(d);}
         mixer();
@@ -46,6 +47,17 @@ public:
             }e.consumed=true;invalid();}
     }
     bool pointerDown(MouseDownEvent& e) override {
+        if(e.buttonState.isRight()){
+            for(unsigned side=0;side<2;++side)if(p.viewState.oppositeEdit[side]){
+                const unsigned d=p.viewState.target(side);
+                for(unsigned n=0;n<32;++n)if(foundation::contains(layerCell(left(side),548,n),e.mousePosition)){
+                    const bool loaded=bool(p.document->decks[d].layers[n].asset);
+                    openPopup(rect(e.mousePosition.x,e.mousePosition.y,164,0),{"COPY LAYER","PASTE LAYER","CLEAR LAYER"},-1,
+                        [this,d,n](int choice){if(choice==1)requestLayerPaste(d,n);else editStackLayer(p,d,n,choice==0?LayerEdit::Copy:LayerEdit::Clear);},
+                        1,{},18,{loaded&&!blocked(),bool(p.layerClipboard)&&!blocked(),loaded&&!blocked()});return true;
+                }
+            }
+        }
         for(unsigned d=0;d<2;++d)if(!p.viewState.oppositeEdit[d]&&view[d]==3&&foundation::contains(wave(d),e.mousePosition))return sliceDown(d,e);
         for(unsigned side=0;side<2;++side){const bool editing=p.viewState.oppositeEdit[side]!=0;const unsigned d=p.viewState.target(side);
             if(editing&&page[d]==5&&e.buttonState.isLeft()&&foundation::contains(cutPatternBounds(d),e.mousePosition)){
@@ -69,6 +81,13 @@ public:
     }
     void pointerUp(MouseUpEvent&) override {dragPoint=-1;endCutPatternDrag();if(sliceDrag)finishSlice();}
 private:
+    static CRect layerCell(double x,double y,unsigned n){return rect(x+16+(n%8)*72,y+(n/8)*21,66,18);}
+    void requestLayerPaste(unsigned d,unsigned n){
+        if(blocked()||!p.layerClipboard)return;
+        if(!p.document->decks[d].layers[n].asset){editStackLayer(p,d,n,LayerEdit::Paste);return;}
+        openPopup(rect(left(1-d)+172,520,260,0),{format("REPLACE %c / LAYER %02u?",'A'+d,n+1),"CANCEL","PASTE / REPLACE"},-1,
+            [this,d,n](int choice){if(choice==2)editStackLayer(p,d,n,LayerEdit::Paste);},1,{},18,{false,true,true});
+    }
     // Zoom/pan are view preferences, serialized on the next normal save. They
     // must not create host undo snapshots of the entire sample set.
     CTextEdit* makeNumericTextEdit(CRect bounds,const char* text) override {
@@ -205,6 +224,7 @@ private:
                 button(rect(x+208,276,180,20),"CLEAR MARKERS",[this,d]{setSliceLayout(d,equalSampleNeonSliceLayout(1));},false,l.asset&&!blocked());
                 text("CLICK ADD / DRAG MOVE / RIGHT CLICK REMOVE",rect(x+16,310,572,18),style.dim);
             }else if(page[d]==6)screenPerformance(d,x);
+            else if(page[d]==7)headphonePanel(x);
             layerGrid(d,x,548);
         }else{
             controlRow(param(d,Playback),x+16,78,276);
@@ -270,7 +290,7 @@ private:
         if(mode==3)text(control(p,d,SliceRaw)!=0?"RAW SAMPLE AUDITION":"USES SELECTED PLAYBACK METHOD",rect(x+16,755,572,14),style.dim);
     }
     void layerGrid(unsigned d,double x,double y){text(format("DECK %c / STACK LAYERS",'A'+d),rect(x+16,y-22,300,18),style.label);
-        for(unsigned n=0;n<32;++n){const auto b=rect(x+16+(n%8)*72,y+(n/8)*21,66,18);const bool loaded=bool(p.document->decks[d].layers[n].asset);
+        for(unsigned n=0;n<32;++n){const auto b=layerCell(x,y,n);const bool loaded=bool(p.document->decks[d].layers[n].asset);
             button(b,format("%02u%s",n+1,loaded?" •":""),[this,d,n]{set(param(d,Layer),n);},n==layer(d),!blocked());
             if(layerWeight(d,n)>.01f)fill(rect(b.left,b.bottom-2,b.getWidth()*layerWeight(d,n),2),style.value);
         }
@@ -279,6 +299,7 @@ private:
         if(method==3){const char* names[]{"STEP RATE","STEP ORDER","REPEATS","CHANCE"};return names[key-Technique0];}
         if(method==5){const char* names[]{"GROUP","REPEATS","SHAPE","PROCESS"};return names[key-Technique0];}return {};}
     std::vector<unsigned> controls(unsigned d){const auto f=[](F key){return family(key);};
+        if(page[d]==7)return {};
         if(page[d]==5)return {};
         if(page[d]==6)return {KeyboardRoot,KeyboardOctave,KeyboardVoices,ScreenVelocity,ScreenPressure,ScreenLatch,CueAction,SliceHold,SliceRaw,FxLatch,RideTime};
         if(page[d]==0)return {Start,End,ZeroCross,SliceCount,SourceBpm};
@@ -306,10 +327,32 @@ private:
 #include "s3g_sample_decks_cutups_gui.inc"
     NeonFamilySettings pathSettings(unsigned d) const {NeonFamilySettings f;for(unsigned i=0;i<kNeonFamilyCount;++i)f.values[i]=control(p,d,kFamily+i);return f;}
     void storePath(unsigned d,const NeonFamilySettings& f){for(unsigned i=0;i<kNeonFamilyCount;++i)if(control(p,d,kFamily+i)!=f.values[i])guiValue(p,param(d,kFamily+i),f.values[i]);}
+    void headphonePanel(double x){
+        const unsigned width=sampleNeonBusWidth(decksLayout(static_cast<unsigned>(value(p,Format))));
+        const unsigned selected=static_cast<unsigned>(value(p,HeadphoneOutput));const bool stems=value(p,Stems)!=0;
+        const int output=deckCueOutput(selected,width,stems);const auto& choices=p.defs[HeadphoneOutput].choices;
+        std::vector<bool> enabled;for(unsigned n=0;n<choices.size();++n)enabled.push_back(!n||deckCueOutput(n,width,stems)>=0);
+        text("CUE OUTPUT",rect(x+16,102,136,18),style.label);
+        const std::string label=selected==1&&output>=0?format("AUTO → %d–%d",output+1,output+2):choices[selected];
+        const auto box=rect(x+154,101,138,19);foundation::drawMenuBox(*context,box,label,font,style);
+        hit(box,[this,box,choices,selected,enabled]{openPopup(box,choices,selected,[this](int n){set(HeadphoneOutput,n);},1,{},18,enabled);});
+        controlRow(HeadphoneMix,x+16,130,276);controlRow(HeadphoneLevel,x+16,156,276);
+        if(value(p,Format)>=3){text("QUAD / OCTO FOLD",rect(x+312,102,136,18),style.dim);
+            menu(rect(x+450,101,138,19),"AMBI → XY",{},-1,[](int){},false);}
+        else controlRow(HeadphoneFold,x+312,104,276);
+        text(value(p,Format)>=3?"AMBI: ACN/SN3D → XY STEREO":"AMBI: AUTO XY DECODE",rect(x+312,128,276,18),style.dim);
+        text("STEREO MONITOR — NOT HRTF / BINAURAL",rect(x+312,154,276,18),style.dim);
+        for(unsigned d=0;d<2;++d)button(rect(x+16+d*144,186,132,20),d?"CUE B":"CUE A",[this,d]{set(HeadphoneA+d,1-value(p,HeadphoneA+d));},value(p,HeadphoneA+d)!=0);
+        const std::string status=!selected?"HEADPHONE CUE OFF":output<0?"CUE MUTED: OUTPUT OVERLAPS MAIN / STEMS":format("CUE → PLUG-IN OUT %d–%d",output+1,output+2);
+        text(status,rect(x+16,222,572,18),style.label);
+        text("ROUTE THIS PAIR TO HEADPHONES IN REAPER",rect(x+16,248,572,18),style.dim);
+        text("CUE IS AFTER EQ / FX, BEFORE FADERS",rect(x+16,274,572,18),style.dim);
+    }
     void mixer(){const double x=638,w=164;
         panel(rect(x,42,w,172),"OUTPUT");controlRow(Output,x+16,78,w-32);controlRow(Format,x+16,104,w-32);controlRow(Stems,x+16,130,w-32);controlRow(Curve,x+16,156,w-32);
         panel(rect(x,226,w,202),"MIXER");
-        for(unsigned d=0;d<2;++d){const double xx=x+24+d*78;const auto area=rect(xx,277,32,100);fill(area,style.cell);stroke(area,style.grid);text(d?"B":"A",rect(xx,258,32,16),style.label,kCenterText);
+        for(unsigned d=0;d<2;++d){const double xx=x+24+d*78;const auto area=rect(xx,277,32,100);fill(area,style.cell);stroke(area,style.grid);
+            button(rect(xx-8,252,52,18),d?"CUE B":"CUE A",[this,d]{set(HeadphoneA+d,1-value(p,HeadphoneA+d));},value(p,HeadphoneA+d)!=0);
             const double y=area.bottom-control(p,d,Level)*area.getHeight();fill(rect(area.left-3,y-2,38,4),style.value);
             drag(area,[this,d,area](CPoint pt){set(param(d,Level),std::clamp((area.bottom-pt.y)/area.getHeight(),0.,1.));},[this,d]{gesture(param(d,Level),true);},[this,d]{gesture(param(d,Level),false);},[this,d]{guiValue(p,param(d,Level),1);});}
         text("A ← FADE → B",rect(x+16,385,w-32,17),style.label,kCenterText);
@@ -347,7 +390,7 @@ private:
     DeckViewport dragViewport;
     std::array<bool,2> guiTouch {};
     int dragPoint=-1;unsigned dragDeck=0;
-    const std::array<std::string,7> pages {{"SOURCE / CHOP","PLAYBACK","STACK PATH","CHARACTER FX","MIXER / ROUTING","CUTUPS PATTERN","PERFORMANCE INPUT"}};
+    const std::array<std::string,8> pages {{"SOURCE / CHOP","PLAYBACK","STACK PATH","CHARACTER FX","MIXER / ROUTING","CUTUPS PATTERN","PERFORMANCE INPUT","HEADPHONE CUE"}};
     const std::array<std::string,4> views {{"FOLLOW STACK","EDIT LAYER","STACK LANES","EDIT SLICES"}};
 };
 } // namespace decks_canvas

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sample Decks 32 - s3g-dsp</title>
-    <meta name="description" content="Two sample stacks, nine playback methods, a crossfader, and deck-to-deck resampling with Reloop Beatpad 2 control.">
+    <meta name="description" content="User guide to Sample Decks 32: two sample stacks, nine playback methods, Beatpad 2 performance, resampling, and stereo or multichannel headphone cue routing.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -21,127 +21,311 @@
     <div class="page-shell">
       <main class="content" id="content">
         <h1>Sample Decks 32</h1>
-        <p><code>s3g Sample Decks 32</code> turns two sample stacks into an instrument you can mix, reshape, and pass back and forth. Each deck holds up to 32 layers and uses the playback engines from <a href="sample-neon.html">Sample Neon 32</a>. The crossfader combines their outputs; resampling turns one deck's performance into a new layer on the other.</p>
-        <p>This first version includes a Reloop Beatpad 2 mapping. It also works entirely on screen. The controller mapping uses the published pad protocol and shared Beatpad transport messages; jog sensitivity, transport variants, and LED colors still need confirmation on the physical Beatpad 2. No replacement firmware is required.</p>
+        <p><code>s3g Sample Decks 32</code> turns two sample stacks into an instrument you can mix, reshape, and pass back and forth. Each deck holds up to 32 layers, with nine playback methods drawn from <a href="sample-neon.html">Sample Neon 32</a>. Perform with the crossfader, turn a deck's output into a new layer on the other deck, and keep transforming the result.</p>
+        <p>Use it entirely on screen or with a Reloop Beatpad 2. Stereo, discrete multichannel, and ACN/SN3D Ambisonic sources share the same workflow; a separate stereo cue lets you audition a deck before bringing it into the main mix.</p>
+
+        <figure>
+          <div class="doc-graphic doc-screenshot">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-decks.png" aria-label="Enlarge Sample Decks 32 with loaded stack waveforms">
+              <img src="assets/plugin-guis/sample-decks.png" width="2560" height="1440" alt="Sample Decks 32 in a loaded REAPER session: 21 layer waveforms on Deck A, its Stack Path editor on the right, and the mixer and recorder in the center." loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>A loaded session with Deck A's 21-layer stack beside its Stack Path editor. The performance pads remain available below both displays. Click a screenshot to enlarge it.</figcaption>
+        </figure>
 
         <h2 id="workflow">Workflow</h2>
         <ol>
-          <li>Insert Sample Decks 32 on a REAPER instrument track. Leave <strong>FORMAT</strong> at <strong>STEREO</strong> for ordinary samples; the main mix uses outputs 1–2.</li>
-          <li>Route the track's main mix to your stereo monitoring output, or use a matching multichannel output or Ambisonic decoder for spatial material. Drop audio onto Deck A, or choose <strong>ADD AUDIO</strong>. Multiple dropped files become separate layers. A deck can hold different channel counts; stack playback stays within the selected layer's channel group.</li>
-          <li>Press Deck A's <strong>PLAY</strong>, select a playback method, and open <strong>A EDIT</strong> on the right to shape it in the <strong>PLAYBACK</strong> editor while keeping A's waveform visible.</li>
-          <li>Press <strong>REC A → B</strong> once to begin recording. Press it again to stop. The take appears in Deck B's next empty layer, selected and ready to audition.</li>
-          <li>Play Deck B and move the crossfader toward B. Change its playback method or effects, then use <strong>REC B → A</strong> to create another generation.</li>
-          <li>Use <strong>UNDO</strong> if you dislike a take or source edit. Save your REAPER project or choose <strong>SAVE SET</strong> to retain the samples and settings.</li>
+          <li>Insert Sample Decks 32 on a REAPER instrument track. For ordinary stereo samples, choose <strong>STEREO</strong> and leave <strong>STEMS: OFF</strong>.</li>
+          <li>Route the main mix to your stereo monitoring output, or use a matching multichannel output or Ambisonic decoder for spatial material. Drop audio onto Deck A or choose <strong>ADD AUDIO</strong>. Multiple files become separate layers.</li>
+          <li>Press A's <strong>PLAY</strong> and move the crossfader toward A. Start with Sample for direct playback or Lanes to explore a stack. Choose <strong>FREE</strong> clock in the Playback editor if you want to play while REAPER is stopped.</li>
+          <li>Open <strong>A EDIT</strong> on the right to adjust A while keeping its waveform visible on the left. Try a different playback method, shape a Stack Path, or add Character FX.</li>
+          <li>With <strong>DECK OUTPUT</strong> selected in Record / Resample, press <strong>REC A → B</strong> once to start and again to stop. The new take is selected on B. Play B, move the crossfader toward it, then try <strong>REC B → A</strong> for another generation.</li>
+          <li>Use <strong>UNDO</strong> to reverse a take or source edit. Save your REAPER project, or choose <strong>SAVE SET</strong> to keep a reusable Decks set.</li>
         </ol>
 
-        <h2 id="decks">Two decks, not two banks of independent pads</h2>
-        <p>A deck has one transport and one active playback method. Its eight performance pads act on that deck. In <strong>LAYERS / KEYS → LAYERS</strong>, each pad selects and starts a layer, replacing the previous layer launch. <strong>PAD BANK</strong> exposes layers 1–8, 9–16, 17–24, or 25–32. Changing layers does not change the deck's playback method. Choose <strong>KEYBOARD</strong> to play pitched chords instead. The Beatpad's physical page for both roles is labeled Sampler.</p>
-        <p>The left display switches between <strong>A WAVE</strong> and <strong>B EDIT</strong>; the right switches between <strong>B WAVE</strong> and <strong>A EDIT</strong>. Open A's editor on the right to keep A's waveform visible on the left while adjusting it. The transport and pads below each display always belong to that physical deck: left A, right B. Switching display pages does not switch audio, hardware assignments, or the recording direction.</p>
-        <p>Choose Playback, Layer Source (or the method's equivalent, such as Mosaic Scope), and Layer in the waveform pane. Stack Navigation and Stack Position stay below the waveform; the Sampler pad role stays in the performance section. The editor starts with its page selector and only the editing controls, leaving more room for the pattern, stack path and source selection. <strong>SHOW WAVE</strong> brings the matching waveform into the other pane if it is hidden.</p>
-        <p>A muted cyan-gray title bar identifies <strong>Deck A</strong>; an orange-gray bar identifies <strong>Deck B</strong>. An editor's tint follows the deck it controls, while the performance bars below stay tied to the physical left/right decks. The mixer and other shared controls remain neutral gray.</p>
-        <p><strong>VERTICAL SCROLL</strong> runs time from top to bottom; during playback the waveform travels upward past a fixed horizontal playhead. <strong>HORIZONTAL SCROLL</strong> uses the same behavior with a vertical playhead. <strong>HORIZONTAL OVERVIEW</strong> and <strong>VERTICAL OVERVIEW</strong> show a stationary source in either orientation. Use the vertical mouse wheel to zoom; scrolling playback stays centered on its playhead, while an overview zooms around the pointer. Pan a zoomed overview with horizontal wheel/trackpad scrolling, or Shift + vertical wheel. At 1× the entire source already fits. Panning changes only the view, not the sound. Drag the waveform to move the source position. Display choices and zoom are saved with your set or project.</p>
-        <p><strong>LAYER</strong> selects the source you are editing. <strong>FOLLOW STACK</strong> follows the actual sounding layer and fades between layers during a blend. <strong>EDIT LAYER</strong> stays with the selected layer. <strong>STACK LANES</strong> fits all layers into the field: columns with vertical time, rows with horizontal time. Its brightness, individual heads, direction marks, and grain envelopes follow the audio engine. A separate channel menu offers all channels, combined peaks, or channel 1. Start and End define the crop selection.</p>
-        <p><strong>SET CUE</strong> stores the current position; <strong>CUE</strong> restarts there. Cue and bookmark jumps use a short 5 ms fade-in without moving the stored position. Every channel shares the fade, including multichannel sources with no common zero crossing. <strong>STOP</strong> stops the deck and clears its effect tail. <strong>SYNC</strong> sets Time Rate to host tempo divided by Source BPM and restarts from the beginning. It is a rate-matching shortcut, not automatic beat-grid analysis.</p>
+        <h2 id="decks">Finding your way</h2>
+        <p>Think of each deck as one instrument with a stack of sources, not a bank of independent drum pads. It has one transport and one playback method. In Layers mode, launching a layer replaces the previous layer launch. In Keyboard mode, the same pads play pitched voices and chords.</p>
+        <ul>
+          <li><strong>Left display:</strong> <strong>A WAVE</strong> shows A's waveform; <strong>B EDIT</strong> opens B's controls.</li>
+          <li><strong>Right display:</strong> <strong>B WAVE</strong> shows B's waveform; <strong>A EDIT</strong> opens A's controls.</li>
+          <li><strong>Performance strips:</strong> the left transport and pads always control A, and the right always control B, regardless of the display above them.</li>
+          <li><strong>Center:</strong> output format, levels, crossfader, recording, and setup stay within reach.</li>
+        </ul>
+        <p>Cyan-gray title bars identify A; orange-gray bars identify B. An edit panel takes the color of the deck it controls. Use <strong>SHOW WAVE</strong> to bring that deck's waveform into the opposite display. Changing display pages does not change the sound, recording direction, or controller assignments.</p>
+        <p>The waveform pane contains the playback method, layer source, and selected layer. The edit-page menu opens <strong>SOURCE / CHOP</strong>, <strong>PLAYBACK</strong>, <strong>STACK PATH</strong>, <strong>CHARACTER FX</strong>, <strong>MIXER / ROUTING</strong>, <strong>CUTUPS PATTERN</strong>, <strong>PERFORMANCE INPUT</strong>, or <strong>HEADPHONE CUE</strong>. Some playback methods have a second page under <strong>CONTROLS</strong>. Double-click a slider to restore its default.</p>
 
-        <h2 id="keyboard">Playing chords</h2>
-        <p>Select <strong>SAMPLER</strong> on the Beatpad 2 itself, then choose <strong>KEYBOARD</strong> beside that deck's Pad Mode menu in the plug-in. When using only the screen, choose <strong>LAYERS / KEYS</strong> in that menu first. The eight pads become consecutive chromatic notes rather than layer selectors. The four pad banks cover 32 notes without changing the selected source or playback method. A and B can use different pad roles, so one can play chords while the other launches layers or performs slice interventions.</p>
-        <p>Press <strong>INPUT</strong> in that deck's performance header to open its <strong>PERFORMANCE INPUT</strong> editor on the opposite side. <strong>ROOT NOTE</strong> is the source's untransposed note and the first key in bank 1; it defaults to MIDI 60 (C4). <strong>KEY OCTAVE</strong> shifts the keyboard range. <strong>KEY VOICES</strong> sets the per-deck voice limit from 1 to 16, default 8. Each pad has its own velocity and note release. Changing the bank or pad mode while holding a note does not redirect its release.</p>
-        <p>For mouse performance, set <strong>MOUSE VELOCITY</strong> and <strong>MOUSE PRESSURE</strong> here. <strong>MOUSE PADS → HOLD</strong> follows the mouse button; <strong>LATCH</strong> keeps a pad held until you click it again, so you can build a keyboard chord one note at a time. <strong>RELEASE MOUSE PADS</strong> releases those notes; Stop also clears them. These settings do not alter hardware velocity or pressure. The Scratch and Nudge strips provide the same smoothed jog actions as the hardware: drag left or right. Stack Position below the main waveform provides the equivalent of Shift + jog.</p>
-        <p>On-screen pads flash for mouse and hardware presses, with a deck-tinted outline while held and a pressure bar along the bottom. A brief tap remains visible even between screen refreshes. Feedback belongs to the pad's original mode and bank, so changing banks does not light an unrelated pad.</p>
-        <p>All nine methods use Neon's polyphonic gesture engine: each note has independent playback state, readers and envelopes. Pitch follows the method's own tuning behavior; for example Sample changes playback rate, while Motion transposes its cycle. Layer Source, Stack Path, jog gestures, EQ and Character FX remain deck-wide. Pressure modulates the deck's effects using the strongest held pad. Release tails count toward the voice limit, and older released voices are stolen first. Heavy methods and large multichannel stacks cost more CPU as polyphony increases. Stop clears the whole deck.</p>
-
-        <h2 id="playback">Playback methods</h2>
-        <table>
-          <thead><tr><th>Method</th><th>What to explore</th></tr></thead>
+        <h3 id="waveforms">Reading and navigating waveforms</h3>
+        <p><strong>VERTICAL SCROLL</strong> runs time from top to bottom: the waveform travels upward past a fixed horizontal playhead. <strong>HORIZONTAL SCROLL</strong> uses a vertical playhead instead. Choose either <strong>OVERVIEW</strong> orientation for a stationary view of the source.</p>
+        <table class="readout-table">
+          <thead><tr><th>Waveform view</th><th>What it follows</th></tr></thead>
           <tbody>
-            <tr><td>Sample</td><td>Direct playback, pitch/rate changes, direction, and looping.</td></tr>
-            <tr><td>Motion</td><td>Moving source windows, packets, motor articulation, trajectories, freeze, iteration, doublets, and bounce events.</td></tr>
-            <tr><td>Grains</td><td>Freeze, scan, cloud, and slice sources; grain size, density, spray, windows, sorter, stutter, shrink, and doublets.</td></tr>
-            <tr><td>Slice Sequence</td><td>Marked slices, step order, repeats, probability, proportional envelopes, click-protected joins, and similarity/contrast mosaics.</td></tr>
-            <tr><td>Stretch</td><td>A moving, overlapped sample window with time traversal separated from tuning.</td></tr>
-            <tr><td>Wavesets</td><td>Cycle groups, repetitions, twelve cycle treatments, or the oscillator engine. Available for discrete-channel sources, not Ambisonics.</td></tr>
-            <tr><td>Lanes</td><td>Continuous reading across stack layers, with manual layer position or a breakpoint Stack Path, slew, and joins.</td></tr>
-            <tr><td>Spectral</td><td>Frame-based resynthesis with blur, advance, smear, focus, tilt, thinning, and pressure response.</td></tr>
-            <tr><td>Cutups</td><td>Rhythmic cuts across the whole stack, file/source orders, repeats, swing, variation, joins, and an editable 64-step manual pattern.</td></tr>
+            <tr><td>Follow Stack</td><td>The sounding layer, fading between waveforms during a layer blend.</td></tr>
+            <tr><td>Edit Layer</td><td>The layer selected in the Layer menu, even if another is playing.</td></tr>
+            <tr><td>Stack Lanes</td><td>All stack layers, fitted into columns with vertical time or rows with horizontal time. Playback heads and activity show where the sound is coming from.</td></tr>
+            <tr><td>Edit Slices</td><td>The selected layer and its editable slice boundaries.</td></tr>
           </tbody>
         </table>
-        <p>For applicable methods, <strong>LAYER SOURCE</strong> chooses Primary, Selected, Velocity, Random / Trigger, or Stack Path. Sample chooses a layer when triggered; Motion, Grains, Stretch, Wavesets, and Spectral can move through layers continuously. Lanes has its own Manual / Stack Path navigation. Cutups uses File Order, and Slice Sequence uses its primary slice map and optional stack-wide mosaic candidates.</p>
+        <p>The channel menu lets you show all channels, combined peaks, or channel 1. Use the mouse wheel to zoom. A scrolling view stays centered on the playhead; an overview zooms around the pointer. Pan a zoomed overview with horizontal scrolling, or Shift + vertical wheel. Panning only changes the view. Drag the waveform to move the source position; in Edit Slices, dragging edits markers instead. <strong>ZOOM RESET</strong> returns to the full source.</p>
 
-        <p>Open <strong>CUTUPS PATTERN</strong> in the deck's editor to draw its sequence as in Neon. All active steps fit in one strip, up to 64. Drag a step's bright horizontal handle vertically to choose its layer; layer 1 is at the top. Drag across steps to shape several at once. The first layer edit switches File Order to Manual while keeping the rest of the generated layer pattern. Hold <strong>Option</strong> (Alt) while dragging to set each step's source position using the thinner gray handle; this switches Source Order to Manual without changing the layers. The readout identifies the selected step, layer and source percentage. Double-click resets that step's layer address to its default; Option-double-click resets its source position. Pattern edits are saved with your project or set.</p>
-        <p>The compact <strong>STACK PATH</strong> graph stays below the main waveform; a larger editor is available on the opposite deck's <strong>STACK PATH</strong> page. Layer 1 is at the top. Its dot follows the running path. Choose a shape, or click/drag points to make the shape manual; right-click an interior point to remove it. Editing a path shape is distinct from manually choosing the current layer position. <strong>FREE</strong> playback runs without REAPER's transport. <strong>HOST</strong> follows host timing and pauses when that transport stops.</p>
-        <p><strong>Shift + jog</strong> takes over stack position without changing the time position. Motion, Grains, Stretch, Wavesets, Lanes, and Spectral blend through the stack; Sample, Slice Sequence, and Cutups select discrete layers. The position remains under <strong>MANUAL STACK</strong> control after releasing Shift. Choose <strong>FOLLOW SOURCE</strong> to return to the configured layer source or Stack Path. The on-screen Position slider beside this menu provides the same manual control.</p>
-        <p>Use the <strong>CONTROLS</strong> menu when a method has more than one page of controls. Double-click a slider to restore its default. Character processors have their own <strong>CHARACTER FX</strong> page: Filter, Echo, Space, Shift, Vowel, Punch, Drive, and Crush.</p>
+        <h2 id="playback">Choose a playback method</h2>
+        <table class="readout-table">
+          <thead><tr><th>Method</th><th>Use it for</th></tr></thead>
+          <tbody>
+            <tr><td>Sample</td><td>Direct playback, pitch and rate changes, direction, and looping.</td></tr>
+            <tr><td>Motion</td><td>Moving windows and articulated packets. Explore motor, trajectories, freeze, iteration, doublets, and bounce.</td></tr>
+            <tr><td>Grains</td><td>Clouds and textures: grain size, density, spray, windows, freeze, scan, sorter, stutter, and doublets.</td></tr>
+            <tr><td>Slice Sequence</td><td>Rhythmic rearrangement of marked slices, with order, repeats, probability, per-slice envelopes, and similarity or contrast mosaics.</td></tr>
+            <tr><td>Stretch</td><td>Overlapping windows that separate movement through the sample from tuning.</td></tr>
+            <tr><td>Wavesets</td><td>Cycle-group repetition and transformation, or an oscillator built from the source. For discrete-channel audio, not Ambisonics.</td></tr>
+            <tr><td>Lanes</td><td>Continuous movement and crossfades through the layer stack, manually or along a Stack Path.</td></tr>
+            <tr><td>Spectral</td><td>Frame-based textures shaped with blur, advance, smear, focus, tilt, thinning, and pressure.</td></tr>
+            <tr><td>Cutups</td><td>Rhythmic cuts across the stack, with file and source orders, repeats, swing, variation, and a drawable pattern.</td></tr>
+          </tbody>
+        </table>
+        <p><strong>FREE</strong> clock runs independently of REAPER's transport; <strong>HOST</strong> follows host timing and pauses when it stops. Source movement and stack movement are separate: Source Cycle controls travel through sample time, while Stack Cycle controls travel through layers. A cycle control only affects a playback path that uses it.</p>
 
-        <h2 id="resample">Record, resample and handoff</h2>
-        <p>The <strong>RECORD / RESAMPLE</strong> source menu chooses <strong>DECK OUTPUT</strong>, <strong>TRACK INPUT</strong>, or <strong>INPUT + THRU</strong>. Deck Output retains the A → B / B → A workflow. For track input, the two buttons become <strong>REC INPUT → A</strong> and <strong>REC INPUT → B</strong>: either records into the receiving deck, even when both decks are empty. Select an empty layer on the receiver to choose the destination; if its selected layer is occupied, recording uses the first free layer.</p>
-        <p>In REAPER, audio must reach the plug-in's input pins: use a track item, an upstream instrument/effect, a track receive, or a monitored hardware input. Choose <strong>INPUT 1–2</strong> or another channel group in the recorder. The group's width follows <strong>FORMAT</strong>: stereo, quad, octo, or 4/9/16-channel ACN/SN3D. Keep the source and Format consistent; Decks does not upmix or convert Ambisonic conventions. Every take uses the output format's channel count, regardless of other layers in the receiving deck. Existing layers retain their original audio and channel counts. When a stack contains several channel counts, playback and Stack Ride use the selected layer's channel group; select another layer to switch groups, with a compatible output Format.</p>
-        <p><strong>TRACK INPUT</strong> records without adding the incoming signal to the plug-in's output. <strong>INPUT + THRU</strong> also adds the selected input group, unprocessed, to the first channels of the main output; this monitoring is independent of deck levels and the crossfader. Avoid a second monitoring path in REAPER if it would double the signal. Recorded input is taken before Decks' processing and does not include its own deck playback or monitoring output.</p>
-        <p>Resampling records the sending deck after its EQ, DJ filter, and Character FX, but before its level fader and the crossfader. You can therefore capture a deck while it is inaudible in the main mix. The receiver is not fed back into the recording. Only one take records at a time.</p>
-        <p>Record is latched, not held. A second press stops it; the maximum take length also stops it automatically. Edit the number beside the recording-time readout to set the maximum from 1 to 120 seconds. The default is 30 seconds, subject to the audio-memory limit.</p>
-        <p>The live capture thumbnail grows while recording. On completion the take remains as a normal, selected layer on the receiving deck, with Layer Source set to Selected. Press Play to audition it, use <strong>CROP TO SELECTION</strong> to keep only the wanted section, or <strong>DELETE LAYER</strong> to discard it. Recording uses an empty layer; it never overwrites an occupied layer.</p>
-        <p>A missing input bus or channel stops input capture; audio already captured is kept. Connected silence is valid audio and is recorded normally. Changing Format ends the take in its original format. The source/channel choices are locked on screen during a take. Undo/Redo, storage modes and the maximum-duration limit apply to both input recordings and resampling.</p>
+        <h3 id="stack-path">Layers, Stack Path, and manual navigation</h3>
+        <p><strong>LAYER</strong> chooses the sample you are editing. <strong>LAYER SOURCE</strong> chooses how playback uses the stack: Primary, Selected, Velocity, Random / Trigger, or Stack Path, where available. Sample chooses a layer on a trigger; Motion, Grains, Stretch, Wavesets, and Spectral can travel continuously between layers. Lanes uses its own Manual / Stack Path choice. Cutups uses File Order; Slice Sequence uses its slice map and optional stack-wide mosaic candidates.</p>
+        <p><strong>FOLLOW SOURCE</strong> means “let the chosen layer source decide.” It does not turn on Stack Path by itself. For an automatic tour through a stack, choose Stack Path as the source or navigation, choose a shape, and adjust Stack Cycle or Stack Beats.</p>
+        <p>The compact path sits below the waveform; open the <strong>STACK PATH</strong> edit page for a larger version. Layer 1 is at the top, higher-numbered layers below. The moving dot follows the path. Choose a shape, or click to add a point and drag points to reshape it; editing switches the shape to Manual. Right-click an interior point to remove it.</p>
+        <figure>
+          <div class="doc-graphic doc-screenshot">
+            <button class="media-lightbox-trigger" type="button" data-lightbox-image="assets/plugin-guis/sample-decks.stack-path.png" aria-label="Enlarge the Stack Path editor and layer grid">
+              <img src="assets/plugin-guis/sample-decks.stack-path.png" width="1076" height="1076" alt="Detail of Deck A's Stack Path editor: a triangle path from layer 1 down to layer 21 and back, with cycle, shape, crossfade controls, and a 32-cell layer grid." loading="lazy" decoding="async">
+            </button>
+          </div>
+          <figcaption>Detail of the same session. This triangle path travels down through 21 layers and back up. The grid below selects the layer to edit; it is separate from the performance pads.</figcaption>
+        </figure>
+        <p>To take over, move <strong>STACK POS</strong> or hold <strong>Shift + jog</strong> on the Beatpad. This changes layers without moving through sample time, and leaves navigation at <strong>MANUAL STACK</strong> after release. Motion, Grains, Stretch, Wavesets, Lanes, and Spectral blend through layers; Sample, Slice Sequence, and Cutups choose discrete layers. Select <strong>FOLLOW SOURCE</strong>, or press <strong>Shift + Sync</strong>, to release the manual hold without restarting or changing speed. The same shortcut releases a recalled cue blend.</p>
 
-        <h2 id="editing">Source editing and undo</h2>
-        <p>The <strong>SOURCE / CHOP</strong> page provides trim, crop, normalization, equal or transient slice markers, and <strong>SLICES TO LAYERS</strong>. Slice distribution creates new, cropped samples in empty layers of the same deck, leaving the original layer intact. There must be enough empty layers for the whole operation.</p>
-        <p>Choose <strong>EDIT SLICE MARKERS</strong> here, or <strong>EDIT SLICES</strong> in the primary waveform's view menu, to edit the selected layer manually. Click inside the trimmed region to add a boundary, drag an existing boundary to move it, and right-click a boundary to remove it. The endpoints stay fixed. There can be up to 32 slices. Both horizontal and vertical views support editing and mouse zoom. <strong>CLEAR MARKERS</strong> returns to one full-region slice; it does not delete audio. Choose Follow Stack or Edit Layer to return to waveform scrubbing.</p>
-        <p><strong>ZERO CROSS</strong> refines generated and manually edited slice boundaries using a shared multichannel boundary choice within the trimmed source. Turn it off for exact free placement. Each completed marker drag is one Undo step. Crop, normalize, delete, slice distribution, imports, trims, and completed takes also have internal Undo/Redo. These source edits retain the original PCM without modifying the external file. History is limited to 32 operations and bounded by its retained audio budget; it is not saved with the project. Loading a set starts a new history. Continuous playback/FX parameter tweaks use the host's automation rather than this source-edit history.</p>
+        <h3 id="cutups">Draw a Cutups pattern</h3>
+        <p>Open <strong>CUTUPS PATTERN</strong> to see up to 64 steps in one strip. Drag a step's bright handle vertically to choose its layer; layer 1 is at the top. Drag across steps to draw a sequence. This changes File Order to Manual while keeping the other steps. Hold <strong>Option</strong> (Alt) while dragging the thinner gray handle to set the position within each source; this changes Source Order to Manual independently.</p>
+        <p>The readout identifies the step, layer, and source percentage. Double-click resets the step's layer address; Option-double-click resets its source position. The pattern is saved with the project or set.</p>
+
+        <h3 id="character-fx">Shape the sound</h3>
+        <p><strong>CHARACTER FX</strong> has Filter, Echo, Space, Shift, Vowel, Punch, Drive, and Crush, each with its own controls. <strong>MIXER / ROUTING</strong> adds deck gain, three-band EQ, and a DJ filter. Use the FX Punch pad mode to temporarily introduce a Character effect while performing; pressure changes its intensity. Effect changes fade through dry to keep transitions smooth.</p>
+
+        <h2 id="performance">Eight performance pad modes</h2>
+        <p>Choose <strong>PAD MODE</strong> on screen or the corresponding Beatpad page. These are different ways to intervene in the current playback method, not eight more playback engines. <strong>INPUT</strong> opens extra performance options on the opposite display.</p>
+        <table class="readout-table">
+          <thead><tr><th>Beatpad page</th><th>Decks mode</th><th>Pad action</th></tr></thead>
+          <tbody>
+            <tr><td>Hot Cue</td><td>Cues</td><td>Jump to eight saved bookmarks. Choose Store or Clear, then a pad; the menu returns to Jump. Shift + pad stores directly without jumping.</td></tr>
+            <tr><td>Auto Loop</td><td>Loops</td><td>Toggle a window at the current source position. Pads 1–8 give 1/16, 1/8, 1/4, 1/2, 1, 2, 4, and 8 source beats. Press the active pad again to leave the loop.</td></tr>
+            <tr><td>Touch FX</td><td>FX Punch</td><td>Hold a Character effect; pressure controls its amount. Release returns to the previous effect. Choose Toggle to latch instead.</td></tr>
+            <tr><td>Slicer</td><td>Slices</td><td>Play authored slices. One Shot ends automatically; Held repeats until release. Four banks cover up to 32 slices. Missing slices are dark.</td></tr>
+            <tr><td>Sampler</td><td>Layers / Keys</td><td>Launch layers or play pitched notes, with four banks of eight. Choose Keyboard for chords.</td></tr>
+            <tr><td>Bounce Loop</td><td>Roll</td><td>Hold a repeat of recent rendered audio. Pads give 1/32 through 4 host beats. The deck keeps advancing underneath; release rejoins it.</td></tr>
+            <tr><td>Jog FX</td><td>Stack Ride</td><td>Hold a pad to move toward a layer without restarting. Use the jog wheel to fine-tune while held; release restores the previous navigation. Ride Glide sets movement time.</td></tr>
+            <tr><td>Slicer Loop</td><td>Capture / Handoff</td><td>Pads 1–4 record 1, 2, 4, or 8 host beats; 5 toggles recording; 6 finishes this take and starts the next; 7 holds an audition of the last take; 8 launches it on its receiver.</td></tr>
+          </tbody>
+        </table>
+        <p><strong>PAD BANK</strong>, or <strong>Shift + Browse</strong>, selects ranges 1–8, 9–16, 17–24, and 25–32 for slices, layers, keys, and Stack Ride. Page or bank changes do not redirect a held note's release. On-screen pads flash when pressed and remain outlined while held; their bottom bar shows pressure. Stop clears performance overrides.</p>
+        <p>Loops use <strong>SOURCE BPM</strong>, not automatic beat detection, and stay within the source trim. Slices use the chosen playback method; select <strong>RAW SAMPLE</strong> in Performance Input for direct slice audition. Roll includes the deck's EQ and Character FX and keeps up to four seconds of history; a pad becomes available when enough audio is ready.</p>
+
+        <h3 id="cues">Three kinds of cue</h3>
+        <ul>
+          <li><strong>SET CUE / CUE</strong> in the transport stores one position and returns to it.</li>
+          <li><strong>Cues pads</strong> store eight bookmarks. Each remembers a source position and layer, including an in-between layer blend for stack-blending methods.</li>
+          <li><strong>CUE A / CUE B</strong> in the center mixer sends a deck to your headphones. It does not move playback.</li>
+        </ul>
+        <p>Recalled layer blends are held until you choose Follow Source or press Shift + Sync. Sample, Slice Sequence, and Cutups use single-layer cues. Cue jumps use a short fade-in shared by all channels. <strong>STOP</strong> also clears the effect tail. <strong>SYNC</strong> sets Time Rate from host tempo and Source BPM, then restarts from the beginning; it is a rate-matching shortcut, not beat-grid analysis.</p>
+
+        <h2 id="keyboard">Play chords</h2>
+        <ol>
+          <li>Select <strong>SAMPLER</strong> on the Beatpad, or <strong>LAYERS / KEYS</strong> on screen.</li>
+          <li>Choose <strong>KEYBOARD</strong>, or press <strong>Shift + Sampler</strong> to switch between layers and keys.</li>
+          <li>Open <strong>INPUT</strong>. Set <strong>ROOT NOTE</strong> for the untransposed source pitch and <strong>KEY VOICES</strong> for the voice limit: 1–16, default 8. Root defaults to MIDI 60 (C4).</li>
+          <li>Play the pads as consecutive chromatic notes. Banks extend the range to 32 notes. <strong>KEY OCTAVE</strong>, or Shift + Pitch Bend − / +, shifts the range without changing held notes.</li>
+        </ol>
+        <p>All nine methods support independent pitched voices. Their tuning behavior differs: Sample changes playback rate, while the other engines retain their own synthesis. Layer source, Stack Path, jog movement, EQ, and effects remain shared across the deck. More voices, channels, and complex playback methods use more CPU.</p>
+        <p>For mouse chords, choose <strong>MOUSE PADS → LATCH</strong>: click a pad to hold it and click again to release. <strong>HOLD</strong> follows the mouse button. Mouse Velocity and Mouse Pressure apply only to mouse performance. <strong>RELEASE MOUSE PADS</strong> or Stop clears held mouse notes. The Scratch and Nudge strips provide on-screen jog gestures; Stack Position provides manual layer navigation.</p>
+
+        <h2 id="editing">Trim, chop, and organize layers</h2>
+        <ol>
+          <li>Select a layer and open <strong>SOURCE / CHOP</strong>. Set Start and End around the audio you want.</li>
+          <li>Choose <strong>CROP SELECTION</strong> to discard audio outside that region in this layer. <strong>NORMALIZE</strong> adjusts the selected layer's level.</li>
+          <li>Set Slice Count, then use <strong>EQUAL SLICES</strong> or <strong>TRANSIENT SLICES</strong> as a starting point.</li>
+          <li>Choose <strong>EDIT SLICE MARKERS</strong>, or <strong>EDIT SLICES</strong> in the waveform view. Click to add a boundary, drag to move one, and right-click to remove it. Endpoints stay fixed; a layer can have up to 32 slices.</li>
+          <li>Play the markers with the Slices pads or Slice Sequence method. To make separate samples, choose <strong>SLICES TO LAYERS</strong>. This fills empty layers in the same deck and keeps the original source; enough empty layers must be available for the whole batch.</li>
+        </ol>
+        <p><strong>ZERO CROSS</strong> refines slice boundaries to a nearby shared, low-discontinuity position across channels. Turn it off when exact placement matters more. <strong>CLEAR MARKERS</strong> returns to one full-region slice without deleting audio. Switch back to Follow Stack or Edit Layer for ordinary waveform scrubbing.</p>
+        <p>Right-click the <strong>STACK LAYERS</strong> grid for <strong>COPY LAYER</strong>, <strong>PASTE LAYER</strong>, or <strong>CLEAR LAYER</strong>. Copy includes audio, trim, and slice markers and works between decks. Pasting over an occupied cell asks before replacing it. Clear and Delete Layer remove a source from this set, not its original file on disk.</p>
+
+        <h3 id="undo">Undo a source edit</h3>
+        <p><strong>UNDO</strong> and <strong>REDO</strong> cover imports, trims, crop, normalize, layer paste or clear, slice edits and distribution, cue-bookmark edits, and completed recordings. Finish a take or wait for loading to finish before editing. A completed marker drag is one undo step.</p>
+        <p>Internal history holds up to 32 operations within its audio budget. It is not saved with the project; loading a set starts a new history. Save a separate set before a long destructive-edit session if you want a lasting return point. Continuous playback and effect adjustments use the host's automation rather than this source-edit history.</p>
+
+        <h2 id="resample">Record, resample, and hand off</h2>
+        <table class="readout-table">
+          <thead><tr><th>Record source</th><th>What you capture</th></tr></thead>
+          <tbody>
+            <tr><td>Deck Output</td><td>A into B, or B into A, after the sending deck's EQ, filter, and Character FX but before its level fader and the crossfader.</td></tr>
+            <tr><td>Track Input</td><td>Incoming track audio into either deck, without passing that input into Decks' main output.</td></tr>
+            <tr><td>Input + Thru</td><td>The same input recording, plus unprocessed input monitoring in the main output.</td></tr>
+          </tbody>
+        </table>
+        <p>Select an empty layer on the receiving deck to choose the destination. If its selected layer is occupied, Decks uses the first free layer; it never records over an occupied layer. The record button shows the destination. Only one take records at a time.</p>
+        <p><strong>Record is a toggle:</strong> press once to start, again to stop. The live capture thumbnail grows during recording. On stopping, the take remains selected on its receiving deck, ready to play, crop, or delete. The receiver's Layer Source changes to Selected. Neither its level fader nor the crossfader moves automatically, so bring it into the mix when you are ready.</p>
+        <p>The number beside the recording-time readout sets the maximum length from 1 to 120 seconds, default 30. Capture / Handoff pads offer timed takes based on host tempo. <strong>Next Take</strong> finishes and prepares the current recording before starting another; it is not gapless. The maximum length and available audio memory still apply.</p>
+
+        <h3 id="live-input">Record track audio</h3>
+        <ol>
+          <li>Make audio reach Decks' input in REAPER: use a track item, an upstream instrument, a track receive, or a monitored hardware input.</li>
+          <li>Select <strong>TRACK INPUT</strong> or <strong>INPUT + THRU</strong>, then the input channel group.</li>
+          <li>Match <strong>FORMAT</strong> to the audio you want to record. Each take uses that channel count, even when the receiver's other layers use a different format.</li>
+          <li>Press <strong>REC INPUT → A</strong> or <strong>REC INPUT → B</strong>. Stop to keep the take, then audition it on the receiver.</li>
+        </ol>
+        <p>Input + Thru monitoring is independent of deck levels and the crossfader. Avoid a second REAPER monitoring path that would double the signal. The recording contains incoming audio before Decks' processing, not its own playback or monitoring output. A disconnected input channel ends the take and keeps captured audio; connected silence records normally. Changing Format ends a take in its original format.</p>
 
         <h2 id="routing">Output and spatial material</h2>
-        <p>One plug-in exposes 32 output channels. <strong>FORMAT</strong> selects stereo, quad, octo, or first-, second-, or third-order <code>ACN/SN3D</code> Ambisonics. The main mix occupies the first 2, 4, 8, 4, 9, or 16 channels respectively. Ambisonic samples must match the selected order. No channel-order conversion or Ambisonic decoding is performed.</p>
-        <p><strong>STEMS</strong> adds separate A and B buses after the main mix when all three buses fit into 32 outputs. For stereo, mix is 1–2, A is 3–4, and B is 5–6. Third-order Ambisonics uses the 16-channel main mix only; two additional 16-channel stems cannot fit.</p>
-        <p><strong>MIXER / ROUTING</strong> contains deck gain, three-band EQ, DJ filter, Slip, and technique routing. Preserve Field keeps source channels linked; Distribute is for discrete sources. Ambisonics forces field-preserving behavior and disables Wavesets, Drive, Crush, and the tape delay mode. These safeguards are not a substitute for checking the source's channel convention.</p>
+        <p>Decks exposes 32 output channels. <strong>FORMAT</strong> chooses stereo, quad, octo, or first-, second-, or third-order <strong>ACN/SN3D</strong> Ambisonics. Use matching sources and monitoring: Decks does not automatically upmix a sample or convert Ambisonic conventions. Mixed-format stacks retain their original audio; stack playback stays within the selected layer's channel group.</p>
+        <p><strong>STEMS</strong> adds separate A and B buses after the main mix when all three buses fit. For stereo, the mix is 1–2, A is 3–4, and B is 5–6. Third-order Ambisonics uses the 16-channel main mix only.</p>
+        <p>In <strong>MIXER / ROUTING</strong>, <strong>PRESERVE FIELD</strong> keeps source channels linked; <strong>DISTRIBUTE</strong> allows independent treatment of discrete channels. Ambisonics keeps field-preserving behavior and disables Wavesets, Drive, Crush, and tape delay. The main output remains Ambisonic; only the separate headphone cue is decoded to stereo.</p>
 
-        <h2 id="controller">Beatpad 2 setup</h2>
-        <p>Choose <strong>BEATPAD 2</strong> in Setup and select the controller as this REAPER track's MIDI input. Enable record monitoring so MIDI reaches the plug-in. For pad LEDs, add a MIDI hardware output from this track to the Beatpad 2, preserving the original MIDI channels. The pad feedback uses channels 3 and 4, not a single forced output channel. Press <strong>REFRESH LEDS</strong> after setting up the return path. Feedback also refreshes periodically. Do not route that output back into the plug-in or send it to unrelated devices.</p>
-        <table>
-          <thead><tr><th>Beatpad control</th><th>Decks action</th></tr></thead>
+        <h3 id="headphone-cue">Headphone cue</h3>
+        <ol>
+          <li>Open <strong>HEADPHONE CUE</strong> from the title bar or edit-page menu. Lower Cue Level and your interface's headphone volume before auditioning.</li>
+          <li>Choose <strong>CUE OUTPUT</strong>. Auto uses the first free stereo pair after the main mix and any stems; a fixed pair lets you match your interface routing.</li>
+          <li>In REAPER, expose that pair through the plug-in pins and track channels, then send it to your interface's headphone outputs. Keep it out of the master mix.</li>
+          <li>Press mixer <strong>CUE A</strong> or <strong>CUE B</strong> to hear a deck independently of its fader and the crossfader. Use <strong>CUE → MASTER</strong> to blend between audition and the main mix.</li>
+        </ol>
+        <p>For a Beatpad 2 stereo setup, choose <strong>STEREO</strong>, <strong>STEMS: OFF</strong>, and <strong>AUTO</strong>: route the main mix 1–2 to hardware outputs 1–2 and cue 3–4 to hardware outputs 3–4. Decks does not create these REAPER routes for you. With another interface, use whichever hardware pair feeds its headphones.</p>
+        <table class="readout-table">
+          <thead><tr><th>Format, stems off</th><th>Main channels</th><th>Auto cue channels</th></tr></thead>
           <tbody>
-            <tr><td>Crossfader / deck faders</td><td>Main A/B blend / deck levels. Linear, Equal Power, and Cut curves are available.</td></tr>
-            <tr><td>Gain, EQ, filter</td><td>Deck input gain, High/Mid/Low, and DJ filter. The rear EQ switch changes which hardware messages are available.</td></tr>
-            <tr><td>Play / Shift + Play</td><td>Start/stop / stop.</td></tr>
-            <tr><td>Cue / Cue Play / Sync</td><td>Store the current layer and position / restart from that cue / match rate to Source BPM and host tempo. On screen, use Set Cue to store and Cue to recall.</td></tr>
-            <tr><td>Jog touch / rotation</td><td>In Sample and Lanes, touching brakes playback; rotation moves it forward or backward with smoothed, turntable-like speed and pitch changes. Release eases back to normal speed. Turn the rim without touching the top to gently nudge speed. Slip returns to the continuing source position after release.</td></tr>
-            <tr><td>Shift + jog</td><td>Manually navigate stack layers; shifted touch does not brake time playback. Choose Follow Source to resume the configured stack navigation.</td></tr>
-            <tr><td>Pitch fader</td><td>Time Rate. Response depends on the playback method.</td></tr>
-            <tr><td>Sampler pads</td><td>Layers: select and start a layer. Keyboard: play consecutive pitched notes of the deck's source; banks change the key range.</td></tr>
-            <tr><td>Hot Cue → Cues</td><td>Eight bookmarks, each storing a layer and source position. Choose Store, then press a pad; Clear works the same way. While stopped, the cue uses the selected layer and source position. While playing, it captures the strongest active layer and its playhead, including during stack blends. Jump returns to that layer and ends any temporary Stack Ride. The menu returns to Jump after storing or clearing. Empty cues do nothing. Bookmarks are saved with the set, and store/clear support Undo.</td></tr>
-            <tr><td>Auto Loop → Loops</td><td>Toggle a source window at the current position: pads 1–8 give 1/16, 1/8, 1/4, 1/2, 1, 2, 4 and 8 source beats. Source BPM determines its length, limited by the selected trim. Press the active pad again to return to the full source. The playback method and saved trim stay unchanged.</td></tr>
-            <tr><td>Touch FX → FX Punch</td><td>Hold a Character effect; pressure controls intensity. Effect changes fade to dry over 5 ms, then fade in the new effect over 5 ms. Release restores the saved effect and amount with the same transition. Overlapping holds return to the previous held effect. Choose Toggle to latch an effect; press it again to remove it. Spatially unsafe effects remain unavailable for Ambisonics.</td></tr>
-            <tr><td>Slicer → Slices</td><td>Play authored slices, with four banks covering up to 32. One Shot continues after release and ends automatically; Held repeats until release. Uses the selected playback method. Choose Raw Sample explicitly in Performance Input for direct audition. Missing slices are dark and inactive.</td></tr>
-            <tr><td>Bounce Loop → Roll</td><td>Hold a repeat of recent rendered deck audio, including EQ and Character FX. Pads give 1/32, 1/16, 1/8, 1/4, 1/2, 1, 2 and 4 host beats. The live engine keeps advancing; release rejoins it without seeking back. Four seconds of history are retained; a pad lights when enough history is ready. All channels share one repeat clock.</td></tr>
-            <tr><td>Jog FX → Stack Ride</td><td>Hold a pad to move toward a layer without restarting the deck. Release resumes the saved navigation; the wheel fine-tunes stack position while held. Motion, Grains, Stretch, Wavesets, Lanes and Spectral blend layers. Sample hands off its running voice; Slice Sequence and Cutups change sources on their existing step clocks. Ride Glide controls movement time.</td></tr>
-            <tr><td>Slicer Loop → Capture / Handoff</td><td>Pads 1–4 capture 1, 2, 4 or 8 host beats. Pad 5 toggles Record; pad 6 finishes the take and starts another after it is committed. Pad 7 holds an audition of the last take on its receiver; pad 8 launches it there. The receiver uses its existing fader and crossfader position—neither is moved automatically.</td></tr>
-            <tr><td>Browse / Shift + Browse / Browse press</td><td>Selected layer / pad bank / switch focused deck. Pad banks address slices, layers, keys or Stack Ride layers, depending on the active page.</td></tr>
-            <tr><td>Load A or B / Shift + Record</td><td>Focus a deck / toggle recording. With Deck Output, send the focused deck to the other deck. With Track Input, record into the focused deck.</td></tr>
+            <tr><td>Stereo</td><td>1–2</td><td>3–4</td></tr>
+            <tr><td>Quad / 1OA</td><td>1–4</td><td>5–6</td></tr>
+            <tr><td>Octo</td><td>1–8</td><td>9–10</td></tr>
+            <tr><td>2OA</td><td>1–9</td><td>11–12</td></tr>
+            <tr><td>3OA</td><td>1–16</td><td>17–18</td></tr>
           </tbody>
         </table>
-        <p>The same roles are available in each deck's on-screen Pad Mode menu. The controls beside it change with the role; <strong>INPUT</strong> opens further pad options on the opposite side. Page and bank changes do not redirect a held pad's release. Loops and FX toggles stay visibly lit until exited; Stop clears performance overrides. These roles replace the older overlapping pad actions; existing source audio, playback parameters and controller page addresses are retained.</p>
-        <p>Capture follows Record Source: Deck Output sends to a free layer on the other deck; Track Input records into a free layer on this deck. Timed lengths are fixed when recording arms, using the current host tempo (120 BPM if none is supplied). Take currently finishes and analyzes one recording before arming the next, so it is not gapless. Existing layers are never overwritten. Roll starts a fresh live-history buffer when engaged; another roll becomes available as that history fills.</p>
-        <p>Jog travel is measured in source time, so a longer file does not make each wheel tick jump farther. Motion, Grains, Stretch, and Spectral use a smoothed source scan and retain their own synthesis. Wavesets changes source at waveform-cycle boundaries; Slice Sequence and Cutups retain their slice/cut timing. These methods intentionally do not all sound like vinyl. The platter response models braking and motor recovery, not a complete physical turntable; sensitivity still needs listening tests on the hardware.</p>
-        <p>Beatpad 2 transmits pad velocity separately from pad notes. Both velocity-enabled and fixed-velocity operation are supported, along with polyphonic pressure. The decoder allows a short two-millisecond pairing window for the velocity message. <strong>Shift + Hot Cue</strong> remains the hardware velocity/pressure toggle. Feedback covers all eight pad modes and their Shift pages, following <a href="https://www.reloop.com/media/custom/upload/Reloop-Beatpad2_MIDI-Map.pdf">Reloop's Beatpad 2 MIDI map</a>. Loaded layer pads are red, the selected layer yellow, and held pads white; empty layers are dark. Keyboard pads are cyan with yellow root keys. Other performance modes have distinct colors. Actual LED colors and response still need confirmation on your hardware.</p>
-        <p>For a sequencer instead, choose <strong>NOTES / ALL</strong> or a specific MIDI channel in Setup. Notes 36 and 37 trigger Deck A and B respectively; note-off stops that deck. CC 16 controls the crossfader. These are deck addresses, not a chromatic keyboard map.</p>
-
-        <h2 id="storage">Saving samples</h2>
+        <p>The Beatpad's <strong>Cue Mix</strong> knob controls Cue → Master; its <strong>Phones</strong> knob also controls physical headphone volume. Both decks can be selected for cue; their signals are averaged for headroom. Cue includes deck processing and Roll. If a format or stem change makes a fixed cue pair overlap another bus, cue is muted and the page reports the conflict.</p>
+        <p>For quad and octo, choose the fold that matches your material:</p>
         <ul>
-          <li><strong>PROJECT</strong>: imported files, completed recordings, and destructively edited samples are collected into a saved REAPER project's media location in the background. Generated audio is saved as lossless 32-bit float WAV, preserving every channel. Routine saves and mixer edits reuse the prepared paths without rereading or hashing the samples. While collection is pending, if it fails, or before the project has a media location, the loaded audio stays embedded so the save remains complete.</li>
-          <li><strong>LINK</strong>: imported samples retain external file paths. Those files must remain available. Generated and destructively edited samples are embedded.</li>
-          <li><strong>EMBED</strong>: all loaded PCM travels inside the project or saved set. This is the most portable choice, but produces larger files.</li>
+          <li><strong>STEREO PAIRS:</strong> odd channels to left, even to right; appropriate for interleaved L/R pairs, including FL, FR, RL, RR quad.</li>
+          <li><strong>CLOCKWISE RING:</strong> an evenly spaced horizontal speaker ring; quad order is FL, FR, RR, RL.</li>
+          <li><strong>MONO SUM:</strong> all channels to both ears when channel order is unknown. Opposite-phase material can cancel in a fold-down.</li>
         </ul>
-        <p>Each changed audio version gets its own verified file; collection never overwrites an earlier take or creates an extra Undo step. Undo and Redo reuse those files. Keep the project's <code>s3g Samples</code> folder intact: older versions may still be needed by REAPER's undo history. With Save As, enable REAPER's copy-media option when moving the project.</p>
-        <p><strong>SAVE SET</strong> and <strong>LOAD SET</strong> use <code>.s3gdecks</code> files. Choose Embed before saving a set you want to move to another computer. Loading stops both decks. The current document and a new recording are limited to 512 MiB of decoded audio across both decks. The footer shows the amount used. This is an audio budget, not a ceiling on the plug-in's total memory: playback buffers, analysis, waveform peaks and undo history need additional memory.</p>
-        <p>Import capacity depends on duration, sample rate and channel count, not the compressed or on-disk file size. Audio uses four bytes per sample per channel internally. For example, five minutes of eight-channel audio at 44.1 kHz uses about 404 MiB, leaving about 108 MiB for the other layers and recording. There is no separate import-duration cutoff. On Mac, files are checked against the remaining budget before decoding, and decoded in small chunks. An import that does not fit leaves the existing set unchanged.</p>
-        <p>Waveforms use cached multichannel peaks, so zooming does not rescan a long recording. Zoom and pan are view preferences: they are retained on the next normal project/set save without creating host undo snapshots. All stack lanes still fit in the view; very narrow lanes show playback cursors without the larger envelope contours. For large sets, completed Project Media collection or Linked storage avoids embedding all audio into every host project-state snapshot. Keep linked files available when reopening the project.</p>
+        <p>Ambisonic cue automatically uses an XY stereo projection, matching the selected ACN/SN3D order. It is an audition mix, not binaural or HRTF monitoring. For a spatial headphone check, route the full field to a dedicated binaural decoder. See <a href="ambi-decoder-stereo.html">Ambi Decoder Stereo</a> for more about stereo projection.</p>
+
+        <h2 id="controller">Connect a Beatpad 2</h2>
+        <ol>
+          <li>Select <strong>BEATPAD 2</strong> in Setup.</li>
+          <li>Choose the Beatpad as the REAPER track's MIDI input and enable record monitoring.</li>
+          <li>Add a MIDI hardware output from the track back to the Beatpad for LEDs. Preserve the original MIDI channels; do not force all feedback onto one channel.</li>
+          <li>Press <strong>REFRESH LEDS</strong> after connecting or changing the return route. Do not route the feedback back into Decks or send it to unrelated devices.</li>
+        </ol>
+        <table class="readout-table">
+          <thead><tr><th>Control</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>Crossfader / channel faders</td><td>A/B blend / deck levels. Linear, Equal Power, and Cut crossfader curves are available.</td></tr>
+            <tr><td>Gain, EQ, filter</td><td>Deck gain, High/Mid/Low, and DJ filter, according to the rear EQ switch.</td></tr>
+            <tr><td>Play / Cue / Cue Play</td><td>Start or stop / store the transport cue / restart from that cue. On screen, use Set Cue to store and Cue to recall.</td></tr>
+            <tr><td>Sync</td><td>Match rate using Source BPM and host tempo, and restart.</td></tr>
+            <tr><td>Jog top / rim</td><td>Touch and turn to scratch or scan; turn the rim to nudge. Sample and Lanes have turntable-like speed changes; other methods retain their synthesis while scanning the source.</td></tr>
+            <tr><td>Pitch fader / Pitch Bend − and +</td><td>Time Rate / temporary smoothed speed nudge while held. Holding both bend buttons cancels the offset.</td></tr>
+            <tr><td>Browse / Browse press</td><td>Select an editing layer / switch the focused deck.</td></tr>
+            <tr><td>Load A or B</td><td>Focus that deck.</td></tr>
+            <tr><td>Mixer CUE / Cue Mix</td><td>Select a deck for headphone cue / blend cue with the main mix.</td></tr>
+          </tbody>
+        </table>
+        <p>Jog travel is measured in source time, so loading a longer file does not make a wheel movement jump farther. With Slip enabled, release returns to the continuing source position. Shift + jog controls the stack instead.</p>
+
+        <h3 id="shift">Shift shortcuts</h3>
+        <table class="readout-table">
+          <thead><tr><th>Hold Shift and use…</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>Jog wheel</td><td>Take over stack position without braking or seeking through sample time.</td></tr>
+            <tr><td>Sync</td><td>Resume Follow Source; release a manual stack or recalled cue hold.</td></tr>
+            <tr><td>Browse</td><td>Change pad bank.</td></tr>
+            <tr><td>Sampler mode button</td><td>Switch Layers ↔ Keyboard.</td></tr>
+            <tr><td>Pitch Bend − / +</td><td>Change octave when in Keyboard mode; held notes keep their pitch.</td></tr>
+            <tr><td>A pad in Cues mode</td><td>Store the current position and layer blend without jumping. Replaces that bookmark and supports Undo.</td></tr>
+            <tr><td>The library Record control</td><td>Toggle recording: send the focused deck to the other deck with Deck Output, or record into the focused deck with Track Input.</td></tr>
+            <tr><td>Cue / Play</td><td>Toggle Slip / stop the deck.</td></tr>
+            <tr><td>Channel fader</td><td>Raise a stopped deck to start from its transport cue; lower it to return to the cue and stop. An already-playing deck is not restarted.</td></tr>
+            <tr><td>Hot Cue mode button</td><td>Toggle the Beatpad's pad velocity/pressure mode. Fixed-velocity pads still send notes.</td></tr>
+          </tbody>
+        </table>
+        <p>After a Shift-fader start, returning that fader to zero also stops the deck if Shift has been released. An ordinary fader move only changes volume.</p>
+        <p><strong>The four Shift + mixer knobs, top to bottom:</strong> Stack Cycle, Source Cycle, playback macro, and FX Amount. Free clock uses seconds; Host clock uses beats. The physical order stays the same in Classic and Filter EQ layouts.</p>
+        <table class="readout-table">
+          <thead><tr><th>Playback method</th><th>Third Shift knob</th></tr></thead>
+          <tbody>
+            <tr><td>Sample / Stretch</td><td>Tune</td></tr>
+            <tr><td>Motion</td><td>Motion Window</td></tr>
+            <tr><td>Grains</td><td>Grain Size</td></tr>
+            <tr><td>Slice Sequence</td><td>Step Repeats</td></tr>
+            <tr><td>Wavesets</td><td>Group, or Oscillator Group in its oscillator engine</td></tr>
+            <tr><td>Lanes</td><td>Lane Slew</td></tr>
+            <tr><td>Spectral</td><td>Spectral Blur</td></tr>
+            <tr><td>Cutups</td><td>Cut Repeat</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Knob pickup:</strong> after switching between mixer and Shift functions, move the knob through the current on-screen value before it takes over. This prevents jumps when you release Shift, change a value on screen, or switch playback method or clock. If the Beatpad was connected in Filter EQ mode, move the Filter knob once or reselect the rear switch before using the third Shift knob.</p>
+
+        <h3 id="feedback">Pad lights and jog rings</h3>
+        <p>Loaded layer pads are red, the selected layer yellow, and held pads white; empty layers are dark. Keyboard pads are cyan with yellow root keys. Other pad modes have distinct colors, and active loops or toggled effects remain lit. Enable velocity and pressure with Shift + Hot Cue when you want expressive pad control.</p>
+        <p>With multiple layers, the jog-ring marker follows the actual stack position in both Follow Source and Manual Stack. A single-layer deck shows source position instead. Cyan indicates Follow Source, yellow manual stack control, and red the deck receiving a recording. Empty decks are dark unless recording.</p>
+        <p>Moving LED feedback can light REAPER's MIDI activity indicator even when you are not touching the controller. Decks updates changed lights rather than sending repeated full refreshes while idle. <strong>REFRESH LEDS</strong> is the manual recovery button after reconnection or a routing change. A lit mixer CUE confirms Decks' cue selection, not the downstream headphone routing in REAPER.</p>
+
+        <h2 id="storage">Save your work</h2>
+        <p>Choose how audio is kept with <strong>STORE</strong> in Setup:</p>
+        <table class="readout-table">
+          <thead><tr><th>Storage</th><th>When to choose it</th></tr></thead>
+          <tbody>
+            <tr><td>Project</td><td>The everyday REAPER workflow. Imports, recordings, and edited audio are collected in the saved project's media location. Until collection completes, or when no project location is available, audio stays embedded so saves remain complete.</td></tr>
+            <tr><td>Link</td><td>Keep imported samples at their existing paths. Those files must remain available; recordings and destructively edited audio are embedded.</td></tr>
+            <tr><td>Embed</td><td>Keep all audio inside the project or set. Convenient for moving a set, but files are larger.</td></tr>
+          </tbody>
+        </table>
+        <p><strong>SAVE SET</strong> and <strong>LOAD SET</strong> use <code>.s3gdecks</code> files. Choose Embed before saving a set for another computer. Loading a set stops both decks. For Project storage, keep the <code>s3g Samples</code> folder with the project; older audio versions may still be needed by REAPER's undo history. When moving a project with Save As, enable REAPER's copy-media option.</p>
+        <p>The footer shows the loaded-audio budget: <strong>512 MiB across both decks</strong>. Capacity depends on duration, sample rate, and channel count, not just file size on disk. Five minutes of eight-channel audio at 44.1 kHz uses about 404 MiB, so leave room for the other deck and new takes. An import that does not fit leaves your set unchanged. Playback, display, and undo buffers use additional memory.</p>
+
+        <h2 id="troubleshooting">If something seems wrong</h2>
+        <p><strong>The deck is playing but I hear nothing.</strong><br>Check its level, the crossfader, output level, and REAPER routing. Host clock also needs a running host transport; try Free clock for independent playback.</p>
+        <p><strong>The stack stopped moving.</strong><br>Choose Follow Source or press Shift + Sync. Then check the source choice: Follow Source will not move automatically if the source itself is Selected or Manual rather than Stack Path.</p>
+        <p><strong>A Shift knob does not seem to respond.</strong><br>Move it through the current on-screen value to pick up control. Check that the chosen method and source use the cycle you are adjusting.</p>
+        <p><strong>Some Slices pads are dark.</strong><br>Check the selected layer's markers and pad bank. Only existing slices can play; make markers in Source / Chop first.</p>
+        <p><strong>I cannot record or distribute slices.</strong><br>Check for free destination layers and remaining audio memory. Slice distribution needs room for every slice. Input recording also needs the selected input channels connected and a matching Format.</p>
+        <p><strong>CUE is lit but headphones are silent.</strong><br>Check Cue Output, Cue Level, the Cue → Master blend, REAPER's track and pin routing, and the interface's physical headphone volume.</p>
+        <p><strong>I want to sequence Decks without the Beatpad.</strong><br>Choose Notes / All or a MIDI channel in Setup. Notes 36 and 37 trigger A and B; note-off stops the addressed deck. CC 16 moves the crossfader. These are deck addresses, not a chromatic keyboard map.</p>
         <p>Related instruments: <a href="sample-neon.html">Sample Neon 32</a> for pad-centered performance, <a href="sample-doubles.html">Sample Doubles</a> for two heads over one source, and <a href="sample-circulator.html">Sample Circulator</a> for stereo loop circulation.</p>
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="utility-neon-midi.html"><span>Previous</span>Utility Neon MIDI</a>
           <a class="page-nav-link next" href="sample-doubles.html"><span>Next</span>Sample Doubles</a>
         </nav>
       </main>
-      <aside class="toc" aria-label="Table of contents">
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Sample</h2>
+          <a href="sample-instruments.html">Overview</a>
+          <a href="sample-player.html">Sample Player</a>
+          <a href="sample-kit.html">Sample Kit</a>
+          <a href="sample-neon.html">Sample Neon 32</a>
+          <a href="sample-decks.html">Sample Decks 32</a>
+          <a href="sample-doubles.html">Sample Doubles</a>
+          <a href="sample-wavesets.html">Sample Wavesets</a>
+          <a href="sample-motion.html">Sample Motion</a>
+          <a href="sample-lanes.html">Sample Lanes</a>
+          <a href="sample-grains.html">Sample Grains</a>
+          <a href="sample-cutups.html">Sample Cutups</a>
+          <a href="sample-slicer.html">Sample Slicer</a>
+          <a href="sample-circulator.html">Sample Circulator</a>
+          <a href="sample-rings.html">Sample Rings</a>
+          <a href="processor-ambi-grain.html">Processor Ambi Grain</a>
+        </div>
         <div class="toc-section"><h2>On This Page</h2>
-          <a href="#workflow">Workflow</a><a href="#decks">Two Decks</a><a href="#playback">Playback</a>
-          <a href="#resample">Capture and Handoff</a><a href="#editing">Editing and Undo</a>
-          <a href="#keyboard">Playing Chords</a><a href="#routing">Output</a><a href="#controller">Beatpad 2</a><a href="#storage">Saving Samples</a>
+          <a href="#workflow">Workflow</a><a href="#decks">Finding Your Way</a><a href="#waveforms">Waveform Views</a>
+          <a href="#playback">Playback Methods</a><a href="#stack-path">Stack Path</a><a href="#cutups">Cutups Pattern</a>
+          <a href="#character-fx">Character FX</a><a href="#performance">Pad Modes</a><a href="#cues">Three Kinds of Cue</a>
+          <a href="#keyboard">Playing Chords</a><a href="#editing">Trim and Chop</a><a href="#undo">Undo</a>
+          <a href="#resample">Record and Handoff</a><a href="#live-input">Track Input</a>
+          <a href="#routing">Output</a><a href="#headphone-cue">Headphone Cue</a><a href="#controller">Beatpad 2 Setup</a>
+          <a href="#shift">Shift Shortcuts</a><a href="#feedback">LED Feedback</a><a href="#storage">Saving</a>
+          <a href="#troubleshooting">Troubleshooting</a>
         </div>
       </aside>
     </div>

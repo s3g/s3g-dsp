@@ -33,8 +33,8 @@
 
         <ol>
           <li>Insert the required output format—stereo, multichannel, or Ambisonic—and match the REAPER track width to its fixed output.</li>
-          <li>Establish monitoring before loading audio. Route ordinary multichannel outputs to speakers, a <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a>; follow Processor Ambi Grain with an <a href="ambisonic-decoders.html">ambisonic decoder</a>.</li>
-          <li>Load the source files, or route live input to Sample Circulator or Sample Rings for capture. Choose the storage policy below for file-backed sources.</li>
+          <li>Establish monitoring before loading audio. Route ordinary multichannel outputs to speakers, a <a href="direct-panning.html">direct panner</a>, or <a href="monitoring-fold-down.html">Output Autogain Stereo/Quad</a>. Use an <a href="ambisonic-decoders.html">ambisonic decoder</a> for Processor Ambi Grain or the Ambisonic output of Neon and Decks.</li>
+          <li>Load the source files, or route live input to Sample Circulator, Rings, Neon, or <a href="sample-decks.html#live-input">Decks</a> for capture. Choose the storage policy below for your samples and recordings.</li>
           <li>Use the instrument guide for its source regions, timing, MIDI, processing, and routing controls, then audition and save the project.</li>
         </ol>
 
@@ -45,7 +45,8 @@
           <tbody>
             <tr><td><a href="sample-player.html">Sample Player</a></td><td>Chromatic one-shots and forward, reverse, wrapping, or ping-pong loops from one file.</td><td>Stereo or 16-channel</td></tr>
             <tr><td><a href="sample-kit.html">Sample Kit</a></td><td>Sixteen mono/stereo pads with shared-source chopping, alternate hits, sound shaping, choke groups, a mixer, character effects, and pair routing.</td><td>2–32 channels</td></tr>
-            <tr><td><a href="sample-neon.html">Sample Neon 32</a></td><td>Thirty-two performance pads with 32-layer stacks, eight playback methods, chopping, internal resampling, and one/two NEON controller integration with Tracker.</td><td>32-channel port; stereo, quad, octo or 1OA–3OA ACN/SN3D buses</td></tr>
+            <tr><td><a href="sample-neon.html">Sample Neon 32</a></td><td>Thirty-two performance pads with 32-layer stacks, nine playback methods, chopping, live input and internal resampling, and one/two NEON controller integration with Tracker.</td><td>32-channel port; stereo, quad, octo or 1OA–3OA ACN/SN3D buses</td></tr>
+            <tr><td><a href="sample-decks.html">Sample Decks 32</a></td><td>Two 32-layer stacks with nine playback methods, crossfader performance, deck-to-deck resampling, live input recording, and optional Beatpad 2 control.</td><td>32-channel port; stereo, quad, octo or 1OA–3OA ACN/SN3D buses, with separate stereo headphone cue</td></tr>
             <tr><td><a href="sample-doubles.html">Sample Doubles</a></td><td>Two independently positioned copies of one source, with offset timing and performance crossfading.</td><td>Stereo</td></tr>
             <tr><td><a href="sample-wavesets.html">Sample Wavesets</a></td><td>Chromatic playback of zero-crossing groups, with ordered or distributed triggering.</td><td>Stereo or 32-channel</td></tr>
             <tr><td><a href="sample-motion.html">Sample Motion</a></td><td>Bounded source trajectories combined with continuous or retriggered segment events.</td><td>Stereo or 32-channel</td></tr>
@@ -59,12 +60,14 @@
           </tbody>
         </table>
 
+        <p>Choose <a href="sample-neon.html">Neon</a> when you want to launch and sequence many pad cells. Choose <a href="sample-decks.html">Decks</a> when you want to work between two evolving stacks: mix them, navigate their layers, and <a href="sample-decks.html#resample">record one into the other</a>. Both work on screen without their matching controllers. Decks also provides <a href="sample-decks.html#headphone-cue">headphone cue</a> for auditioning a deck before bringing it into the main mix.</p>
+
         <h2 id="state">Sample Storage</h2>
 
         <table class="readout-table">
           <thead><tr><th>Mode</th><th>Behavior</th><th>Best use</th></tr></thead>
           <tbody>
-            <tr><td><code>PROJECT</code></td><td>Copies the unchanged source into the saved REAPER project's <code>s3g Samples</code> media directory and stores a path reference.</td><td>Normal sessions; the default</td></tr>
+            <tr><td><code>PROJECT</code></td><td>Collects source audio into the saved REAPER project's <code>s3g Samples</code> media directory and stores a path reference. Supported recordings and generated samples are collected too.</td><td>Normal sessions; the default</td></tr>
             <tr><td><code>LINK</code></td><td>References the original file without copying it.</td><td>Stable externally managed media</td></tr>
             <tr><td><code>EMBED</code></td><td>Stores decoded floating-point audio in CLAP state.</td><td>Self-contained exchange</td></tr>
           </tbody>
@@ -72,9 +75,9 @@
 
         <p><code>PROJECT</code> requires a saved REAPER project and supported project-media access. Until both are available, collection remains pending and the current source stays usable. Copies are content-verified and reused when the source is unchanged. Registered media follows a REAPER Save As only when a copy-media option is selected.</p>
 
-        <p><code>LINK</code> keeps state small but requires the original path to remain valid. <code>EMBED</code> is portable, but decoded audio can be much larger than the source file and may enlarge host undo snapshots; prefer <code>PROJECT</code> for routine work. Missing paths remain available for later relinking. Generated Slicer material can be written as project media, while live captures remain embedded.</p>
+        <p><code>LINK</code> keeps project files small but requires the original path to remain valid. <code>EMBED</code> is portable, but decoded audio can be much larger than the source file; prefer <code>PROJECT</code> for routine work. Missing paths remain available for later relinking. In Neon, Decks, and Rings, completed captures are collected in Project mode and stay embedded until collection succeeds; Link and Embed keep those captures embedded. See each instrument's guide for its generated-audio storage options.</p>
 
-        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, Rings, <a href="sample-neon.html#storage">Sample Neon 32</a>, and <a href="processor-ambi-grain.html#sample-storage">Processor Ambi Grain</a> use this three-mode policy. Sample Circulator is the exception: it always embeds its two stereo loops, with a capacity of approximately 32 seconds per loop.</p>
+        <p>Sample Player, Doubles, Wavesets, Motion, Lanes, Grains, Slicer, Rings, <a href="sample-neon.html#storage">Sample Neon 32</a>, <a href="sample-decks.html#storage">Sample Decks 32</a>, and <a href="processor-ambi-grain.html#sample-storage">Processor Ambi Grain</a> use this three-mode policy. <a href="sample-circulator.html#storage">Sample Circulator</a> automatically collects completed loops into project media, keeps them embedded until collection succeeds, and embeds both loops when saving a preset.</p>
 
         <nav class="page-nav" aria-label="Page navigation">
           <a class="page-nav-link" href="processor-errant.html">
@@ -95,6 +98,7 @@
           <a href="sample-player.html">Sample Player</a>
           <a href="sample-kit.html">Sample Kit</a>
           <a href="sample-neon.html">Sample Neon 32</a>
+          <a href="sample-decks.html">Sample Decks 32</a>
           <a href="sample-doubles.html">Sample Doubles</a>
           <a href="sample-wavesets.html">Sample Wavesets</a>
           <a href="sample-motion.html">Sample Motion</a>
