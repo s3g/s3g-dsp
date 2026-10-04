@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <new>
 
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
@@ -728,7 +729,8 @@ void drainGuiNotifications(Plugin& p, const clap_output_events_t* output) {
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
 
 s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin);
-void requestLatticeStorage(Plugin& plugin, s3g::AmbiNeuralLatticeStorage source,
+void snapshotLatticeInto(const Plugin& plugin, s3g::AmbiNeuralLatticeStorage& storage);
+void requestLatticeStorage(Plugin& plugin, const s3g::AmbiNeuralLatticeStorage& source,
     bool requestProcess = true);
 
 s3g::AmbiNeuralEcologyParams upgradeParams(const ParamsV1& old)
@@ -1316,7 +1318,9 @@ void requestGenomeRecall(Plugin& plugin,
 
 void storeLatticeCells(Plugin& plugin, const s3g::AmbiNeuralLatticeStorage& source)
 {
-    const auto storage = s3g::sanitizeAmbiNeuralLatticeStorage(source);
+    // Both callers supply sanitized storage. Do not copy the entire lattice on
+    // the host's audio stack (which can be much smaller than the main stack).
+    const auto& storage = source;
     for (uint32_t cell = 0u; cell < s3g::kAmbiNeuralLatticeCells; ++cell) {
         for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
             plugin.latticeGenomes[
@@ -1350,9 +1354,9 @@ void storeLatticeCells(Plugin& plugin, const s3g::AmbiNeuralLatticeStorage& sour
     plugin.latticeCellsRevision.fetch_add(1u, std::memory_order_release);
 }
 
-s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin)
+void snapshotLatticeInto(const Plugin& plugin, s3g::AmbiNeuralLatticeStorage& storage)
 {
-    auto storage = s3g::defaultAmbiNeuralLattice(
+    storage = s3g::defaultAmbiNeuralLattice(
         plugin.latticePlaneCount.load(std::memory_order_relaxed));
     for (uint32_t cell = 0u; cell < s3g::kAmbiNeuralLatticeCells; ++cell) {
         for (uint32_t gene = 0u; gene < s3g::kAmbiNeuralEcologyGenomeValues; ++gene) {
@@ -1391,26 +1395,39 @@ s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin)
     for (uint32_t index = 0u; index < s3g::kAmbiNeuralLatticeTrail; ++index) {
         storage.trail[index] = plugin.guiLatticeTrail[index].load(std::memory_order_relaxed);
     }
-    return s3g::sanitizeAmbiNeuralLatticeStorage(storage);
+    s3g::sanitizeAmbiNeuralLatticeStorageInPlace(storage);
 }
 
-void requestLatticeStorage(Plugin& plugin, s3g::AmbiNeuralLatticeStorage source,
+s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin)
+{
+    s3g::AmbiNeuralLatticeStorage storage {};
+    snapshotLatticeInto(plugin, storage);
+    return storage;
+}
+
+void requestLatticeStorage(Plugin& plugin, const s3g::AmbiNeuralLatticeStorage& source,
     bool requestProcess)
 {
-    const auto storage = s3g::sanitizeAmbiNeuralLatticeStorage(source);
-    storeLatticeCells(plugin, storage);
-    plugin.pendingLatticePlaneCount.store(storage.planeCount, std::memory_order_relaxed);
-    plugin.pendingLatticeCurrentCell.store(storage.currentCell, std::memory_order_relaxed);
-    plugin.pendingLatticeTrailCount.store(storage.trailCount, std::memory_order_relaxed);
+    // This path runs during creation, state/preset load or GUI edits, not
+    // process(). Keep the large validation copy off a host-created thread's
+    // limited stack; storeLatticeCells itself remains allocation-free.
+    auto storage = std::unique_ptr<s3g::AmbiNeuralLatticeStorage>(
+        new (std::nothrow) s3g::AmbiNeuralLatticeStorage(source));
+    if (!storage) return;
+    s3g::sanitizeAmbiNeuralLatticeStorageInPlace(*storage);
+    storeLatticeCells(plugin, *storage);
+    plugin.pendingLatticePlaneCount.store(storage->planeCount, std::memory_order_relaxed);
+    plugin.pendingLatticeCurrentCell.store(storage->currentCell, std::memory_order_relaxed);
+    plugin.pendingLatticeTrailCount.store(storage->trailCount, std::memory_order_relaxed);
     for (uint32_t index = 0u; index < s3g::kAmbiNeuralLatticeTrail; ++index) {
-        plugin.pendingLatticeTrail[index].store(storage.trail[index], std::memory_order_relaxed);
-        plugin.guiLatticeTrail[index].store(storage.trail[index], std::memory_order_relaxed);
+        plugin.pendingLatticeTrail[index].store(storage->trail[index], std::memory_order_relaxed);
+        plugin.guiLatticeTrail[index].store(storage->trail[index], std::memory_order_relaxed);
     }
-    plugin.guiLatticeCurrentCell.store(storage.currentCell, std::memory_order_relaxed);
-    plugin.guiLatticeTargetCell.store(storage.currentCell, std::memory_order_relaxed);
-    plugin.guiLatticePlaneCount.store(storage.planeCount, std::memory_order_relaxed);
-    plugin.guiLatticeTrailCount.store(storage.trailCount, std::memory_order_relaxed);
-    plugin.guiSelectedLatticeCell = storage.selectedCell;
+    plugin.guiLatticeCurrentCell.store(storage->currentCell, std::memory_order_relaxed);
+    plugin.guiLatticeTargetCell.store(storage->currentCell, std::memory_order_relaxed);
+    plugin.guiLatticePlaneCount.store(storage->planeCount, std::memory_order_relaxed);
+    plugin.guiLatticeTrailCount.store(storage->trailCount, std::memory_order_relaxed);
+    plugin.guiSelectedLatticeCell = storage->selectedCell;
     plugin.latticeLoadRequest.fetch_add(1u, std::memory_order_release);
     if (requestProcess && plugin.host && plugin.host->request_process) {
         plugin.host->request_process(plugin.host);
@@ -1766,8 +1783,8 @@ void syncAudioLattice(Plugin& plugin)
     const uint32_t desiredPlanes =
         s3g::ambiNeuralScorePlaneCount(plugin.audioParams.scorePlanes);
     if (plugin.lattice.planeCount() != desiredPlanes) {
-        const auto resized = s3g::resizeAmbiNeuralLattice(plugin.lattice.storage(), desiredPlanes);
-        plugin.lattice.setStorage(resized);
+        plugin.lattice.resizePlanes(desiredPlanes);
+        const auto& resized = plugin.lattice.storage();
         plugin.audioExpressionCurrent =
             plugin.lattice.cell(plugin.lattice.currentCell()).expression;
         plugin.audioExpressionFrom = plugin.audioExpressionCurrent;
@@ -2319,7 +2336,9 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (!stream || !stream->write) return false;
     auto* p = self(plugin);
     syncGuiParams(*p);
-    SavedState state {};
+    auto stateStorage = std::unique_ptr<SavedState>(new (std::nothrow) SavedState());
+    if (!stateStorage) return false;
+    auto& state = *stateStorage;
     state.params = p->params;
     state.presetIndex = p->presetIndex.load(std::memory_order_relaxed);
     state.guiViewMode = p->guiViewMode;
@@ -2336,7 +2355,7 @@ bool stateSave(const clap_plugin_t* plugin, const clap_ostream_t* stream)
     if (p->customPresetActive.load(std::memory_order_relaxed)) {
         std::strncpy(state.customPresetName, p->customPresetName, sizeof(state.customPresetName) - 1u);
     }
-    state.lattice = snapshotLattice(*p);
+    snapshotLatticeInto(*p, state.lattice);
     state.guiScorePage = std::min<uint32_t>(p->guiScorePage, 1u);
     state.guiLatticeViewPlane = std::min<uint32_t>(
         p->guiLatticeViewPlane, state.lattice.planeCount - 1u);
@@ -2351,7 +2370,9 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
     uint32_t version = 0u;
     if (!readExact(stream, &version, sizeof(version))) return false;
     if (version != kStateVersion) return false;
-    SavedState state {};
+    auto stateStorage = std::unique_ptr<SavedState>(new (std::nothrow) SavedState());
+    if (!stateStorage) return false;
+    auto& state = *stateStorage;
     if (version == 1u) {
         SavedStateV1 old {};
         old.version = version;

@@ -95,20 +95,27 @@ inline void resetAmbiNeuralLatticeEdges(AmbiNeuralLatticeStorage& storage)
     }
 }
 
+inline std::array<uint32_t, 2u> ambiNeuralLatticePortalPair(
+    uint32_t plane, uint32_t salt)
+{
+    const uint32_t base = plane * kAmbiNeuralLatticeCellsPerPlane;
+    const uint32_t ingressLocal =
+        (5u + plane * 7u
+            + ((salt >> ((plane % 4u) * 8u)) & 15u)) & 15u;
+    uint32_t egressLocal =
+        (10u + plane * 5u
+            + ((salt >> (((plane + 2u) % 4u) * 8u)) & 15u)) & 15u;
+    if (egressLocal == ingressLocal) egressLocal = (egressLocal + 5u) & 15u;
+    return {{base + ingressLocal, base + egressLocal}};
+}
+
 inline void placeAmbiNeuralLatticePortals(
     AmbiNeuralLatticeStorage& storage, uint32_t salt = 0u)
 {
     for (uint32_t plane = 0u; plane < kAmbiNeuralLatticeMaxPlanes; ++plane) {
-        const uint32_t base = plane * kAmbiNeuralLatticeCellsPerPlane;
-        const uint32_t ingressLocal =
-            (5u + plane * 7u
-                + ((salt >> ((plane % 4u) * 8u)) & 15u)) & 15u;
-        uint32_t egressLocal =
-            (10u + plane * 5u
-                + ((salt >> (((plane + 2u) % 4u) * 8u)) & 15u)) & 15u;
-        if (egressLocal == ingressLocal) egressLocal = (egressLocal + 5u) & 15u;
-        storage.ingressCells[plane] = base + ingressLocal;
-        storage.egressCells[plane] = base + egressLocal;
+        const auto portals = ambiNeuralLatticePortalPair(plane, salt);
+        storage.ingressCells[plane] = portals[0u];
+        storage.egressCells[plane] = portals[1u];
     }
 }
 
@@ -408,8 +415,8 @@ inline AmbiNeuralLatticeStorage growAmbiNeuralLattice(
     return storage;
 }
 
-inline AmbiNeuralLatticeStorage sanitizeAmbiNeuralLatticeStorage(
-    AmbiNeuralLatticeStorage storage)
+inline void sanitizeAmbiNeuralLatticeStorageInPlace(
+    AmbiNeuralLatticeStorage& storage)
 {
     for (auto& cell : storage.cells) {
         cell = sanitizeAmbiNeuralLatticeCell(cell);
@@ -418,24 +425,21 @@ inline AmbiNeuralLatticeStorage sanitizeAmbiNeuralLatticeStorage(
         sanitizeAmbiNeuralLatticePlaneCount(storage.planeCount);
     const uint32_t activeCells =
         storage.planeCount * kAmbiNeuralLatticeCellsPerPlane;
-    auto fallbackPortals = storage;
-    placeAmbiNeuralLatticePortals(
-        fallbackPortals, storage.breedingSeed ^ 0x504f5254u);
     for (uint32_t plane = 0u;
         plane < kAmbiNeuralLatticeMaxPlanes; ++plane) {
+        const auto fallbackPortals = ambiNeuralLatticePortalPair(
+            plane, storage.breedingSeed ^ 0x504f5254u);
         const uint32_t first = plane * kAmbiNeuralLatticeCellsPerPlane;
         const uint32_t last = first + kAmbiNeuralLatticeCellsPerPlane;
         if (storage.ingressCells[plane] < first
             || storage.ingressCells[plane] >= last) {
-            storage.ingressCells[plane] =
-                fallbackPortals.ingressCells[plane];
+            storage.ingressCells[plane] = fallbackPortals[0u];
         }
         if (storage.egressCells[plane] < first
             || storage.egressCells[plane] >= last
             || storage.egressCells[plane]
                 == storage.ingressCells[plane]) {
-            storage.egressCells[plane] =
-                fallbackPortals.egressCells[plane];
+            storage.egressCells[plane] = fallbackPortals[1u];
         }
     }
     for (uint32_t cell = 0u; cell < kAmbiNeuralLatticeCells; ++cell) {
@@ -460,13 +464,19 @@ inline AmbiNeuralLatticeStorage sanitizeAmbiNeuralLatticeStorage(
         cell = std::min<uint32_t>(cell, activeCells - 1u);
     }
     if (storage.breedingSeed == 0u) storage.breedingSeed = 1u;
+}
+
+inline AmbiNeuralLatticeStorage sanitizeAmbiNeuralLatticeStorage(
+    AmbiNeuralLatticeStorage storage)
+{
+    sanitizeAmbiNeuralLatticeStorageInPlace(storage);
     return storage;
 }
 
-inline AmbiNeuralLatticeStorage resizeAmbiNeuralLattice(
-    AmbiNeuralLatticeStorage storage, uint32_t planeCount)
+inline void resizeAmbiNeuralLatticeInPlace(
+    AmbiNeuralLatticeStorage& storage, uint32_t planeCount)
 {
-    storage = sanitizeAmbiNeuralLatticeStorage(storage);
+    sanitizeAmbiNeuralLatticeStorageInPlace(storage);
     storage.planeCount = sanitizeAmbiNeuralLatticePlaneCount(planeCount);
     resetAmbiNeuralLatticeEdges(storage);
     const uint32_t activeCells =
@@ -478,16 +488,24 @@ inline AmbiNeuralLatticeStorage resizeAmbiNeuralLattice(
     for (uint32_t& cell : storage.trail) {
         cell = std::min<uint32_t>(cell, activeCells - 1u);
     }
-    return sanitizeAmbiNeuralLatticeStorage(storage);
+    sanitizeAmbiNeuralLatticeStorageInPlace(storage);
+}
+
+inline AmbiNeuralLatticeStorage resizeAmbiNeuralLattice(
+    AmbiNeuralLatticeStorage storage, uint32_t planeCount)
+{
+    resizeAmbiNeuralLatticeInPlace(storage, planeCount);
+    return storage;
 }
 
 class AmbiNeuralFieldLattice {
 public:
     AmbiNeuralFieldLattice() { setStorage(defaultAmbiNeuralLattice()); }
 
-    void setStorage(AmbiNeuralLatticeStorage storage)
+    void setStorage(const AmbiNeuralLatticeStorage& storage)
     {
-        storage_ = sanitizeAmbiNeuralLatticeStorage(storage);
+        if (&storage != &storage_) storage_ = storage;
+        sanitizeAmbiNeuralLatticeStorageInPlace(storage_);
         currentCell_ = storage_.currentCell;
         targetCell_ = currentCell_;
         transitionProgress_ = 1.0f;
@@ -496,6 +514,12 @@ public:
         midiBias_.fill(0.0f);
         movesOnPlane_ = 0u;
         refreshPortalMoveLimit();
+    }
+
+    void resizePlanes(uint32_t planeCount)
+    {
+        resizeAmbiNeuralLatticeInPlace(storage_, planeCount);
+        setStorage(storage_);
     }
 
     const AmbiNeuralLatticeStorage& storage() const { return storage_; }

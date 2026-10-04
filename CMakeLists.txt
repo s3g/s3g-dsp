@@ -2117,6 +2117,19 @@ if(S3G_BUILD_CLAP_PLUGIN)
   endif()
   add_subdirectory(plugins/clap_ambi_pulsar_encoder)
   add_subdirectory(plugins/clap_ambi_neural_ecology)
+  if(APPLE AND BUILD_TESTING)
+    add_executable(s3g_ambi_neural_ecology_clap_stack_smoke
+      tests/ambi_neural_ecology_clap_stack_smoke.cpp)
+    target_include_directories(s3g_ambi_neural_ecology_clap_stack_smoke PRIVATE
+      ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_ambi_neural_ecology_clap_stack_smoke PRIVATE
+      ${CMAKE_DL_LIBS} Threads::Threads)
+    add_test(NAME s3g_ambi_neural_ecology_clap_stack_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_neural_ecology_clap_stack_smoke>
+        $<TARGET_FILE:s3g_ambi_neural_ecology_clap>)
+    set_tests_properties(s3g_ambi_neural_ecology_clap_stack_smoke PROPERTIES
+      LABELS "non_nim;clap;smoke" TIMEOUT 120)
+  endif()
   add_subdirectory(plugins/clap_no_input_mixer)
   add_subdirectory(plugins/clap_nim_gesture)
   if(S3G_BUILD_TRACKER_PREVIEW AND (APPLE OR WIN32))
@@ -3642,7 +3655,7 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_insect_encoder_clap> org.s3g.s3g-dsp.ambi-insect-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_accelerometer_field_encoder_clap> org.s3g.s3g-dsp.accelerometer-field-encoder-16 1160 760 "s3g Ambi Encoder Modal" responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_encoder_medium_clap> org.s3g.s3g-dsp.ambi-encoder-medium-16 920 680 "s3g Ambi Encoder Medium" responsive
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_neural_ecology_clap> org.s3g.s3g-dsp.ambi-neural-ecology-64 1160 858
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_neural_ecology_clap> org.s3g.s3g-dsp.ambi-neural-ecology-64 1160 858 "s3g Ambi Encoder Neural Ecology 64" proportional
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pulsar_encoder_clap> org.s3g.s3g-dsp.ambi-pulsar-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap> org.s3g.s3g-dsp.ambi-stochastic-encoder-64 1160 860
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vot_encoder_clap> org.s3g.s3g-dsp.ambi-vot-encoder-64 1160 894
