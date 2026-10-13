@@ -595,7 +595,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
  s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
  uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
- bool portableGuiVisible=false;
+ std::atomic<bool> portableGuiVisible{false};
  std::atomic<bool> guiTelemetryReady{false};
  s3g::clap_gui::ParamEventQueue<4096> guiParamEvents;
 #endif
@@ -615,6 +615,7 @@ struct Plugin {
     std::atomic<uint32_t> resetRequest { 0u };
     uint32_t audioResetSerial = 0u;
     std::atomic<float> outputPeak { 0.0f };
+    uint32_t guiTelemetryCountdown = 0u;
     std::array<std::atomic<float>, s3g::kAmbiNeuralEcologyMaxNodes> guiAzimuth {};
     std::array<std::atomic<float>, s3g::kAmbiNeuralEcologyMaxNodes> guiElevation {};
     std::array<std::atomic<float>, s3g::kAmbiNeuralEcologyMaxNodes> guiDistance {};
@@ -704,7 +705,7 @@ struct Plugin {
 #if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
 #endif
 };
 
@@ -727,6 +728,17 @@ void drainGuiNotifications(Plugin& p, const clap_output_events_t* output) {
 }
 #endif
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool guiTelemetryVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    return false;
+#endif
+}
 
 s3g::AmbiNeuralLatticeStorage snapshotLattice(const Plugin& plugin);
 void snapshotLatticeInto(const Plugin& plugin, s3g::AmbiNeuralLatticeStorage& storage);
@@ -1987,6 +1999,21 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         p->engine.restoreGenome(genome);
     }
 
+    bool publishGuiTelemetry = false;
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (guiTelemetryVisible(*p)) {
+        if (p->guiTelemetryCountdown <= process->frames_count) {
+            publishGuiTelemetry = true;
+            p->guiTelemetryCountdown = std::max<uint32_t>(
+                1u, static_cast<uint32_t>(p->sampleRate / 30.0));
+        } else {
+            p->guiTelemetryCountdown -= process->frames_count;
+        }
+    } else {
+        p->guiTelemetryCountdown = 0u;
+    }
+#endif
+
     if (process->audio_outputs_count == 0u) {
         if (process->in_events) {
             const uint32_t count = process->in_events->size(process->in_events);
@@ -1998,7 +2025,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
                 } else handleScoreEvent(*p, event);
             }
         }
-        publishLatticeMeters(*p);
+        if (publishGuiTelemetry) publishLatticeMeters(*p);
         return CLAP_PROCESS_CONTINUE;
     }
 
@@ -2034,13 +2061,15 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             : s3g::applyAmbiNeuralLatticeExpression(
                 p->audioParams, p->audioExpressionCurrent,
                 p->audioParams.scoreAmount);
-        for (const auto& param : kParams) {
-            if (param.id < kParamBankSize) {
-                p->guiEffectiveParameterValues[param.id].store(
-                    paramValue(renderParams, param.id), std::memory_order_relaxed);
+        if (publishGuiTelemetry) {
+            for (const auto& param : kParams) {
+                if (param.id < kParamBankSize) {
+                    p->guiEffectiveParameterValues[param.id].store(
+                        paramValue(renderParams, param.id), std::memory_order_relaxed);
+                }
             }
+            p->guiEffectiveParametersReady.store(true, std::memory_order_release);
         }
-        p->guiEffectiveParametersReady.store(true, std::memory_order_release);
         p->engine.setParams(renderParams);
         std::array<float*, kOutputChannels> outputs {};
         for (uint32_t channel = 0u; channel < channels; ++channel) {
@@ -2072,51 +2101,54 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     renderRange(rendered, frames - rendered);
     s3g::clearAudioBufferFromChannel(output, channels, frames);
 
-    float peak = 0.0f;
-    for (uint32_t channel = 0u; channel < channels; ++channel) {
-        if (!output.data32[channel]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) {
-            peak = std::max(peak, std::fabs(output.data32[channel][frame]));
+    if (publishGuiTelemetry) {
+        float peak = 0.0f;
+        for (uint32_t channel = 0u; channel < channels; ++channel) {
+            if (!output.data32[channel]) continue;
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                peak = std::max(peak, std::fabs(output.data32[channel][frame]));
+            }
         }
-    }
-    p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.91f, peak),
-        std::memory_order_relaxed);
-    for (uint32_t node = 0u; node < s3g::kAmbiNeuralEcologyMaxNodes; ++node) {
-        const auto point = p->engine.nodePosition(node);
-        p->guiAzimuth[node].store(point.azimuthDeg, std::memory_order_relaxed);
-        p->guiElevation[node].store(point.elevationDeg, std::memory_order_relaxed);
-        p->guiDistance[node].store(point.distance, std::memory_order_relaxed);
-        p->guiEnergy[node].store(p->engine.nodeEnergy(node), std::memory_order_relaxed);
-        p->guiValue[node].store(p->engine.nodeValue(node), std::memory_order_relaxed);
-        p->guiActivation[node].store(p->engine.nodeActivation(node), std::memory_order_relaxed);
-    }
-    for (uint32_t pickup = 0u; pickup < s3g::kAmbiNeuralEcologyPickups; ++pickup) {
-        p->guiPickup[pickup].store(p->engine.pickupValue(pickup), std::memory_order_relaxed);
-        const auto direction = p->engine.pickupDirection(pickup);
-        const auto anchor = p->engine.pickupAnchorDirection(pickup);
-        p->guiPickupAzimuth[pickup].store(direction.azimuthDeg, std::memory_order_relaxed);
-        p->guiPickupElevation[pickup].store(direction.elevationDeg, std::memory_order_relaxed);
-        p->guiPickupAnchorAzimuth[pickup].store(anchor.azimuthDeg, std::memory_order_relaxed);
-        p->guiPickupAnchorElevation[pickup].store(anchor.elevationDeg, std::memory_order_relaxed);
-    }
-    p->guiPickupDirectionsReady.store(true, std::memory_order_release);
-    for (uint32_t lobe = 0u; lobe < s3g::kAmbiNeuralEcologyLobes; ++lobe) {
-        p->guiAuditoryReturn[lobe].store(p->engine.auditoryReturn(lobe), std::memory_order_relaxed);
-        p->guiLobeEnergy[lobe].store(p->engine.lobeEnergy(lobe), std::memory_order_relaxed);
-        p->guiHomeostaticBias[lobe].store(p->engine.homeostaticBias(lobe), std::memory_order_relaxed);
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.91f, peak),
+            std::memory_order_relaxed);
+        for (uint32_t node = 0u; node < s3g::kAmbiNeuralEcologyMaxNodes; ++node) {
+            const auto point = p->engine.nodePosition(node);
+            p->guiAzimuth[node].store(point.azimuthDeg, std::memory_order_relaxed);
+            p->guiElevation[node].store(point.elevationDeg, std::memory_order_relaxed);
+            p->guiDistance[node].store(point.distance, std::memory_order_relaxed);
+            p->guiEnergy[node].store(p->engine.nodeEnergy(node), std::memory_order_relaxed);
+            p->guiValue[node].store(p->engine.nodeValue(node), std::memory_order_relaxed);
+            p->guiActivation[node].store(p->engine.nodeActivation(node), std::memory_order_relaxed);
+        }
         for (uint32_t pickup = 0u; pickup < s3g::kAmbiNeuralEcologyPickups; ++pickup) {
-            p->guiAuditoryWeight[lobe * s3g::kAmbiNeuralEcologyPickups + pickup].store(
-                p->engine.auditoryWeight(lobe, pickup), std::memory_order_relaxed);
+            p->guiPickup[pickup].store(p->engine.pickupValue(pickup), std::memory_order_relaxed);
+            const auto direction = p->engine.pickupDirection(pickup);
+            const auto anchor = p->engine.pickupAnchorDirection(pickup);
+            p->guiPickupAzimuth[pickup].store(direction.azimuthDeg, std::memory_order_relaxed);
+            p->guiPickupElevation[pickup].store(direction.elevationDeg, std::memory_order_relaxed);
+            p->guiPickupAnchorAzimuth[pickup].store(anchor.azimuthDeg, std::memory_order_relaxed);
+            p->guiPickupAnchorElevation[pickup].store(anchor.elevationDeg, std::memory_order_relaxed);
         }
-    }
-    const auto genome = p->engine.genomeValues();
-    for (uint32_t index = 0u; index < genome.size(); ++index) {
-        p->guiGenome[index].store(genome[index], std::memory_order_relaxed);
-    }
-    publishLatticeMeters(*p);
+        p->guiPickupDirectionsReady.store(true, std::memory_order_release);
+        for (uint32_t lobe = 0u; lobe < s3g::kAmbiNeuralEcologyLobes; ++lobe) {
+            p->guiAuditoryReturn[lobe].store(p->engine.auditoryReturn(lobe), std::memory_order_relaxed);
+            p->guiLobeEnergy[lobe].store(p->engine.lobeEnergy(lobe), std::memory_order_relaxed);
+            p->guiHomeostaticBias[lobe].store(p->engine.homeostaticBias(lobe), std::memory_order_relaxed);
+            for (uint32_t pickup = 0u; pickup < s3g::kAmbiNeuralEcologyPickups; ++pickup) {
+                p->guiAuditoryWeight[lobe * s3g::kAmbiNeuralEcologyPickups + pickup].store(
+                    p->engine.auditoryWeight(lobe, pickup), std::memory_order_relaxed);
+            }
+        }
+        const auto genome = p->engine.genomeValues();
+        for (uint32_t index = 0u; index < genome.size(); ++index) {
+            p->guiGenome[index].store(genome[index], std::memory_order_relaxed);
+        }
+        publishLatticeMeters(*p);
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
-    p->guiTelemetryReady.store(true,std::memory_order_release);
+        p->guiTelemetryReady.store(true,std::memory_order_release);
 #endif
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

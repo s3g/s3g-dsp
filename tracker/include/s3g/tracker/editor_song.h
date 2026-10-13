@@ -18,6 +18,7 @@ struct SongEditorCallbacks {
     std::function<void(bool)> modeChanged, loopChanged;
     std::function<void(std::size_t, SongLaunchQuantization)> launch;
     std::function<void()> saveProject, loadProject;
+    std::function<void()> exportActivePatternMidi, exportSongMidi;
 };
 // UI-thread arrangement authoring. No scheduling, launch execution, or clocks.
 // The coordinator retains control of deferred runtime publication during play.

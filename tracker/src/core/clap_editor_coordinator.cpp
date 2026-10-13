@@ -1,6 +1,7 @@
 #include "s3g/tracker/clap_editor_coordinator.h"
 #include "s3g/tracker/clap_command_controller.h"
 #include "s3g/tracker/atomic_project_store.h"
+#include <cmath>
 #include <sstream>
 #include <utility>
 
@@ -641,6 +642,13 @@ ClapEditorCoordinator::ClapEditorCoordinator(midi::Engine& plugin,
     };
     song.callbacks.saveProject = [this] { presentSaveSongProject(); };
     song.callbacks.loadProject = [this] { presentLoadSongProject(); };
+    song.callbacks.exportActivePatternMidi = [this] {
+        presentExportStandardMidiFile(
+            StandardMidiFileScope::ActivePattern);
+    };
+    song.callbacks.exportSongMidi = [this] {
+        presentExportStandardMidiFile(StandardMidiFileScope::Song);
+    };
     ProjectDocument initial;
     {
         std::lock_guard<std::mutex> lock(_plugin->documentMutex);
@@ -733,6 +741,42 @@ void ClapEditorCoordinator::presentLoadSongProject()
         : "Could not load Song + Patterns: " + result.message;
     message(_state->status, !result.ok()); platform.refresh();
 }
+
+void ClapEditorCoordinator::presentExportStandardMidiFile(
+    StandardMidiFileScope scope)
+{
+    const bool songExport = scope == StandardMidiFileScope::Song;
+    const auto path = platform.fileDialog(true,
+        songExport ? "Export Tracker Song MIDI"
+                   : "Export Tracker Active Pattern MIDI",
+        "mid", songExport ? "Tracker Song.mid" : "Tracker Pattern.mid");
+    if (path.empty()) return;
+    auto document = currentDocument();
+    if (const auto tempo = platform.hostTempo(); tempo
+        && std::isfinite(*tempo) && *tempo > 0.0)
+        document.transport.bpm = *tempo;
+    StandardMidiFileOptions options;
+    options.scope = scope;
+    StandardMidiFileSummary summary;
+    const auto result = saveStandardMidiFileAtomically(
+        document, options, path, &summary);
+    if (!result.ok()) {
+        _state->status = std::string("Could not export ")
+            + (songExport ? "Song" : "Pattern") + " MIDI: "
+            + result.message;
+        message(_state->status, true);
+    } else {
+        std::ostringstream status;
+        status << "Exported " << (songExport ? "Song" : "Pattern")
+               << " MIDI • " << summary.midiEventCount << " events • "
+               << summary.laneTrackCount << " lane"
+               << (summary.laneTrackCount == 1u ? "" : "s");
+        _state->status = status.str();
+        message(_state->status + " to " + path);
+    }
+    platform.refresh();
+}
+
 void ClapEditorCoordinator::presentExportAssetPack(const TrackerAssetPack& pack)
 {
     std::string encoded;

@@ -76,9 +76,12 @@ public:
 
     void setParams(const MacroFractureCoreParams& params)
     {
-        target_ = sanitize(params);
-        inputGainTarget_ = dbToGain(target_.inputGainDb);
-        outputGainTarget_ = dbToGain(target_.outputGainDb);
+        const MacroFractureCoreParams next = sanitize(params);
+        if (next.inputGainDb != target_.inputGainDb)
+            inputGainTarget_ = dbToGain(next.inputGainDb);
+        if (next.outputGainDb != target_.outputGainDb)
+            outputGainTarget_ = dbToGain(next.outputGainDb);
+        target_ = next;
     }
 
     MacroFractureCoreParams params() const { return target_; }
@@ -310,6 +313,7 @@ public:
             -2.0f * kPi * 2000.0f / sr);
         logicLevelReleaseCoeff_ = 1.0f - std::exp(
             -2.0f * kPi * 12.0f / sr);
+        refreshLaneGeometry();
         setParams(params_);
         reset();
     }
@@ -363,7 +367,7 @@ public:
             logicLevel_[ch] = flushDenormal(
                 std::max(0.0f, logicLevel_[ch]));
             const float lanePhase = fractureWrapPhase(logicPhase_
-                + laneHash(ch) * 0.5f + 0.5f);
+                + laneHash_[ch] * 0.5f + 0.5f);
             const float carrier = std::sin(lanePhase * 2.0f * kPi)
                 * logicLevel_[ch] * 0.18f;
             const float modulator = relationship + carrier;
@@ -384,15 +388,11 @@ public:
 
     MacroFractureCoreParams laneParams(uint32_t ch) const
     {
-        const float denominator = static_cast<float>(
-            std::max<uint32_t>(1u, channels_ - 1u));
-        const float u = channels_ > 1u
-            ? static_cast<float>(ch) / denominator : 0.5f;
+        const float u = lanePosition_[ch];
         const float centered = channels_ > 1u
             ? clamp((u - smoothedCenter_) * 2.0f, -1.0f, 1.0f)
             : 0.0f;
-        const float random =
-            channels_ > 1u ? laneHash(ch) : 0.0f;
+        const float random = channels_ > 1u ? laneHash_[ch] : 0.0f;
         const float deviation =
             channels_ > 1u ? smoothedDeviation_ : 0.0f;
 
@@ -446,6 +446,17 @@ private:
         return static_cast<float>(x & 0xffffu) / 32767.5f - 1.0f;
     }
 
+    void refreshLaneGeometry()
+    {
+        const float denominator = static_cast<float>(
+            std::max<uint32_t>(1u, channels_ - 1u));
+        for (uint32_t ch = 0u; ch < kMacroFractureChannels; ++ch) {
+            lanePosition_[ch] = channels_ > 1u
+                ? static_cast<float>(ch) / denominator : 0.5f;
+            laneHash_[ch] = laneHash(ch);
+        }
+    }
+
     void updateRelationshipSmoothing()
     {
         smoothedSpread_ +=
@@ -474,6 +485,8 @@ private:
     float logicPhase_ = 0.0f;
     float logicLevelAttackCoeff_ = 0.2f;
     float logicLevelReleaseCoeff_ = 0.001f;
+    std::array<float, kMacroFractureChannels> lanePosition_ {};
+    std::array<float, kMacroFractureChannels> laneHash_ {};
     std::array<float, kMacroFractureChannels> logicLevel_ {};
 };
 

@@ -910,6 +910,13 @@ if(S3G_BUILD_CLAP_PLUGIN AND S3G_ENABLE_PORTABLE_CLAP_GUI
   set_target_properties(vstgui PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     EXCLUDE_FROM_ALL TRUE)
+  # VSTGUI's configuration-specific definitions do not cover CMake's
+  # RelWithDebInfo build type. Keep the library and every consumer on the same
+  # public class layout for all presets/configurations.
+  target_compile_definitions(vstgui PUBLIC
+    VSTGUI_ENABLE_DEPRECATED_METHODS=0
+    VSTGUI_ENABLE_XML_PARSER=0
+    VSTGUI_OPENGL_SUPPORT=0)
   if(WIN32)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/S3GVSTGUIWindowsClipboard.cmake")
     if(CMAKE_CROSSCOMPILING
@@ -2538,6 +2545,38 @@ if(S3G_BUILD_CLAP_PLUGIN)
   add_subdirectory(plugins/clap_ambi_effect_dj_filter)
   add_subdirectory(plugins/clap_ambi_effect_delay)
   add_subdirectory(plugins/clap_ambi_effect_pitch_gain)
+  if(BUILD_TESTING)
+    add_executable(s3g_ambi_effect_gain_order_benchmark
+      tests/ambi_effect_gain_order_benchmark.cpp)
+    target_compile_features(s3g_ambi_effect_gain_order_benchmark
+      PRIVATE cxx_std_17)
+    target_link_libraries(s3g_ambi_effect_gain_order_benchmark PRIVATE s3g_dsp)
+
+    function(s3g_add_ambi_effect_null_fixture target precision supports_64)
+      add_library(${target} MODULE tests/clap_ambi_effect_null_fixture.cpp)
+      target_compile_features(${target} PRIVATE cxx_std_17)
+      target_compile_definitions(${target} PRIVATE
+        S3G_NULL_SUPPORTS_64=${supports_64})
+      target_include_directories(${target} PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+      set_target_properties(${target} PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "s3g_ambi_effect_null_${precision}")
+      if(APPLE)
+        set_target_properties(${target} PROPERTIES
+          BUNDLE TRUE
+          BUNDLE_EXTENSION "clap"
+          MACOSX_BUNDLE_GUI_IDENTIFIER
+            "org.s3g.s3g-dsp.ambi-effect-null-${precision}"
+          MACOSX_BUNDLE_BUNDLE_NAME "s3g Ambi Effect Null ${precision}"
+          MACOSX_BUNDLE_BUNDLE_VERSION "0.0.0"
+          MACOSX_BUNDLE_SHORT_VERSION_STRING "0.0.0")
+      elseif(WIN32)
+        set_target_properties(${target} PROPERTIES SUFFIX ".clap")
+      endif()
+    endfunction()
+    s3g_add_ambi_effect_null_fixture(s3g_ambi_effect_null_32_clap 32 0)
+    s3g_add_ambi_effect_null_fixture(s3g_ambi_effect_null_64_clap 64 1)
+  endif()
   add_subdirectory(plugins/clap_ambi_effect_resonance_print)
   add_subdirectory(plugins/clap_ambi_effect_trace)
   add_subdirectory(plugins/clap_ambi_group_rotate)

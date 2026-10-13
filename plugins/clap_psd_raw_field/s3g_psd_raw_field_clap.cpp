@@ -635,7 +635,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
  s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
  uint32_t portableGuiWidth=kGuiWidth, portableGuiHeight=kGuiHeight;
-bool portableGuiVisible=false;
+std::atomic<bool> portableGuiVisible { false };
 s3g::clap_gui::ParamEventQueue<8192> guiParamEvents{};
 std::array<std::atomic<double>, kPortableFaultParamSlots> publishedParams{};
 s3g::clap_gui::AtomicPod<PortableFaultSnapshot> portableSnapshot;
@@ -698,9 +698,21 @@ std::atomic<bool> portableCommandPending{false}, portableRescan{false};
 #if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
 #endif
 };
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
 struct PortableFaultCommand {
@@ -2485,9 +2497,13 @@ void renderSegment(Plugin& p, uint32_t offset, uint32_t frames)
             }
         }
     }
-    p.displayEnvelope.store(midiMode ? p.envelopeValue : 1.0f, std::memory_order_relaxed);
-    p.displayEnvelopeStage.store(static_cast<uint32_t>(
-        midiMode ? p.envelopeStage : EnvelopeStage::Idle), std::memory_order_relaxed);
+    if (editorVisible(p)) {
+        p.displayEnvelope.store(midiMode ? p.envelopeValue : 1.0f,
+            std::memory_order_relaxed);
+        p.displayEnvelopeStage.store(static_cast<uint32_t>(
+            midiMode ? p.envelopeStage : EnvelopeStage::Idle),
+            std::memory_order_relaxed);
+    }
 }
 
 clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* proc)
@@ -2522,6 +2538,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
     renderSegment(*p, rendered, frames - rendered);
 
+    const bool captureTelemetry = editorVisible(*p);
     float blockPeak = 0.0f;
     uint32_t waveWrite = p->waveWrite.load(std::memory_order_relaxed);
     for (uint32_t ch = 0; ch < kOutputChannels; ++ch) {
@@ -2529,20 +2546,28 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             const float value = p->output32[ch][i];
             if (output.data32 && output.data32[ch]) output.data32[ch][i] = value;
             if (output.data64 && output.data64[ch]) output.data64[ch][i] = static_cast<double>(value);
-            blockPeak = std::max(blockPeak, std::abs(value));
+            if (captureTelemetry)
+                blockPeak = std::max(blockPeak, std::abs(value));
         }
     }
-    const uint32_t historyStep = std::max<uint32_t>(1u, frames / 64u);
-    for (uint32_t i = 0; i < frames; i += historyStep) {
-        const uint32_t index = waveWrite++ & (kWaveHistory - 1u);
-        for (uint32_t ch = 0; ch < kOutputChannels; ++ch) p->waveHistory[ch][index] = p->output32[ch][i];
+    if (captureTelemetry) {
+        const uint32_t historyStep = std::max<uint32_t>(1u, frames / 64u);
+        for (uint32_t i = 0; i < frames; i += historyStep) {
+            const uint32_t index = waveWrite++ & (kWaveHistory - 1u);
+            for (uint32_t ch = 0; ch < kOutputChannels; ++ch)
+                p->waveHistory[ch][index] = p->output32[ch][i];
+        }
+        p->waveWrite.store(waveWrite, std::memory_order_relaxed);
     }
-    p->waveWrite.store(waveWrite, std::memory_order_relaxed);
     for (uint32_t ch = kOutputChannels; ch < output.channel_count; ++ch) {
         if (output.data32 && output.data32[ch]) std::fill(output.data32[ch], output.data32[ch] + frames, 0.0f);
         if (output.data64 && output.data64[ch]) std::fill(output.data64[ch], output.data64[ch] + frames, 0.0);
     }
-    p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.9f, blockPeak), std::memory_order_relaxed);
+    if (captureTelemetry) {
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.9f,
+            blockPeak), std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

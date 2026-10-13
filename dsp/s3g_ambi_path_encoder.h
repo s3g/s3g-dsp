@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_encoder_basis.h"
 #include "s3g_ambi_encoder_depth.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 
@@ -196,7 +197,7 @@ public:
         for (uint32_t chunkStart = 0; chunkStart < frames; chunkStart += kMotionChunkFrames) {
             const uint32_t chunkFrames = std::min<uint32_t>(kMotionChunkFrames, frames - chunkStart);
             const float chunkPhase = phaseStart + phaseInc * static_cast<float>(chunkStart);
-            std::array<std::array<float, kAmbiPathEncoderMaxChannels>, kAmbiPathEncoderMaxInputs> basis {};
+            std::array<std::array<float, kAmbiPathEncoderMaxChannels>, kAmbiPathEncoderMaxInputs> basis;
             std::array<float, kAmbiPathEncoderMaxInputs> gains {};
             std::array<float, kAmbiPathEncoderMaxInputs> distances {};
             for (uint32_t src = 0; src < inputCount; ++src) {
@@ -211,7 +212,8 @@ public:
                 pos = smoothPositions_[src];
                 const float d = std::sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
                 distances[src] = d;
-                basis[src] = acnSn3dBasis7(normalize(pos));
+                basis[src] = ambiEncoderBasisForChannels(
+                    normalize(pos), ambiChannels);
                 gains[src] = outGain * norm / std::max(0.15f, d);
             }
             smoothPrimed_ = true;

@@ -35,10 +35,13 @@
 
         <p>The 0.10.0-pre packages target REAPER on Apple silicon Macs (arm64) and <strong>experimental Windows x64</strong>. Windows testing has used Windows 10; Windows 11 is not yet validated. Ambi Energy remains Mac-only. No Intel Mac, universal Mac, or native Windows ARM64 binaries are included.</p>
 
+        <p>Ableton Live support is in development through <a href="https://github.com/s3g/s3g-clap-max" target="_blank" rel="noopener noreferrer"><code>s3g-clap-max</code></a>, which hosts these CLAP plugins in Max for Live devices. See the <a href="ableton-live.html">Ableton Live setup guide</a> for the current installation, routing, and sample-storage guidance.</p>
+
         <h2 id="start-here">Start Here</h2>
 
         <ul>
           <li><a href="installing-plugins.html">Install</a> covers the Mac and experimental Windows CLAP collections, upgrades, filename migration, and host scanning.</li>
+          <li><a href="ableton-live.html">Ableton Live and Max for Live</a> explains the separate CLAP, Max package, and Live device installations, plus routing and Sample storage limits.</li>
           <li><a href="plugin-index.html">Plugin Index</a> alphabetizes every REAPER FX-browser entry and links it to its primary documentation.</li>
           <li><a href="multichannel.html">Multichannel</a> covers ordinary channel-lane effects, monitoring, metering, panning, bus mixing, and speaker utilities.</li>
           <li><a href="ambisonics.html">Ambisonics</a> covers encoders, field effects, utilities, decoders, listener behavior, and <code>ACN/SN3D</code> routing.</li>
@@ -70,7 +73,7 @@
 
         <p><a href="https://github.com/s3g/s3g-max" target="_blank" rel="noopener noreferrer"><code>s3g-max</code></a> is the related Max/MSP package for <code>.mxo</code> externals, help patches, V8UI displays, and Max package workflows.</p>
 
-        <p><a href="https://github.com/s3g/s3g-clap-max" target="_blank" rel="noopener noreferrer"><code>s3g-clap-max</code></a> provides a Max object for loading CLAP plugins, allowing the CLAP plugins in <code>s3g-dsp</code> to be used with Max.</p>
+        <p><a href="https://github.com/s3g/s3g-clap-max" target="_blank" rel="noopener noreferrer"><code>s3g-clap-max</code></a> provides a Max object and Max for Live devices for loading the CLAP plugins in <code>s3g-dsp</code>. See the <a href="ableton-live.html">Ableton Live guide</a> for setup and current limits.</p>
 
         <p><a href="https://github.com/s3g/s3g-rnbo-clap" target="_blank" rel="noopener noreferrer"><code>s3g-rnbo-clap</code></a> is the separate wrapper project for RNBO/Max-generated C++ exports. It follows the same CLAP release workflow but is not required to build or use <code>s3g-dsp</code>.</p>
 

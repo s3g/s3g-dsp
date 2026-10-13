@@ -431,20 +431,16 @@ clap_process_status processTyped(Plugin& p,
     const clap_audio_buffer_t& input, const clap_audio_buffer_t& output,
     uint32_t frames, Sample** in, Sample** out)
 {
-    s3g::clearAudioBuffer(output, frames);
-    if (!in || !out) return CLAP_PROCESS_CONTINUE;
+    if (!in || !out) {
+        s3g::clearAudioBuffer(output, frames);
+        return CLAP_PROCESS_CONTINUE;
+    }
     const uint32_t inChannels = std::min<uint32_t>(input.channel_count, kChannels);
     const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kChannels);
     p.processor.process(in, out, inChannels, outChannels, frames);
-    float peak = 0.0f;
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) {
-        if (!out[ch]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) {
-            peak = std::max(peak, static_cast<float>(std::fabs(out[ch][frame])));
-        }
-    }
     const float old = p.outputPeak.load(std::memory_order_relaxed);
-    p.outputPeak.store(std::max(old * 0.90f, peak), std::memory_order_relaxed);
+    p.outputPeak.store(std::max(old * 0.90f, p.processor.outputPeak()),
+        std::memory_order_relaxed);
     for (uint32_t node = 0u; node < s3g::kAmbiEffectDelayMaxPickups; ++node) {
         p.nodeLevel[node].store(p.processor.nodeLevel(node), std::memory_order_relaxed);
         p.nodeWetMask[node].store(p.processor.nodeWetMask(node), std::memory_order_relaxed);

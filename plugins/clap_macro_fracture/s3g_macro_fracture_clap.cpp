@@ -112,10 +112,10 @@ struct Plugin {
     s3g::portable_gui::MacroEffectEditor* guiEditor = nullptr;
     uint32_t guiWidth = kGuiWidth;
     uint32_t guiHeight = kGuiHeight;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
 #elif defined(S3G_USE_LEGACY_COCOA_MACRO_FRACTURE_GUI) && defined(__APPLE__)
     void* guiView = nullptr;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
@@ -123,6 +123,17 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_MACRO_FRACTURE_GUI) && defined(__APPLE__))
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
 }
 
 bool paramAffectsTail(clap_id id)
@@ -356,6 +367,7 @@ clap_process_status process(
     }
 
     p->fracture.setParams(p->params);
+    const bool captureTelemetry = editorVisible(*p);
     float blockPeak = 0.0f;
     for (uint32_t i = 0u; i < frames; ++i) {
         for (uint32_t ch = 0u; ch < channels; ++ch) {
@@ -388,17 +400,21 @@ clap_process_status process(
                 output.data64[ch][i] =
                     static_cast<double>(p->frameOut[ch]);
             }
-            blockPeak =
-                std::max(blockPeak, std::abs(p->frameOut[ch]));
+            if (captureTelemetry) {
+                blockPeak =
+                    std::max(blockPeak, std::abs(p->frameOut[ch]));
+            }
         }
     }
     finishExtraChannels(input, output, channels, frames);
-    p->outputPeak.store(std::max(
-        p->outputPeak.load(std::memory_order_relaxed) * 0.90f,
-        blockPeak), std::memory_order_relaxed);
-    p->fractureActivity.store(std::max(
-        p->fractureActivity.load(std::memory_order_relaxed) * 0.92f,
-        p->fracture.activity()), std::memory_order_relaxed);
+    if (captureTelemetry) {
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.90f,
+            blockPeak), std::memory_order_relaxed);
+        p->fractureActivity.store(std::max(
+            p->fractureActivity.load(std::memory_order_relaxed) * 0.92f,
+            p->fracture.activity()), std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

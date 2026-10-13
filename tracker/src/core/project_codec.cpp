@@ -12,6 +12,7 @@
 #include <limits>
 #include <locale>
 #include <map>
+#include <memory>
 #include <new>
 #include <optional>
 #include <sstream>
@@ -2774,9 +2775,12 @@ ProjectResult decodeProjectDocument(std::string_view source,
         JsonParser parser(source);
         ProjectResult result = parser.parse(root);
         if (!result) return result;
-        ProjectDocument candidate;
-        if (!decodeDocument(root, candidate, result)) return result;
-        destination = std::move(candidate);
+        // Hosts may recall state on a small audio-worker stack. Keep the
+        // transactional copy off that stack while preserving fail-closed
+        // decoding and the destination's unchanged-on-error behavior.
+        auto candidate = std::make_unique<ProjectDocument>();
+        if (!decodeDocument(root, *candidate, result)) return result;
+        destination = std::move(*candidate);
         return {};
     } catch (const std::bad_alloc&) {
         return failure(ProjectErrorCode::SizeLimitExceeded, "$",

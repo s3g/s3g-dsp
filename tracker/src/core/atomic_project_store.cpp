@@ -28,4 +28,17 @@ ProjectResult loadTrackerAssetPack(std::string_view path, TrackerAssetPack& dest
     auto result = file_store::loadBytes(path, bytes);
     return result ? decodeTrackerAssetPack(bytes, destination) : result;
 }
+ProjectResult saveStandardMidiFileAtomically(
+    const ProjectDocument& document, const StandardMidiFileOptions& options,
+    std::string_view path, StandardMidiFileSummary* summary)
+{
+    std::string bytes;
+    StandardMidiFileSummary renderedSummary;
+    auto result = encodeStandardMidiFile(document, options, bytes,
+        summary ? &renderedSummary : nullptr);
+    if (!result) return result;
+    result = file_store::saveBytesAtomically(bytes, path);
+    if (result && summary) *summary = renderedSummary;
+    return result;
+}
 } // namespace s3g::tracker

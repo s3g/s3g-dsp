@@ -129,7 +129,10 @@ const std::vector<HelpGuide> helpGuides {
                 "keeps its position; the new loop rule takes effect when playback reaches the end "
                 "of the arrangement." },
             { "SONG FILE",
-                "SAVE/LOAD SONG + PATTERNS uses one complete validated .s3gt project file." },
+                "SAVE/LOAD SONG + PATTERNS uses one complete validated .s3gt project file. "
+                "EXPORT ACTIVE PATTERN MIDI and EXPORT SONG MIDI create type-1 .mid files with "
+                "one track per lane. Generative and timing behavior is baked with the saved "
+                "playback seed; a looping Song exports one pass. Keep .s3gt for later editing." },
             { "WARPS",
                 "Compose EXP, STEP, and EUCLID serially; SAVE/RECALL named project slots. During "
                 "playback the diagram traces the active curve and marks its current cycle step; "

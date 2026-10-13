@@ -5,6 +5,7 @@
 #include "s3g/tracker/editor_song.h"
 #include "s3g/tracker/editor_shell.h"
 #include "s3g/tracker/editor_reference.h"
+#include "s3g/tracker/standard_midi_file.h"
 #include <chrono>
 
 namespace s3g::tracker {
@@ -74,6 +75,7 @@ public:
     void refreshSongWarps();
     void presentSaveSongProject();
     void presentLoadSongProject();
+    void presentExportStandardMidiFile(StandardMidiFileScope);
     void presentImportAssetPack();
     void presentExportAssetPack(const TrackerAssetPack&);
     bool installPatternVariation(const PatternVariationRequest&);

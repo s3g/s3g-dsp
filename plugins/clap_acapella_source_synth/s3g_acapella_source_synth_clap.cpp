@@ -438,7 +438,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
     uint32_t portableGuiWidth=kGuiWidth,portableGuiHeight=kGuiHeight;
-    bool portableGuiVisible=false;
+    std::atomic<bool> portableGuiVisible { false };
 #endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -487,7 +487,7 @@ struct Plugin {
     s3g::AcapellaGestureProgram activeTextProgram {};
 #if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
@@ -498,6 +498,30 @@ void publishTailSamplesOnAudioThread(Plugin& plugin);
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
+
+void clearOutput(clap_audio_buffer_t& output, uint32_t frames)
+{
+    for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {
+        if (output.data32 && output.data32[channel])
+            std::fill(output.data32[channel],
+                output.data32[channel] + frames, 0.0f);
+        if (output.data64 && output.data64[channel])
+            std::fill(output.data64[channel],
+                output.data64[channel] + frames, 0.0);
+    }
 }
 
 clap_id bandTrimParamId(uint32_t band)
@@ -1794,11 +1818,33 @@ clap_process_status process(const clap_plugin_t* plugin,
             ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
     }
 
-    const auto& output = processData->audio_outputs[0u];
+    auto& output = processData->audio_outputs[0u];
     const uint32_t channels = std::min<uint32_t>(
         output.channel_count, kOutputChannels);
     if (channels == 0u || (!output.data32 && !output.data64)) {
         return CLAP_PROCESS_ERROR;
+    }
+    const auto monitoredSource =
+        instance->effectsParams.resonator.modulatorSource;
+    const bool liveMicMonitoring = monitoredSource
+            == s3g::AcapellaResonatorModulatorSource::ExternalMic
+        || monitoredSource
+            == s3g::AcapellaResonatorModulatorSource::Blend;
+    const bool captureTelemetry = editorVisible(*instance);
+    if (eventCount == 0u && !instance->ensemble.active()
+        && !instance->effects.active() && !guiParamEventsPending
+        && !liveMicMonitoring) {
+        clearOutput(output, processData->frames_count);
+        publishTailSamplesOnAudioThread(*instance);
+        deliverTailChangedOnAudioThread(*instance);
+        if (captureTelemetry) {
+            instance->outputPeak.store(0.0f, std::memory_order_relaxed);
+            instance->internalSpeechPeak.store(
+                0.0f, std::memory_order_relaxed);
+            instance->externalMicPeak.store(0.0f,
+                std::memory_order_relaxed);
+        }
+        return CLAP_PROCESS_SLEEP;
     }
     const clap_audio_buffer_t* externalMic =
         processData->audio_inputs_count > 0u && processData->audio_inputs
@@ -1880,10 +1926,12 @@ clap_process_status process(const clap_plugin_t* plugin,
                 ? audioInputSample(externalMic, 1u, frame) : 0.0f;
         const float micRight = micRightAvailable
             ? audioInputSample(externalMic, 1u, frame) : micLeft;
-        blockInternalSpeechPeak = std::max(blockInternalSpeechPeak,
-            std::max(std::abs(ensemble.left), std::abs(ensemble.right)));
-        blockMicPeak = std::max(blockMicPeak,
-            std::max(std::abs(micLeft), std::abs(micRight)));
+        if (captureTelemetry) {
+            blockInternalSpeechPeak = std::max(blockInternalSpeechPeak,
+                std::max(std::abs(ensemble.left), std::abs(ensemble.right)));
+            blockMicPeak = std::max(blockMicPeak,
+                std::max(std::abs(micLeft), std::abs(micRight)));
+        }
         const auto vocal = instance->effects.processFrameStereo(
             ensemble.left, ensemble.right, micLeft, micRight,
             externalMicAvailable);
@@ -1891,8 +1939,10 @@ clap_process_status process(const clap_plugin_t* plugin,
             vocal.left * instance->smoothedOutputGain,
             vocal.right * instance->smoothedOutputGain,
         };
-        blockPeak = std::max(blockPeak,
-            std::max(std::abs(samples[0]), std::abs(samples[1])));
+        if (captureTelemetry) {
+            blockPeak = std::max(blockPeak,
+                std::max(std::abs(samples[0]), std::abs(samples[1])));
+        }
         for (uint32_t channel = 0u; channel < channels; ++channel) {
             if (output.data32 && output.data32[channel]) {
                 output.data32[channel][frame] = samples[channel];
@@ -1922,23 +1972,26 @@ clap_process_status process(const clap_plugin_t* plugin,
     }
     publishTailSamplesOnAudioThread(*instance);
     deliverTailChangedOnAudioThread(*instance);
-    instance->outputPeak.store(blockPeak, std::memory_order_relaxed);
-    instance->internalSpeechPeak.store(blockInternalSpeechPeak,
-        std::memory_order_relaxed);
-    instance->externalMicPeak.store(blockMicPeak, std::memory_order_relaxed);
-    const auto meters = instance->effects.resonatorMeterSnapshot();
-    for (uint32_t band = 0u; band < kMatrixBands; ++band) {
-        instance->analysisBandMeters[band].store(meters.analysis[band],
+    if (captureTelemetry) {
+        instance->outputPeak.store(blockPeak, std::memory_order_relaxed);
+        instance->internalSpeechPeak.store(blockInternalSpeechPeak,
             std::memory_order_relaxed);
-        instance->synthesisBandMeters[band].store(meters.synthesis[band],
+        instance->externalMicPeak.store(blockMicPeak,
+            std::memory_order_relaxed);
+        const auto meters = instance->effects.resonatorMeterSnapshot();
+        for (uint32_t band = 0u; band < kMatrixBands; ++band) {
+            instance->analysisBandMeters[band].store(meters.analysis[band],
+                std::memory_order_relaxed);
+            instance->synthesisBandMeters[band].store(
+                meters.synthesis[band], std::memory_order_relaxed);
+        }
+        instance->detectedPitchHz.store(meters.detectedPitchHz,
+            std::memory_order_relaxed);
+        instance->pitchConfidence.store(meters.pitchConfidence,
+            std::memory_order_relaxed);
+        instance->pitchActive.store(meters.pitchActive,
             std::memory_order_relaxed);
     }
-    instance->detectedPitchHz.store(meters.detectedPitchHz,
-        std::memory_order_relaxed);
-    instance->pitchConfidence.store(meters.pitchConfidence,
-        std::memory_order_relaxed);
-    instance->pitchActive.store(meters.pitchActive,
-        std::memory_order_relaxed);
     // A live-input effect must never depend on the current callback's buffer
     // availability to remain awake. REAPER and other hosts may temporarily
     // omit an input buffer while changing routing, anticipative processing, or
@@ -1947,12 +2000,6 @@ clap_process_status process(const clap_plugin_t* plugin,
     // meter nor pitch tracker is processed again. External Mic and connected
     // Blend therefore remain continuous monitoring modes even through an
     // absent/zero input interval.
-    const auto monitoredSource
-        = instance->effectsParams.resonator.modulatorSource;
-    const bool liveMicMonitoring = monitoredSource
-            == s3g::AcapellaResonatorModulatorSource::ExternalMic
-        || monitoredSource
-            == s3g::AcapellaResonatorModulatorSource::Blend;
     return instance->ensemble.active() || instance->effects.active()
             || guiParamEventsPending || liveMicMonitoring
         ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;

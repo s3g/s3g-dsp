@@ -39,6 +39,7 @@ add_library(s3g_tracker_core STATIC
   src/core/runtime_pattern_plan.cpp
   src/core/sequencer.cpp
   src/core/song_playback_planner.cpp
+  src/core/standard_midi_file.cpp
   src/core/timing_action_resolver.cpp
   src/core/timing_playback_scheduler.cpp
   src/core/timing_warp.cpp
@@ -109,6 +110,10 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_preview_sequencer_tests tests/preview_sequencer_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_clap_playback_runtime_tests tests/clap_playback_runtime_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_clap_midi_engine_tests tests/clap_midi_engine_tests.cpp)
+  if(APPLE)
+    s3g_add_tracker_test(s3g_tracker_clap_small_stack_creation_tests
+      tests/clap_small_stack_creation_tests.cpp)
+  endif()
   s3g_add_tracker_test(s3g_tracker_clap_editor_coordinator_tests tests/clap_editor_coordinator_tests.cpp)
   # Header-only SDK input for adapter tests; core-only builds never fetch
   # VSTGUI, Cocoa or the full CLAP plugin dependency graph.
@@ -154,6 +159,7 @@ if(BUILD_TESTING)
   s3g_add_tracker_test(s3g_tracker_pitch_map_tests tests/pitch_map_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_pattern_reshape_tests tests/pattern_reshape_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_playback_planner_tests tests/song_playback_planner_tests.cpp)
+  s3g_add_tracker_test(s3g_tracker_standard_midi_file_tests tests/standard_midi_file_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_song_timing_runtime_tests tests/song_timing_runtime_tests.cpp)
   s3g_add_tracker_test(s3g_tracker_visual_note_hit_mailbox_tests tests/visual_note_hit_mailbox_tests.cpp)
 

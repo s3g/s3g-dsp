@@ -38,6 +38,10 @@ typedef void (^S3GTrackerSongProjectFileHandler)(void);
     saveProjectHandler;
 @property(nonatomic, copy, nullable) S3GTrackerSongProjectFileHandler
     loadProjectHandler;
+@property(nonatomic, copy, nullable) S3GTrackerSongProjectFileHandler
+    exportActivePatternMidiHandler;
+@property(nonatomic, copy, nullable) S3GTrackerSongProjectFileHandler
+    exportSongMidiHandler;
 
 /// Pattern mode remains the default. This explicit switch makes the main
 /// transport consume Song rows on the next fresh Play.

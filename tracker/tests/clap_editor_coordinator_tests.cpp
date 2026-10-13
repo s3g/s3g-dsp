@@ -1,5 +1,7 @@
 #include "s3g/tracker/clap_editor_coordinator.h"
 #include "s3g/tracker/project_codec.h"
+#include "test_directory.h"
+#include <fstream>
 #include <iostream>
 #include <memory>
 
@@ -23,6 +25,7 @@ struct Harness {
     bool playing=false;
     double bpm=120;
     std::optional<std::string> name;
+    std::string dialogPath;
     editor::ShellPage page=editor::ShellPage::Tracker;
     Harness() {
         engine.services.context=this;
@@ -37,6 +40,7 @@ struct Harness {
         s.hostToggle=[this]{++toggles;return true;};
         s.showPage=[this](auto p){page=p;};
         s.promptText=[this](const auto&,const auto&){return name;};
+        s.fileDialog=[this](bool,const auto&,const auto&,const auto&){return dialogPath;};
         ui=std::make_unique<ClapEditorCoordinator>(engine,song,std::move(s));
     }
 };
@@ -64,6 +68,17 @@ void bindingsAndEdits() {
     check(bool(cb.showReshapePage),"native callback retained: showReshapePage");
     check(bool(cb.showPhrasePage),"native callback retained: showPhrasePage");
     check(bool(cb.showAssemblePage),"native callback retained: showAssemblePage");
+    check(bool(h->song.callbacks.exportActivePatternMidi)
+            && bool(h->song.callbacks.exportSongMidi),
+        "Song Standard MIDI export callbacks retained");
+    TrackerTestDirectory exportDirectory;
+    h->dialogPath=(exportDirectory.path / "coordinator.mid").u8string();
+    h->song.callbacks.exportActivePatternMidi();
+    std::ifstream exported(h->dialogPath,std::ios::binary);
+    std::string header(4,'\0');exported.read(header.data(),4);
+    check(header=="MThd"&&state.status.find("Exported Pattern MIDI")==0,
+        "shared coordinator writes active Pattern Standard MIDI file");
+    h->dialogPath.clear();
     check(bool(cb.importAssetPack),"native callback retained: importAssetPack");
     check(bool(cb.exportBurstAssetPack),"native callback retained: exportBurstAssetPack");
     check(bool(cb.exportBurstLibraryAssetPack),"native callback retained: exportBurstLibraryAssetPack");

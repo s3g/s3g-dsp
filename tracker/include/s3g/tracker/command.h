@@ -191,4 +191,8 @@ public:
     static const std::vector<CommandHelpSection>& helpSections();
 };
 
+// Factory-only four-lane starter pattern. Uses the same kit/mask primitives as
+// the console without its large transactional CommandResult stack frames.
+void configureInitialFourOnFloorSession(TrackerSession& session);
+
 } // namespace s3g::tracker

@@ -117,15 +117,26 @@ struct Plugin {
     s3g::portable_gui::MacroEffectEditor* guiEditor = nullptr;
     uint32_t guiWidth = kGuiWidth;
     uint32_t guiHeight = kGuiHeight;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
 #elif defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__)
     void* guiView = nullptr;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_MACRO_EFFECT_GUI) \
+    || (defined(S3G_USE_LEGACY_COCOA_MACRO_SHRED_GUI) && defined(__APPLE__))
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 
 bool paramAffectsTail(clap_id id)
 {
@@ -305,6 +316,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     }
 
     p->shred.setParams(p->params);
+    const bool captureTelemetry = editorVisible(*p);
     float blockPeak = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
         for (uint32_t ch = 0; ch < channels; ++ch) {
@@ -334,16 +346,24 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             if (output.data64 && output.data64[ch]) {
                 output.data64[ch][i] = static_cast<double>(p->frameOut[ch]);
             }
-            blockPeak = std::max(blockPeak, std::abs(p->frameOut[ch]));
+            if (captureTelemetry)
+                blockPeak = std::max(blockPeak, std::abs(p->frameOut[ch]));
         }
     }
     finishExtraChannels(input, output, channels, frames);
-    p->outputPeak.store(std::max(p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak), std::memory_order_relaxed);
-    const float loop = p->shred.feedbackActivity();
-    p->loopActivity.store(std::max(p->loopActivity.load(std::memory_order_relaxed) * 0.92f, loop), std::memory_order_relaxed);
-    p->governorReduction.store(
-        p->shred.governorReduction(), std::memory_order_relaxed);
-    p->loopFrequencyHz.store(p->shred.feedbackFrequencyHz(), std::memory_order_relaxed);
+    if (captureTelemetry) {
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.90f,
+            blockPeak), std::memory_order_relaxed);
+        const float loop = p->shred.feedbackActivity();
+        p->loopActivity.store(std::max(
+            p->loopActivity.load(std::memory_order_relaxed) * 0.92f,
+            loop), std::memory_order_relaxed);
+        p->governorReduction.store(
+            p->shred.governorReduction(), std::memory_order_relaxed);
+        p->loopFrequencyHz.store(
+            p->shred.feedbackFrequencyHz(), std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

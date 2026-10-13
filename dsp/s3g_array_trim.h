@@ -38,12 +38,17 @@ public:
     ArrayTrimParams params() const { return params_; }
 
     template <typename Sample>
-    void processBlock(const Sample* const* in, Sample* const* out, uint32_t inputChannels, uint32_t outputChannels, uint32_t frames)
+    void processBlock(const Sample* const* in, Sample* const* out,
+        uint32_t inputChannels, uint32_t outputChannels, uint32_t frames,
+        bool clearOutput = true)
     {
         if (!out || frames == 0u) return;
         outputChannels = std::min<uint32_t>(outputChannels, kArrayTrimMaxChannels);
-        for (uint32_t ch = 0; ch < outputChannels; ++ch) {
-            if (out[ch]) std::fill(out[ch], out[ch] + frames, static_cast<Sample>(0));
+        if (clearOutput) {
+            for (uint32_t ch = 0; ch < outputChannels; ++ch) {
+                if (out[ch]) std::fill(out[ch], out[ch] + frames,
+                    static_cast<Sample>(0));
+            }
         }
         if (!in) return;
 

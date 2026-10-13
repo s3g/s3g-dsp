@@ -275,6 +275,8 @@ public:
         lastOutput_.fill(0.0f);
         transitionTail_.fill(0.0f);
         transitionFade_ = 1.0f;
+        lastRenderedChannels_ = ambiChannelsForOrder(params_.order);
+        transitionChannels_ = lastRenderedChannels_;
         transitionRequested_.store(false, std::memory_order_relaxed);
         smoothedOutputGain_ = dbToGain(params_.outputGainDb);
         iceLayerEnergy_ = 0.0f;
@@ -458,21 +460,42 @@ public:
     void process(float* const* outputs, uint32_t outputChannels,
         uint32_t frames)
     {
-        if (!outputs || frames == 0u) return;
+        (void)processInternal(outputs, outputChannels, frames, true);
+    }
+
+    uint32_t processActiveChannels(float* const* outputs,
+        uint32_t outputChannels, uint32_t frames)
+    {
+        return processInternal(outputs, outputChannels, frames, false);
+    }
+
+private:
+    uint32_t processInternal(float* const* outputs, uint32_t outputChannels,
+        uint32_t frames, bool clearInactiveOutputs)
+    {
+        if (!outputs || frames == 0u) return 0u;
         outputChannels = std::min<uint32_t>(
             outputChannels, kAmbiCryosphereMaxChannels);
-        for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
-            if (outputs[channel]) {
-                std::fill(outputs[channel], outputs[channel] + frames, 0.0f);
-            }
-        }
         if (transitionRequested_.exchange(false, std::memory_order_acq_rel)) {
             transitionTail_ = lastOutput_;
+            transitionChannels_ = std::max({ lastRenderedChannels_,
+                transitionChannels_, ambiChannelsForOrder(params_.order) });
             transitionFade_ = 0.0f;
         }
 
         const uint32_t ambiChannels = std::min<uint32_t>(
             ambiChannelsForOrder(params_.order), outputChannels);
+        const uint32_t fadingChannels = transitionFade_ < 1.0f
+            ? std::min<uint32_t>(transitionChannels_, outputChannels)
+            : 0u;
+        const uint32_t renderChannels = std::max(ambiChannels, fadingChannels);
+        const uint32_t clearChannels = clearInactiveOutputs
+            ? outputChannels : renderChannels;
+        for (uint32_t channel = 0u; channel < clearChannels; ++channel) {
+            if (outputs[channel]) {
+                std::fill(outputs[channel], outputs[channel] + frames, 0.0f);
+            }
+        }
         const uint32_t voiceCount = processingVoiceCount();
         const float voiceNorm = std::pow(field_.voiceMass(), 0.44f);
         constexpr uint32_t kControlFrames = 16u;
@@ -567,7 +590,7 @@ public:
             1.0f, static_cast<float>(sampleRate_) * 0.032f);
         for (uint32_t frame = 0u; frame < frames; ++frame) {
             const float mix = transitionFade_;
-            for (uint32_t channel = 0u; channel < outputChannels; ++channel) {
+            for (uint32_t channel = 0u; channel < renderChannels; ++channel) {
                 const float sum = channel < ambiChannels && outputs[channel]
                     ? outputs[channel][frame] : 0.0f;
                 float fresh = std::tanh(clamp(sum * 1.08f, -4.0f, 4.0f));
@@ -579,6 +602,16 @@ public:
             }
             transitionFade_ = std::min(1.0f,
                 transitionFade_ + transitionStep);
+        }
+        if (transitionFade_ >= 1.0f) {
+            for (uint32_t channel = ambiChannels;
+                 channel < lastRenderedChannels_; ++channel) {
+                lastOutput_[channel] = 0.0f;
+            }
+            lastRenderedChannels_ = ambiChannels;
+            transitionChannels_ = ambiChannels;
+        } else {
+            lastRenderedChannels_ = renderChannels;
         }
 
         const float measured = static_cast<float>(layerEnergy
@@ -605,9 +638,9 @@ public:
                 frames * std::max<uint32_t>(1u, voiceCount)));
         planetaryModalLayerEnergy_ +=
             (measuredPlanetaryModal - planetaryModalLayerEnergy_) * 0.24f;
+        return renderChannels;
     }
 
-private:
     static float finiteClamp(float value, float fallback, float low, float high)
     {
         return clamp(std::isfinite(value) ? value : fallback, low, high);
@@ -1776,6 +1809,8 @@ private:
     std::array<AmbiCryosphereVoice, kAmbiCryosphereMaxVoices> voices_ {};
     std::array<float, kAmbiCryosphereMaxChannels> lastOutput_ {};
     std::array<float, kAmbiCryosphereMaxChannels> transitionTail_ {};
+    uint32_t lastRenderedChannels_ = 1u;
+    uint32_t transitionChannels_ = 1u;
     double sampleRate_ = 48000.0;
     float smoothedOutputGain_ = dbToGain(-6.0f);
     float transitionFade_ = 1.0f;

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ableton Live and Max for Live - s3g-dsp</title>
+    <meta name="description" content="Install s3g-dsp CLAP plugins and the s3g-clap-max bridge for Ableton Live, with routing and Sample storage notes.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html">s3g-dsp</a>
+      <nav class="top-nav" aria-label="Top navigation">
+        <a href="index.html">Getting Started</a>
+        <a href="building-from-source.html">Build</a>
+        <a href="installing-plugins.html">Install</a>
+        <a href="plugin-index.html">Plugins</a>
+        <a href="multichannel.html">Multichannel</a>
+        <a href="ambisonics.html">Ambisonics</a>
+        <a href="instruments.html">Instruments</a>
+        <a href="references.html">References</a>
+        <a href="https://github.com/s3g/s3g-dsp" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <div class="page-shell">
+      <main class="content" id="content">
+        <h1>Ableton Live and Max for Live</h1>
+
+        <p>Live does not host CLAP plugins directly. The separate <a href="https://github.com/s3g/s3g-clap-max" target="_blank" rel="noopener noreferrer">s3g-clap-max</a> project supplies the <code>s3g.clap~</code> Max object and dedicated Max for Live (<code>.amxd</code>) devices that load s3g-dsp CLAP plugins. Installing a Live device alone does not install its plugin. This guide covers the available devices, their installation, and routing in Live.</p>
+
+        <h2 id="requirements">What You Need</h2>
+
+        <ul>
+          <li>The <a href="installing-plugins.html">s3g-dsp CLAP collection</a>, installed separately and available to the Max host.</li>
+          <li>Max 9 and Ableton Live with Max for Live for the Live devices. A source build of <code>s3g-clap-max</code> also needs CMake and a C++ compiler.</li>
+          <li>A checkout of <code>s3g-clap-max</code> for its macOS build and installation scripts. The Mac CLAP package is Apple-silicon-only. Windows has separate installation steps below.</li>
+        </ul>
+
+        <h2 id="install">Install on Mac</h2>
+
+        <ol>
+          <li>Install s3g-dsp first using the Mac package's <code>Install s3g-dsp CLAPs.command</code>. Follow the <a href="installing-plugins.html#download">Mac installation and Gatekeeper steps</a>. Its bundles go in <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>; leave each complete <code>.clap</code> bundle there.</li>
+          <li>With Max 9 installed, clone or download <code>s3g-clap-max</code>, open Terminal in that checkout, and run the commands below. The first builds <code>s3g.clap~</code>; the second links the Max package into <code>~/Documents/Max 9/Packages</code>; the third installs the Live devices into the default <code>~/Music/Ableton/User Library/s3g CLAP</code> folder.</li>
+        </ol>
+
+        <pre><code>./scripts/build-release.sh
+./scripts/install-local-package.sh
+./scripts/install-live-devices.sh</code></pre>
+
+        <p>If your Live User Library is in another location, set <code>S3G_LIVE_DEVICE_ROOT</code> to the desired <code>s3g CLAP</code> folder before running the third command. The installer uses hard links because Live may not index a symlinked device folder; the checkout and User Library must be on the same filesystem. Restart Max and Live after installation or rebuilding the Max external. Windows users must install the experimental Windows CLAP package separately, build <code>s3g-clap-max</code> with its Windows preset, and copy the Max package and chosen <code>.amxd</code> files manually as described in its README; the Mac script does not install Windows devices.</p>
+
+        <h2 id="first-use">First Use and Routing</h2>
+
+        <ol>
+          <li>In Live's browser, find <strong>User Library &rarr; s3g CLAP</strong>. Add a stereo Sample or Drum instrument to a MIDI track and click <strong>EDITOR</strong>. The matching CLAP must be installed for the editor to open.</li>
+          <li>For a multichannel source, place <strong>s3g Bus Send 36</strong> after its wrapper and select <strong>INPUT = CHAIN 36</strong>, the active <strong>CH</strong> count, and a <strong>BUS</strong> number.</li>
+          <li>On a receiving audio track, place <strong>s3g Bus Receive 36</strong> before the effect or decoder and select the same BUS. Head and Stereo decoders can use Live's ordinary stereo output. A multichannel decoder or panner can be followed on the same track by <strong>s3g Main Hardware Out 32</strong> for mono-channel remapping and hardware-output assignment.</li>
+        </ol>
+
+        <p>The explicit Send/Receive transport carries up to 36 channels, enough for fifth-order Ambisonics; Main Hardware Out addresses up to 32 mono channels. These are different limits. A plugin's unsupported channels above a device's limit are not carried by that device. The <a href="https://github.com/s3g/s3g-clap-max/blob/main/package/docs/s3g-clap-m4l-routing.md" target="_blank" rel="noopener noreferrer">M4L routing guide</a> covers bus slots, effects, Sample instruments, and Tracker's separate MIDI bus. The <a href="https://github.com/s3g/s3g-clap-max#available-wrappers" target="_blank" rel="noopener noreferrer">wrapper list</a> shows which s3g-dsp plugins have a dedicated device.</p>
+
+        <h2 id="sample-storage">Sample Storage in a Live Set</h2>
+
+        <p>Some Sample plugins offer <code>STORE PROJECT</code>, <code>LINK</code>, and <code>EMBED</code>; new instances may show PROJECT. Choose the mode in the plugin editor. The selected mode is saved with the Live Set. Not every Sample plugin has this selector.</p>
+
+        <ul>
+          <li><strong>PROJECT:</strong> this mode does not automatically copy samples into an Ableton Project. Do not assume a Set is self-contained merely because PROJECT is selected.</li>
+          <li><strong>LINK:</strong> the state keeps a reference to the original sample file. Keep that file available at its expected path when moving or reopening the Set.</li>
+          <li><strong>EMBED:</strong> supported plugins save audio within the plugin state, subject to each plugin's size limits. This can make the Set substantially larger. Check the <a href="sample-instruments.html#state">Sample storage guide</a> and the individual plugin page for limits.</li>
+        </ul>
+
+        <p>For current Live work, choose LINK when you will manage external samples yourself, or EMBED when portability is more important and the plugin can contain the audio. Test a saved Set by closing and reopening it before relying on either mode for a performance or transfer.</p>
+
+        <h2 id="troubleshooting">If Something Does Not Load</h2>
+
+        <ul>
+          <li><strong>No device in Live:</strong> confirm the <code>.amxd</code> appears in the actual User Library's <code>s3g CLAP</code> folder. Use the installer or copy the device file; a directory symlink may not be indexed.</li>
+          <li><strong>Device appears, but no CLAP editor:</strong> confirm the matching complete <code>.clap</code> bundle is installed and that <code>s3g.clap~</code> is available from the Max package. The Max host scans standard CLAP folders and <code>CLAP_PATH</code>. Check Max's Console for the reported load error.</li>
+          <li><strong>Multichannel track is silent:</strong> check the Send's INPUT, CH, and BUS, the Receive's BUS and position before the processor, and Main Hardware Out's assignments where used.</li>
+          <li><strong>A sample is missing after reopening:</strong> check whether the editor was set to LINK or PROJECT and whether the referenced file still exists. PROJECT in Live does not automatically collect it.</li>
+        </ul>
+
+        <nav class="page-nav" aria-label="Page navigation">
+          <a class="page-nav-link" href="installing-plugins.html">
+            <span>Previous</span>
+            Install CLAP Plugins
+          </a>
+          <a class="page-nav-link next" href="plugin-index.html">
+            <span>Next</span>
+            Plugin Index
+          </a>
+        </nav>
+      </main>
+
+      <aside class="toc" aria-label="Page navigation">
+        <div class="toc-section">
+          <h2>Setup Pages</h2>
+          <a href="index.html">Getting Started</a>
+          <a href="installing-plugins.html">Install s3g-dsp</a>
+          <a href="ableton-live.html">Ableton Live</a>
+        </div>
+        <div class="toc-section">
+          <h2>On This Page</h2>
+          <a href="#requirements">Requirements</a>
+          <a href="#install">Install on Mac</a>
+          <a href="#first-use">First Use and Routing</a>
+          <a href="#sample-storage">Sample Storage</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

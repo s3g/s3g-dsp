@@ -166,7 +166,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
-    bool portableGuiVisible = false;
+    std::atomic<bool> portableGuiVisible { false };
     std::array<std::atomic<double>, 256> effectValues {};
     bool effectActive = false;
     s3g::clap_gui::CaptureSnapshot<EffectCapturePayload> effectCaptureSnapshot;
@@ -217,6 +217,17 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool guiTelemetryVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    return false;
+#endif
 }
 
 #if defined(__APPLE__)
@@ -729,12 +740,26 @@ void publishCaptureSnapshot(Plugin&);
 void publishStatus(Plugin& plugin)
 {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    // This snapshot also backs CLAP state serialization, so it must remain
+    // current while the editor is closed.
     publishCaptureSnapshot(plugin);
 #endif
     if (plugin.params.printEnabled != plugin.processor.params().printEnabled) {
         plugin.params.printEnabled = plugin.processor.params().printEnabled;
         publishParam(plugin, kParamPrintEnabled);
     }
+    const uint32_t tail = plugin.processor.tailFrames();
+    if (tail != plugin.lastTailFrames) {
+        plugin.lastTailFrames = tail;
+        markTailChanged(plugin);
+    }
+    plugin.captureProgress.store(plugin.processor.captureProgress(),
+        std::memory_order_relaxed);
+    plugin.hasPrint.store(plugin.processor.hasPrint(),
+        std::memory_order_relaxed);
+    plugin.capturing.store(plugin.processor.isCapturing(),
+        std::memory_order_relaxed);
+    if (!guiTelemetryVisible(plugin)) return;
     uint32_t modes = 0u;
     for (uint32_t node = 0u; node < kPickups; ++node) {
         plugin.nodeLevel[node].store(plugin.processor.nodeLevel(node),
@@ -751,17 +776,9 @@ void publishStatus(Plugin& plugin)
     plugin.safetyGain.store(plugin.processor.safetyGain(), std::memory_order_relaxed);
     plugin.excitationGovernorGain.store(
         plugin.processor.excitationGovernorGain(), std::memory_order_relaxed);
-    plugin.captureProgress.store(plugin.processor.captureProgress(), std::memory_order_relaxed);
     plugin.fundamentalHz.store(plugin.processor.fundamentalHz(), std::memory_order_relaxed);
     plugin.pitchConfidence.store(plugin.processor.pitchConfidence(), std::memory_order_relaxed);
     plugin.printedModes.store(modes, std::memory_order_relaxed);
-    plugin.hasPrint.store(plugin.processor.hasPrint(), std::memory_order_relaxed);
-    plugin.capturing.store(plugin.processor.isCapturing(), std::memory_order_relaxed);
-    const uint32_t tail = plugin.processor.tailFrames();
-    if (tail != plugin.lastTailFrames) {
-        plugin.lastTailFrames = tail;
-        markTailChanged(plugin);
-    }
 }
 
 template <typename Sample>
@@ -774,17 +791,19 @@ clap_process_status processTyped(Plugin& plugin,
     plugin.processor.process(in, out,
         std::min<uint32_t>(input.channel_count, kChannels),
         std::min<uint32_t>(output.channel_count, kChannels), frames);
-    float peak = 0.0f;
-    const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kChannels);
-    for (uint32_t channel = 0u; channel < outChannels; ++channel) {
-        if (!out[channel]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) {
-            peak = std::max(peak, static_cast<float>(std::abs(out[channel][frame])));
+    if (guiTelemetryVisible(plugin)) {
+        float peak = 0.0f;
+        const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kChannels);
+        for (uint32_t channel = 0u; channel < outChannels; ++channel) {
+            if (!out[channel]) continue;
+            for (uint32_t frame = 0u; frame < frames; ++frame) {
+                peak = std::max(peak, static_cast<float>(std::abs(out[channel][frame])));
+            }
         }
+        const float previous = plugin.outputPeak.load(std::memory_order_relaxed);
+        plugin.outputPeak.store(std::max(previous * 0.90f, peak),
+            std::memory_order_relaxed);
     }
-    const float previous = plugin.outputPeak.load(std::memory_order_relaxed);
-    plugin.outputPeak.store(std::max(previous * 0.90f, peak),
-        std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
 

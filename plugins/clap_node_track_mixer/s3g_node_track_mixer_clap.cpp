@@ -125,7 +125,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
-    bool portableGuiVisible = false;
+    std::atomic<bool> portableGuiVisible { false };
     std::atomic<bool> active { false };
 #endif
     std::atomic<float> outputPeak { 0.0f };
@@ -143,6 +143,18 @@ static_assert(std::atomic<double>::is_always_lock_free,
     "Node Bus parameter publication must remain lock-free");
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 
 uint32_t roundedUint(double value)
 {
@@ -714,12 +726,16 @@ void updateNodePeaks(Plugin& p, Sample** in, uint32_t inputChannels, uint32_t fr
 template <typename Sample>
 clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input, const clap_audio_buffer_t& output, uint32_t frames, Sample** in, Sample** out)
 {
-    s3g::clearAudioBuffer(output, frames);
     p.processor.process(in, input.channel_count, out, output.channel_count, frames);
     s3g::clearAudioBufferFromChannel(output, s3g::kNodeTrackMixerMaxChannels, frames);
-    const uint32_t outCount = std::min<uint32_t>(output.channel_count, s3g::kNodeTrackMixerMaxChannels);
-    p.outputPeak.store(std::max(p.outputPeak.load(std::memory_order_relaxed) * 0.90f, peakFor(out, outCount, frames)), std::memory_order_relaxed);
-    updateNodePeaks(p, in, input.channel_count, frames);
+    if (editorVisible(p)) {
+        const uint32_t outCount = std::min<uint32_t>(
+            output.channel_count, s3g::kNodeTrackMixerMaxChannels);
+        p.outputPeak.store(std::max(
+            p.outputPeak.load(std::memory_order_relaxed) * 0.90f,
+            peakFor(out, outCount, frames)), std::memory_order_relaxed);
+        updateNodePeaks(p, in, input.channel_count, frames);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

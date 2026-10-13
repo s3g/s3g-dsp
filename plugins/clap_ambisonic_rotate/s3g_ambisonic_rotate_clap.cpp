@@ -82,7 +82,9 @@ struct Plugin {
     std::atomic<float> outputPeak { 0.0f };
     int32_t guiViewMode = 2;
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_ROUTING_GUI_VISIBLE_ATOMIC 1
 #include "../common/s3g_routing_gui_members.inc"
+#undef S3G_ROUTING_GUI_VISIBLE_ATOMIC
 #endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -93,6 +95,18 @@ struct Plugin {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
 #endif
@@ -277,18 +291,30 @@ template <typename Sample>
 clap_process_status processTyped(Plugin& p, const clap_audio_buffer_t& input,
     const clap_audio_buffer_t& output, uint32_t frames, Sample** in, Sample** out)
 {
-    s3g::clearAudioBuffer(output, frames);
-    if (!in || !out) return CLAP_PROCESS_CONTINUE;
+    if (!in || !out) {
+        s3g::clearAudioBuffer(output, frames);
+        return CLAP_PROCESS_CONTINUE;
+    }
     const uint32_t inChannels = std::min<uint32_t>(input.channel_count, kChannels);
     const uint32_t outChannels = std::min<uint32_t>(output.channel_count, kChannels);
-    if (inChannels == 0u || outChannels == 0u) return CLAP_PROCESS_CONTINUE;
-    p.processor.process(in, out, inChannels, outChannels, frames);
-    float peak = 0.0f;
-    for (uint32_t ch = 0; ch < outChannels; ++ch) {
-        if (!out[ch]) continue;
-        for (uint32_t i = 0; i < frames; ++i) peak = std::max(peak, static_cast<float>(std::abs(out[ch][i])));
+    if (inChannels == 0u || outChannels == 0u) {
+        s3g::clearAudioBuffer(output, frames);
+        return CLAP_PROCESS_CONTINUE;
     }
-    p.outputPeak.store(std::max(p.outputPeak.load(std::memory_order_relaxed) * 0.90f, peak), std::memory_order_relaxed);
+    p.processor.process(in, out, inChannels, outChannels, frames);
+    s3g::clearAudioBufferFromChannel(output, kChannels, frames);
+    if (editorVisible(p)) {
+        float peak = 0.0f;
+        for (uint32_t ch = 0; ch < outChannels; ++ch) {
+            if (!out[ch]) continue;
+            for (uint32_t i = 0; i < frames; ++i)
+                peak = std::max(peak,
+                    static_cast<float>(std::abs(out[ch][i])));
+        }
+        p.outputPeak.store(std::max(
+            p.outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
+            std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

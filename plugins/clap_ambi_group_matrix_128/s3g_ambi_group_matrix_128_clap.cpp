@@ -58,18 +58,32 @@ struct Plugin {
     s3g::AmbiGroupMatrix128 matrix;
     std::atomic<float> outputPeak { 0.0f };
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_ROUTING_GUI_VISIBLE_ATOMIC 1
 #include "../common/s3g_routing_parameter_members.inc"
+#undef S3G_ROUTING_GUI_VISIBLE_ATOMIC
     std::atomic<bool> routingActive{false};
 #endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     char presetName[64] { "INIT" };
 #endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 
 bool isCrosspointParam(clap_id id)
 {
@@ -261,20 +275,29 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const auto& output = process->audio_outputs[0];
     const uint32_t frames = process->frames_count;
     const uint32_t outChannels = output.channel_count;
+    const bool captureTelemetry = editorVisible(*p);
 
     if (input.data32 && output.data32) {
         p->matrix.process(input.data32, input.channel_count, output.data32, outChannels, frames);
         s3g::clearAudioBufferFromChannel(output, s3g::kAmbiGroupMatrix128Channels, frames);
-        p->outputPeak.store(peakForBuffer(output.data32, std::min<uint32_t>(outChannels, s3g::kAmbiGroupMatrix128Channels), frames),
-            std::memory_order_relaxed);
+        if (captureTelemetry)
+            p->outputPeak.store(peakForBuffer(output.data32,
+                std::min<uint32_t>(outChannels,
+                    s3g::kAmbiGroupMatrix128Channels), frames),
+                std::memory_order_relaxed);
     } else if (input.data64 && output.data64) {
         p->matrix.process(input.data64, input.channel_count, output.data64, outChannels, frames);
         s3g::clearAudioBufferFromChannel(output, s3g::kAmbiGroupMatrix128Channels, frames);
-        p->outputPeak.store(peakForBuffer(output.data64, std::min<uint32_t>(outChannels, s3g::kAmbiGroupMatrix128Channels), frames),
-            std::memory_order_relaxed);
+        if (captureTelemetry)
+            p->outputPeak.store(peakForBuffer(output.data64,
+                std::min<uint32_t>(outChannels,
+                    s3g::kAmbiGroupMatrix128Channels), frames),
+                std::memory_order_relaxed);
     }
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
-    p->routingPhase.store(p->matrix.previewPhase(), std::memory_order_relaxed);
+    if (captureTelemetry)
+        p->routingPhase.store(
+            p->matrix.previewPhase(), std::memory_order_relaxed);
 #endif
     return CLAP_PROCESS_CONTINUE;
 }

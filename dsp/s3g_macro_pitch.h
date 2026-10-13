@@ -36,6 +36,8 @@ public:
         for (auto& lane : lanes_) {
             lane.buffer.assign(bufferFrames_, 0.0f);
         }
+        refreshLaneGeometry();
+        refreshDerivedTargets();
         reset();
     }
 
@@ -65,6 +67,7 @@ public:
     void setParams(const MacroPitchParams& params)
     {
         params_ = sanitize(params);
+        refreshDerivedTargets();
     }
 
     MacroPitchParams params() const { return params_; }
@@ -77,9 +80,11 @@ public:
 
         updateSmoothing();
         const float mixTarget = params_.mix;
-        const float gainTarget = dbToGain(params_.outputGainDb);
+        const float gainTarget = outputGainTarget_;
         mixSmoothed_ += (mixTarget - mixSmoothed_) * 0.0015f;
         gainSmoothed_ += (gainTarget - gainSmoothed_) * 0.0015f;
+        const float targetWindow = clamp(smoothedWindowMs_, 20.0f, 180.0f)
+            * 0.001f * static_cast<float>(sampleRate_);
 
         for (uint32_t ch = 0; ch < channels_; ++ch) {
             auto& lane = lanes_[ch];
@@ -88,21 +93,19 @@ public:
             lane.validSamples = std::min(
                 bufferFrames_, lane.validSamples + 1u);
 
-            const float u = channels_ > 1u
-                ? static_cast<float>(ch) / static_cast<float>(channels_ - 1u)
-                : 0.5f;
+            const float u = lanePosition_[ch];
             const float centered = clamp((u - smoothedCenter_) * 2.0f, -1.0f, 1.0f);
             lane.lfo += (0.012f + 0.003f * static_cast<float>(ch)) / static_cast<float>(sampleRate_);
             if (lane.lfo >= 1.0f) {
                 lane.lfo -= std::floor(lane.lfo);
             }
-            const float deviation = laneHash(ch) * smoothedDeviation_ * 3.0f;
+            const float deviation = laneHash_[ch] * smoothedDeviation_ * 3.0f;
             const float skew = smoothedSkew_ * u * 6.0f;
             const float semis = smoothedPitch_ + smoothedFine_ * 0.01f + centered * smoothedSpread_ * 12.0f + deviation + skew;
-            const float targetRatio = std::pow(2.0f, clamp(semis, -24.0f, 24.0f) / 12.0f);
+            const float targetRatio = std::exp2(
+                clamp(semis, -24.0f, 24.0f) / 12.0f);
             lane.ratio += (targetRatio - lane.ratio) * 0.0012f;
 
-            const float targetWindow = clamp(smoothedWindowMs_, 20.0f, 180.0f) * 0.001f * static_cast<float>(sampleRate_);
             lane.windowSamples += (targetWindow - lane.windowSamples) * 0.0012f;
             lane.windowSamples = clamp(lane.windowSamples, 8.0f, static_cast<float>(bufferFrames_ - 4u));
 
@@ -158,14 +161,39 @@ private:
 
     void updateSmoothing()
     {
-        const float coeff = 1.0f - std::exp(-1.0f / static_cast<float>(std::max(1.0, sampleRate_ * params_.glideMs * 0.001)));
-        smoothedPitch_ += (params_.pitchSemitones - smoothedPitch_) * coeff;
-        smoothedFine_ += (params_.fineCents - smoothedFine_) * coeff;
-        smoothedSpread_ += (params_.spread - smoothedSpread_) * coeff;
-        smoothedDeviation_ += (params_.deviation - smoothedDeviation_) * coeff;
-        smoothedSkew_ += (params_.skew - smoothedSkew_) * coeff;
-        smoothedCenter_ += (params_.center - smoothedCenter_) * coeff;
-        smoothedWindowMs_ += (params_.windowMs - smoothedWindowMs_) * coeff;
+        smoothedPitch_ += (params_.pitchSemitones - smoothedPitch_)
+            * relationshipSmoothingCoeff_;
+        smoothedFine_ += (params_.fineCents - smoothedFine_)
+            * relationshipSmoothingCoeff_;
+        smoothedSpread_ += (params_.spread - smoothedSpread_)
+            * relationshipSmoothingCoeff_;
+        smoothedDeviation_ += (params_.deviation - smoothedDeviation_)
+            * relationshipSmoothingCoeff_;
+        smoothedSkew_ += (params_.skew - smoothedSkew_)
+            * relationshipSmoothingCoeff_;
+        smoothedCenter_ += (params_.center - smoothedCenter_)
+            * relationshipSmoothingCoeff_;
+        smoothedWindowMs_ += (params_.windowMs - smoothedWindowMs_)
+            * relationshipSmoothingCoeff_;
+    }
+
+    void refreshLaneGeometry()
+    {
+        const float denominator = static_cast<float>(
+            std::max<uint32_t>(1u, channels_ - 1u));
+        for (uint32_t ch = 0; ch < kMacroPitchChannels; ++ch) {
+            lanePosition_[ch] = channels_ > 1u
+                ? static_cast<float>(ch) / denominator : 0.5f;
+            laneHash_[ch] = laneHash(ch);
+        }
+    }
+
+    void refreshDerivedTargets()
+    {
+        relationshipSmoothingCoeff_ = 1.0f - std::exp(-1.0f
+            / static_cast<float>(std::max(
+                1.0, sampleRate_ * params_.glideMs * 0.001)));
+        outputGainTarget_ = dbToGain(params_.outputGainDb);
     }
 
     float processLane(Lane& lane)
@@ -239,6 +267,10 @@ private:
     float smoothedWindowMs_ = 80.0f;
     float mixSmoothed_ = 0.35f;
     float gainSmoothed_ = 1.0f;
+    float relationshipSmoothingCoeff_ = 0.0001f;
+    float outputGainTarget_ = 1.0f;
+    std::array<float, kMacroPitchChannels> lanePosition_ {};
+    std::array<float, kMacroPitchChannels> laneHash_ {};
     std::array<Lane, kMacroPitchChannels> lanes_ {};
 };
 

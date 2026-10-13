@@ -1105,6 +1105,7 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 
     constexpr uint32_t kSurfaceControlFrames = 64u;
     uint32_t surfaceOffset = 0u;
+    uint32_t renderedChannels = 0u;
     while (surfaceOffset < frames) {
         const float currentX = p->effectiveSurfaceX.load(
             std::memory_order_relaxed);
@@ -1129,17 +1130,19 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
             spanOutputs[ch] = output.data32[ch]
                 ? output.data32[ch] + surfaceOffset : nullptr;
         }
-        p->engine.process(spanOutputs.data(), outChannels, spanFrames);
+        renderedChannels = std::max(renderedChannels,
+            p->engine.processActiveChannels(
+                spanOutputs.data(), outChannels, spanFrames));
         surfaceOffset += spanFrames;
     }
     p->effectiveParams = p->engine.params();
-    s3g::clearAudioBufferFromChannel(output, outChannels, frames);
+    s3g::clearAudioBufferFromChannel(output, renderedChannels, frames);
 
 #if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     const bool guiIsVisible = p->guiVisible.load(std::memory_order_acquire);
     if (guiIsVisible && p->guiTelemetryCountdown <= frames) {
         float peak = 0.0f;
-        for (uint32_t ch = 0u; ch < outChannels; ++ch) {
+        for (uint32_t ch = 0u; ch < renderedChannels; ++ch) {
             if (!output.data32[ch]) continue;
             for (uint32_t frame = 0u; frame < frames; ++frame) {
                 peak = std::max(peak, std::fabs(output.data32[ch][frame]));

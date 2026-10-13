@@ -72,7 +72,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
-    bool portableGuiVisible = false;
+    std::atomic<bool> portableGuiVisible { false };
     const clap_host_params_t* monitorHostParams = nullptr;
     s3g::clap_gui::ParamEventQueue<1024> monitorGuiEvents {};
 #endif
@@ -88,11 +88,23 @@ struct Plugin {
     std::atomic<uint32_t> layout { static_cast<uint32_t>(MeterLayout::Auto) };
 #if defined(__APPLE__)
     void* guiView = nullptr;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
 #endif
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 
 uint32_t meterLayoutSpeakerCount(uint32_t layout)
 {
@@ -221,12 +233,40 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     const auto& output = proc->audio_outputs[0];
     const uint32_t frames = proc->frames_count;
     const uint32_t channels = std::min({ input.channel_count, output.channel_count, kChannelCount });
-    p->activeChannels.store(channels, std::memory_order_relaxed);
+    const bool captureTelemetry = editorVisible(*p);
+    if (captureTelemetry)
+        p->activeChannels.store(channels, std::memory_order_relaxed);
 
-    if (output.data32 || output.data64) {
-        s3g::clearAudioBufferFromChannel(output, 0, frames);
-    }
     if ((!input.data32 && !input.data64) || (!output.data32 && !output.data64) || channels == 0u) {
+        if (output.data32 || output.data64)
+            s3g::clearAudioBufferFromChannel(output, 0u, frames);
+        return CLAP_PROCESS_CONTINUE;
+    }
+
+    if (!captureTelemetry) {
+        for (uint32_t ch = 0u; ch < channels; ++ch) {
+            if (input.data32 && output.data32
+                && input.data32[ch] && output.data32[ch]) {
+                if (output.data32[ch] != input.data32[ch]) {
+                    std::memcpy(output.data32[ch], input.data32[ch],
+                        sizeof(float) * frames);
+                }
+            } else if (input.data64 && output.data64
+                && input.data64[ch] && output.data64[ch]) {
+                if (output.data64[ch] != input.data64[ch]) {
+                    std::memcpy(output.data64[ch], input.data64[ch],
+                        sizeof(double) * frames);
+                }
+            } else {
+                if (output.data32 && output.data32[ch])
+                    std::fill(output.data32[ch],
+                        output.data32[ch] + frames, 0.0f);
+                if (output.data64 && output.data64[ch])
+                    std::fill(output.data64[ch],
+                        output.data64[ch] + frames, 0.0);
+            }
+        }
+        s3g::clearAudioBufferFromChannel(output, channels, frames);
         return CLAP_PROCESS_CONTINUE;
     }
 
@@ -253,6 +293,13 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
                 peak = std::max(peak, a);
                 energy += sample * sample;
             }
+        } else {
+            if (output.data32 && output.data32[ch])
+                std::fill(output.data32[ch],
+                    output.data32[ch] + frames, 0.0f);
+            if (output.data64 && output.data64[ch])
+                std::fill(output.data64[ch],
+                    output.data64[ch] + frames, 0.0);
         }
         const float rms = frames > 0 ? static_cast<float>(std::sqrt(energy / static_cast<double>(frames))) : 0.0f;
         const float oldPeak = p->peak[ch].load(std::memory_order_relaxed);

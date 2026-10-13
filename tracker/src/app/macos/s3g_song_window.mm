@@ -685,6 +685,15 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         auto* owner = weakSelf;
         if (owner.loadProjectHandler) owner.loadProjectHandler();
     };
+    page->editor.callbacks.exportActivePatternMidi = [weakSelf] {
+        auto* owner = weakSelf;
+        if (owner.exportActivePatternMidiHandler)
+            owner.exportActivePatternMidiHandler();
+    };
+    page->editor.callbacks.exportSongMidi = [weakSelf] {
+        auto* owner = weakSelf;
+        if (owner.exportSongMidiHandler) owner.exportSongMidiHandler();
+    };
 #else
     [self buildInterface];
 #endif
@@ -990,15 +999,18 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
     _projectFileMenu.s3gUsesCanvasMenu = YES;
     _projectFileMenu.translatesAutoresizingMaskIntoConstraints = YES;
     [_projectFileMenu addItemsWithTitles:@[
-        @"SONG FILE", @"SAVE SONG + PATTERNS…", @"LOAD SONG + PATTERNS…"
+        @"SONG FILE", @"SAVE SONG + PATTERNS…", @"LOAD SONG + PATTERNS…",
+        @"EXPORT ACTIVE PATTERN MIDI…", @"EXPORT SONG MIDI…"
     ]];
     [_projectFileMenu itemAtIndex:1].tag = 1;
     [_projectFileMenu itemAtIndex:2].tag = 2;
+    [_projectFileMenu itemAtIndex:3].tag = 3;
+    [_projectFileMenu itemAtIndex:4].tag = 4;
     _projectFileMenu.target = self;
     _projectFileMenu.action = @selector(projectFileSelected:);
     _projectFileMenu.toolTip =
-        @"Save or load the Song arrangement and its complete pattern bank";
-    _projectFileMenu.accessibilityLabel = @"Song and pattern project file";
+        @"Save or load the Tracker project, or export Standard MIDI files";
+    _projectFileMenu.accessibilityLabel = @"Tracker project and MIDI files";
     [self.projectPanel addSubview:_projectFileMenu];
 
     [self layoutSongInterface];
@@ -1015,6 +1027,10 @@ NSInteger s3gClampInteger(NSInteger value, NSInteger low, NSInteger high)
         self.saveProjectHandler();
     } else if (action == 2 && self.loadProjectHandler) {
         self.loadProjectHandler();
+    } else if (action == 3 && self.exportActivePatternMidiHandler) {
+        self.exportActivePatternMidiHandler();
+    } else if (action == 4 && self.exportSongMidiHandler) {
+        self.exportSongMidiHandler();
     } else if (action != 0) {
         NSBeep();
     }

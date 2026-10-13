@@ -174,7 +174,9 @@ struct Plugin {
     std::array<float, kChannels> frameOut {};
     std::array<std::atomic<float>, kChannels> outputPeaks {};
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_UPMIX_GUI_VISIBLE_ATOMIC 1
 #include "../common/s3g_upmix_gui_members.inc"
+#undef S3G_UPMIX_GUI_VISIBLE_ATOMIC
 #endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -187,6 +189,18 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
 }
 
 uint32_t roundedUint(double value)
@@ -667,6 +681,7 @@ clap_process_status process(const clap_plugin_t* plugin,
         ? std::min<uint32_t>(input->channel_count, kChannels) : 0u;
     const uint32_t availableOutputs = std::min<uint32_t>(
         output.channel_count, kChannels);
+    const bool captureTelemetry = editorVisible(*instance);
     std::array<float, kChannels> blockPeaks {};
 
     for (uint32_t frame = 0u; frame < processContext->frames_count; ++frame) {
@@ -678,18 +693,22 @@ clap_process_status process(const clap_plugin_t* plugin,
         for (uint32_t channel = 0u; channel < availableOutputs; ++channel) {
             const float value = instance->frameOut[channel];
             writeSample(output, channel, frame, value);
-            blockPeaks[channel] = std::max(blockPeaks[channel], std::abs(value));
+            if (captureTelemetry)
+                blockPeaks[channel] = std::max(
+                    blockPeaks[channel], std::abs(value));
         }
         for (uint32_t channel = availableOutputs;
              channel < output.channel_count; ++channel)
             writeSample(output, channel, frame, 0.0f);
     }
-    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
-        const float previous = instance->outputPeaks[channel].load(
-            std::memory_order_relaxed);
-        instance->outputPeaks[channel].store(
-            std::max(previous * 0.90f, blockPeaks[channel]),
-            std::memory_order_relaxed);
+    if (captureTelemetry) {
+        for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+            const float previous = instance->outputPeaks[channel].load(
+                std::memory_order_relaxed);
+            instance->outputPeaks[channel].store(
+                std::max(previous * 0.90f, blockPeaks[channel]),
+                std::memory_order_relaxed);
+        }
     }
     return CLAP_PROCESS_CONTINUE;
 }

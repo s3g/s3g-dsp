@@ -2,9 +2,7 @@
 #include "s3g/tracker/clap_document_controller.h"
 #include "s3g/tracker/editor_state.h"
 #include <limits>
-#ifdef _WIN32
 #include <memory>
-#endif
 #include <new>
 #include <utility>
 
@@ -12,43 +10,17 @@ namespace s3g::tracker::midi {
 
 using app::TrackerViewState;
 
-ProjectDocument makeInitialDocument()
+void initializeInitialDocument(ProjectDocument& document)
 {
-#ifdef _WIN32
-    // This temporary editor state is large. Hosts can create an instance on
-    // an already nested main-thread stack (for example during project recall).
-    // Keep factory setup off that stack; this never runs in the audio callback.
+    // This temporary editor state is large. Some hosts instantiate CLAPs from
+    // a small audio-worker stack (including Max for Live during device load).
+    // Keep factory setup off that stack on every platform.
     auto stateStorage = std::make_unique<TrackerViewState>();
     auto& state = *stateStorage;
-#else
-    TrackerViewState state;
-#endif
-    // Fresh instances open on one plain Superior Drummer bar. Keep this
-    // factory pattern intentionally legible; the richer `demo` command
-    // remains available from the Console when a user wants it.
-    (void)CommandEngine::execute(state.session, "kit superior basic");
-    state.session.pattern.tracks.resize(4u);
-    state.session.laneDefaultNotes.resize(4u);
-    for (auto alias = state.session.aliases.begin();
-         alias != state.session.aliases.end();) {
-        if (alias->second >= 4u) alias = state.session.aliases.erase(alias);
-        else ++alias;
-    }
-    state.session.aliases["t"] = 2u;
-    state.session.aliases["tom"] = 2u;
-    state.session.pattern.name = "FOUR ON THE FLOOR";
-    state.session.pattern.tracks[0u].name = "Kick";
-    state.session.pattern.tracks[1u].name = "Snare";
-    state.session.pattern.tracks[2u].name = "Tom";
-    state.session.pattern.tracks[3u].name = "Hat";
-    (void)CommandEngine::execute(
-        state.session, "mask 1 x---x---x---x---");
-    (void)CommandEngine::execute(
-        state.session, "mask 2 ----x-------x---");
-    (void)CommandEngine::execute(
-        state.session, "mask 3 --------------xx");
-    (void)CommandEngine::execute(
-        state.session, "mask 4 x-x-x-x-x-x-x-x-");
+    // Fresh instances open on one plain Superior Drummer bar. Use the same
+    // kit/mask primitives as the Console without its transactional copies;
+    // the richer `demo` command remains available to the user.
+    configureInitialFourOnFloorSession(state.session);
     state.patternBank = s3g::tracker::makeDefaultPatternBank();
     (void)syncSessionToActivePattern(state);
     state.session.transport.sampleRate = 48000.0;
@@ -58,7 +30,6 @@ ProjectDocument makeInitialDocument()
     state.session.gateMilliseconds = 90.0;
     state.instrumentRack.midiRoutes[0u].channel = 1u;
 
-    ProjectDocument document;
     document.patternBank = state.patternBank;
     document.burstBanks[0u].library = state.session.burstLibrary;
     document.transport = state.session.transport;
@@ -78,7 +49,6 @@ ProjectDocument makeInitialDocument()
     document.song.rows.push_back(row);
     document.song.rows.push_back(row);
     normalizeMidiOnlyDocument(document);
-    return document;
 }
 
 void captureMidiStep(Engine& plugin, const MidiMessage& event,
@@ -1026,7 +996,10 @@ void renderSegment(Engine& plugin, const MidiOutput* output,
 }
 
 
-Engine::Engine() : document(makeInitialDocument()) {}
+Engine::Engine()
+{
+    initializeInitialDocument(document);
+}
 
 Engine::~Engine()
 {

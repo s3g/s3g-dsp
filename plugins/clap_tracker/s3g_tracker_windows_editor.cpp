@@ -205,7 +205,8 @@ struct WindowsTrackerEditor::Impl : IKeyboardHook {
             const std::string& extension,const std::string& name) {
             f::FileDialogOptions options;
             options.save=save; options.title=title; options.extension=extension;
-            options.extensionDescription=extension=="s3gt" ? "Tracker Song + Patterns" : "Tracker Phrase + Burst Pack";
+            options.extensionDescription=extension=="s3gt" ? "Tracker Song + Patterns"
+                : extension=="mid" ? "Standard MIDI File" : "Tracker Phrase + Burst Pack";
             options.defaultSaveName=name;
             return f::runFileDialog(activeFrame(), options);
         };

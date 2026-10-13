@@ -82,7 +82,9 @@ struct Plugin {
     s3g::ArrayCalibrateParams params {};
     std::atomic<float> outputPeak { 0.0f };
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+#define S3G_ROUTING_GUI_VISIBLE_ATOMIC 1
 #include "../common/s3g_routing_parameter_members.inc"
+#undef S3G_ROUTING_GUI_VISIBLE_ATOMIC
 #endif
 #if defined(__APPLE__)
     void* guiView = nullptr;
@@ -100,6 +102,18 @@ void destroyPortableGui(Plugin&);
 #endif
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
+}
 
 #if defined(__APPLE__)
 void guiDestroy(const clap_plugin_t* plugin);
@@ -259,7 +273,6 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
         if (output.data32) s3g::clearAudioBufferFromChannel(output, 0u, frames);
         return CLAP_PROCESS_CONTINUE;
     }
-    p->calibrate.setParams(p->params);
 #if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
     {
         const s3g::clap_detail::ScopedWindowsProcessorFloatMode floatMode;
@@ -269,13 +282,13 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
 #if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
     }
 #endif
-    s3g::clearAudioBufferFromChannel(output,
-        std::min<uint32_t>(outChannels, p->params.activeChannels), frames);
-    const float peak = peakForChannels(output.data32,
-        std::min<uint32_t>(outChannels, p->params.activeChannels), frames);
-    p->outputPeak.store(std::max(
-        p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
-        std::memory_order_relaxed);
+    if (editorVisible(*p)) {
+        const float peak = peakForChannels(output.data32,
+            std::min<uint32_t>(outChannels, p->params.activeChannels), frames);
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
+            std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 

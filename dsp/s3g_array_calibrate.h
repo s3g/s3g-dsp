@@ -106,15 +106,18 @@ private:
     void processChunk(const float* const* in, float* const* out,
         uint32_t channels, uint32_t frames)
     {
-        hpf_.processBlock(in, hpfPointers_.data(), channels, channels, frames);
+        hpf_.processBlock(in, hpfPointers_.data(), channels, channels,
+            frames, false);
         std::array<const float*, kArrayCalibrateMaxChannels> hpfInput {};
         std::array<const float*, kArrayCalibrateMaxChannels> delayInput {};
         for (uint32_t ch = 0; ch < channels; ++ch) {
             hpfInput[ch] = hpfPointers_[ch];
             delayInput[ch] = delayPointers_[ch];
         }
-        delay_.processBlock(hpfInput.data(), delayPointers_.data(), channels, channels, frames);
-        trim_.processBlock(delayInput.data(), out, channels, channels, frames);
+        delay_.processBlock(hpfInput.data(), delayPointers_.data(), channels,
+            channels, frames, false);
+        trim_.processBlock(delayInput.data(), out, channels, channels,
+            frames, false);
     }
 
     void syncStages()

@@ -235,7 +235,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
-    bool portableGuiVisible = false;
+    std::atomic<bool> portableGuiVisible { false };
     int guiLandscapePage = 0, guiProcessPage = 0;
     std::atomic<bool> active{false};
     std::atomic<bool> pendingMapRescan{false};
@@ -256,6 +256,7 @@ struct Plugin {
     s3g::clap_gui::ParamEventQueue<> guiParamEvents {};
     std::atomic<bool> layoutResetPending { false };
     std::atomic<float> outputPeak { 0.0f };
+    uint32_t guiTelemetryCountdown = 0u;
     std::array<std::vector<float>, kInputChannels> inputScratch {};
     std::array<float, kInputChannels> lastInput {};
     std::array<float, kInputChannels> inputCorrection {};
@@ -284,7 +285,7 @@ struct Plugin {
 #if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     int guiLandscapePage = 0;
     int guiProcessPage = 0;
 #endif
@@ -293,6 +294,17 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool guiTelemetryVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    return false;
+#endif
 }
 
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
@@ -1111,12 +1123,28 @@ clap_process_status process(const clap_plugin_t* plugin,
     }
     instance->params = instance->encoder.params();
     s3g::clearAudioBufferFromChannel(output, outputCount, frames);
-#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
-    publishMapSnapshot(*instance);
+    bool publishGuiTelemetry = false;
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (guiTelemetryVisible(*instance)) {
+        if (instance->guiTelemetryCountdown <= frames) {
+            publishGuiTelemetry = true;
+            instance->guiTelemetryCountdown = std::max<uint32_t>(
+                1u, static_cast<uint32_t>(instance->sampleRate / 30.0));
+        } else {
+            instance->guiTelemetryCountdown -= frames;
+        }
+    } else {
+        instance->guiTelemetryCountdown = 0u;
+    }
 #endif
-    instance->outputPeak.store(std::max(
-        instance->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
-        std::memory_order_relaxed);
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (publishGuiTelemetry) publishMapSnapshot(*instance);
+#endif
+    if (publishGuiTelemetry) {
+        instance->outputPeak.store(std::max(
+            instance->outputPeak.load(std::memory_order_relaxed) * 0.90f, peak),
+            std::memory_order_relaxed);
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -2066,7 +2094,8 @@ NSRect landscapePageButtonRect(uint32_t index)
 - (void)timerTick:(NSTimer*)timer
 {
     (void)timer;
-    if (![self isHidden] && _plugin && _plugin->guiVisible
+    if (![self isHidden] && _plugin
+        && _plugin->guiVisible.load(std::memory_order_relaxed)
         && s3g::clap_support::hostAppIsActive()) {
         if (_viewRevision != _plugin->guiViewRevision.load(
                 std::memory_order_acquire)) {

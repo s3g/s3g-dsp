@@ -414,6 +414,7 @@ public:
         topologyFade_ = 1.0f;
         filterCoefficientCountdown_ = 0u;
         nodeLevel_.fill(0.0f);
+        outputPeak_ = 0.0f;
     }
 
     void setParams(AmbiEffectDjFilterParams params)
@@ -484,6 +485,8 @@ public:
     }
 
     float roamingPhase() const { return roamingPhase_; }
+    float outputPeak() const { return outputPeak_; }
+    bool matrixTransitionActive() const { return matrixSmoothingActive_; }
 
     // Shared spatial operations for Ambi Effects whose signal engine lives
     // outside this class. These use the same order-adaptive Listener body and
@@ -548,6 +551,7 @@ public:
         uint32_t inputChannels, uint32_t outputChannels,
         uint32_t frames)
     {
+        outputPeak_ = 0.0f;
         if (!output) return;
         const uint32_t inCount = std::min<uint32_t>(
             inputChannels, kAmbiEffectDjFilterMaxChannels);
@@ -696,9 +700,11 @@ public:
                 const float dry = frame[ch] * currentChannelGain_[ch];
                 const float value = (dry + correction * currentMix_)
                     * currentOutputGain_;
+                const float finiteValue = flushDenormal(
+                    std::isfinite(value) ? value : 0.0f);
+                outputPeak_ = std::max(outputPeak_, std::fabs(finiteValue));
                 if (output[ch]) {
-                    output[ch][sample] = static_cast<Sample>(
-                        flushDenormal(std::isfinite(value) ? value : 0.0f));
+                    output[ch][sample] = static_cast<Sample>(finiteValue);
                 }
             }
             for (uint32_t ch = correctionChannels;
@@ -1115,29 +1121,31 @@ private:
     {
         if (!matrixSmoothingActive_) return;
         float maximumDelta = 0.0f;
+        const auto smoothValue = [this, &maximumDelta](
+            float& current, float target) {
+            const float delta = target - current;
+            const float next = current + delta * matrixCoefficient_;
+            // A one-pole update can stop advancing at float precision while
+            // its residual is still above the transition's snap threshold.
+            // Finish that coefficient exactly instead of leaving the costly
+            // full-channel transition path active forever.
+            current = next == current ? target : next;
+            maximumDelta = std::max(
+                maximumDelta, std::fabs(target - current));
+        };
         for (uint32_t node = 0u;
             node < kAmbiEffectDjFilterMaxPickups; ++node) {
             for (uint32_t ch = 0u;
                 ch < kAmbiEffectDjFilterMaxChannels; ++ch) {
-                const float decodeDelta = targetDecode_[node][ch]
-                    - currentDecode_[node][ch];
-                const float encodeDelta = targetEncode_[ch][node]
-                    - currentEncode_[ch][node];
-                maximumDelta = std::max(maximumDelta,
-                    std::max(std::fabs(decodeDelta),
-                        std::fabs(encodeDelta)));
-                currentDecode_[node][ch] += decodeDelta
-                    * matrixCoefficient_;
-                currentEncode_[ch][node] += encodeDelta
-                    * matrixCoefficient_;
+                smoothValue(currentDecode_[node][ch],
+                    targetDecode_[node][ch]);
+                smoothValue(currentEncode_[ch][node],
+                    targetEncode_[ch][node]);
             }
         }
         for (uint32_t ch = 0u;
             ch < kAmbiEffectDjFilterMaxChannels; ++ch) {
-            const float delta = targetChannelGain_[ch]
-                - currentChannelGain_[ch];
-            maximumDelta = std::max(maximumDelta, std::fabs(delta));
-            currentChannelGain_[ch] += delta * matrixCoefficient_;
+            smoothValue(currentChannelGain_[ch], targetChannelGain_[ch]);
         }
         if (maximumDelta < 1.0e-5f) {
             snapMatrixTargets();
@@ -1490,6 +1498,7 @@ private:
     std::array<SvfCoefficients,
         kAmbiEffectDjFilterMaxPickups> highPassDamping_ {};
     std::array<float, kAmbiEffectDjFilterMaxPickups> nodeLevel_ {};
+    float outputPeak_ = 0.0f;
     std::array<float,
         kAmbiEffectDjFilterMaxPickups> targetPickupFilterTrim_ {};
     std::array<float,

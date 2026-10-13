@@ -82,6 +82,11 @@ public:
     float nodeLevel(uint32_t node) const { return core_.nodeLevel(node); }
     float nodeWetMask(uint32_t node) const { return core_.nodeWetMask(node); }
     float roamingPhase() const { return core_.roamingPhase(); }
+    float outputPeak() const { return core_.outputPeak(); }
+    bool matrixTransitionActive() const
+    {
+        return core_.matrixTransitionActive();
+    }
 
     template <typename Sample>
     void process(Sample** input, Sample** output, uint32_t inputChannels,

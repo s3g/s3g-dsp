@@ -640,27 +640,23 @@ clap_process_status processTyped(Plugin& plugin,
     const clap_audio_buffer_t& output,
     uint32_t frames, Sample** in, Sample** out)
 {
-    s3g::clearAudioBuffer(output, frames);
-    if (!in || !out) return CLAP_PROCESS_CONTINUE;
+    if (!in || !out) {
+        s3g::clearAudioBuffer(output, frames);
+        return CLAP_PROCESS_CONTINUE;
+    }
     const uint32_t inChannels = std::min<uint32_t>(
         input.channel_count, kChannels);
     const uint32_t outChannels = std::min<uint32_t>(
         output.channel_count, kChannels);
     if (inChannels == 0u || outChannels == 0u) {
+        s3g::clearAudioBuffer(output, frames);
         return CLAP_PROCESS_CONTINUE;
     }
     plugin.processor.process(in, out, inChannels, outChannels, frames);
 
-    float peak = 0.0f;
-    for (uint32_t ch = 0u; ch < outChannels; ++ch) {
-        if (!out[ch]) continue;
-        for (uint32_t frame = 0u; frame < frames; ++frame) {
-            peak = std::max(peak,
-                static_cast<float>(std::fabs(out[ch][frame])));
-        }
-    }
     const float previous = plugin.outputPeak.load(std::memory_order_relaxed);
-    plugin.outputPeak.store(std::max(previous * 0.90f, peak),
+    plugin.outputPeak.store(
+        std::max(previous * 0.90f, plugin.processor.outputPeak()),
         std::memory_order_relaxed);
     for (uint32_t node = 0u;
         node < s3g::kAmbiEffectDjFilterMaxPickups; ++node) {

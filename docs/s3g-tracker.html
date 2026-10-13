@@ -244,7 +244,11 @@
         <p>Edits to a playing arrangement are published at safe Song boundaries rather than partially changing the active row. In a final non-looping row with no future boundary, an edit can be saved immediately while its playback update waits until the host stops. Song LOOP repeats the arrangement; it is separate from a row's LOOP IN–OUT and Tracker's pattern-loop controls.</p>
 
         <h2 id="project-files">Project Files and Asset Banks</h2>
-        <p>Saving the REAPER project stores Tracker's composition in the plug-in state. For a separate transferable file, open Song's <code>SONG FILE</code> menu and choose <code>SAVE SONG + PATTERNS…</code> or <code>LOAD SONG + PATTERNS…</code>. A <code>.s3gt</code> file holds the full MIDI composition, not just the visible Song row.</p>
+        <p>Saving the REAPER project stores Tracker's composition in the plug-in state. For a separate transferable editable file, open Song's <code>SONG FILE</code> menu and choose <code>SAVE SONG + PATTERNS…</code> or <code>LOAD SONG + PATTERNS…</code>. A <code>.s3gt</code> file holds the full MIDI composition, not just the visible Song row.</p>
+
+        <p>The same menu can export either the active Pattern or the complete Song as a Standard MIDI File type 1 (<code>.mid</code>). The file contains a tempo track and one MIDI track per Tracker lane. Tracker renders the saved playback seed through its normal scheduler, so probability, conditions, Energy, ratchets, Bursts, polymetric columns, swing, timing warps, microtiming, gates, MIDI CC and Song tempo changes become concrete MIDI events. Pattern export renders one complete longest-column span. Song export renders one finite pass even when <code>LOOP SONG</code> is enabled. The current REAPER tempo is used as the base tempo when available, with Tracker's tempo scale and Song row multipliers applied.</p>
+
+        <p>MIDI export is a performance snapshot, not a second editable Tracker project: the resulting notes and controller events preserve the rendered sequence, but they cannot retain the original generative rules or independent column definitions. Keep the <code>.s3gt</code> alongside the <code>.mid</code> when future Tracker editing matters.</p>
         <ul>
           <li>Pattern bank, per-lane MIDI channels, note/value/SEQ/gate cells, column cycles, and aliases.</li>
           <li>Song arrangement, loops, row timing/mutes/energy, transport settings, and named timing warps.</li>
@@ -430,7 +434,7 @@ view resume</code></pre>
           <li>REAPER owns tempo, transport, devices, receiving instruments, audio effects, and mixing.</li>
           <li>One CLAP MIDI output with channels 1–16 and one authoring-only MIDI step-record input; every tracker lane owns its output-channel assignment.</li>
           <li>Up to 32 pattern lanes, 256 visible Tracker rows, eight NOTE voices per cell, eight events per Burst, and 2–64 rows per Phrase.</li>
-          <li>No MIDI-file import, instrument sample storage, standalone application, or accepted Windows release in this milestone.</li>
+          <li>Standard MIDI File export is available; MIDI-file import, instrument sample storage, a standalone application, and an accepted Windows release are not part of this milestone.</li>
           <li>Project state uses the current native tracker schema and does not import Max tracker files or abandoned standalone formats.</li>
         </ul>
 

@@ -50,6 +50,28 @@ int main()
             && loadTrackerAssetPack(packPath.u8string(), restored).ok()
             && restored.name == pack.name, "pack replacement");
 
+    const auto midiPath = folder / fs::u8path(u8"演奏 🎹.mid");
+    StandardMidiFileOptions midiOptions;
+    StandardMidiFileSummary midiSummary;
+    check(saveStandardMidiFileAtomically(project, midiOptions,
+            midiPath.u8string(), &midiSummary).ok(),
+        "Unicode Standard MIDI File save");
+    std::ifstream midiFile(midiPath, std::ios::binary);
+    std::string midiHeader(4u, '\0');
+    midiFile.read(midiHeader.data(), 4);
+    check(midiHeader == "MThd" && midiSummary.laneTrackCount == 0u,
+        "saved Standard MIDI File is complete");
+    midiOptions.scope = StandardMidiFileScope::Song;
+    midiSummary.laneTrackCount = 999u;
+    check(!saveStandardMidiFileAtomically(project, midiOptions,
+            midiPath.u8string(), &midiSummary).ok()
+            && midiSummary.laneTrackCount == 999u,
+        "failed MIDI render does not publish a replacement");
+    midiFile = std::ifstream(midiPath, std::ios::binary);
+    midiFile.read(midiHeader.data(), 4);
+    check(midiHeader == "MThd",
+        "failed MIDI render preserves the previous file");
+
     const auto blocked = folder / "directory.s3gt";
     fs::create_directory(blocked);
     std::ofstream(blocked / "keep.txt") << "do not change";

@@ -6,7 +6,9 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -22,7 +24,7 @@ float runProcessor(Processor& processor, bool impulse,
     std::array<float*, kChannels> out {};
     for (uint32_t channel = 0u; channel < kChannels; ++channel) {
         input[channel].fill(0.0f);
-        output[channel].fill(0.0f);
+        output[channel].fill(std::numeric_limits<float>::quiet_NaN());
         in[channel] = input[channel].data();
         out[channel] = output[channel].data();
     }
@@ -50,6 +52,12 @@ float runProcessor(Processor& processor, bool impulse,
 
 int main()
 {
+    const auto require = [](bool condition, const char* message) {
+        if (condition) return;
+        std::cerr << "ambi effect pitch/gain smoke failed: "
+                  << message << '\n';
+        std::exit(1);
+    };
     assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Auto, 1u)
         == s3g::AmbiEffectBody::Icosa12);
     assert(s3g::resolveAmbiEffectBody(s3g::AmbiEffectBody::Auto, 3u)
@@ -92,6 +100,8 @@ int main()
         pitch, true, input, output);
     assert(std::fabs(output[0][0] - 0.5f) < 0.00001f);
     assert(pitchNeutral > 0.24f && pitchNeutral < 0.26f);
+    require(pitch.outputPeak() > 0.49f && pitch.outputPeak() < 0.51f,
+        "pitch peak was not fused into processing");
     assert(pitch.activePickupCount() == 20u);
 
     pitchParams.semitones = 7.0f;
@@ -114,6 +124,8 @@ int main()
     const float gainNeutral = runProcessor(gain, true, input, output);
     assert(std::fabs(output[0][0] - 0.5f) < 0.00001f);
     assert(gainNeutral > 0.24f && gainNeutral < 0.26f);
+    require(gain.outputPeak() > 0.49f && gain.outputPeak() < 0.51f,
+        "gain peak was not fused into processing");
     assert(gain.activePickupCount() == 12u);
 
     gainParams.order = 7u;
@@ -128,6 +140,99 @@ int main()
     const float gainField = runProcessor(gain, false, input, output);
     assert(gainField > 0.00001f);
     assert(gain.activePickupCount() == 20u);
+
+    // An order change crossfades the decoder/encoder matrices. Once that
+    // transition has converged, channels above the new order must snap to
+    // exact silence instead of keeping the expensive 64-channel transition
+    // path alive indefinitely at float precision.
+    s3g::AmbiEffectGain orderTransitionGain;
+    s3g::AmbiEffectGainParams orderTransitionParams {};
+    orderTransitionParams.order = 7u;
+    orderTransitionParams.gainDb = -6.0f;
+    orderTransitionGain.setParams(orderTransitionParams);
+    constexpr uint32_t kTransitionFrames = 512u;
+    orderTransitionGain.prepare(44100.0);
+    orderTransitionGain.reset();
+    std::array<float*, kChannels> transitionInput {};
+    std::array<float*, kChannels> transitionOutput {};
+    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+        for (uint32_t frame = 0u; frame < kFrames; ++frame) {
+            input[channel][frame] = channel == 0u
+                ? 0.15f * std::sin(static_cast<float>(frame) * 0.071f)
+                : channel == 1u
+                    ? 0.08f * std::cos(static_cast<float>(frame) * 0.037f)
+                    : channel == 40u ? 0.25f : 0.0f;
+        }
+        output[channel].fill(std::numeric_limits<float>::quiet_NaN());
+        transitionInput[channel] = input[channel].data();
+        transitionOutput[channel] = output[channel].data();
+    }
+    orderTransitionParams.order = 5u;
+    orderTransitionGain.setParams(orderTransitionParams);
+    for (uint32_t block = 0u; block < 128u; ++block) {
+        orderTransitionGain.process(transitionInput.data(),
+            transitionOutput.data(), kChannels, kChannels,
+            kTransitionFrames);
+    }
+    require(output[40][kTransitionFrames - 1u] == 0.0f,
+        "7OA to 5OA did not silence channels above the new order");
+    require(!orderTransitionGain.matrixTransitionActive(),
+        "7OA to 5OA matrix transition did not converge");
+
+    s3g::AmbiEffectGain orderReferenceGain;
+    orderReferenceGain.setParams(orderTransitionParams);
+    orderReferenceGain.prepare(44100.0);
+    orderReferenceGain.reset();
+    std::array<std::array<float, kFrames>, kChannels> referenceOutput {};
+    std::array<float*, kChannels> referenceOutputPointers {};
+    for (uint32_t channel = 0u; channel < kChannels; ++channel)
+        referenceOutputPointers[channel] = referenceOutput[channel].data();
+    orderReferenceGain.process(transitionInput.data(),
+        referenceOutputPointers.data(), kChannels, kChannels,
+        kTransitionFrames);
+    float settledOrderDifference = 0.0f;
+    for (uint32_t channel = 0u; channel < 36u; ++channel) {
+        for (uint32_t frame = 0u; frame < kTransitionFrames; ++frame) {
+            settledOrderDifference = std::max(settledOrderDifference,
+                std::fabs(output[channel][frame]
+                    - referenceOutput[channel][frame]));
+        }
+    }
+    require(settledOrderDifference < 1.0e-7f,
+        "settled 5OA output differs from a fresh 5OA processor");
+
+    s3g::AmbiEffectGain reverseOrderTransitionGain;
+    orderTransitionParams.order = 5u;
+    reverseOrderTransitionGain.setParams(orderTransitionParams);
+    reverseOrderTransitionGain.prepare(44100.0);
+    reverseOrderTransitionGain.reset();
+    orderTransitionParams.order = 7u;
+    reverseOrderTransitionGain.setParams(orderTransitionParams);
+    for (uint32_t block = 0u; block < 128u; ++block) {
+        reverseOrderTransitionGain.process(transitionInput.data(),
+            transitionOutput.data(), kChannels, kChannels,
+            kTransitionFrames);
+    }
+    require(!reverseOrderTransitionGain.matrixTransitionActive(),
+        "5OA to 7OA matrix transition did not converge");
+    s3g::AmbiEffectGain reverseOrderReferenceGain;
+    reverseOrderReferenceGain.setParams(orderTransitionParams);
+    reverseOrderReferenceGain.prepare(44100.0);
+    reverseOrderReferenceGain.reset();
+    reverseOrderReferenceGain.process(transitionInput.data(),
+        referenceOutputPointers.data(), kChannels, kChannels,
+        kTransitionFrames);
+    float settledReverseOrderDifference = 0.0f;
+    for (uint32_t channel = 0u; channel < kChannels; ++channel) {
+        for (uint32_t frame = 0u; frame < kTransitionFrames; ++frame) {
+            settledReverseOrderDifference = std::max(
+                settledReverseOrderDifference,
+                std::fabs(output[channel][frame]
+                    - referenceOutput[channel][frame]));
+        }
+    }
+    require(settledReverseOrderDifference < 1.0e-7f,
+        "settled 7OA output differs from a fresh 7OA processor");
 
     std::cout << "ambi effect pitch/gain smoke ok\n";
     return 0;

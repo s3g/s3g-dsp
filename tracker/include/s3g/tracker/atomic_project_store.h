@@ -2,6 +2,7 @@
 
 #include "s3g/tracker/project_codec.h"
 #include "s3g/tracker/asset_pack.h"
+#include "s3g/tracker/standard_midi_file.h"
 
 #include <string_view>
 
@@ -24,5 +25,8 @@ ProjectResult saveTrackerAssetPackAtomically(
     const TrackerAssetPack& pack, std::string_view path);
 ProjectResult loadTrackerAssetPack(std::string_view path,
     TrackerAssetPack& destination);
+ProjectResult saveStandardMidiFileAtomically(
+    const ProjectDocument& document, const StandardMidiFileOptions& options,
+    std::string_view path, StandardMidiFileSummary* summary = nullptr);
 
 } // namespace s3g::tracker

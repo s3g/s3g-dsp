@@ -112,7 +112,8 @@ and local installation.
   multichannel workflow tools
 - [`s3g-max`](https://github.com/s3g/s3g-max): Max/MSP externals and packages
 - [`s3g-clap-max`](https://github.com/s3g/s3g-clap-max): a Max object for using
-  the CLAP plugins in `s3g-dsp` with Max
+  the CLAP plugins in `s3g-dsp` with Max and dedicated Max for Live devices;
+  see the [Ableton Live setup guide](https://s3g.github.io/s3g-dsp/ableton-live.html)
 - [`s3g-rnbo-clap`](https://github.com/s3g/s3g-rnbo-clap): CLAP wrappers for
   RNBO-generated DSP
 

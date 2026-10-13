@@ -951,7 +951,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor=nullptr;
     uint32_t portableGuiWidth=kGuiWidth,portableGuiHeight=kGuiHeight;
-    bool portableGuiVisible=false;
+    std::atomic<bool> portableGuiVisible { false };
 #endif
     clap_plugin_t plugin {};
     const clap_host_t* host = nullptr;
@@ -1058,7 +1058,7 @@ struct Plugin {
     } nrpn {};
 #if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
     s3g::clap_gui::ResponsiveViewport guiViewport {};
 #endif
 };
@@ -1076,6 +1076,18 @@ const s3g::NoInputMixer& controlMixer(const Plugin& plugin)
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool editorVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    (void)plugin;
+    return false;
+#endif
 }
 
 void clearMidiMatrixGrid(Plugin& plugin)
@@ -3304,6 +3316,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     }
     const uint32_t writableChannels = std::min<uint32_t>(
         output.channel_count, kChannelCount);
+    const bool captureTelemetry = editorVisible(*p);
     std::array<float, kChannelCount> blockPeaks {};
     std::array<float, kChannelCount> renderedFrame {};
     float blockPeak = 0.0f;
@@ -3311,7 +3324,7 @@ clap_process_status process(const clap_plugin_t* plugin,
     for (uint32_t frame = 0u; frame < process->frames_count; ++frame) {
         applyEventsThrough(frame);
         p->mixer.processFrame(p->frame.data());
-        if (p->routeScopeCountdown == 0u) {
+        if (captureTelemetry && p->routeScopeCountdown == 0u) {
             const uint64_t sequence = p->routeScopeSequence.load(
                 std::memory_order_relaxed);
             const uint32_t slot = static_cast<uint32_t>(
@@ -3325,12 +3338,14 @@ clap_process_status process(const clap_plugin_t* plugin,
             p->routeScopeSequence.store(sequence + 1u,
                 std::memory_order_release);
             p->routeScopeCountdown = p->routeScopeDecimation - 1u;
-        } else {
+        } else if (captureTelemetry) {
             --p->routeScopeCountdown;
         }
-        for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
-            blockPeaks[lane] = std::max(blockPeaks[lane],
-                std::abs(p->frame[lane]));
+        if (captureTelemetry) {
+            for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
+                blockPeaks[lane] = std::max(blockPeaks[lane],
+                    std::abs(p->frame[lane]));
+            }
         }
         p->outputMixdown.configure(s3g::sanitizeRingOutputFormat(
             p->outputFormat.load(std::memory_order_relaxed)),
@@ -3345,7 +3360,8 @@ clap_process_status process(const clap_plugin_t* plugin,
             if (output.data64 && output.data64[lane]) {
                 output.data64[lane][frame] = static_cast<double>(value);
             }
-            blockPeak = std::max(blockPeak, std::abs(value));
+            if (captureTelemetry)
+                blockPeak = std::max(blockPeak, std::abs(value));
         }
         for (uint32_t lane = writableChannels;
              lane < output.channel_count; ++lane) {
@@ -3358,37 +3374,40 @@ clap_process_status process(const clap_plugin_t* plugin,
         }
     }
 
-    p->outputPeak.store(std::max(
-        p->outputPeak.load(std::memory_order_relaxed) * 0.90f, blockPeak),
-        std::memory_order_relaxed);
-    const auto& meterMixer = controlMixer(*p);
-    for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
-        p->lanePeaks[lane].store(std::max(
-            p->lanePeaks[lane].load(std::memory_order_relaxed) * 0.90f,
-            blockPeaks[lane]), std::memory_order_relaxed);
-        p->laneActivity[lane].store(meterMixer.laneActivity(lane),
+    if (captureTelemetry) {
+        p->outputPeak.store(std::max(
+            p->outputPeak.load(std::memory_order_relaxed) * 0.90f,
+            blockPeak), std::memory_order_relaxed);
+        const auto& meterMixer = controlMixer(*p);
+        for (uint32_t lane = 0u; lane < kChannelCount; ++lane) {
+            p->lanePeaks[lane].store(std::max(
+                p->lanePeaks[lane].load(std::memory_order_relaxed) * 0.90f,
+                blockPeaks[lane]), std::memory_order_relaxed);
+            p->laneActivity[lane].store(meterMixer.laneActivity(lane),
+                std::memory_order_relaxed);
+        }
+        p->networkActivity.store(meterMixer.networkActivity(),
+            std::memory_order_relaxed);
+        p->motionPhase.store(meterMixer.motionPhase(),
+            std::memory_order_relaxed);
+        for (uint32_t route = 0u;
+             route < s3g::kNoInputMixerMatrixCells; ++route) {
+            p->behaviorRouteGate[route].store(
+                meterMixer.behaviorRouteGate(route),
+                std::memory_order_relaxed);
+            p->reactRouteGate[route].store(
+                meterMixer.reactRouteGate(route), std::memory_order_relaxed);
+        }
+        for (uint32_t bus = 0u; bus < 2u; ++bus) {
+            p->auxActivity[bus].store(meterMixer.auxActivity(bus),
+                std::memory_order_relaxed);
+        }
+        p->minimumGovernor.store(p->mixer.minimumGovernor(),
+            std::memory_order_relaxed);
+        p->containmentState.store(
+            static_cast<uint32_t>(p->mixer.containmentState()),
             std::memory_order_relaxed);
     }
-    p->networkActivity.store(meterMixer.networkActivity(),
-        std::memory_order_relaxed);
-    p->motionPhase.store(meterMixer.motionPhase(),
-        std::memory_order_relaxed);
-    for (uint32_t route = 0u;
-         route < s3g::kNoInputMixerMatrixCells; ++route) {
-        p->behaviorRouteGate[route].store(
-            meterMixer.behaviorRouteGate(route), std::memory_order_relaxed);
-        p->reactRouteGate[route].store(
-            meterMixer.reactRouteGate(route), std::memory_order_relaxed);
-    }
-    for (uint32_t bus = 0u; bus < 2u; ++bus) {
-        p->auxActivity[bus].store(meterMixer.auxActivity(bus),
-            std::memory_order_relaxed);
-    }
-    p->minimumGovernor.store(p->mixer.minimumGovernor(),
-        std::memory_order_relaxed);
-    p->containmentState.store(
-        static_cast<uint32_t>(p->mixer.containmentState()),
-        std::memory_order_relaxed);
     refreshMidiMatrixOverlayState(*p);
     advanceMidiMatrixLatchCapture(*p, process->frames_count);
     emitNrpnFeedback(*p, process->out_events,

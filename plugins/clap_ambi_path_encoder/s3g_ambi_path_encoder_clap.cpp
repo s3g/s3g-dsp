@@ -88,14 +88,17 @@ struct Plugin {
 #if defined(__APPLE__) && !defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     void* guiView = nullptr;
     s3g::clap_gui::ResponsiveViewport guiViewport {};
-    bool guiVisible = false;
+    std::atomic<bool> guiVisible { false };
 #endif
+    uint32_t guiTelemetryCountdown = 0u;
     int guiViewMode = 0;
     double guiViewAzDeg = 90.0;
     double guiViewElDeg = 0.0;
     double guiViewZoom = 1.0;
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    #define S3G_DECODER_GUI_VISIBLE_ATOMIC 1
     #include "../common/s3g_decoder_gui_members.inc"
+    #undef S3G_DECODER_GUI_VISIBLE_ATOMIC
     std::array<std::atomic<double>,21> encoderValues{};
     EncoderPaths guiPaths{};
     s3g::clap_gui::CaptureSnapshot<PathEdit> pendingPaths;
@@ -138,6 +141,17 @@ constexpr ParamInfo kParams[] {
 };
 
 Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->plugin_data); }
+
+bool guiTelemetryVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    return false;
+#endif
+}
 
 const char* assignName(uint32_t index)
 {
@@ -357,17 +371,33 @@ clap_process_status process(const clap_plugin_t* plugin, const clap_process_t* p
     for (uint32_t ch = 0; ch < outChans; ++ch) outputs[ch] = proc->audio_outputs[0].data32 ? proc->audio_outputs[0].data32[ch] : nullptr;
 
     p->encoder.processBlock<float>(inputs, outputs, inChans, outChans, proc->frames_count);
+    bool publishGuiTelemetry = false;
+#if defined(__APPLE__) || defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    if (guiTelemetryVisible(*p)) {
+        if (p->guiTelemetryCountdown <= proc->frames_count) {
+            publishGuiTelemetry = true;
+            p->guiTelemetryCountdown = std::max<uint32_t>(
+                1u, static_cast<uint32_t>(p->sampleRate / 30.0));
+        } else {
+            p->guiTelemetryCountdown -= proc->frames_count;
+        }
+    } else {
+        p->guiTelemetryCountdown = 0u;
+    }
+#endif
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
-    publishEncoderDisplay(*p);
+    if (publishGuiTelemetry) publishEncoderDisplay(*p);
 #endif
 
-    float peak = 0.0f;
-    for (uint32_t ch = 0; ch < outChans; ++ch) {
-        if (!outputs[ch]) continue;
-        for (uint32_t i = 0; i < proc->frames_count; ++i) peak = std::max(peak, std::fabs(outputs[ch][i]));
+    if (publishGuiTelemetry) {
+        float peak = 0.0f;
+        for (uint32_t ch = 0; ch < outChans; ++ch) {
+            if (!outputs[ch]) continue;
+            for (uint32_t i = 0; i < proc->frames_count; ++i) peak = std::max(peak, std::fabs(outputs[ch][i]));
+        }
+        const float prev = p->outputPeak.load(std::memory_order_relaxed);
+        p->outputPeak.store(std::max(peak, prev * 0.90f), std::memory_order_relaxed);
     }
-    const float prev = p->outputPeak.load(std::memory_order_relaxed);
-    p->outputPeak.store(std::max(peak, prev * 0.90f), std::memory_order_relaxed);
     return CLAP_PROCESS_CONTINUE;
 }
 

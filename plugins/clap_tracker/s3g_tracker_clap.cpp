@@ -960,6 +960,8 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
 - (void)commitSongProjectEdit:(BOOL)dirty;
 - (void)presentSaveSongProject;
 - (void)presentLoadSongProject;
+- (void)presentExportStandardMidiFile:
+    (s3g::tracker::StandardMidiFileScope)scope;
 - (void)presentImportAssetPack;
 - (void)presentExportAssetPack:(const TrackerAssetPack&)pack;
 - (BOOL)installPatternVariation:
@@ -1616,6 +1618,14 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
     self.songWindow.loadProjectHandler = ^{
         [weakSelf presentLoadSongProject];
     };
+    self.songWindow.exportActivePatternMidiHandler = ^{
+        [weakSelf presentExportStandardMidiFile:
+            s3g::tracker::StandardMidiFileScope::ActivePattern];
+    };
+    self.songWindow.exportSongMidiHandler = ^{
+        [weakSelf presentExportStandardMidiFile:
+            s3g::tracker::StandardMidiFileScope::Song];
+    };
     [self configureHostDevices];
     return self;
 }
@@ -1845,6 +1855,60 @@ typedef NS_ENUM(NSInteger, S3GTrackerClapPage) {
         owner->_state->status = "Loaded Song + Patterns";
         [owner.workspace appendConsoleMessage:
             std::string("Loaded Song + Patterns from ") + path error:NO];
+        [owner.workspace reloadModel];
+    };
+    if (self.pageView.window)
+        [panel beginSheetModalForWindow:self.pageView.window
+            completionHandler:completion];
+    else
+        [panel beginWithCompletionHandler:completion];
+}
+
+- (void)presentExportStandardMidiFile:
+    (s3g::tracker::StandardMidiFileScope)scope
+{
+    const BOOL songExport
+        = scope == s3g::tracker::StandardMidiFileScope::Song;
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    panel.title = songExport ? @"Export Tracker Song MIDI"
+                             : @"Export Tracker Active Pattern MIDI";
+    panel.prompt = @"Export";
+    panel.canCreateDirectories = YES;
+    panel.nameFieldStringValue = songExport ? @"Tracker Song.mid"
+                                           : @"Tracker Pattern.mid";
+    if (UTType* type = [UTType typeWithFilenameExtension:@"mid"])
+        panel.allowedContentTypes = @[ type ];
+    __weak S3GTrackerClapCoordinator* weakSelf = self;
+    void (^completion)(NSModalResponse) = ^(NSModalResponse response) {
+        S3GTrackerClapCoordinator* owner = weakSelf;
+        if (!owner || response != NSModalResponseOK || !panel.URL) return;
+        const char* path = panel.URL.fileSystemRepresentation;
+        if (!path) return;
+        ProjectDocument document = [owner currentDocument];
+        if (std::isfinite(owner->_state->hostBpm)
+            && owner->_state->hostBpm > 0.0)
+            document.transport.bpm = owner->_state->hostBpm;
+        s3g::tracker::StandardMidiFileOptions options;
+        options.scope = scope;
+        s3g::tracker::StandardMidiFileSummary summary;
+        const auto result = s3g::tracker::saveStandardMidiFileAtomically(
+            document, options, path, &summary);
+        if (!result.ok()) {
+            const std::string message = std::string("Could not export ")
+                + (songExport ? "Song" : "Pattern") + " MIDI: "
+                + result.message;
+            owner->_state->status = message;
+            [owner.workspace appendConsoleMessage:message error:YES];
+        } else {
+            std::ostringstream message;
+            message << "Exported " << (songExport ? "Song" : "Pattern")
+                    << " MIDI • " << summary.midiEventCount
+                    << " events • " << summary.laneTrackCount << " lane"
+                    << (summary.laneTrackCount == 1u ? "" : "s");
+            owner->_state->status = message.str();
+            [owner.workspace appendConsoleMessage:
+                message.str() + " to " + path error:NO];
+        }
         [owner.workspace reloadModel];
     };
     if (self.pageView.window)
@@ -2692,16 +2756,18 @@ bool stateLoad(const clap_plugin_t* plugin, const clap_istream_t* stream)
             > s3g::tracker::kMaximumProjectDocumentBytes) return false;
         json.append(buffer.data(), static_cast<std::size_t>(amount));
     }
-    ProjectDocument document;
-    const auto result = s3g::tracker::decodeProjectDocument(json, document);
+    // M4L may restore CLAP state from a small AudioCalc worker stack. The
+    // decoder has its own sizeable transactional document on that stack.
+    auto document = std::make_unique<ProjectDocument>();
+    const auto result = s3g::tracker::decodeProjectDocument(json, *document);
     if (!result.ok()) return false;
     auto* instance = self(plugin);
     if (instance->coordinator)
         [instance->coordinator cancelRuntimePublication];
-    publishDocument(*instance, document, false);
+    publishDocument(*instance, *document, false);
     if (instance->coordinator) {
-        [instance->coordinator applyDocument:document];
-        [instance->coordinator resetHistory:document];
+        [instance->coordinator applyDocument:*document];
+        [instance->coordinator resetHistory:*document];
     }
     return true;
 }

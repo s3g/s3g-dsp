@@ -177,6 +177,16 @@ void SongPageView::drawPage()
                 [this] {
                     if (editor.callbacks.loadProject)
                         editor.callbacks.loadProject();
+                } },
+            { "EXPORT ACTIVE PATTERN MIDI…",
+                [this] {
+                    if (editor.callbacks.exportActivePatternMidi)
+                        editor.callbacks.exportActivePatternMidi();
+                } },
+            { "EXPORT SONG MIDI…",
+                [this] {
+                    if (editor.callbacks.exportSongMidi)
+                        editor.callbacks.exportSongMidi();
                 } } },
         true, "SONG FILE");
     double width = transport.getWidth() - 16, x = 8;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s3g_ambi_encoder_basis.h"
 #include "s3g_ambi_encoder_depth.h"
 #include "s3g_ambisonic_speaker_decoder.h"
 
@@ -167,7 +168,7 @@ public:
         for (uint32_t chunkStart = 0; chunkStart < frames; chunkStart += kMotionChunkFrames) {
             const uint32_t chunkFrames = std::min<uint32_t>(kMotionChunkFrames, frames - chunkStart);
             const float chunkPhase = phaseStart + phaseInc * static_cast<float>(chunkStart);
-            std::array<std::array<float, kAmbiCloudEncoderMaxChannels>, kAmbiCloudEncoderMaxInputs> basis {};
+            std::array<std::array<float, kAmbiCloudEncoderMaxChannels>, kAmbiCloudEncoderMaxInputs> basis;
             std::array<float, kAmbiCloudEncoderMaxInputs> gains {};
             std::array<float, kAmbiCloudEncoderMaxInputs> distances {};
             for (uint32_t src = 0; src < inputCount; ++src) {
@@ -175,7 +176,7 @@ public:
                 const auto& cloud = clouds_[cloudIndex];
                 const Vec3 pos = sourcePosition(src, cloud, false, chunkPhase);
                 const Vec3 dir = normalize(pos);
-                basis[src] = acnSn3dBasis7(dir);
+                basis[src] = ambiEncoderBasisForChannels(dir, ambiChannels);
                 distances[src] = std::sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
                 const float distGain = 1.0f / (0.35f + 0.65f * std::max(0.05f, distances[src]));
                 const float cloudNorm = 1.0f / std::sqrt(static_cast<float>(std::max<uint32_t>(1u, (inputCount + params_.activeClouds - 1u) / params_.activeClouds)));

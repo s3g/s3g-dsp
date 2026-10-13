@@ -603,20 +603,33 @@ void testProjectFileMenuDispatchesCompleteProjectActions(
 {
     __block int saves = 0;
     __block int loads = 0;
+    __block int patternExports = 0;
+    __block int songExports = 0;
     controller.saveProjectHandler = ^{ ++saves; };
     controller.loadProjectHandler = ^{ ++loads; };
+    controller.exportActivePatternMidiHandler = ^{ ++patternExports; };
+    controller.exportSongMidiHandler = ^{ ++songExports; };
     NSPopUpButton* menu = [controller valueForKey:@"projectFileMenu"];
-    check(menu.numberOfItems == 3u
+    check(menu.numberOfItems == 5u
             && [[menu itemAtIndex:1].title
                 isEqualToString:@"SAVE SONG + PATTERNS…"]
             && [[menu itemAtIndex:2].title
-                isEqualToString:@"LOAD SONG + PATTERNS…"],
-        "Song page should expose complete-project save/load choices");
+                isEqualToString:@"LOAD SONG + PATTERNS…"]
+            && [[menu itemAtIndex:3].title
+                isEqualToString:@"EXPORT ACTIVE PATTERN MIDI…"]
+            && [[menu itemAtIndex:4].title
+                isEqualToString:@"EXPORT SONG MIDI…"],
+        "Song page should expose project and Standard MIDI file choices");
     [menu selectItemAtIndex:1u];
     [menu sendAction:menu.action to:menu.target];
     [menu selectItemAtIndex:2u];
     [menu sendAction:menu.action to:menu.target];
-    check(saves == 1 && loads == 1 && menu.indexOfSelectedItem == 0,
+    [menu selectItemAtIndex:3u];
+    [menu sendAction:menu.action to:menu.target];
+    [menu selectItemAtIndex:4u];
+    [menu sendAction:menu.action to:menu.target];
+    check(saves == 1 && loads == 1 && patternExports == 1
+            && songExports == 1 && menu.indexOfSelectedItem == 0,
         "Song file choices should dispatch and reset their pull-down menu");
 }
 

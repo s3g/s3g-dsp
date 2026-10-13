@@ -550,11 +550,84 @@ bool testCryosphereDistributedSkin()
     return true;
 }
 
+template <typename Encoder>
+bool testActiveChannelContract(std::string_view name)
+{
+    constexpr uint32_t frames = 256u;
+    constexpr uint32_t channels = 64u;
+    constexpr float sentinel = 1234.5f;
+    std::array<std::array<float, frames>, channels> storage {};
+    std::array<float*, channels> outputs {};
+    for (uint32_t channel = 0u; channel < channels; ++channel) {
+        outputs[channel] = storage[channel].data();
+    }
+    const auto fillSentinel = [&] {
+        for (auto& channel : storage) channel.fill(sentinel);
+    };
+    const auto inactiveUntouched = [&](uint32_t firstInactive) {
+        for (uint32_t channel = firstInactive; channel < channels; ++channel) {
+            if (!std::all_of(storage[channel].begin(), storage[channel].end(),
+                    [](float sample) { return sample == sentinel; })) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    Encoder encoder;
+    encoder.prepare(48000.0);
+    auto params = encoder.params();
+    params.order = 2u;
+    encoder.setParams(params);
+    encoder.reset();
+    fillSentinel();
+    if (encoder.processActiveChannels(outputs.data(), channels, frames) != 9u
+        || !inactiveUntouched(9u)) {
+        std::cerr << name << " active-channel render touched inactive outputs\n";
+        return false;
+    }
+
+    params.order = 3u;
+    encoder.setParams(params);
+    encoder.reset();
+    fillSentinel();
+    if (encoder.processActiveChannels(outputs.data(), channels, frames) != 16u
+        || !inactiveUntouched(16u)) {
+        std::cerr << name << " third-order active-channel render failed\n";
+        return false;
+    }
+    params.order = 1u;
+    encoder.setParams(params);
+    encoder.beginTransition();
+    fillSentinel();
+    if (encoder.processActiveChannels(outputs.data(), channels, frames) != 16u
+        || !inactiveUntouched(16u)) {
+        std::cerr << name << " did not preserve the order-change tail\n";
+        return false;
+    }
+    for (uint32_t block = 0u; block < 9u; ++block) {
+        fillSentinel();
+        (void)encoder.processActiveChannels(outputs.data(), channels, frames);
+    }
+    fillSentinel();
+    if (encoder.processActiveChannels(outputs.data(), channels, frames) != 4u
+        || !inactiveUntouched(4u)) {
+        std::cerr << name << " did not retire inactive tail channels\n";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
 {
     const bool cryosphereSkinValid = testCryosphereDistributedSkin();
+    const bool activeChannelContractsValid =
+        testActiveChannelContract<s3g::AmbiWaterEncoder>("water")
+        && testActiveChannelContract<s3g::AmbiWindEncoder>("wind")
+        && testActiveChannelContract<s3g::AmbiPyrosphereEncoder>("pyrosphere")
+        && testActiveChannelContract<s3g::AmbiCryosphereEncoder>("cryosphere");
     static_assert(!std::is_same_v<s3g::AmbiPyrosphereParams,
         s3g::AmbiWindParams>);
     static_assert(!std::is_same_v<s3g::AmbiCryosphereParams,
@@ -1417,5 +1490,6 @@ int main()
                 >= s3g::kAmbiPyrosphereMinPlumeWanderHz
             && pyrospherePeriodicity < 0.72f
             && cryospherePeriodicity < 0.72f
+            && activeChannelContractsValid
         ? 0 : 1;
 }

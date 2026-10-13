@@ -221,6 +221,8 @@ public:
         transitionRequested_.store(false, std::memory_order_relaxed);
         lastOutput_.fill(0.0f);
         transitionTail_.fill(0.0f);
+        lastRenderedChannels_ = ambiChannelsForOrder(params_.order);
+        transitionChannels_ = lastRenderedChannels_;
         environmentField_.setProfile(ambiWindEnvironmentProfile(params_.place));
         environmentField_.setAmount(ambiEnvironmentSpaceAmount(params_.space));
         environmentField_.setShape(params_.environmentSize, params_.environmentDecay, params_.environmentDamping);
@@ -371,15 +373,35 @@ public:
 
     void process(float* const* outputs, uint32_t outputChannels, uint32_t frames)
     {
-        if (!outputs || frames == 0u) return;
+        (void)processInternal(outputs, outputChannels, frames, true);
+    }
+
+    uint32_t processActiveChannels(
+        float* const* outputs, uint32_t outputChannels, uint32_t frames)
+    {
+        return processInternal(outputs, outputChannels, frames, false);
+    }
+
+private:
+    uint32_t processInternal(float* const* outputs, uint32_t outputChannels,
+        uint32_t frames, bool clearInactiveOutputs)
+    {
+        if (!outputs || frames == 0u) return 0u;
         if (transitionRequested_.exchange(false, std::memory_order_acq_rel)) startTransition();
         outputChannels = std::min<uint32_t>(outputChannels, kAmbiWindMaxChannels);
-        for (uint32_t ch = 0u; ch < outputChannels; ++ch) {
+        const uint32_t ambiChannels = std::min<uint32_t>(
+            ambiChannelsForOrder(params_.order), outputChannels);
+        const uint32_t fadingChannels = transitionFade_ < 1.0f
+            ? std::min<uint32_t>(transitionChannels_, outputChannels)
+            : 0u;
+        const uint32_t renderChannels = std::max(ambiChannels, fadingChannels);
+        const uint32_t clearChannels = clearInactiveOutputs
+            ? outputChannels : renderChannels;
+        for (uint32_t ch = 0u; ch < clearChannels; ++ch) {
             if (outputs[ch]) std::fill(outputs[ch], outputs[ch] + frames, 0.0f);
         }
 
         const uint32_t voices = processingVoiceCount();
-        const uint32_t ambiChannels = std::min<uint32_t>(ambiChannelsForOrder(params_.order), outputChannels);
         const float voiceNorm = std::pow(surfaceVoiceMass(), 0.43f);
         constexpr uint32_t kControlFrames = 16u;
 
@@ -402,7 +424,7 @@ public:
                 + std::sin(fieldPhase * 0.71f + 0.9f) * smoothParams_.motionUpdraft * 8.0f;
             environmentField_.setMotion(fieldAzimuth, fieldElevation);
 
-            std::array<std::array<float, kAmbiWindMaxChannels>, kAmbiWindMaxVoices> basis {};
+            std::array<std::array<float, kAmbiWindMaxChannels>, kAmbiWindMaxVoices> basis;
             std::array<Vec3, kAmbiWindMaxVoices> directions {};
             std::array<float, kAmbiWindMaxVoices> distGain {};
             for (uint32_t v = 0u; v < voices; ++v) {
@@ -453,7 +475,7 @@ public:
         const float transitionStep = 1.0f / std::max(1.0f, static_cast<float>(sampleRate_) * 0.025f);
         for (uint32_t frame = 0u; frame < frames; ++frame) {
             const float mix = transitionFade_;
-            for (uint32_t ch = 0u; ch < outputChannels; ++ch) {
+            for (uint32_t ch = 0u; ch < renderChannels; ++ch) {
                 const float summed = (ch < ambiChannels && outputs[ch]) ? outputs[ch][frame] : 0.0f;
                 float fresh = std::tanh(clamp(summed * 1.08f, -4.0f, 4.0f));
                 if (!std::isfinite(fresh)) fresh = 0.0f;
@@ -463,9 +485,18 @@ public:
             }
             transitionFade_ = std::min(1.0f, transitionFade_ + transitionStep);
         }
+        if (transitionFade_ >= 1.0f) {
+            for (uint32_t channel = ambiChannels;
+                 channel < lastRenderedChannels_; ++channel) {
+                lastOutput_[channel] = 0.0f;
+            }
+            lastRenderedChannels_ = ambiChannels;
+            transitionChannels_ = ambiChannels;
+        } else {
+            lastRenderedChannels_ = renderChannels;
+        }
+        return renderChannels;
     }
-
-private:
     float surfaceVoiceMass() const
     {
         if (!surfaceVoiceMembershipEnabled_) {
@@ -619,6 +650,9 @@ private:
     void startTransition()
     {
         transitionTail_ = lastOutput_;
+        transitionChannels_ = std::max({
+            lastRenderedChannels_, transitionChannels_,
+            ambiChannelsForOrder(params_.order) });
         transitionFade_ = 0.0f;
         smoothParams_ = params_;
         setMaterialWeights(params_.materialMode);
@@ -1054,6 +1088,8 @@ private:
     bool smoothReady_ = false;
     std::array<float, kAmbiWindMaxChannels> lastOutput_ {};
     std::array<float, kAmbiWindMaxChannels> transitionTail_ {};
+    uint32_t lastRenderedChannels_ = 1u;
+    uint32_t transitionChannels_ = 1u;
     AmbiEnvironmentField environmentField_ {};
     AmbiFieldListener fieldListener_ {};
     std::atomic<bool> transitionRequested_ { false };

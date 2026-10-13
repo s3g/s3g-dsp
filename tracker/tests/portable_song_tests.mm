@@ -357,6 +357,7 @@ int main()
         check(page->editor.arrangement.rows.size() == 7 && page->editor.arrangement.rows[3].id != 2,
             "Option-gutter copy");
         int launches = 0, saves = 0, loads = 0;
+        int patternExports = 0, songExports = 0;
         page->editor.callbacks.launch = [&](std::size_t r, SongLaunchQuantization q) {
             ++launches;
             check(r == std::size_t(page->editor.selected) && q == page->editor.quantization,
@@ -366,12 +367,27 @@ int main()
         check(launches == 1 && !page->editor.pendingRow, "queue must not invent playback position");
         page->editor.callbacks.saveProject = [&] { ++saves; };
         page->editor.callbacks.loadProject = [&] { ++loads; };
+        page->editor.callbacks.exportActivePatternMidi = [&] {
+            ++patternExports;
+        };
+        page->editor.callbacks.exportSongMidi = [&] { ++songExports; };
         click("file");
         key(VirtualKey::Return);
         click("file");
         key(VirtualKey::Down);
         key(VirtualKey::Return);
-        check(saves == 1 && loads == 1, "Song project file callbacks");
+        click("file");
+        key(VirtualKey::Down);
+        key(VirtualKey::Down);
+        key(VirtualKey::Return);
+        click("file");
+        key(VirtualKey::Down);
+        key(VirtualKey::Down);
+        key(VirtualKey::Down);
+        key(VirtualKey::Return);
+        check(saves == 1 && loads == 1 && patternExports == 1
+                && songExports == 1,
+            "Song project and MIDI file callbacks");
         page->editor.pendingRow = 3;
         page->editor.pendingQuantization = SongLaunchQuantization::NextBeat;
         page->playbackChanged();

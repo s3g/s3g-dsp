@@ -122,7 +122,7 @@ struct Plugin {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
     s3g::portable_gui::foundation::EditorHost* portableGuiEditor = nullptr;
     uint32_t portableGuiWidth = kGuiWidth, portableGuiHeight = kGuiHeight;
-    bool portableGuiVisible = false;
+    std::atomic<bool> portableGuiVisible { false };
     std::array<std::atomic<double>, 256> effectValues {};
     bool effectActive = false;
     s3g::clap_gui::CaptureSnapshot<EffectCapturePayload> effectCaptureSnapshot;
@@ -186,6 +186,17 @@ struct Plugin {
 Plugin* self(const clap_plugin_t* plugin)
 {
     return static_cast<Plugin*>(plugin->plugin_data);
+}
+
+bool guiTelemetryVisible(const Plugin& plugin)
+{
+#if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    return plugin.portableGuiVisible.load(std::memory_order_relaxed);
+#elif defined(__APPLE__)
+    return plugin.guiVisible.load(std::memory_order_relaxed);
+#else
+    return false;
+#endif
 }
 
 #if defined(__APPLE__)
@@ -512,8 +523,28 @@ void publishCaptureSnapshot(Plugin&);
 void publishStatus(Plugin& plugin)
 {
 #if defined(S3G_ENABLE_VSTGUI_CANVAS_GUI)
+    // This snapshot also backs CLAP state serialization, so it must remain
+    // current while the editor is closed.
     publishCaptureSnapshot(plugin);
 #endif
+#if !S3G_PARTIAL_TRACE
+    markTailChanged(plugin);
+    plugin.hasResponse.store(plugin.processor.hasResponse(),
+        std::memory_order_relaxed);
+    plugin.capturing.store(plugin.processor.capturing(),
+        std::memory_order_relaxed);
+    plugin.captureProgress.store(plugin.processor.captureProgress(),
+        std::memory_order_relaxed);
+    plugin.preparingResponse.store(plugin.processor.preparingResponse(),
+        std::memory_order_relaxed);
+    plugin.preparationProgress.store(plugin.processor.preparationProgress(),
+        std::memory_order_relaxed);
+    plugin.capturedPickupCount.store(plugin.processor.capturedPickupCount(),
+        std::memory_order_relaxed);
+    plugin.responseAudible.store(plugin.processor.responseAudible(),
+        std::memory_order_relaxed);
+#endif
+    if (!guiTelemetryVisible(plugin)) return;
     plugin.resolvedBody.store(static_cast<uint32_t>(
         plugin.processor.resolvedBody()), std::memory_order_relaxed);
     plugin.roamingPhase.store(plugin.processor.roamingPhase(),
@@ -543,21 +574,6 @@ void publishStatus(Plugin& plugin)
 #else
     plugin.excitationGain.store(plugin.processor.containmentGain(),
         std::memory_order_relaxed);
-    plugin.hasResponse.store(plugin.processor.hasResponse(),
-        std::memory_order_relaxed);
-    plugin.capturing.store(plugin.processor.capturing(),
-        std::memory_order_relaxed);
-    plugin.captureProgress.store(plugin.processor.captureProgress(),
-        std::memory_order_relaxed);
-    plugin.preparingResponse.store(plugin.processor.preparingResponse(),
-        std::memory_order_relaxed);
-    plugin.preparationProgress.store(plugin.processor.preparationProgress(),
-        std::memory_order_relaxed);
-    plugin.capturedPickupCount.store(plugin.processor.capturedPickupCount(),
-        std::memory_order_relaxed);
-    plugin.responseAudible.store(plugin.processor.responseAudible(),
-        std::memory_order_relaxed);
-    markTailChanged(plugin);
 #endif
 }
 
@@ -731,20 +747,22 @@ clap_process_status process(const clap_plugin_t* plugin,
             output.data64, inputChannels, output.channel_count,
             processData->frames_count);
     }
-    float peak = 0.0f;
-    for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {
-        if (output.data32 && output.data32[channel]) {
-            for (uint32_t frame = 0u; frame < processData->frames_count; ++frame) {
-                peak = std::max(peak, std::abs(output.data32[channel][frame]));
-            }
-        } else if (output.data64 && output.data64[channel]) {
-            for (uint32_t frame = 0u; frame < processData->frames_count; ++frame) {
-                peak = std::max(peak, static_cast<float>(
-                    std::abs(output.data64[channel][frame])));
+    if (guiTelemetryVisible(*instance)) {
+        float peak = 0.0f;
+        for (uint32_t channel = 0u; channel < output.channel_count; ++channel) {
+            if (output.data32 && output.data32[channel]) {
+                for (uint32_t frame = 0u; frame < processData->frames_count; ++frame) {
+                    peak = std::max(peak, std::abs(output.data32[channel][frame]));
+                }
+            } else if (output.data64 && output.data64[channel]) {
+                for (uint32_t frame = 0u; frame < processData->frames_count; ++frame) {
+                    peak = std::max(peak, static_cast<float>(
+                        std::abs(output.data64[channel][frame])));
+                }
             }
         }
+        instance->outputPeak.store(peak, std::memory_order_relaxed);
     }
-    instance->outputPeak.store(peak, std::memory_order_relaxed);
     publishStatus(*instance);
     return CLAP_PROCESS_CONTINUE;
 }

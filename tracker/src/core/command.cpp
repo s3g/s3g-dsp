@@ -4865,4 +4865,32 @@ CommandResult CommandEngine::execute(TrackerSession& session,
     return result;
 }
 
+void configureInitialFourOnFloorSession(TrackerSession& session)
+{
+    configureKit(session, "superior", "basic");
+    normalizeColumnPhases(session.pattern);
+    session.pattern.tracks.resize(4u);
+    session.laneDefaultNotes.resize(4u);
+    for (auto alias = session.aliases.begin();
+         alias != session.aliases.end();) {
+        if (alias->second >= 4u) alias = session.aliases.erase(alias);
+        else ++alias;
+    }
+    session.aliases["t"] = 2u;
+    session.aliases["tom"] = 2u;
+    session.pattern.name = "FOUR ON THE FLOOR";
+    session.pattern.tracks[0u].name = "Kick";
+    session.pattern.tracks[1u].name = "Snare";
+    session.pattern.tracks[2u].name = "Tom";
+    session.pattern.tracks[3u].name = "Hat";
+    applyMask(session, 0u, "x---x---x---x---");
+    normalizeColumnPhases(session.pattern);
+    applyMask(session, 1u, "----x-------x---");
+    normalizeColumnPhases(session.pattern);
+    applyMask(session, 2u, "--------------xx");
+    normalizeColumnPhases(session.pattern);
+    applyMask(session, 3u, "x-x-x-x-x-x-x-x-");
+    normalizeColumnPhases(session.pattern);
+}
+
 } // namespace s3g::tracker

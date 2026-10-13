@@ -228,7 +228,7 @@ struct Engine {
 };
 
 
-ProjectDocument makeInitialDocument();
+void initializeInitialDocument(ProjectDocument& document);
 
 // Publication/initialization run on the main thread (activation while stopped).
 // Only process() and reset() run on the audio thread. The engine must outlive
