@@ -21,7 +21,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.10.0-pre"
+VERSION = "0.11.0-pre"
 EXCLUDED = "s3g_analyzer_ambi_energy_64.clap"
 EXPECTED_FILES = 125
 EXPECTED_DESCRIPTORS = 132

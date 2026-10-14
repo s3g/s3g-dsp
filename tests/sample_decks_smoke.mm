@@ -357,6 +357,12 @@ void whiteBox(Bytes& state){
     check(control(p,0,family(NeonFamily::PathCount))==8&&control(p,0,family(NeonFamily::PathTime)+7)==1,"path count regenerates endpoints");
     setValue(p,param(0,family(NeonFamily::StackShape)),0);setValue(p,param(0,family(NeonFamily::PathCount)),4);
     check(settings(p,*p.document).slots[0].family.valid()&&control(p,0,family(NeonFamily::PathTime)+3)==1,"manual path count resamples existing curve");
+    setValue(p,param(0,family(NeonFamily::PathTime)),.8);setValue(p,param(0,family(NeonFamily::PathTime)+3),.2);
+    setValue(p,param(0,family(NeonFamily::PathTime)+1),.95);setValue(p,param(0,family(NeonFamily::PathTime)+2),.01);
+    check(settings(p,*p.document).slots[0].family.valid()
+        &&control(p,0,family(NeonFamily::PathTime))==0
+        &&control(p,0,family(NeonFamily::PathTime)+3)==1,
+        "automated path times retain fixed endpoints and strict order");
     reset(plugin);setValue(p,Crossfade,0);setValue(p,param(0,PadBank),0);a.run(plugin);
     a.midi(0x92,0x20,127,0);a.midi(0xb2,0x20,39,1);a.run(plugin);
     check(std::abs(p.padVelocity[0][0]-39.f/127)<1.e-6,"separate velocity preserved");
@@ -369,6 +375,11 @@ void whiteBox(Bytes& state){
     a.midi(0xb4,0x45,0);a.run(plugin);check(value(p,Crossfade)==0,"crossfader A endpoint");
     a.midi(0xb4,0x45,127);a.run(plugin);check(value(p,Crossfade)==1,"crossfader B endpoint");
     a.midi(0xb0,123,0);a.run(plugin);check(!p.playing[0].load()&&!p.playing[1].load(),"all notes off");
+    setValue(p,param(0,Start),.9);setValue(p,param(0,End),.1);
+    check(control(p,0,Start)==.1f&&control(p,0,End)==.1f,"crossed automation keeps the saved source range canonical");
+    Bytes crossed;check(saveState(plugin,&crossed.out),"crossed source range saves");crossed.at=0;
+    check(loadState(plugin,&crossed.in)&&control(p,0,Start)==.1f&&control(p,0,End)==.1f,"canonical crossed source range reloads exactly");
+    setValue(p,param(0,Start),0);setValue(p,param(0,End),1);
     setValue(p,Crossfade,0);check(saveState(plugin,&state.out),"embedded state save");
     state.at=0;check(loadState(plugin,&state.in),"embedded state load");Bytes again;check(saveState(plugin,&again.out)&&again.data==state.data,"exact state roundtrip");
     // v1 audio/parameters remain loadable; v2 appends only display preferences.

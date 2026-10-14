@@ -3,7 +3,7 @@
 A pre-release collection of CLAP audio plugins for multichannel and ambisonic
 work in REAPER.
 
-The `0.10.0-pre` packages target REAPER on Apple silicon (`arm64`) Macs and
+The `0.11.0-pre` packages target REAPER on Apple silicon (`arm64`) Macs and
 **experimental Windows x64**. Windows testing has used Windows 10; Windows 11
 is not yet validated. Intel Macs, native Windows ARM64, other DAWs, and other
 plugin formats are not validated targets. Plugin names, parameters, and
@@ -56,7 +56,7 @@ REAPER should not show a separate Gatekeeper dialog for each plugin afterward.
 
 Use this only for a fresh manual install; it cannot migrate older top-level
 copies or retire renamed aliases. In Terminal, type `cd` followed by a space,
-drag the unzipped `s3g-dsp-macos-clap-0.10.0-pre` folder from Finder into the
+drag the unzipped `s3g-dsp-macos-clap-0.11.0-pre` folder from Finder into the
 Terminal window, and press Return. Then run:
 
 ```sh
@@ -84,15 +84,15 @@ For more detail, see the
 ## Install on Windows (experimental)
 
 1. Quit REAPER and extract the complete
-   `s3g-dsp-windows-x64-clap-0.10.0-pre-experimental.zip` to a fresh folder.
+   `s3g-dsp-windows-x64-clap-0.11.0-pre-experimental.zip` to a fresh folder.
 2. Add that folder to REAPER's CLAP search paths and rescan. Keep the `.clap`
    files beside the shared `Resources` folder, including fonts and licenses.
    No system font installation or Mac installer is needed.
 3. Keep older packages outside the scan paths as backups to avoid duplicate
    CLAP identifiers. Test with a disposable project and conservative levels.
 
-Mac includes 122 bundles / 129 plug-in descriptors; Windows includes 121 files /
-128 descriptors. **Ambi Energy remains Mac-only.** Heavy ambisonic configurations
+Mac includes 126 bundles / 133 plug-in descriptors; Windows includes 125 files /
+132 descriptors. **Ambi Energy remains Mac-only.** Heavy ambisonic configurations
 can overload older CPUs; the tested i7-4510U / 8 GB laptop is not a recommended
 minimum specification. See the packaged README and [release notes](RELEASE_NOTES.md).
 

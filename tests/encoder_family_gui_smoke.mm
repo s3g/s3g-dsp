@@ -6145,7 +6145,14 @@ int main(int argc, char** argv)
             failureStage = "Sample Neon momentary button press feedback";
             const auto killPixels = [&] { return regionPixels(P::columnLeft(1,3),M::actions-10,P::columnWidth(3),20); };
             const auto idleKill = killPixels();
-            clickAt(P::columnLeft(1,3)+P::columnWidth(3)*.5,M::actions);
+            // Do not perform clickAt's extra full-canvas redraw before sampling
+            // the pressed face. Under ASan that discarded render can outlive the
+            // deliberately short 180 ms feedback interval.
+            [document mouseDown:mouseEvent(NSEventTypeLeftMouseDown,
+                NSMakePoint((P::columnLeft(1,3)+P::columnWidth(3)*.5)*scale,M::actions*scale))];
+            [document mouseUp:mouseEvent(NSEventTypeLeftMouseUp,
+                NSMakePoint((P::columnLeft(1,3)+P::columnWidth(3)*.5)*scale,M::actions*scale))];
+            params->flush(plugin, nullptr, nullptr);
             ok = !idleKill.empty() && killPixels() != idleKill && ok;
             [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.24]];
             redraw();

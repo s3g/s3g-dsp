@@ -239,7 +239,7 @@ NSAttributedString* helpDocument()
         @[ @"SONG ENERGY", @"EN % sets the intensity of each Song row. Tracker SEQ action EN plays a note or Burst only when the row energy meets its threshold; ordinary Pattern playback supplies 100%. Use different EN thresholds across a pattern to reveal progressively denser versions from one pattern." ],
         @[ @"SONG QUEUE", @"Select a target row, choose NEXT TICK, NEXT BEAT, END OF PASS, or END OF ROW, then SELECT QUEUE. END OF ROW is the default and waits through all repetitions. Queue remains available while REAPER runs with Song Transport on, whether LOOP SONG is on or off, and can relaunch after a non-looping Song ends. The pending row is yellow; pattern, warp, swing, and mutes switch together." ],
         @[ @"LOOP SONG", @"LOOP SONG can be switched on or off while REAPER is running. The current Song row keeps its position; the new loop rule takes effect when playback reaches the end of the arrangement." ],
-        @[ @"SONG FILE", @"SAVE/LOAD SONG + PATTERNS uses one complete validated .s3gt project file." ],
+        @[ @"SONG FILE", @"SAVE/LOAD SONG + PATTERNS uses one complete validated .s3gt project file. EXPORT ACTIVE PATTERN MIDI and EXPORT SONG MIDI create type-1 .mid files with one track per lane. Generative and timing behavior is baked with the saved playback seed; a looping Song exports one pass. Keep .s3gt for later editing." ],
         @[ @"WARPS", @"Compose EXP, STEP, and EUCLID serially; SAVE/RECALL named project slots. During playback the diagram traces the active curve and marks its current cycle step; Song WARP follows the saved slot selected by the sounding row." ],
     ]);
     appendGuideSection(document, @"GEOMETRY + TOOL WINDOWS", @[

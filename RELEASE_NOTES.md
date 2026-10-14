@@ -1,3 +1,77 @@
+# s3g-dsp 0.11.0-pre
+
+Prepared October 14, 2026. A prerelease for REAPER, with Apple silicon macOS
+and **experimental Windows x64** downloads. Back up important projects and
+existing plug-ins before upgrading; this is not a stable compatibility promise.
+
+## Downloads
+
+- `s3g-dsp-macos-clap-0.11.0-pre.zip`: 126 Apple silicon CLAP bundles exposing
+  133 plug-in descriptors. Includes Ambi Energy. Ad-hoc signed, not notarized;
+  use the included installer and its macOS approval instructions.
+- `s3g-dsp-windows-x64-clap-0.11.0-pre-experimental.zip`: 125 CLAP files
+  exposing 132 plug-in descriptors. **Ambi Energy is excluded** while its
+  Windows integration remains unfinished. Extract the complete folder,
+  including `Resources`, and add it to REAPER's CLAP search paths.
+- SHA-256 files accompany both archives. These packages contain CLAP plug-ins,
+  not standalone applications. Tracker's standalone Mac app remains retired.
+
+Some Sample-family files expose more than one channel-width variant, so the
+number of host entries is larger than the number of installed files.
+
+## Changes since 0.10.0-pre
+
+- Adds **Sample Kit 32**, a sixteen-pad sampler with eight variations per pad,
+  phrase chopping, deterministic Natural variation, choke groups, a sixteen-
+  strip mixer, 1–16 stereo output pairs, kit files, and an Intech Grid BU16
+  profile.
+- Adds **Sample Neon 32**, a 32-cell performance sampler with as many as 32
+  layers per cell, nine playback methods, source chopping, stack navigation,
+  resampling, per-pad character effects, stereo/multichannel/Ambisonic sources,
+  and one- or two-controller Reloop NEON operation.
+- Adds **Sample Decks 32**, a two-deck performance and resampling instrument
+  with 32-layer stacks, nine playback methods, cue/loop/slicer and performance
+  pad modes, A/B recording, headphone cue, stem routing, and Reloop Beatpad 2
+  integration.
+- Adds **Utility Neon MIDI**, a MIDI-only adapter for one or two Reloop NEON
+  controllers. It supports four-bank sample-cell maps, chromatic/scale/custom
+  keyboard layouts, direct USB input on macOS, host MIDI routing, Tracker and
+  Sample Neon control, and controller feedback without replacement firmware.
+- Tracker can export the active Pattern or complete Song as a Standard MIDI
+  File type 1. The deterministic export renders Tracker's normal scheduler,
+  including probability, conditions, ratchets, bursts, polymetric traversal,
+  swing, timing warps, controller lanes, and Song tempo changes.
+- Sample-family project storage and undo snapshots now retain generated,
+  captured, cropped, and resampled audio safely while background collection
+  produces reusable project-media references. Circulator and Sample Rings add
+  generated-media regressions; Sample Neon and Kit add dedicated history,
+  snapshot, MIDI, capture, GUI, and storage coverage.
+- Ambi Encoder Neural Ecology now combines a recurrent spatial population with
+  directional self-listening, adaptive movement, and a three-dimensional Field
+  Lattice of resident genomes. Its editor and preset/project state cover the
+  resulting auditory, evolutionary, and spatial controls.
+- Extends the Sample-family and controller documentation, adds an Ableton Live
+  and Max for Live setup guide, and updates the alphabetical plug-in index and
+  navigation for the expanded collection.
+
+## Experimental Windows status and limitations
+
+Windows testing continues to target Windows 10 x64 and REAPER. Windows 11 and
+other hosts are not yet validated. No native Windows ARM64 or Intel Mac package
+is provided. Ambi Energy remains Mac-only.
+
+Use a disposable project for first tests, particularly with self-generating
+sound and feedback processors. Verify project recall, automation, file import,
+resizing, controller/MIDI behavior and audio routing in your own setup before
+relying on the prerelease. Keep older builds outside the host's scan paths for
+rollback, avoiding duplicate CLAP identifiers. Stable plug-in IDs are
+preserved; component version numbers remain independent of this collection's
+archive version.
+
+Documentation: <https://s3g.github.io/s3g-dsp/>.
+
+---
+
 # s3g-dsp 0.10.0-pre
 
 Prepared September 16, 2026. A prerelease for REAPER, with Apple silicon macOS

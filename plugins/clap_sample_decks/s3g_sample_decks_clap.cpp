@@ -179,7 +179,31 @@ bool setValue(Plugin& p,unsigned i,double v) noexcept {
     if(i>=kParamCount||p.defs[i].name.empty()||!std::isfinite(v))return false;
     const auto& def=p.defs[i]; v=std::clamp(v,def.lo,def.hi); if(def.integer)v=std::round(v);
     if(i>=kDeckBase){const unsigned d=(i-kDeckBase)/kDeckStride,key=(i-kDeckBase)%kDeckStride;
-        if(key==family(NeonFamily::StackShape)||key==family(NeonFamily::PathCount)){
+        // START and END are independently automatable CLAP parameters. Keep
+        // their saved values canonical even when a host randomizes or
+        // automates them across one another: the point being moved wins and
+        // carries the opposite edge with it.
+        if(key==Start&&v>control(p,d,End))p.values[param(d,End)].store(static_cast<float>(v));
+        else if(key==End&&v<control(p,d,Start))p.values[param(d,Start)].store(static_cast<float>(v));
+        const unsigned pathTime=family(NeonFamily::PathTime);
+        if(key>=pathTime&&key<pathTime+32){
+            NeonFamilySettings f;for(unsigned n=0;n<kNeonFamilyCount;++n)f.values[n]=control(p,d,kFamily+n);
+            const unsigned point=key-pathTime,count=static_cast<unsigned>(f[NeonFamily::PathCount]);
+            if(point<count){
+                f[NeonFamily::StackShape]=static_cast<float>(NeonStackShape::Manual);
+                p.values[param(d,family(NeonFamily::StackShape))].store(f[NeonFamily::StackShape]);
+                if(point==0)v=0;
+                else if(point+1==count)v=1;
+                else {
+                    constexpr double gap=1.e-5;
+                    const double left=f.values[neonFamilyIndex(NeonFamily::PathTime)+point-1];
+                    const double right=f.values[neonFamilyIndex(NeonFamily::PathTime)+point+1];
+                    const double lo=left+gap,hi=right-gap;
+                    v=lo<=hi?std::clamp(v,lo,hi):(left+right)*.5;
+                }
+            }
+        }
+        else if(key==family(NeonFamily::StackShape)||key==family(NeonFamily::PathCount)){
             NeonFamilySettings f;for(unsigned n=0;n<kNeonFamilyCount;++n)f.values[n]=control(p,d,kFamily+n);
             const auto shape=static_cast<NeonStackShape>(key==family(NeonFamily::StackShape)?v:f[NeonFamily::StackShape]);
             const unsigned count=std::clamp(static_cast<unsigned>(key==family(NeonFamily::PathCount)?v:f[NeonFamily::PathCount]),neonStackShapeMinimum(shape),32u);

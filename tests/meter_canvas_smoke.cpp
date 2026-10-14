@@ -409,8 +409,14 @@ int main() {
       history(v, p, events);
       presets(v, p, events);
       backpressure(v, p, events);
+      // The production callback skips meter analysis while the editor is
+      // hidden. Direct Editor construction bypasses the CLAP show callback,
+      // so exercise telemetry under the same visible-editor condition a host
+      // supplies.
+      p.portableGuiVisible.store(true, std::memory_order_relaxed);
       audio<float>(p, events);
       audio<double>(p, events);
+      p.portableGuiVisible.store(false, std::memory_order_relaxed);
       resize(p);
       expect(requests > 0, "host service requested");
     }

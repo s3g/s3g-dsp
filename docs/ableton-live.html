@@ -33,22 +33,25 @@
 
         <ul>
           <li>The <a href="installing-plugins.html">s3g-dsp CLAP collection</a>, installed separately and available to the Max host.</li>
-          <li>Max 9 and Ableton Live with Max for Live for the Live devices. A source build of <code>s3g-clap-max</code> also needs CMake and a C++ compiler.</li>
-          <li>A checkout of <code>s3g-clap-max</code> for its macOS build and installation scripts. The Mac CLAP package is Apple-silicon-only. Windows has separate installation steps below.</li>
+          <li>Max 9 and Ableton Live with Max for Live.</li>
+          <li>The matching <a href="https://github.com/s3g/s3g-clap-max/releases" target="_blank" rel="noopener noreferrer">s3g-clap-max release package</a> for your operating system. The macOS download includes the Max object, Live devices, and an installer; no source checkout or compiler is needed.</li>
         </ul>
 
         <h2 id="install">Install on Mac</h2>
 
         <ol>
-          <li>Install s3g-dsp first using the Mac package's <code>Install s3g-dsp CLAPs.command</code>. Follow the <a href="installing-plugins.html#download">Mac installation and Gatekeeper steps</a>. Its bundles go in <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>; leave each complete <code>.clap</code> bundle there.</li>
-          <li>With Max 9 installed, clone or download <code>s3g-clap-max</code>, open Terminal in that checkout, and run the commands below. The first builds <code>s3g.clap~</code>; the second links the Max package into <code>~/Documents/Max 9/Packages</code>; the third installs the Live devices into the default <code>~/Music/Ableton/User Library/s3g CLAP</code> folder.</li>
+          <li>Save your work and quit Max and Live. Install the <a href="https://github.com/s3g/s3g-dsp/releases" target="_blank" rel="noopener noreferrer">s3g-dsp macOS CLAP release</a> first: unzip it and run <code>Install s3g-dsp CLAPs.command</code>. Follow the <a href="installing-plugins.html#download">Gatekeeper steps</a> if macOS blocks the installer.</li>
+          <li>Download the current macOS ZIP (<code>0.7.0</code> or later) from the <a href="https://github.com/s3g/s3g-clap-max/releases" target="_blank" rel="noopener noreferrer">s3g-clap-max releases page</a>, unzip it, and run <strong>Install s3g-clap-max.command</strong> inside the extracted folder. If macOS blocks it, use <strong>System Settings &rarr; Privacy &amp; Security &rarr; Open Anyway</strong> for that installer. Install only a release asset you trust.</li>
+          <li>Restart Max and Live. In Live, open <strong>User Library &rarr; s3g CLAP</strong> and add an s3g device. The installed Max package is under <code>~/Documents/Max 9/Packages/s3g-clap-max</code>; the Live devices are copied to <code>~/Music/Ableton/User Library/s3g CLAP</code> by default.</li>
         </ol>
 
-        <pre><code>./scripts/build-release.sh
-./scripts/install-local-package.sh
-./scripts/install-live-devices.sh</code></pre>
+        <p>If your Live User Library is elsewhere, set the <code>S3G_LIVE_DEVICE_ROOT</code> environment variable to its <code>s3g CLAP</code> folder before running the extracted Mac installer, as described in the <a href="https://github.com/s3g/s3g-clap-max/blob/main/INSTALL.md" target="_blank" rel="noopener noreferrer">s3g-clap-max installation guide</a>. Use the installer's <code>--dry-run</code> option to preview the destinations. Source-build instructions are separate; this page covers release installation. If no current release ZIP is listed, the package has not yet been published.</p>
 
-        <p>If your Live User Library is in another location, set <code>S3G_LIVE_DEVICE_ROOT</code> to the desired <code>s3g CLAP</code> folder before running the third command. The installer uses hard links because Live may not index a symlinked device folder; the checkout and User Library must be on the same filesystem. Restart Max and Live after installation or rebuilding the Max external. Windows users must install the experimental Windows CLAP package separately, build <code>s3g-clap-max</code> with its Windows preset, and copy the Max package and chosen <code>.amxd</code> files manually as described in its README; the Mac script does not install Windows devices.</p>
+        <h2 id="windows-install">Windows x64 Status and Installation</h2>
+
+        <p>The <a href="installing-plugins.html#windows-suite">s3g-dsp Windows CLAP prerelease</a> is available, but a matching current s3g-clap-max Windows release with these Live devices has not yet been validated or published. Do not combine the older 0.5.0 Windows Max archive with the current 0.7.0 Live devices. Windows Max for Live support remains experimental.</p>
+
+        <p>When a matching Windows x64 s3g-clap-max package is offered on its releases page, quit Live and Max, extract the ZIP, then copy its top-level <code>s3g-clap-max</code> folder into <code>%USERPROFILE%\Documents\Max 9\Packages\</code>. Copy the included <code>devices\*.amxd</code> files into a real <code>s3g CLAP</code> folder inside Live's User Library, not a directory symlink. Install the complete s3g-dsp Windows CLAP collection separately in a folder the Max host scans, such as <code>%LOCALAPPDATA%\Programs\Common\CLAP\s3g-dsp</code>, keeping its <code>.clap</code> files and shared <code>Resources</code> folder together. Restart Max and Live and test a device in a disposable Set. There is no Windows installer in the current Mac ZIP.</p>
 
         <h2 id="first-use">First Use and Routing</h2>
 
@@ -104,6 +107,7 @@
           <h2>On This Page</h2>
           <a href="#requirements">Requirements</a>
           <a href="#install">Install on Mac</a>
+          <a href="#windows-install">Windows x64</a>
           <a href="#first-use">First Use and Routing</a>
           <a href="#sample-storage">Sample Storage</a>
           <a href="#troubleshooting">Troubleshooting</a>

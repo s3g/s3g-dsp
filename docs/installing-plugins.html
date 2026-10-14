@@ -27,7 +27,7 @@
       <main class="content" id="content">
         <h1>Install s3g-dsp CLAP Plugins</h1>
 
-        <p>The 0.10.0-pre release has Apple silicon (<code>arm64</code>) Mac and <a href="#windows-suite">experimental Windows x64</a> packages for REAPER. The Mac package is not notarized, so macOS requires one Gatekeeper approval for its installer. Windows uses manual folder installation.</p>
+        <p>The 0.11.0-pre release has Apple silicon (<code>arm64</code>) Mac and <a href="#windows-suite">experimental Windows x64</a> packages for REAPER. The Mac package is not notarized, so macOS requires one Gatekeeper approval for its installer. Windows uses manual folder installation.</p>
 
         <h2 id="download">Download and Install</h2>
 
@@ -54,7 +54,7 @@
 
         <h2 id="manual">Manual Installation</h2>
 
-        <p>Use this only for a fresh manual install; it cannot migrate older top-level copies or retire renamed aliases. In Terminal, type <code>cd</code> followed by a space, drag the unzipped <code>s3g-dsp-macos-clap-0.10.0-pre</code> folder from Finder into the Terminal window, and press Return. Then run:</p>
+        <p>Use this only for a fresh manual install; it cannot migrate older top-level copies or retire renamed aliases. In Terminal, type <code>cd</code> followed by a space, drag the unzipped <code>s3g-dsp-macos-clap-0.11.0-pre</code> folder from Finder into the Terminal window, and press Return. Then run:</p>
 
         <pre><code>destination="$HOME/Library/Audio/Plug-Ins/CLAP/s3g-dsp"
 mkdir -p "$destination"
@@ -72,7 +72,7 @@ done</code></pre>
 
         <h2 id="windows-suite">Experimental Windows x64 Suite</h2>
 
-        <p>The <code>s3g-dsp-windows-x64-clap-0.10.0-pre-experimental.zip</code> package contains 121 CLAP files exposing 128 plug-in descriptors, including Tracker with VIEW Live Code commands. Ambi Energy is the only excluded inventory entry; its renderer prototype is not a CLAP. This is an <strong>experimental prerelease</strong>, not a stable Windows release. Testing has used Windows 10 x64 and REAPER; Windows 11 is not yet validated. The earlier timestamped <code>s3g-dsp-windows-clap-suite-x64-test-*.zip</code> files are development snapshots.</p>
+        <p>The <code>s3g-dsp-windows-x64-clap-0.11.0-pre-experimental.zip</code> package contains 125 CLAP files exposing 132 plug-in descriptors, including Tracker with VIEW Live Code commands. Ambi Energy is the only excluded inventory entry; its renderer prototype is not a CLAP. This is an <strong>experimental prerelease</strong>, not a stable Windows release. Testing has used Windows 10 x64 and REAPER; Windows 11 is not yet validated. The earlier timestamped <code>s3g-dsp-windows-clap-suite-x64-test-*.zip</code> files are development snapshots.</p>
         <ol>
           <li>Save your work and quit REAPER. Extract the entire ZIP to a fresh test folder.</li>
           <li>Add that folder to REAPER's CLAP search paths. Keep the <code>.clap</code> files beside the shared <code>Resources</code> directory, with all fonts, atlases, and license notices intact.</li>
@@ -98,9 +98,9 @@ done</code></pre>
             <span>Previous</span>
             Build From Source
           </a>
-          <a class="page-nav-link next" href="plugin-index.html">
+          <a class="page-nav-link next" href="ableton-live.html">
             <span>Next</span>
-            Plugin Index
+            Ableton Live
           </a>
         </nav>
       </main>

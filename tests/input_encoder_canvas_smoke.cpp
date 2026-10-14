@@ -333,6 +333,12 @@ void family(Editor &v, Plugin &p, Events &e) {
 void audioChecks(Editor &v, Plugin &p, Events &e) {
   expect(activate(&p.plugin, 48000., 1, 64), "audio activation");
   startProcessing(&p.plugin);
+#if S3G_INPUT_ENCODER_KIND < 2
+  // The production audio callback publishes moving-source telemetry only while
+  // the host reports the portable editor visible. This test constructs the
+  // editor directly, so model that host lifecycle explicitly.
+  p.portableGuiVisible.store(true, std::memory_order_relaxed);
+#endif
   std::array<std::array<float, 64>, 64> in{}, out{};
   std::array<float *, 64> ip{}, op{};
   for (unsigned c = 0; c < 64; ++c) {
@@ -355,6 +361,20 @@ void audioChecks(Editor &v, Plugin &p, Events &e) {
   double energy = 0;
   for (unsigned i = 0; i < 64; ++i) {
     process(&p.plugin, &block);
+#if S3G_INPUT_ENCODER_KIND < 2
+    if (i == 0) {
+      // The visible editor receives throttled snapshots rather than every
+      // audio block. Compare against the DSP state at the first scheduled
+      // publication instead of assuming an arbitrary later block is current.
+      v.service();
+      for (unsigned source = 0; source < kInputChannels; ++source) {
+        const auto a = v.sourcePositions[source],
+                   b = p.encoder.sourcePositionForDisplay(source);
+        expect(near(a.x, b.x) && near(a.y, b.y) && near(a.z, b.z),
+               "moving GUI source snapshot equals DSP display positions");
+      }
+    }
+#endif
     for (const auto &ch : out)
       for (float x : ch) {
         expect(std::isfinite(x), "finite audio");
@@ -366,14 +386,6 @@ void audioChecks(Editor &v, Plugin &p, Events &e) {
 #if S3G_INPUT_ENCODER_KIND >= 2
   expect(tailGet(&p.plugin) == p.activeProcessor.load()->tailFrames(),
          "race-free tail query retains original DSP duration");
-#endif
-#if S3G_INPUT_ENCODER_KIND < 2
-  for (unsigned i = 0; i < kInputChannels; ++i) {
-    const auto a = v.sourcePositions[i],
-               b = p.encoder.sourcePositionForDisplay(i);
-    expect(near(a.x, b.x) && near(a.y, b.y) && near(a.z, b.z),
-           "moving GUI source snapshot equals DSP display positions");
-  }
 #endif
   render(v, "playback");
   e.balanced();
@@ -414,6 +426,9 @@ void audioChecks(Editor &v, Plugin &p, Events &e) {
          "concurrent GUI edits retain finite audio");
   e.balanced();
   stopProcessing(&p.plugin);
+#if S3G_INPUT_ENCODER_KIND < 2
+  p.portableGuiVisible.store(false, std::memory_order_relaxed);
+#endif
   deactivate(&p.plugin);
 }
 } // namespace test (opened by routing_canvas_test_support.inc)

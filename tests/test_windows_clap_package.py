@@ -195,7 +195,7 @@ regression(s3g_tracker_windows_clap_smoke)
                           if item["name"] == "clap-windows-release")["cacheVariables"])
         cache.update(CMAKE_HOME_DIRECTORY=str(ROOT), CMAKE_GENERATOR="Visual Studio 18 2026",
                      CMAKE_GENERATOR_PLATFORM="x64", CMAKE_CONFIGURATION_TYPES="Debug;Release",
-                     CMAKE_PROJECT_VERSION="0.10.0")
+                     CMAKE_PROJECT_VERSION="0.11.0")
         PACKAGE.validate_cache(cache, PACKAGE.VERSION)
         for key, value in (("CMAKE_GENERATOR", "Unix Makefiles"),
                            ("CMAKE_HOME_DIRECTORY", ""),

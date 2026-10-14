@@ -47,7 +47,12 @@ if(BUILD_TESTING AND UNIX)
         $<TARGET_FILE:s3g_tracker_clap> $<TARGET_FILE:s3g_sample_neon_clap>)
     set_tests_properties(s3g_neon_tracker_chain_smoke PROPERTIES
       LABELS "non_nim;utility;controller;midi;clap;integration"
-      ENVIRONMENT "S3G_SAMPLE_NEON_DISABLE_DIRECT_MIDI=1" TIMEOUT 120)
+      # Every CLAP shared object must export the same clap_entry symbol. ASan's
+      # process-wide ODR detector therefore reports a false collision when this
+      # host-style integration test loads Utility, Tracker and Sample Neon at
+      # once; all other address/undefined-behavior checks remain enabled.
+      ENVIRONMENT "S3G_SAMPLE_NEON_DISABLE_DIRECT_MIDI=1;ASAN_OPTIONS=detect_odr_violation=0"
+      TIMEOUT 120)
   endif()
   if(APPLE AND S3G_VSTGUI_AVAILABLE)
     add_test(NAME s3g_utility_neon_midi_gui_smoke

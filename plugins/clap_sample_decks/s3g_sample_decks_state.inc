@@ -72,7 +72,7 @@ bool loadState(const clap_plugin_t* plugin,const clap_istream_t* stream){
             if(version<8&&i>=kDeckBase&&(i-kDeckBase)%kDeckStride==CueStackPosition)values[i]=static_cast<float>(def.initial);
             if(!def.name.empty()&&(values[i]<def.lo||values[i]>def.hi||(def.integer&&values[i]!=std::round(values[i]))))return false;}
         for(unsigned d=0;d<2;++d){NeonFamilySettings f;for(unsigned i=0;i<kNeonFamilyCount;++i)f.values[i]=values[param(d,kFamily+i)];if(!f.valid())return false;
-            if(values[param(d,End)]<=values[param(d,Start)])return false;}
+            if(values[param(d,End)]<values[param(d,Start)])return false;}
         auto doc=std::make_shared<Document>();uint64_t bytes=0;
         for(unsigned d=0;d<2;++d){for(unsigned n=0;n<32;++n){auto& l=doc->decks[d].layers[n];uint8_t type=0;
             if(!readScalar(stream,type)||type>(version>=8?4:3))return false;if(!type)continue;
