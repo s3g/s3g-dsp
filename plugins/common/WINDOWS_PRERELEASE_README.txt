@@ -1,21 +1,32 @@
 s3g-dsp @version@ — EXPERIMENTAL Windows x64 CLAP prerelease
 ==========================================================
 
-121 CLAP files / 128 host-visible plug-in descriptors. Ambi Energy is Mac-only
+125 CLAP files / 132 host-visible plug-in descriptors. Ambi Energy is Mac-only
 and is not included. This is an unsigned, native MSVC Release build, not a
 stable or certified Windows release. Native Windows ARM64 is not included.
 Windows testing has used Windows 10 x64 and REAPER; Windows 11 is not validated.
 
 INSTALL
 1. Save your projects, retain your previous plug-ins for rollback, and quit
-   REAPER before replacing files. Never overwrite a loaded plug-in.
-2. Extract the entire ZIP into a fresh folder. Add that folder to REAPER's CLAP
-   search paths and rescan. This package does not install anything itself.
-3. Keep all .clap files beside Resources, including its fonts, atlases and
-   licenses. Fonts need no system installation. The Mac installer is not used.
-4. Remove older pilot/suite folders from the host's scan paths, retaining them
-   elsewhere as backups; duplicate CLAP identifiers can load the wrong build.
-5. Start with a disposable project and conservative monitoring levels.
+   REAPER, Max and Live if open. Never overwrite a loaded plug-in.
+2. Extract the entire ZIP to a fresh folder. Move older s3g-dsp copies outside
+   all host CLAP scan paths, retaining them as backups.
+3. Copy the extracted folder's complete contents to a fresh
+   %COMMONPROGRAMFILES%\CLAP\s3g-dsp folder (usually
+   C:\Program Files\Common Files\CLAP\s3g-dsp). Windows may ask for
+   administrator permission. Keep all .clap files beside Resources, including
+   fonts, atlases and licenses. This package does not install itself.
+4. In REAPER Preferences > Plug-ins > LV2/CLAP, confirm
+   %COMMONPROGRAMFILES%\CLAP is listed, then rescan. This location also works
+   with s3g.clap~ in Max for Live.
+5. Start with a disposable project and conservative monitoring levels. Fonts
+   need no system installation; the Mac installer is not used.
+
+If you cannot use Common Files, install under
+%LOCALAPPDATA%\Programs\Common\CLAP\s3g-dsp instead and add
+%LOCALAPPDATA%\Programs\Common\CLAP to REAPER's CLAP path list. Do not keep a
+second copy in %APPDATA%\CLAP or another scanned folder: duplicate CLAP IDs
+can load the wrong build.
 
 Check resizing, preset/project recall, automation, sample import, Unicode paths,
 multichannel routing and MIDI in your own setup. Tracker is MIDI-only: insert a

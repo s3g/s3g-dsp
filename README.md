@@ -83,13 +83,22 @@ For more detail, see the
 
 ## Install on Windows (experimental)
 
-1. Quit REAPER and extract the complete
+1. Quit REAPER (and Max or Live if open), then extract the complete
    `s3g-dsp-windows-x64-clap-0.11.0-pre-experimental.zip` to a fresh folder.
-2. Add that folder to REAPER's CLAP search paths and rescan. Keep the `.clap`
-   files beside the shared `Resources` folder, including fonts and licenses.
-   No system font installation or Mac installer is needed.
-3. Keep older packages outside the scan paths as backups to avoid duplicate
-   CLAP identifiers. Test with a disposable project and conservative levels.
+2. Move older s3g-dsp copies outside all CLAP scan paths as backups. Copy the
+   extracted folder's complete contents to `%COMMONPROGRAMFILES%\CLAP\s3g-dsp`
+   (usually `C:\Program Files\Common Files\CLAP\s3g-dsp` in Explorer). Windows
+   may ask for administrator permission. Keep the `.clap` files beside the
+   shared `Resources` folder, including fonts and licenses.
+3. In REAPER, check **Preferences → Plug-ins → LV2/CLAP** for
+   `%COMMONPROGRAMFILES%\CLAP`, rescan, and test in a disposable project with
+   conservative levels. No system font installation or Mac installer is needed.
+
+This Common Files location also works with `s3g.clap~` in Max for Live. If you
+cannot install there, use `%LOCALAPPDATA%\Programs\Common\CLAP\s3g-dsp` instead
+and add `%LOCALAPPDATA%\Programs\Common\CLAP` to REAPER's CLAP search paths.
+Use one location, not both. See the
+[Windows installation guide](https://s3g.github.io/s3g-dsp/installing-plugins.html#windows-suite).
 
 Mac includes 126 bundles / 133 plug-in descriptors; Windows includes 125 files /
 132 descriptors. **Ambi Energy remains Mac-only.** Heavy ambisonic configurations

@@ -11,8 +11,11 @@ existing plug-ins before upgrading; this is not a stable compatibility promise.
   use the included installer and its macOS approval instructions.
 - `s3g-dsp-windows-x64-clap-0.11.0-pre-experimental.zip`: 125 CLAP files
   exposing 132 plug-in descriptors. **Ambi Energy is excluded** while its
-  Windows integration remains unfinished. Extract the complete folder,
-  including `Resources`, and add it to REAPER's CLAP search paths.
+  Windows integration remains unfinished. Copy the extracted folder's complete
+  contents, including `Resources`, to `%COMMONPROGRAMFILES%\CLAP\s3g-dsp`,
+  the shared REAPER/Max for Live location. See the
+  [Windows installation guide](https://s3g.github.io/s3g-dsp/installing-plugins.html#windows-suite)
+  for backup, rescan, and per-user alternative steps.
 - SHA-256 files accompany both archives. These packages contain CLAP plug-ins,
   not standalone applications. Tracker's standalone Mac app remains retired.
 

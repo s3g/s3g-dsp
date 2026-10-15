@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Install s3g-dsp CLAP Plugins</title>
-    <meta name="description" content="Install Apple-silicon-only pre-release s3g-dsp CLAP plugins for REAPER on macOS, including Gatekeeper approval steps.">
+    <meta name="description" content="Install s3g-dsp CLAP plugins for REAPER on Apple silicon macOS or experimental Windows x64, including host search paths and macOS Gatekeeper approval.">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -74,19 +74,20 @@ done</code></pre>
 
         <p>The <code>s3g-dsp-windows-x64-clap-0.11.0-pre-experimental.zip</code> package contains 125 CLAP files exposing 132 plug-in descriptors, including Tracker with VIEW Live Code commands. Ambi Energy is the only excluded inventory entry; its renderer prototype is not a CLAP. This is an <strong>experimental prerelease</strong>, not a stable Windows release. Testing has used Windows 10 x64 and REAPER; Windows 11 is not yet validated. The earlier timestamped <code>s3g-dsp-windows-clap-suite-x64-test-*.zip</code> files are development snapshots.</p>
         <ol>
-          <li>Save your work and quit REAPER. Extract the entire ZIP to a fresh test folder.</li>
-          <li>Add that folder to REAPER's CLAP search paths. Keep the <code>.clap</code> files beside the shared <code>Resources</code> directory, with all fonts, atlases, and license notices intact.</li>
-          <li>Avoid duplicates from earlier family/pilot ZIPs: remove those old test folders from the host's search paths or move them outside the scanned locations, retaining them as backups.</li>
-          <li>Restart REAPER, rescan, and test in a disposable project. Use conservative monitoring levels, especially with sound generators and feedback processors.</li>
+          <li>Save your work and quit REAPER, plus Max and Live if open. Extract the entire ZIP to a fresh folder.</li>
+          <li>Move older s3g-dsp copies outside all host CLAP scan paths, retaining them as backups. Do not merge the new collection into an old folder.</li>
+          <li>Copy the extracted folder's complete contents to a fresh <code>%COMMONPROGRAMFILES%\CLAP\s3g-dsp</code> folder (usually <code>C:\Program Files\Common Files\CLAP\s3g-dsp</code> in Explorer). Windows may ask for administrator permission. Keep the <code>.clap</code> files beside the shared <code>Resources</code> directory, with fonts, atlases, and license notices intact.</li>
+          <li>In REAPER, open <strong>Preferences &gt; Plug-ins &gt; LV2/CLAP</strong>, confirm <code>%COMMONPROGRAMFILES%\CLAP</code> is in the CLAP path list, rescan, and test in a disposable project. Use conservative monitoring levels, especially with sound generators and feedback processors.</li>
         </ol>
+        <p>This Common Files location is normally searched by both REAPER and <code>s3g.clap~</code> in Max for Live. If you cannot use it, install under <code>%LOCALAPPDATA%\Programs\Common\CLAP\s3g-dsp</code> instead and add <code>%LOCALAPPDATA%\Programs\Common\CLAP</code> to REAPER's CLAP path list. The per-user path REAPER normally lists, <code>%APPDATA%\CLAP</code>, is not one of <code>s3g.clap~</code>'s built-in Windows search roots. Keep only one active copy across these locations.</p>
         <p><code>PLUGIN_MANIFEST.tsv</code> lists the expected plug-ins. <code>SHA256SUMS.txt</code> covers the extracted payload; the adjacent ZIP checksum covers the archive. <code>run-windows-check.cmd</code> checks Tracker only and does not install anything. Font installation is unnecessary. Do not use the Mac installer or merge only selected files into an older pilot folder. For reproducible builds, see <a href="building-from-source.html#windows-suite">Consolidated Windows Test Package</a>.</p>
 
         <h2 id="troubleshooting">If a Plugin Does Not Appear</h2>
 
         <ul>
-          <li>Confirm that its complete <code>.clap</code> bundle is in <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>.</li>
-          <li>Rescan CLAP plugins in REAPER, then restart the host.</li>
-          <li>If REAPER shows per-plugin Gatekeeper dialogs or duplicate names, quit REAPER and rerun the packaged installer. If the installer itself is blocked, repeat the <strong>Open Anyway</strong> step within one hour.</li>
+          <li>On Mac, confirm that its complete <code>.clap</code> bundle is in <code>~/Library/Audio/Plug-Ins/CLAP/s3g-dsp/</code>. On Windows, confirm its <code>.clap</code> file and shared <code>Resources</code> folder are under the chosen CLAP path above.</li>
+          <li>Check REAPER's CLAP path list, rescan, then restart the host. On Windows, also check for an older copy in another scanned folder.</li>
+          <li>On Mac, if REAPER shows per-plugin Gatekeeper dialogs or duplicate names, quit REAPER and rerun the packaged installer. If the installer itself is blocked, repeat the <strong>Open Anyway</strong> step within one hour.</li>
         </ul>
 
         <p>For routing after installation, see <a href="multichannel.html">Multichannel</a>, <a href="stereo-listening.html">Stereo Listening</a>, or <a href="ambisonics.html">Ambisonics</a>.</p>
