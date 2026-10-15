@@ -125,7 +125,7 @@ struct CanvasMenuEntry {
 };
 
 class SampleFamilyView final : public foundation::ContentView,
-                               public IDropTarget {
+                               public VSTGUI::IDropTarget {
 public:
     explicit SampleFamilyView(const SampleFamilyEditorConfig& editorConfig)
         : ContentView(rect(0.0, 0.0, editorConfig.nativeWidth,
@@ -728,7 +728,7 @@ public:
         }
     }
 
-    SharedPointer<IDropTarget> getDropTarget() override { return this; }
+    SharedPointer<VSTGUI::IDropTarget> getDropTarget() override { return this; }
 
     DragOperation onDragEnter(DragEventData data) override
     {

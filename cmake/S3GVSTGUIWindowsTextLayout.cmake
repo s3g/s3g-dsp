@@ -5,7 +5,10 @@ if(NOT WIN32)
 endif()
 set(s3g_text_original "${vstgui_SOURCE_DIR}/vstgui/lib/platform/win32/direct2d/d2dfont.cpp")
 file(SHA256 "${s3g_text_original}" s3g_text_hash)
-if(NOT s3g_text_hash STREQUAL "193edb97d7aa3afc1e4a8895f57273d15d5e256aaeb95e59656c6a751b205b13")
+# Git may materialize this pinned source with LF or CRLF line endings. Accept
+# both byte-exact forms while continuing to reject any source-content change.
+if(NOT s3g_text_hash STREQUAL "c5bb1607be5c5311ba582511bcfd9c5f888623eef04f78e01c96f08adbf9e5aa"
+    AND NOT s3g_text_hash STREQUAL "193edb97d7aa3afc1e4a8895f57273d15d5e256aaeb95e59656c6a751b205b13")
   message(FATAL_ERROR "Pinned VSTGUI Windows font source changed; review the text-layout adapter")
 endif()
 file(READ "${s3g_text_original}" s3g_text_source)

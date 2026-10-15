@@ -250,7 +250,7 @@ double sliderValueFromNormalized(uint32_t id, double normalized)
 }
 
 class SamplePlayerView final : public foundation::ContentView,
-                               public IDropTarget {
+                               public VSTGUI::IDropTarget {
 public:
     explicit SamplePlayerView(const SamplePlayerEditorConfig& editorConfig)
         : ContentView(rect(0.0, 0.0, editorConfig.nativeWidth,
@@ -538,7 +538,7 @@ public:
         event.consumed = true;
     }
 
-    SharedPointer<IDropTarget> getDropTarget() override { return this; }
+    SharedPointer<VSTGUI::IDropTarget> getDropTarget() override { return this; }
 
     DragOperation onDragEnter(DragEventData data) override
     {

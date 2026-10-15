@@ -944,7 +944,7 @@ if(S3G_BUILD_CLAP_PLUGIN AND S3G_ENABLE_PORTABLE_CLAP_GUI
       # intentional four-character IDs and MSVC-oriented implementation also
       # trigger GCC diagnostics which should not prevent a MinGW cross-build.
       target_compile_options(vstgui PRIVATE -Wno-error)
-      target_compile_options(vstgui PRIVATE
+      target_compile_options(vstgui PUBLIC
         -include "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mingw/vstgui_compat.h")
       target_include_directories(vstgui PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mingw")
