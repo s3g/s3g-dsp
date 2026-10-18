@@ -136,6 +136,7 @@ if(APPLE)
       -Wall -Wextra -Wpedantic -Wconversion -Wshadow
       -Wno-deprecated-declarations)
   endif()
+
 endif()
 if(BUILD_TESTING)
   add_test(NAME s3g_sample_neon_smoke
@@ -1913,6 +1914,20 @@ if(S3G_BUILD_CLAP_PLUGIN)
     target_link_libraries(s3g_ambi_acid_encoder_clap_smoke
       PRIVATE ${CMAKE_DL_LIBS})
 
+    add_executable(s3g_ambi_wave_terrain_clap_midi_smoke
+      tests/ambi_wave_terrain_clap_midi_smoke.cpp)
+    target_include_directories(s3g_ambi_wave_terrain_clap_midi_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_ambi_wave_terrain_clap_midi_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
+    add_executable(s3g_ambi_note_midi_dialect_smoke
+      tests/ambi_note_midi_dialect_smoke.cpp)
+    target_include_directories(s3g_ambi_note_midi_dialect_smoke
+      PRIVATE ${S3G_CLAP_INCLUDE_DIR})
+    target_link_libraries(s3g_ambi_note_midi_dialect_smoke
+      PRIVATE ${CMAKE_DL_LIBS})
+
     add_executable(s3g_low_frequency_synth_clap_smoke
       tests/low_frequency_synth_clap_smoke.cpp)
     target_include_directories(s3g_low_frequency_synth_clap_smoke
@@ -2025,7 +2040,27 @@ if(S3G_BUILD_CLAP_PLUGIN)
     endif()
   endif()
   add_subdirectory(plugins/clap_ambi_wave_terrain_encoder)
+  if(BUILD_TESTING)
+    add_test(NAME s3g_ambi_wave_terrain_clap_midi_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_wave_terrain_clap_midi_smoke>
+        $<TARGET_FILE:s3g_ambi_wave_terrain_encoder_clap>)
+    set_tests_properties(s3g_ambi_wave_terrain_clap_midi_smoke PROPERTIES
+      LABELS "non_nim;clap;smoke;midi" TIMEOUT 120)
+  endif()
   add_subdirectory(plugins/clap_ambi_stochastic_encoder)
+  if(BUILD_TESTING)
+    add_test(NAME s3g_ambi_vot_clap_midi_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_note_midi_dialect_smoke>
+        $<TARGET_FILE:s3g_ambi_vot_encoder_clap>
+        org.s3g.s3g-dsp.ambi-vot-encoder-64)
+    add_test(NAME s3g_ambi_stochastic_clap_midi_smoke
+      COMMAND $<TARGET_FILE:s3g_ambi_note_midi_dialect_smoke>
+        $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap>
+        org.s3g.s3g-dsp.ambi-stochastic-encoder-64)
+    set_tests_properties(
+      s3g_ambi_vot_clap_midi_smoke s3g_ambi_stochastic_clap_midi_smoke
+      PROPERTIES LABELS "non_nim;clap;smoke;midi" TIMEOUT 120)
+  endif()
   add_subdirectory(plugins/clap_ambi_wrangler_encoder)
   add_subdirectory(plugins/clap_ambi_wind_encoder)
   add_subdirectory(plugins/clap_ambi_water_encoder)
@@ -3696,8 +3731,8 @@ if(S3G_BUILD_CLAP_PLUGIN)
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_encoder_medium_clap> org.s3g.s3g-dsp.ambi-encoder-medium-16 920 680 "s3g Ambi Encoder Medium" responsive
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_neural_ecology_clap> org.s3g.s3g-dsp.ambi-neural-ecology-64 1160 858 "s3g Ambi Encoder Neural Ecology 64" proportional
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pulsar_encoder_clap> org.s3g.s3g-dsp.ambi-pulsar-encoder-64 1160 858
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap> org.s3g.s3g-dsp.ambi-stochastic-encoder-64 1160 860
-      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vot_encoder_clap> org.s3g.s3g-dsp.ambi-vot-encoder-64 1160 894
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_stochastic_encoder_clap> org.s3g.s3g-dsp.ambi-stochastic-encoder-64 1160 860 "s3g Ambi Encoder Stochastic" proportional
+      COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vot_encoder_clap> org.s3g.s3g-dsp.ambi-vot-encoder-64 1160 894 "s3g Ambi Encoder VOT" proportional
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_vox_encoder_clap> org.s3g.s3g-dsp.ambi-vox-encoder-64 1160 920 "s3g Ambi Encoder Vox" ${s3g_complex_processors_gui_smoke_mode}
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_water_encoder_clap> org.s3g.s3g-dsp.ambi-water-encoder-64 1160 858
       COMMAND $<TARGET_FILE:s3g_encoder_family_gui_smoke> $<TARGET_FILE:s3g_ambi_pyrosphere_encoder_clap> org.s3g.s3g-dsp.ambi-pyrosphere-encoder-64 1160 858

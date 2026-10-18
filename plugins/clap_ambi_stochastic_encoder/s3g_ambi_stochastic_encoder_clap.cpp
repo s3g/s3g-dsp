@@ -758,6 +758,19 @@ void readEvents(Plugin& plugin, const clap_input_events_t* events)
             } else {
                 plugin.engine.noteOff(note->key);
             }
+        } else if (event->type == CLAP_EVENT_MIDI
+            && event->size >= sizeof(clap_event_midi_t)) {
+            const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
+            if (midi->port_index != 0u) continue;
+            const uint8_t status = midi->data[0] & 0xf0u;
+            const uint8_t key = midi->data[1] & 0x7fu;
+            const uint8_t velocity = midi->data[2] & 0x7fu;
+            if (status == 0x90u && velocity != 0u) {
+                plugin.engine.noteOn(key, static_cast<float>(velocity) / 127.0f);
+                plugin.lastMidiNote.store(key, std::memory_order_relaxed);
+            } else if (status == 0x80u || (status == 0x90u && velocity == 0u)) {
+                plugin.engine.noteOff(key);
+            }
         }
     }
 }

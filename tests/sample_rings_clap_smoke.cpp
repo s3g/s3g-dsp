@@ -44,6 +44,7 @@ constexpr clap_id kPlayingParamId = 16u;
 constexpr clap_id kCaptureGateParamId = 18u;
 constexpr clap_id kInputWidthParamId = 20u;
 constexpr clap_id kMonitorParamId = 22u;
+constexpr clap_id kMidiModeParamId = 24u;
 constexpr clap_id kRadialReverseParamId = 34u;
 constexpr clap_id kAngularReverseParamId = 35u;
 constexpr clap_id kManualPhaseParamBase = 220u;
@@ -193,8 +194,10 @@ bool writeTestWave(const std::filesystem::path& path)
 
 struct EventList {
     std::array<clap_event_param_value_t, 16u> parameters {};
+    std::array<clap_event_midi_t, 16u> midi {};
     std::array<const clap_event_header_t*, 16u> events {};
     uint32_t count = 0u;
+    uint32_t midiCount = 0u;
     clap_input_events_t input {
         this,
         [](const clap_input_events_t* list) -> uint32_t {
@@ -222,6 +225,20 @@ struct EventList {
         event.value = value;
         events[count] = &event.header;
         ++count;
+    }
+
+    void addMidi(uint8_t status, uint8_t key, uint8_t velocity)
+    {
+        auto& event = midi[midiCount++];
+        event = {};
+        event.header.size = sizeof(event);
+        event.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        event.header.type = CLAP_EVENT_MIDI;
+        event.port_index = 0u;
+        event.data[0] = status;
+        event.data[1] = key;
+        event.data[2] = velocity;
+        events[count++] = &event.header;
     }
 };
 
@@ -536,6 +553,33 @@ int main(int argc, char** argv)
     ok &= check(processBlock(plugin, &pause, false, input, output)
         && energy(output) == 0.0,
         "paused Sample Rings was not silent");
+
+    EventList midiGate;
+    midiGate.add(kMidiModeParamId, 1.0);
+    ok &= check(processBlock(plugin, &midiGate, false, input, output),
+        "MIDI gate setup failed");
+    auto checkPlaying = [&](double expected, const char* message) {
+        double value = -1.0;
+        ok &= check(params->get_value(plugin, kPlayingParamId, &value)
+            && value == expected, message);
+    };
+    EventList midiOn;
+    midiOn.addMidi(0x90u, 60u, 100u);
+    ok &= check(processBlock(plugin, &midiOn, false, input, output),
+        "raw MIDI note-on block failed");
+    checkPlaying(1.0, "raw MIDI note-on did not start Sample Rings");
+    EventList midiOff;
+    midiOff.addMidi(0x80u, 60u, 64u);
+    ok &= check(processBlock(plugin, &midiOff, false, input, output),
+        "raw MIDI note-off block failed");
+    checkPlaying(0.0, "raw MIDI note-off did not stop Sample Rings");
+    ok &= check(processBlock(plugin, &midiOn, false, input, output),
+        "second raw MIDI note-on block failed");
+    EventList zeroVelocityOff;
+    zeroVelocityOff.addMidi(0x90u, 60u, 0u);
+    ok &= check(processBlock(plugin, &zeroVelocityOff, false, input, output),
+        "zero-velocity MIDI note-on block failed");
+    checkPlaying(0.0, "zero-velocity MIDI note-on did not stop Sample Rings");
 
     EventList signedAngular;
     signedAngular.add(kRelationshipAmountParamId, -0.75);

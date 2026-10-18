@@ -1399,6 +1399,30 @@ void finalizeCaptures(Plugin& plugin)
     plugin.captureCallbackPending.store(false, std::memory_order_release);
 }
 
+void applyMidiNote(Plugin& plugin, uint8_t key, bool on)
+{
+    const uint32_t mode = plugin.targets.midiMode.load();
+    if (mode == 0u) return;
+    if (on) {
+        const float semitones = static_cast<float>(key)
+            - plugin.targets.midiRoot.load();
+        plugin.midiRateScale.store(std::pow(2.0f, semitones / 12.0f));
+        if (mode == 1u) plugin.heldNotes.fetch_add(1u);
+        plugin.targets.playing.store(1u);
+        plugin.transportStopped.store(false);
+        if (mode == 2u)
+            plugin.engine.resync(snapshotSettings(plugin));
+    } else if (mode == 1u) {
+        uint32_t held = plugin.heldNotes.load();
+        while (held > 0u && !plugin.heldNotes.compare_exchange_weak(
+            held, held - 1u)) {}
+        if (plugin.heldNotes.load() == 0u) {
+            plugin.targets.playing.store(0u);
+            plugin.midiRateScale.store(1.0f);
+        }
+    }
+}
+
 void readEvents(Plugin& plugin, const clap_input_events_t* input)
 {
     if (!input) return;
@@ -1413,30 +1437,21 @@ void readEvents(Plugin& plugin, const clap_input_events_t* input)
         } else if (event->type == CLAP_EVENT_NOTE_ON
             || event->type == CLAP_EVENT_NOTE_OFF
             || event->type == CLAP_EVENT_NOTE_CHOKE) {
-            const uint32_t mode = plugin.targets.midiMode.load();
-            if (mode == 0u) continue;
             const auto* note = reinterpret_cast<const clap_event_note_t*>(event);
             const bool on = event->type == CLAP_EVENT_NOTE_ON
                 && note->velocity > 0.0;
-            if (on) {
-                const float semitones = static_cast<float>(note->key)
-                    - plugin.targets.midiRoot.load();
-                plugin.midiRateScale.store(std::pow(2.0f,
-                    semitones / 12.0f));
-                if (mode == 1u) plugin.heldNotes.fetch_add(1u);
-                plugin.targets.playing.store(1u);
-                plugin.transportStopped.store(false);
-                if (mode == 2u)
-                    plugin.engine.resync(snapshotSettings(plugin));
-            } else if (mode == 1u) {
-                uint32_t held = plugin.heldNotes.load();
-                while (held > 0u && !plugin.heldNotes.compare_exchange_weak(
-                    held, held - 1u)) {}
-                if (plugin.heldNotes.load() == 0u) {
-                    plugin.targets.playing.store(0u);
-                    plugin.midiRateScale.store(1.0f);
-                }
-            }
+            applyMidiNote(plugin, static_cast<uint8_t>(note->key), on);
+        } else if (event->type == CLAP_EVENT_MIDI
+            && event->size >= sizeof(clap_event_midi_t)) {
+            const auto* midi = reinterpret_cast<const clap_event_midi_t*>(event);
+            if (midi->port_index != 0u) continue;
+            const uint8_t status = midi->data[0] & 0xf0u;
+            const uint8_t key = midi->data[1] & 0x7fu;
+            const uint8_t velocity = midi->data[2] & 0x7fu;
+            if (status == 0x90u && velocity != 0u)
+                applyMidiNote(plugin, key, true);
+            else if (status == 0x80u || (status == 0x90u && velocity == 0u))
+                applyMidiNote(plugin, key, false);
         }
     }
 }
